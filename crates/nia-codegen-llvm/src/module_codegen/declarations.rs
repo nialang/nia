@@ -16,6 +16,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.struct_instances
                 .insert((item.def_id, item.args.clone()), ty);
         }
+        for item in self.program.unions.values() {
+            let name = self.struct_symbol_name(item.def_id, &item.name);
+            let ty = self.context.opaque_struct_type(&name);
+            self.unions.insert(item.def_id, ty);
+        }
+        for item in self.program.union_instances.values() {
+            let ty = self.context.opaque_struct_type(&item.symbol);
+            self.union_instances
+                .insert((item.def_id, item.args.clone()), ty);
+        }
         Ok(())
     }
 
@@ -62,6 +72,30 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 )?);
             }
             struct_ty.set_body(&fields, false);
+        }
+        for item in self.program.unions.values() {
+            let Some(union_ty) = self.unions.get(&item.def_id).copied() else {
+                return Err(
+                    self.error(item.span, format!("missing LLVM union for `{}`", item.name))
+                );
+            };
+            union_ty.set_body(
+                &self.union_storage_fields(item.def_id, &[], item.span)?,
+                false,
+            );
+        }
+        for item in self.program.union_instances.values() {
+            let Some(union_ty) = self
+                .union_instances
+                .get(&(item.def_id, item.args.clone()))
+                .copied()
+            else {
+                return Err(self.error(item.span, "missing LLVM union instance"));
+            };
+            union_ty.set_body(
+                &self.union_storage_fields(item.def_id, &item.args, item.span)?,
+                false,
+            );
         }
         Ok(())
     }

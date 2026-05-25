@@ -951,6 +951,29 @@ fn main() i32 { pick(palette::Color::Red) }
     );
 }
 
+#[test]
+fn uses_cross_module_public_union() {
+    let root = temp_dir("uses_cross_module_public_union");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .bits;
+
+fn main() i32 {
+    var value: bits::Bits = { i: 7 };
+    value.i
+}
+"#,
+    );
+    write(
+        &root.join("bits.nia"),
+        r#"pub union Bits { i: i32, f: f32 }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("nia-driver-{name}"));
     let _ = fs::remove_dir_all(&dir);

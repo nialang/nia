@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::LoadedModule;
 use nia_body_check::{
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
+    ProgramUnionSignature,
 };
 use nia_defs::{
     DefCollection, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
@@ -82,6 +83,29 @@ pub(crate) fn collect_program_structs(
         }
     }
     structs
+}
+
+pub(crate) fn collect_program_unions(
+    modules: &[LoadedModule],
+    lowerings: &[TypeLowering],
+    signatures: &[ItemSignatures],
+) -> HashMap<GlobalDefId, ProgramUnionSignature> {
+    let mut unions = HashMap::new();
+    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
+        for (def_id, signature) in &signatures.unions {
+            unions.insert(
+                GlobalDefId {
+                    module_id: module.id,
+                    def_id: *def_id,
+                },
+                ProgramUnionSignature {
+                    signature: signature.clone(),
+                    interner: lowering.interner.clone(),
+                },
+            );
+        }
+    }
+    unions
 }
 
 pub(crate) fn collect_program_enums(
@@ -188,7 +212,10 @@ pub(crate) fn visible_extensions_for_module(
                 let Some(method_def) = method_defs.defs.get(method.def_id.def_id) else {
                     continue;
                 };
-                if !matches!(def.kind, nia_defs::DefKind::Struct) {
+                if !matches!(
+                    def.kind,
+                    nia_defs::DefKind::Struct | nia_defs::DefKind::Union
+                ) {
                     continue;
                 }
                 visible.insert(

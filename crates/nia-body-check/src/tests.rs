@@ -96,6 +96,7 @@ fn pipeline(source: &str) -> BodyCheck {
             functions: &HashMap::new(),
             globals: &HashMap::new(),
             structs: &HashMap::new(),
+            unions: &HashMap::new(),
             enums: &HashMap::new(),
         },
     })
@@ -112,6 +113,67 @@ fn add(a: i32, b: i32) i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_union_literals_and_field_access() {
+    let checked = pipeline(
+        r#"
+union Bits[T] {
+    i: i64,
+    value: T,
+}
+
+fn main() i32 {
+    var bits: Bits[i32] = { value: 10 };
+    bits.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let bad_empty = pipeline(
+        r#"
+union Bits {
+    i: i32,
+}
+
+fn main() i32 {
+    var bits: Bits = {};
+    0
+}
+"#,
+    );
+    assert!(
+        bad_empty
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("exactly one field")),
+        "{:?}",
+        bad_empty.diagnostics
+    );
+
+    let bad_multi = pipeline(
+        r#"
+union Bits {
+    i: i32,
+    f: f32,
+}
+
+fn main() i32 {
+    var bits: Bits = { i: 1, f: 2.0 };
+    0
+}
+"#,
+    );
+    assert!(
+        bad_multi
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("exactly one field")),
+        "{:?}",
+        bad_multi.diagnostics
+    );
 }
 
 #[test]

@@ -182,7 +182,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            ExprKind::Block(block) => self.check_block(block),
+            ExprKind::Block(block) => self.check_block_with_expected(block, expected),
             ExprKind::If {
                 cond,
                 then_branch,

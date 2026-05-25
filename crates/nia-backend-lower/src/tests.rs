@@ -94,6 +94,7 @@ fn main() i32 {
             functions: &HashMap::new(),
             globals: &HashMap::new(),
             structs: &HashMap::new(),
+            unions: &HashMap::new(),
             enums: &HashMap::new(),
         },
     });

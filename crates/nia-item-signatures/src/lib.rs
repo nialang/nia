@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{
     BindingItem, EnumItem, ExtendItem, FunctionItem, ItemKind, Module, Param, ReceiverKind,
-    StructItem, TypeAliasItem,
+    StructItem, TypeAliasItem, UnionItem,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -16,6 +16,7 @@ use nia_type_lower::TypeLowering;
 pub struct ItemSignatures {
     pub functions: HashMap<DefId, FunctionSignature>,
     pub structs: HashMap<DefId, StructSignature>,
+    pub unions: HashMap<DefId, UnionSignature>,
     pub enums: HashMap<DefId, EnumSignature>,
     pub type_aliases: HashMap<DefId, TypeAliasSignature>,
     pub globals: HashMap<DefId, GlobalSignature>,
@@ -47,6 +48,25 @@ pub struct StructSignature {
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionSignature {
+    pub generics: Vec<String>,
+    pub fields: Vec<FieldSignature>,
+    pub is_extern: bool,
+    pub span: Span,
+}
+
+impl UnionSignature {
+    pub fn as_struct_like(&self) -> StructSignature {
+        StructSignature {
+            generics: self.generics.clone(),
+            fields: self.fields.clone(),
+            is_extern: self.is_extern,
+            span: self.span,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,6 +120,7 @@ pub fn collect_item_signatures(
     let mut signatures = ItemSignatures {
         functions: HashMap::new(),
         structs: HashMap::new(),
+        unions: HashMap::new(),
         enums: HashMap::new(),
         type_aliases: HashMap::new(),
         globals: HashMap::new(),
@@ -124,6 +145,9 @@ impl<'a> SignatureCollector<'a> {
             ItemKind::Import(_) | ItemKind::Using(_) => {}
             ItemKind::Struct(item_struct) => {
                 self.collect_struct(signatures, item.span, item_struct);
+            }
+            ItemKind::Union(item_union) => {
+                self.collect_union(signatures, item.span, item_union);
             }
             ItemKind::Extend(extend) => {
                 self.collect_extend(signatures, extend);
@@ -170,6 +194,38 @@ impl<'a> SignatureCollector<'a> {
                 generics: item_struct.generics.clone(),
                 fields,
                 is_extern: item_struct.is_extern,
+                span: item_span,
+            },
+        );
+    }
+
+    fn collect_union(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        item_span: Span,
+        item_union: &UnionItem,
+    ) {
+        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Union) else {
+            return;
+        };
+        let mut fields = Vec::new();
+        for field in &item_union.fields {
+            let Some(field_id) = self.def_id_for_span(field.span, DefKind::UnionField) else {
+                continue;
+            };
+            fields.push(FieldSignature {
+                def_id: field_id,
+                name: field.name.clone(),
+                ty: self.ty_for_span(field.ty.span),
+                span: field.span,
+            });
+        }
+        signatures.unions.insert(
+            def_id,
+            UnionSignature {
+                generics: item_union.generics.clone(),
+                fields,
+                is_extern: item_union.is_extern,
                 span: item_span,
             },
         );

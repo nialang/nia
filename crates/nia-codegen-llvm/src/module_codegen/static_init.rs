@@ -236,6 +236,22 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(TyKind::Nominal { def_id, args }) = interner.get(ty) else {
             return Err(self.error(span, "struct static initializer target is not nominal"));
         };
+        if self.is_union_def(*def_id) {
+            let Some(init) = fields.first() else {
+                return Err(self.error(span, "missing union static field initializer"));
+            };
+            let field_ty = self.field_ty(ty, init.field, span)?;
+            let value =
+                self.static_init_value_in(field_ty, &init.value, span, interner, layouts)?;
+            let mut values = vec![value];
+            for index in 1..struct_ty.count_fields() {
+                let Some(field_ty) = struct_ty.get_field_type_at_index(index) else {
+                    continue;
+                };
+                values.push(field_ty.const_zero());
+            }
+            return Ok(struct_ty.const_named_struct(&values).into());
+        }
         let struct_fields = self.struct_fields(*def_id, args, span)?;
         let values = struct_fields
             .iter()

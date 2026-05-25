@@ -129,6 +129,9 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
             ItemKind::Struct(item_struct) => {
                 self.with_generics(&item_struct.generics, |resolver| walk_item(resolver, item));
             }
+            ItemKind::Union(item_union) => {
+                self.with_generics(&item_union.generics, |resolver| walk_item(resolver, item));
+            }
             ItemKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |resolver| walk_item(resolver, item));
             }
@@ -280,7 +283,7 @@ impl<'a> TypeResolver<'a> {
         };
         if !matches!(
             def.kind,
-            DefKind::Struct | DefKind::Enum | DefKind::TypeAlias
+            DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
         ) {
             return TypeNameResolution::Error;
         }
@@ -314,7 +317,7 @@ impl<'a> TypeResolver<'a> {
             };
             if matches!(
                 def.kind,
-                DefKind::Struct | DefKind::Enum | DefKind::TypeAlias
+                DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
             ) {
                 return TypeNameResolution::Def(def_id);
             }

@@ -3,7 +3,7 @@ use crate::ModuleLowerer;
 use nia_ast::{BindingItem, FunctionItem};
 use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendGlobal, BackendParam,
-    BackendStruct,
+    BackendStruct, BackendUnion,
 };
 use nia_const_eval::ConstValue;
 use nia_defs::DefKind;
@@ -18,6 +18,32 @@ impl<'a> ModuleLowerer<'a> {
         let def_id = self.def_id_for_span(span, DefKind::Struct)?;
         let signature = self.input.signatures.structs.get(&def_id)?;
         Some(BackendStruct {
+            def_id: self.global_def_id(def_id),
+            name: item.name.clone(),
+            generics: signature.generics.clone(),
+            fields: signature
+                .fields
+                .iter()
+                .map(|field| BackendField {
+                    def_id: self.global_def_id(field.def_id),
+                    name: field.name.clone(),
+                    ty: field.ty,
+                    span: field.span,
+                })
+                .collect(),
+            is_extern: signature.is_extern,
+            span,
+        })
+    }
+
+    pub(crate) fn lower_union(
+        &mut self,
+        span: Span,
+        item: &nia_ast::UnionItem,
+    ) -> Option<BackendUnion> {
+        let def_id = self.def_id_for_span(span, DefKind::Union)?;
+        let signature = self.input.signatures.unions.get(&def_id)?;
+        Some(BackendUnion {
             def_id: self.global_def_id(def_id),
             name: item.name.clone(),
             generics: signature.generics.clone(),

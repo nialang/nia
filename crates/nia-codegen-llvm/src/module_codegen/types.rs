@@ -2,6 +2,7 @@
 use super::ModuleCodegen;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
+    BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
@@ -105,6 +106,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 if let Some(struct_ty) = self.structs.get(def_id).copied() {
                     return Ok(struct_ty.into());
                 }
+                if let Some(union_ty) = self.union_instance_type(*def_id, args) {
+                    return Ok(union_ty.into());
+                }
+                if let Some(union_ty) = self.unions.get(def_id).copied() {
+                    return Ok(union_ty.into());
+                }
                 if let Some(item) = self.program.enums.get(def_id).copied() {
                     return self.llvm_basic_type_in(
                         item.backing_type,
@@ -198,7 +205,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return Ok(index as u32);
         }
-        Err(self.error(span, "missing struct field index"))
+        if self.union_fields(def_id, &args, span).is_ok() {
+            return Ok(0);
+        }
+        Err(self.error(span, "missing aggregate field index"))
     }
 
     pub(crate) fn field_ty(
@@ -211,13 +221,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Err(self.error(span, "field base type is not nominal"));
         };
         if let Some(candidate) = self
-            .struct_fields(def_id, &args, span)?
+            .aggregate_fields(def_id, &args, span)?
             .iter()
             .find(|candidate| candidate.def_id == field)
         {
             return Ok(candidate.ty);
         }
-        Err(self.error(span, "missing struct field type"))
+        Err(self.error(span, "missing aggregate field type"))
     }
 
     fn field_base_type(&self, ty: TyId) -> Option<(GlobalDefId, Vec<TyId>)> {
@@ -243,6 +253,99 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Err(self.error(span, "missing struct fields"))
     }
 
+    pub(super) fn union_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        span: Span,
+    ) -> Result<&[BackendField], Diagnostic> {
+        if let Some(instance) = self.union_instance_item(def_id, args) {
+            return Ok(&instance.fields);
+        }
+        if let Some(item) = self.program.unions.get(&def_id) {
+            return Ok(&item.fields);
+        }
+        Err(self.error(span, "missing union fields"))
+    }
+
+    pub(super) fn aggregate_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        span: Span,
+    ) -> Result<&[BackendField], Diagnostic> {
+        self.struct_fields(def_id, args, span)
+            .or_else(|_| self.union_fields(def_id, args, span))
+    }
+
+    pub(crate) fn is_union_def(&self, def_id: GlobalDefId) -> bool {
+        self.program.unions.contains_key(&def_id)
+            || self
+                .program
+                .union_instances
+                .keys()
+                .any(|(candidate, _)| *candidate == def_id)
+    }
+
+    pub(super) fn union_storage_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        span: Span,
+    ) -> Result<Vec<BasicTypeEnum<'ctx>>, Diagnostic> {
+        let Some(layout) = self.union_layout(def_id, args) else {
+            return Err(self.error(span, "missing union layout"));
+        };
+        let align_ty = self.union_alignment_type(layout.layout.align, span)?;
+        let align_size = layout.layout.align;
+        let padding = layout.layout.size.saturating_sub(align_size);
+        let mut fields = vec![align_ty];
+        if padding > 0 {
+            if padding > u32::MAX as u64 {
+                return Err(self.error(span, "union padding is too large for LLVM"));
+            }
+            fields.push(self.context.i8_type().array_type(padding as u32).into());
+        }
+        Ok(fields)
+    }
+
+    fn union_alignment_type(
+        &self,
+        align: u64,
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        match align {
+            1 => Ok(self.context.i8_type().into()),
+            2 => Ok(self.context.i16_type().into()),
+            4 => Ok(self.context.i32_type().into()),
+            8 => Ok(self.context.i64_type().into()),
+            16 => Ok(self.context.i128_type().into()),
+            _ => Err(self.error(span, format!("unsupported union alignment {align}"))),
+        }
+    }
+
+    fn union_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+    ) -> Option<&nia_layout::StructLayout> {
+        if args.is_empty() {
+            self.source
+                .layouts
+                .unions
+                .iter()
+                .find_map(|(candidate, layout)| (*candidate == def_id).then_some(layout))
+        } else {
+            self.source
+                .layouts
+                .union_instances
+                .iter()
+                .find_map(|(key, layout)| {
+                    (key.def_id == def_id && self.same_type_args(&key.args, args)).then_some(layout)
+                })
+        }
+    }
+
     fn struct_instance_type(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<StructType<'ctx>> {
         self.struct_instances
             .iter()
@@ -259,6 +362,29 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Option<&BackendStructInstance> {
         self.program
             .struct_instances
+            .iter()
+            .find_map(|((candidate_def, candidate_args), item)| {
+                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
+                    .then_some(*item)
+            })
+    }
+
+    fn union_instance_type(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<StructType<'ctx>> {
+        self.union_instances
+            .iter()
+            .find_map(|((candidate_def, candidate_args), ty)| {
+                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
+                    .then_some(*ty)
+            })
+    }
+
+    fn union_instance_item(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+    ) -> Option<&BackendUnionInstance> {
+        self.program
+            .union_instances
             .iter()
             .find_map(|((candidate_def, candidate_args), item)| {
                 (*candidate_def == def_id && self.same_type_args(args, candidate_args))

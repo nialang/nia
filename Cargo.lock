@@ -161,6 +161,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-driver",
  "nia-ids",
+ "nia-layout",
  "nia-llvm",
  "nia-mangle",
  "nia-span",

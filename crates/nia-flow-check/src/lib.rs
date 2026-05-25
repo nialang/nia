@@ -57,6 +57,7 @@ impl FlowChecker<'_> {
                 ItemKind::Import(_)
                 | ItemKind::Using(_)
                 | ItemKind::Struct(_)
+                | ItemKind::Union(_)
                 | ItemKind::Enum(_)
                 | ItemKind::TypeAlias(_)
                 | ItemKind::Binding(_) => {}

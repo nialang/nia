@@ -5,7 +5,7 @@ use nia_ast::{
     ForHeader, ForInit, ForStmt, FunctionItem, ImportItem, ImportPath, ImportPathKind, Item,
     ItemKind, Module, Param, ReceiverKind, Stmt, StmtKind, StructItem, SwitchArm, SwitchArmBody,
     SwitchPattern, SwitchStmt, TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp,
-    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility,
+    UnionItem, UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility,
 };
 use nia_lexer::{Token, TokenKind, tokenize};
 use nia_span::Span;

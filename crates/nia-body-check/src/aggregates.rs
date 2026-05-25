@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature};
+use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
 use nia_ast::{Expr, ExprKind};
 use nia_defs::DefId;
 use nia_diagnostic::Diagnostic;
@@ -120,27 +120,30 @@ impl<'a> BodyChecker<'a> {
         expected: Option<TyId>,
         fields: &[nia_ast::FieldInit],
     ) -> TyId {
-        let Some(struct_ty) = expected else {
+        let Some(aggregate_ty) = expected else {
             self.diagnostics.push(Diagnostic::error(
                 span,
-                "struct literal requires an expected struct type; add a type annotation",
+                "aggregate literal requires an expected struct or union type; add a type annotation",
             ));
             for field in fields {
                 self.check_expr(&field.value);
             }
             return self.error();
         };
-        let (def_id, args) = match self.interner.get(struct_ty) {
+        let (def_id, args) = match self.interner.get(aggregate_ty) {
             Some(TyKind::Nominal { def_id, args }) => (*def_id, args.clone()),
             Some(TyKind::Error) | None => return self.error(),
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     span,
-                    "struct literal type is not nominal",
+                    "aggregate literal type is not nominal",
                 ));
                 return self.error();
             }
         };
+        if self.is_union_def(def_id) {
+            return self.check_union_literal(span, aggregate_ty, def_id, &args, fields);
+        }
         let Some(resolved) = self.resolved_struct_signature(def_id) else {
             self.diagnostics
                 .push(Diagnostic::error(span, "struct signature not found"));
@@ -185,7 +188,54 @@ impl<'a> BodyChecker<'a> {
                 ));
             }
         }
-        struct_ty
+        aggregate_ty
+    }
+
+    fn check_union_literal(
+        &mut self,
+        span: Span,
+        union_ty: TyId,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        fields: &[nia_ast::FieldInit],
+    ) -> TyId {
+        let Some(resolved) = self.resolved_union_signature(def_id) else {
+            self.diagnostics
+                .push(Diagnostic::error(span, "union signature not found"));
+            return self.error();
+        };
+        if fields.len() != 1 {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "union literal requires exactly one field, got {}",
+                    fields.len()
+                ),
+            ));
+            for field in fields {
+                self.check_expr(&field.value);
+            }
+            return union_ty;
+        }
+        let field = &fields[0];
+        let generics = resolved.signature.generics.clone();
+        let signature_fields = resolved.signature.fields.clone();
+        let substitutions = self.generic_substitutions(&generics, args);
+        let Some(signature_field) = signature_fields
+            .iter()
+            .find(|candidate| candidate.name == field.name)
+        else {
+            self.check_expr(&field.value);
+            self.diagnostics.push(Diagnostic::error(
+                field.span,
+                format!("unknown union field `{}`", field.name),
+            ));
+            return union_ty;
+        };
+        let expected = self.substitute_generics(signature_field.ty, &substitutions);
+        let actual = self.check_expr_with_expected(&field.value, Some(expected));
+        self.expect_expr_type(&field.value, expected, actual, "union literal field");
+        union_ty
     }
 
     pub(crate) fn check_field_access(&mut self, span: Span, lhs: &Expr, name: &str) -> TyId {
@@ -202,11 +252,14 @@ impl<'a> BodyChecker<'a> {
             if lhs_ty != self.error() {
                 self.diagnostics.push(Diagnostic::error(
                     span,
-                    "field access base is not a struct value or pointer to struct",
+                    "field access base is not a struct or union value or pointer",
                 ));
             }
             return self.error();
         };
+        if self.is_union_def(def_id) {
+            return self.check_union_field_access(span, def_id, &args, name);
+        }
         let Some(resolved) = self.resolved_struct_signature(def_id) else {
             self.diagnostics
                 .push(Diagnostic::error(span, "struct signature not found"));
@@ -222,6 +275,31 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         let substitutions = self.generic_substitutions(&generics, &args);
+        self.substitute_generics(field.ty, &substitutions)
+    }
+
+    fn check_union_field_access(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        name: &str,
+    ) -> TyId {
+        let Some(resolved) = self.resolved_union_signature(def_id) else {
+            self.diagnostics
+                .push(Diagnostic::error(span, "union signature not found"));
+            return self.error();
+        };
+        let generics = resolved.signature.generics.clone();
+        let fields = resolved.signature.fields.clone();
+        let Some(field) = fields.iter().find(|field| field.name == name) else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("unknown union field `{name}`"),
+            ));
+            return self.error();
+        };
+        let substitutions = self.generic_substitutions(&generics, args);
         self.substitute_generics(field.ty, &substitutions)
     }
 
@@ -264,6 +342,34 @@ impl<'a> BodyChecker<'a> {
             span: program_signature.signature.span,
         };
         Some(ResolvedStructSignature { signature })
+    }
+
+    pub(crate) fn resolved_union_signature(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> Option<ResolvedUnionSignature> {
+        if def_id.module_id == self.defs.module_id {
+            let signature = self.signatures.unions.get(&def_id.def_id)?.clone();
+            return Some(ResolvedUnionSignature { signature });
+        }
+        let program_signature = self.program_unions.get(&def_id)?.clone();
+        let signature = nia_item_signatures::UnionSignature {
+            generics: program_signature.signature.generics,
+            fields: program_signature
+                .signature
+                .fields
+                .into_iter()
+                .map(|field| nia_item_signatures::FieldSignature {
+                    def_id: field.def_id,
+                    name: field.name,
+                    ty: self.import_type_from(&program_signature.interner, field.ty),
+                    span: field.span,
+                })
+                .collect(),
+            is_extern: program_signature.signature.is_extern,
+            span: program_signature.signature.span,
+        };
+        Some(ResolvedUnionSignature { signature })
     }
 
     pub(crate) fn resolved_enum_signature(
@@ -336,6 +442,14 @@ impl<'a> BodyChecker<'a> {
             self.signatures.enums.contains_key(&enum_id.def_id)
         } else {
             self.program_enums.contains_key(&enum_id)
+        }
+    }
+
+    pub(crate) fn is_union_def(&self, union_id: GlobalDefId) -> bool {
+        if union_id.module_id == self.defs.module_id {
+            self.signatures.unions.contains_key(&union_id.def_id)
+        } else {
+            self.program_unions.contains_key(&union_id)
         }
     }
 

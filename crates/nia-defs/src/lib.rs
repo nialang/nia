@@ -6,7 +6,7 @@ mod public_surface;
 
 use nia_ast::{
     EnumItem, ExtendItem, FunctionItem, ImportPath, Item, ItemKind, Module, StructItem,
-    TypeAliasItem, UsingItem, Visibility,
+    TypeAliasItem, UnionItem, UsingItem, Visibility,
 };
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::{DefId, ModuleId};
@@ -94,6 +94,8 @@ pub enum DefKind {
     Global,
     Struct,
     StructField,
+    Union,
+    UnionField,
     Method,
     Enum,
     EnumVariant,
@@ -157,6 +159,7 @@ pub struct DuplicateName {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DefScopes {
     pub struct_members: HashMap<DefId, MemberScope>,
+    pub union_members: HashMap<DefId, MemberScope>,
     pub enum_members: HashMap<DefId, EnumScope>,
 }
 
@@ -190,6 +193,7 @@ struct Collector {
     defs: DefMap,
     module_scope: ModuleScope,
     struct_members: HashMap<DefId, MemberScope>,
+    union_members: HashMap<DefId, MemberScope>,
     enum_members: HashMap<DefId, EnumScope>,
     def_spans: DefSpanMap,
     module_usings: Vec<ModuleUsing>,
@@ -203,6 +207,7 @@ impl Collector {
             defs: DefMap::default(),
             module_scope: ModuleScope::default(),
             struct_members: HashMap::new(),
+            union_members: HashMap::new(),
             enum_members: HashMap::new(),
             def_spans: DefSpanMap::default(),
             module_usings: Vec::new(),
@@ -220,6 +225,7 @@ impl Collector {
             module_scope: self.module_scope,
             scopes: DefScopes {
                 struct_members: self.struct_members,
+                union_members: self.union_members,
                 enum_members: self.enum_members,
             },
             def_spans: self.def_spans,
@@ -241,6 +247,7 @@ impl Collector {
                 self.collect_using(item, using);
             }
             ItemKind::Struct(item_struct) => self.collect_struct(item, item_struct),
+            ItemKind::Union(item_union) => self.collect_union(item, item_union),
             ItemKind::Extend(extend) => self.collect_extend(item, extend),
             ItemKind::Enum(item_enum) => self.collect_enum(item, item_enum),
             ItemKind::TypeAlias(alias) => self.collect_type_alias(item, alias),
@@ -305,6 +312,38 @@ impl Collector {
             );
         }
         self.struct_members.insert(struct_id, members);
+    }
+
+    fn collect_union(&mut self, item: &Item, item_union: &UnionItem) {
+        self.check_duplicate_generics(&item_union.generics, item.span);
+        let union_id = self.add_type_def(
+            item_union.name.clone(),
+            DefKind::Union,
+            item.vis,
+            item.span,
+            item_union.generics.clone(),
+        );
+        let mut members = MemberScope::default();
+        for field in &item_union.fields {
+            let field_id = self.push_def(Def {
+                name: field.name.clone(),
+                kind: DefKind::UnionField,
+                module_id: self.module_id,
+                parent: Some(union_id),
+                generics: Vec::new(),
+                visibility: Visibility::Private,
+                span: field.span,
+            });
+            self.def_spans.insert(field.span, field_id);
+            self.insert_member(
+                &mut members.fields,
+                field.name.clone(),
+                field_id,
+                field.span,
+                "duplicate union field",
+            );
+        }
+        self.union_members.insert(union_id, members);
     }
 
     fn collect_extend(&mut self, _item: &Item, extend: &ExtendItem) {

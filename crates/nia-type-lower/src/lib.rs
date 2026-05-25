@@ -83,6 +83,13 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                     }
                 });
             }
+            ItemKind::Union(item_union) => {
+                self.with_generics(&item_union.generics, |lowerer| {
+                    for field in &item_union.fields {
+                        lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
+                    }
+                });
+            }
             ItemKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |lowerer| {
                     lowerer.lower_type_in_context(&extend.target, TypeContext::Value);

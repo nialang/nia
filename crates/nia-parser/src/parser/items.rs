@@ -22,16 +22,22 @@ impl<'a> Parser<'a> {
             self.bump();
             if self.at(TokenKind::Struct) {
                 ItemKind::Struct(self.parse_struct(true)?)
+            } else if self.at(TokenKind::Union) {
+                ItemKind::Union(self.parse_union(true)?)
             } else if self.at(TokenKind::Fn) {
                 ItemKind::Function(self.parse_function(true)?)
             } else if self.at(TokenKind::Const) || self.at(TokenKind::Var) {
                 ItemKind::Binding(self.parse_binding(true)?)
             } else {
-                self.error_here("expected `struct`, `fn`, `var`, or `const` after `extern`");
+                self.error_here(
+                    "expected `struct`, `union`, `fn`, `var`, or `const` after `extern`",
+                );
                 return None;
             }
         } else if self.at(TokenKind::Struct) {
             ItemKind::Struct(self.parse_struct(false)?)
+        } else if self.at(TokenKind::Union) {
+            ItemKind::Union(self.parse_union(false)?)
         } else if self.at(TokenKind::Extend) {
             ItemKind::Extend(self.parse_extend()?)
         } else if self.at(TokenKind::Enum) {
@@ -199,6 +205,33 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenKind::RBrace, "expected `}` after struct body")?;
         Some(StructItem {
+            name,
+            generics,
+            fields,
+            is_extern,
+        })
+    }
+
+    fn parse_union(&mut self, is_extern: bool) -> Option<UnionItem> {
+        self.expect(TokenKind::Union, "expected `union`")?;
+        let name = self.expect_text(TokenKind::Ident, "expected union name")?;
+        let generics = self.parse_generic_params();
+        self.expect(TokenKind::LBrace, "expected `{` after union name")?;
+        let mut fields = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            if self.at(TokenKind::Fn) {
+                self.error_here("methods must be declared in an `extend Type { ... }` block");
+                self.recover_to_member_boundary();
+                continue;
+            }
+            if let Some(field) = self.parse_field() {
+                fields.push(field);
+            } else {
+                self.recover_to_member_boundary();
+            }
+        }
+        self.expect(TokenKind::RBrace, "expected `}` after union body")?;
+        Some(UnionItem {
             name,
             generics,
             fields,
