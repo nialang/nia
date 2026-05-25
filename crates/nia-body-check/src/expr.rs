@@ -1,0 +1,425 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use crate::BodyChecker;
+use nia_ast::{BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
+use nia_defs::{DefId, DefKind};
+use nia_diagnostic::Diagnostic;
+use nia_ids::TyId;
+use nia_local_resolve::LocalUse;
+use nia_span::Span;
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+use nia_value_resolve::ValueNameResolution;
+
+impl<'a> BodyChecker<'a> {
+    pub(crate) fn check_expr(&mut self, expr: &Expr) -> TyId {
+        self.check_expr_with_expected(expr, None)
+    }
+
+    pub(crate) fn check_expr_with_expected(&mut self, expr: &Expr, expected: Option<TyId>) -> TyId {
+        let array_expected = self.array_expected_from_slice_expected(expected);
+        let ty = match &expr.kind {
+            ExprKind::Error | ExprKind::Raw(_) => self.error(),
+            ExprKind::Integer(_) => self.i32(),
+            ExprKind::Float(_) => self.f64(),
+            ExprKind::String(text) => self.string_literal_type(text),
+            ExprKind::Char(_) => self.primitive(PrimitiveTy::Char),
+            ExprKind::ByteChar(_) => self.primitive(PrimitiveTy::U8),
+            ExprKind::Bool(_) => self.bool(),
+            ExprKind::Underscore => self.error(),
+            ExprKind::Ident(_) => self.ident_type(expr.span),
+            ExprKind::Builtin { name, type_arg } => self.check_builtin(expr.span, name, type_arg),
+            ExprKind::BracketSuffix { callee, args } => {
+                self.check_bracket_suffix_expr(expr.span, callee, args, expected)
+            }
+            ExprKind::ArrayLiteral { elems } => {
+                self.check_array_literal(expr.span, array_expected.or(expected), elems)
+            }
+            ExprKind::StructLiteral { fields } => {
+                self.check_struct_literal(expr.span, expected, fields)
+            }
+            ExprKind::Unary { op, expr: inner } => {
+                let expected_ref_target = match (op, expected.and_then(|ty| self.interner.get(ty)))
+                {
+                    (
+                        UnaryOp::RefConst,
+                        Some(TyKind::Pointer {
+                            is_const: true,
+                            elem,
+                        }),
+                    )
+                    | (
+                        UnaryOp::Ref,
+                        Some(TyKind::Pointer {
+                            is_const: false,
+                            elem,
+                        }),
+                    ) => Some(*elem),
+                    _ => None,
+                };
+                if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                    && let Some(function_ptr_ty) =
+                        self.check_function_ref(inner, matches!(op, UnaryOp::RefConst))
+                {
+                    self.expr_types.insert(expr.span, function_ptr_ty);
+                    return function_ptr_ty;
+                }
+                if let ExprKind::Index {
+                    lhs,
+                    index: IndexArg::Range(range),
+                } = &inner.kind
+                {
+                    match op {
+                        UnaryOp::RefConst => {
+                            let slice_ty =
+                                self.check_slice_ref(expr.span, lhs, range, true, expected);
+                            self.expr_types.insert(inner.span, slice_ty);
+                            self.expr_types.insert(expr.span, slice_ty);
+                            return slice_ty;
+                        }
+                        UnaryOp::Ref => {
+                            let slice_ty =
+                                self.check_slice_ref(expr.span, lhs, range, false, expected);
+                            self.expr_types.insert(inner.span, slice_ty);
+                            self.expr_types.insert(expr.span, slice_ty);
+                            return slice_ty;
+                        }
+                        _ => {}
+                    }
+                }
+                let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
+                match op {
+                    UnaryOp::Neg => inner_ty,
+                    UnaryOp::Not => {
+                        self.expect_type(expr.span, self.bool(), inner_ty, "logical not");
+                        self.bool()
+                    }
+                    UnaryOp::RefConst => {
+                        if self.is_invalid_temporary_type(inner_ty) {
+                            self.diagnostics.push(Diagnostic::error(
+                                inner.span,
+                                "const reference target cannot have void or never type",
+                            ));
+                        }
+                        self.check_addressable(inner, "const reference target");
+                        self.interner.intern(TyKind::Pointer {
+                            is_const: true,
+                            elem: inner_ty,
+                        })
+                    }
+                    UnaryOp::Ref => {
+                        if self.is_invalid_temporary_type(inner_ty) {
+                            self.diagnostics.push(Diagnostic::error(
+                                inner.span,
+                                "reference target cannot have void or never type",
+                            ));
+                        }
+                        self.check_assignable(inner, "reference target");
+                        self.interner.intern(TyKind::Pointer {
+                            is_const: false,
+                            elem: inner_ty,
+                        })
+                    }
+                    UnaryOp::Deref => self.deref_result_type(expr.span, inner_ty),
+                }
+            }
+            ExprKind::Binary { lhs, op, rhs } => {
+                let lhs_ty = self.check_expr(lhs);
+                let rhs_ty = self.check_expr(rhs);
+                self.check_binary(expr.span, lhs_ty, *op, rhs_ty)
+            }
+            ExprKind::Assign { lhs, rhs, .. } => {
+                if matches!(lhs.kind, ExprKind::Underscore) {
+                    self.check_expr(rhs);
+                    self.void()
+                } else {
+                    let lhs_ty = self.check_expr(lhs);
+                    let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
+                    self.check_assignable(lhs, "assignment target");
+                    self.expect_expr_type(rhs, lhs_ty, rhs_ty, "assignment");
+                    self.void()
+                }
+            }
+            ExprKind::Cast { expr: inner, ty } => {
+                let source = self.check_expr(inner);
+                let target = self.ty_for_span(ty.span);
+                self.check_cast(expr.span, source, target);
+                target
+            }
+            ExprKind::Call { callee, args } => self.check_call(expr.span, callee, args),
+            ExprKind::Field { lhs, name } => self.check_field_access(expr.span, lhs, name),
+            ExprKind::Qualified { lhs, name } => {
+                if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {
+                    ty
+                } else if self.values.qualified_values.contains_key(&expr.span) {
+                    self.qualified_global_type(expr.span)
+                        .unwrap_or_else(|| self.error())
+                } else {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "qualified access is not a value expression",
+                    ));
+                    self.error()
+                }
+            }
+            ExprKind::Index { lhs, index } => {
+                let lhs_expected = match index {
+                    IndexArg::Expr(_) => self.array_expected_from_index_expected(expected),
+                    IndexArg::Range(_) => None,
+                };
+                let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
+                match index {
+                    IndexArg::Expr(index) => {
+                        let index_ty = self.check_expr(index);
+                        self.expect_integer(index.span, index_ty, "index");
+                        self.index_result_type(expr.span, lhs_ty)
+                    }
+                    IndexArg::Range(range) => {
+                        self.check_slice_range_bounds(range);
+                        self.diagnostics.push(Diagnostic::error(
+                            expr.span,
+                            "range index expression must be borrowed as a slice; use `&const base[..]` or `&base[..]`",
+                        ));
+                        self.slice_result_type(lhs_ty, false)
+                    }
+                }
+            }
+            ExprKind::Block(block) => self.check_block(block),
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_ty = self.check_expr(cond);
+                self.expect_type(cond.span, self.bool(), cond_ty, "if condition");
+                let then_ty = self.check_block(then_branch);
+                if let Some(else_branch) = else_branch {
+                    let else_ty = self.check_expr(else_branch);
+                    self.expect_expr_type(else_branch, then_ty, else_ty, "if branches");
+                    if self.is_never(then_ty) {
+                        else_ty
+                    } else {
+                        then_ty
+                    }
+                } else {
+                    self.void()
+                }
+            }
+        };
+        let ty = if let Some(expected) = expected {
+            self.coerce_array_to_slice(expr, expected, ty)
+                .or_else(|| self.materialize_inferred_array_type(expected, ty))
+                .unwrap_or(ty)
+        } else {
+            ty
+        };
+        self.expr_types.insert(expr.span, ty);
+        ty
+    }
+
+    fn array_expected_from_index_expected(&mut self, expected: Option<TyId>) -> Option<TyId> {
+        let expected = expected?;
+        Some(self.interner.intern(TyKind::Array {
+            len: ArrayLenTy::Infer,
+            elem: expected,
+        }))
+    }
+
+    fn check_binary(&mut self, span: Span, lhs: TyId, op: BinaryOp, rhs: TyId) -> TyId {
+        match op {
+            BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge
+            | BinaryOp::Eq
+            | BinaryOp::Ne => {
+                self.expect_type(span, lhs, rhs, "binary comparison");
+                if matches!(
+                    op,
+                    BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
+                ) && !self.is_numeric(lhs)
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "ordered comparison requires numeric operands",
+                    ));
+                }
+                self.bool()
+            }
+            BinaryOp::And | BinaryOp::Or => {
+                self.expect_type(span, self.bool(), lhs, "logical operator");
+                self.expect_type(span, self.bool(), rhs, "logical operator");
+                self.bool()
+            }
+            BinaryOp::BitAnd | BinaryOp::BitXor | BinaryOp::BitOr => {
+                self.expect_type(span, lhs, rhs, "binary operator");
+                if !self.is_integer(lhs) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "bitwise operator requires integer operands",
+                    ));
+                }
+                lhs
+            }
+            BinaryOp::Shl | BinaryOp::Shr => {
+                if !self.is_integer(lhs) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "shift operator requires integer left operand",
+                    ));
+                }
+                if !self.is_integer(rhs) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "shift operator requires integer right operand",
+                    ));
+                }
+                lhs
+            }
+            _ => {
+                self.expect_type(span, lhs, rhs, "binary operator");
+                if !self.is_numeric(lhs) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "arithmetic operator requires numeric operands",
+                    ));
+                }
+                lhs
+            }
+        }
+    }
+
+    fn check_cast(&mut self, span: Span, source: TyId, target: TyId) {
+        if source == self.error() || target == self.error() || self.is_valid_cast(source, target) {
+            return;
+        }
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!(
+                "invalid cast: cannot cast {} to {}",
+                self.ty_name(source),
+                self.ty_name(target)
+            ),
+        ));
+    }
+
+    fn is_valid_cast(&self, source: TyId, target: TyId) -> bool {
+        let source = self.normalization.normalize(source);
+        let target = self.normalization.normalize(target);
+        if source == target {
+            return true;
+        }
+        if self.is_numeric(source) && self.is_numeric(target) {
+            return true;
+        }
+        if self.is_enum(source) && self.is_integer(target) {
+            return true;
+        }
+        if self.is_integer(source) && self.is_open_enum(target) {
+            return true;
+        }
+        if self.is_pointer(source) && self.is_pointer(target) {
+            return true;
+        }
+        if self.is_pointer(source) && self.is_pointer_integer(target) {
+            return true;
+        }
+        if self.is_pointer_integer(source) && self.is_pointer(target) {
+            return true;
+        }
+        false
+    }
+
+    fn check_bracket_suffix_expr(
+        &mut self,
+        span: Span,
+        callee: &Expr,
+        args: &[BracketArg],
+        expected: Option<TyId>,
+    ) -> TyId {
+        if args.len() == 1
+            && let Some(arg) = args.first()
+            && let Some(index) = &arg.expr
+        {
+            let lhs_expected = self.array_expected_from_index_expected(expected);
+            let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
+            let index_ty = self.check_expr(index);
+            self.expect_integer(index.span, index_ty, "index");
+            return self.index_result_type(span, lhs_ty);
+        }
+        if args.len() > 1 {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "multiple bracket arguments are only valid for generic instantiation",
+            ));
+        } else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "generic instantiation must be used as a callee or type prefix",
+            ));
+        }
+        self.check_expr(callee);
+        for arg in args {
+            if let Some(expr) = &arg.expr {
+                self.check_expr(expr);
+            }
+        }
+        self.error()
+    }
+
+    fn ident_type(&mut self, span: Span) -> TyId {
+        match self.locals.uses.get(&span) {
+            Some(LocalUse::Local(local_id)) => {
+                self.local_types.get(local_id).copied().unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "local used before its type is known",
+                    ));
+                    self.error()
+                })
+            }
+            Some(LocalUse::ModuleValue) => {
+                if let Some(enum_id) = self.values.variant_enums.get(&span).copied() {
+                    return self.interner.intern(TyKind::Nominal {
+                        def_id: enum_id,
+                        args: Vec::new(),
+                    });
+                }
+                if self.values.qualified_values.contains_key(&span) {
+                    return self
+                        .qualified_global_type(span)
+                        .unwrap_or_else(|| self.error());
+                }
+                match self.values.names.get(&span) {
+                    Some(ValueNameResolution::Def(def_id)) => self.module_value_type(*def_id, span),
+                    _ => self.error(),
+                }
+            }
+            Some(LocalUse::ImportAlias)
+            | Some(LocalUse::TypePrefix)
+            | Some(LocalUse::Unresolved)
+            | None => self.error(),
+        }
+    }
+
+    fn module_value_type(&mut self, def_id: DefId, span: Span) -> TyId {
+        let Some(def) = self.defs.defs.get(def_id) else {
+            return self.error();
+        };
+        match def.kind {
+            DefKind::Function | DefKind::Method => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "function values are not supported in this body-check stage",
+                ));
+                self.error()
+            }
+            DefKind::Global => self.global_types.get(&def_id).copied().unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "global type is not available during body check",
+                ));
+                self.error()
+            }),
+            _ => self.error(),
+        }
+    }
+}

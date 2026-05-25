@@ -1,0 +1,23 @@
+[package]
+name = "nia-layout"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-const-eval.workspace = true
+nia-defs.workspace = true
+nia-diagnostic.workspace = true
+nia-ids.workspace = true
+nia-item-signatures.workspace = true
+nia-span.workspace = true
+nia-ty.workspace = true
+
+[dev-dependencies]
+nia-parser.workspace = true
+nia-type-lower.workspace = true
+nia-type-resolve.workspace = true
+
+[lib]
+path = "src/lib.rs"

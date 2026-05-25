@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::ModuleCodegen;
+use nia_backend_ir::BackendFunction;
+use nia_diagnostic::Diagnostic;
+use nia_llvm::module::Linkage;
+
+impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
+    pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
+        for item in self.program.structs.values() {
+            let name = self.struct_symbol_name(item.def_id, &item.name);
+            let ty = self.context.opaque_struct_type(&name);
+            self.structs.insert(item.def_id, ty);
+        }
+        for item in self.program.struct_instances.values() {
+            let ty = self.context.opaque_struct_type(&item.symbol);
+            self.struct_instances
+                .insert((item.def_id, item.args.clone()), ty);
+        }
+        Ok(())
+    }
+
+    pub(super) fn define_struct_bodies(&mut self) -> Result<(), Diagnostic> {
+        for item in self.program.structs.values() {
+            let Some(owner) = self.program.module(item.def_id.module_id) else {
+                return Err(self.error(item.span, "missing struct owner module"));
+            };
+            let Some(struct_ty) = self.structs.get(&item.def_id).copied() else {
+                return Err(self.error(
+                    item.span,
+                    format!("missing LLVM struct for `{}`", item.name),
+                ));
+            };
+            let mut fields = Vec::new();
+            for field in &item.fields {
+                fields.push(self.llvm_basic_type_in(
+                    field.ty,
+                    field.span,
+                    &owner.interner,
+                    &owner.layouts,
+                )?);
+            }
+            struct_ty.set_body(&fields, false);
+        }
+        for item in self.program.struct_instances.values() {
+            let Some(owner) = self.program.module(item.def_id.module_id) else {
+                return Err(self.error(item.span, "missing struct owner module"));
+            };
+            let Some(struct_ty) = self
+                .struct_instances
+                .get(&(item.def_id, item.args.clone()))
+                .copied()
+            else {
+                return Err(self.error(item.span, "missing LLVM struct instance"));
+            };
+            let mut fields = Vec::new();
+            for field in &item.fields {
+                fields.push(self.llvm_basic_type_in(
+                    field.ty,
+                    field.span,
+                    &owner.interner,
+                    &owner.layouts,
+                )?);
+            }
+            struct_ty.set_body(&fields, false);
+        }
+        Ok(())
+    }
+
+    pub(super) fn declare_functions(&mut self) -> Result<(), Diagnostic> {
+        for function in self.program.functions.values() {
+            let Some(owner) = self.program.module(function.def_id.module_id) else {
+                return Err(self.error(function.span, "missing function owner module"));
+            };
+            let ty = self.function_type_in(function, &owner.interner, &owner.layouts)?;
+            let is_local = function.def_id.module_id == self.source.id;
+            let linkage = if function.is_extern {
+                Some(Linkage::External)
+            } else if is_local {
+                None
+            } else {
+                Some(Linkage::External)
+            };
+            let value = self
+                .module
+                .add_function(&self.function_symbol_name(function), ty, linkage);
+            self.functions.insert(function.def_id, value);
+        }
+        for instance in self.program.function_instances.values() {
+            let Some(owner) = self.program.module(instance.def_id.module_id) else {
+                return Err(self.error(instance.span, "missing function owner module"));
+            };
+            let function = BackendFunction {
+                def_id: instance.def_id,
+                name: instance.name.clone(),
+                generics: Vec::new(),
+                params: instance.params.clone(),
+                return_type: instance.return_type,
+                is_extern: instance.is_extern,
+                is_variadic: instance.is_variadic,
+                body: instance.body.clone(),
+                span: instance.span,
+            };
+            let ty = self.function_type_in(&function, &owner.interner, &owner.layouts)?;
+            let value = self.module.add_function(
+                &instance.symbol,
+                ty,
+                if instance.is_extern {
+                    Some(Linkage::External)
+                } else {
+                    None
+                },
+            );
+            self.function_instances
+                .insert((instance.def_id, instance.args.clone()), value);
+        }
+        Ok(())
+    }
+
+    pub(super) fn declare_globals(&mut self) -> Result<(), Diagnostic> {
+        for global in self.program.globals.values() {
+            let Some(owner) = self.program.module(global.def_id.module_id) else {
+                return Err(self.error(global.span, "missing global owner module"));
+            };
+            let ty =
+                self.llvm_basic_type_in(global.ty, global.span, &owner.interner, &owner.layouts)?;
+            let value = self
+                .module
+                .add_global(ty, None, &self.global_symbol_name(global));
+            let is_local = global.def_id.module_id == self.source.id;
+            if global.is_extern || !is_local {
+                value.set_linkage(Linkage::External);
+            }
+            if global.is_const {
+                value.set_constant(true);
+            }
+            self.globals.insert(global.def_id, value);
+        }
+        for global in self.program.globals.values() {
+            if global.def_id.module_id != self.source.id || global.is_extern {
+                continue;
+            }
+            let Some(owner) = self.program.module(global.def_id.module_id) else {
+                return Err(self.error(global.span, "missing global owner module"));
+            };
+            let ty =
+                self.llvm_basic_type_in(global.ty, global.span, &owner.interner, &owner.layouts)?;
+            let Some(value) = self.globals.get(&global.def_id).copied() else {
+                return Err(self.error(global.span, "missing global declaration"));
+            };
+            let init = match &global.init {
+                Some(init) => self.static_init_value_in(
+                    global.ty,
+                    init,
+                    global.span,
+                    &owner.interner,
+                    &owner.layouts,
+                )?,
+                None => ty.const_zero(),
+            };
+            value.set_initializer(&init);
+        }
+        Ok(())
+    }
+}

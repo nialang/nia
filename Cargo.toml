@@ -1,0 +1,72 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/nia-span",
+    "crates/nia-ids",
+    "crates/nia-diagnostic",
+    "crates/nia-ast",
+    "crates/nia-ast-walk",
+    "crates/nia-lexer",
+    "crates/nia-parser",
+    "crates/nia-defs",
+    "crates/nia-imports",
+    "crates/nia-driver",
+    "crates/nia-type-resolve",
+    "crates/nia-value-resolve",
+    "crates/nia-local-resolve",
+    "crates/nia-ty",
+    "crates/nia-type-lower",
+    "crates/nia-item-signatures",
+    "crates/nia-type-normalize",
+    "crates/nia-const-eval",
+    "crates/nia-static-check",
+    "crates/nia-body-check",
+    "crates/nia-monomorphize",
+    "crates/nia-mangle",
+    "crates/nia-backend-ir",
+    "crates/nia-backend-lower",
+    "crates/nia-llvm",
+    "crates/nia-codegen-llvm",
+    "crates/nia-layout",
+    "crates/nia-abi-check",
+    "crates/nia-flow-check",
+    "crates/nia-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["softfault <givenyoung46@gmail.com>"]
+license = "GPL-3.0-or-later"
+
+[workspace.dependencies]
+nia-span = { path = "crates/nia-span" }
+nia-ids = { path = "crates/nia-ids" }
+nia-diagnostic = { path = "crates/nia-diagnostic" }
+nia-ast = { path = "crates/nia-ast" }
+nia-ast-walk = { path = "crates/nia-ast-walk" }
+nia-lexer = { path = "crates/nia-lexer" }
+nia-parser = { path = "crates/nia-parser" }
+nia-defs = { path = "crates/nia-defs" }
+nia-imports = { path = "crates/nia-imports" }
+nia-driver = { path = "crates/nia-driver" }
+nia-type-resolve = { path = "crates/nia-type-resolve" }
+nia-value-resolve = { path = "crates/nia-value-resolve" }
+nia-local-resolve = { path = "crates/nia-local-resolve" }
+nia-ty = { path = "crates/nia-ty" }
+nia-type-lower = { path = "crates/nia-type-lower" }
+nia-item-signatures = { path = "crates/nia-item-signatures" }
+nia-type-normalize = { path = "crates/nia-type-normalize" }
+nia-const-eval = { path = "crates/nia-const-eval" }
+nia-static-check = { path = "crates/nia-static-check" }
+nia-body-check = { path = "crates/nia-body-check" }
+nia-monomorphize = { path = "crates/nia-monomorphize" }
+nia-mangle = { path = "crates/nia-mangle" }
+nia-backend-ir = { path = "crates/nia-backend-ir" }
+nia-backend-lower = { path = "crates/nia-backend-lower" }
+nia-llvm = { path = "crates/nia-llvm" }
+nia-codegen-llvm = { path = "crates/nia-codegen-llvm" }
+nia-layout = { path = "crates/nia-layout" }
+nia-abi-check = { path = "crates/nia-abi-check" }
+nia-flow-check = { path = "crates/nia-flow-check" }
+llvm-sys = "221.0.1"

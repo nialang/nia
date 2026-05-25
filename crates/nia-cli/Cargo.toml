@@ -1,0 +1,19 @@
+[package]
+name = "nia-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-codegen-llvm.workspace = true
+nia-diagnostic.workspace = true
+nia-driver.workspace = true
+nia-ids.workspace = true
+nia-imports.workspace = true
+nia-lexer.workspace = true
+nia-parser.workspace = true
+
+[[bin]]
+name = "niac"
+path = "src/main.rs"

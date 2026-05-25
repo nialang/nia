@@ -1,0 +1,618 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::*;
+use nia_ast::SwitchArmBody;
+
+#[test]
+fn parses_top_level_items() {
+    let source = r#"
+import .math as math;
+
+pub extern fn printf(fmt: &u8, ...);
+
+pub enum Color: u8 {
+    Black,
+    White = 2,
+}
+
+struct Vec2 {
+    x: i32,
+    y: i32,
+}
+
+extend Vec2 {
+    fn len2(&const self) i32 {
+        self.x * self.x + self.y * self.y
+    }
+}
+
+const banner = "nia\0";
+extern var a: usize;
+type Byte = u8;
+fn main() i32 { 0 }
+"#;
+    let (module, errors) = parse_module(source);
+    assert_eq!(errors, Vec::<ParseError>::new());
+    assert_eq!(module.items.len(), 9);
+    assert!(matches!(module.items[0].kind, ItemKind::Import(_)));
+    assert!(matches!(&module.items[1].kind, ItemKind::Function(function) if function.is_extern));
+    assert!(matches!(module.items[2].kind, ItemKind::Enum(_)));
+    assert!(matches!(module.items[3].kind, ItemKind::Struct(_)));
+    assert!(matches!(module.items[4].kind, ItemKind::Extend(_)));
+    assert!(matches!(module.items[5].kind, ItemKind::Binding(_)));
+    assert!(matches!(&module.items[6].kind, ItemKind::Binding(binding) if binding.is_extern));
+    assert!(matches!(module.items[7].kind, ItemKind::TypeAlias(_)));
+    assert!(matches!(module.items[8].kind, ItemKind::Function(_)));
+}
+
+#[test]
+fn parses_open_enum_marker() {
+    let (module, errors) = parse_module(
+        r#"
+enum Flag {
+    A,
+    B,
+    _,
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Enum(item_enum) = &module.items[0].kind else {
+        panic!("expected enum");
+    };
+    assert!(item_enum.is_open);
+    assert_eq!(item_enum.variants.len(), 2);
+    assert_eq!(item_enum.variants[0].name, "A");
+    assert_eq!(item_enum.variants[1].name, "B");
+}
+
+#[test]
+fn parses_multiline_string_literal() {
+    let (module, errors) = parse_module(
+        r#"
+const script =
+    \\mov rax, 60
+    \\syscall
+;
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Binding(binding) = &module.items[0].kind else {
+        panic!("expected binding");
+    };
+    assert!(
+        matches!(binding.value.as_ref().map(|value| &value.kind), Some(ExprKind::String(text)) if text.contains("syscall"))
+    );
+}
+
+#[test]
+fn rejects_non_terminal_open_enum_marker() {
+    let (_, errors) = parse_module(
+        r#"
+enum Flag {
+    A,
+    _,
+    B,
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("open enum marker must be last")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn parses_extern_items_and_binding_declarations() {
+    let (module, errors) = parse_module(
+        r#"
+pub extern fn printf(fmt: &u8, ...);
+pub extern fn add(a: i32, b: i32) i32 {
+    a + b
+}
+extern struct CPoint {
+    x: i32,
+    y: i32,
+}
+extern const errno: i32;
+extern var global_counter: usize;
+
+fn main() {
+    var p: CPoint;
+    const origin: CPoint;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(
+        matches!(&module.items[0].kind, ItemKind::Function(function) if function.is_extern && function.body.is_none())
+    );
+    assert!(
+        matches!(&module.items[1].kind, ItemKind::Function(function) if function.is_extern && function.body.is_some())
+    );
+    assert!(
+        matches!(&module.items[2].kind, ItemKind::Struct(item_struct) if item_struct.is_extern)
+    );
+    assert!(
+        matches!(&module.items[3].kind, ItemKind::Binding(binding) if binding.is_extern && binding.is_const && binding.value.is_none())
+    );
+    assert!(
+        matches!(&module.items[4].kind, ItemKind::Binding(binding) if binding.is_extern && binding.value.is_none())
+    );
+    let ItemKind::Function(function) = &module.items[5].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("body");
+    assert!(matches!(&body.stmts[0].kind, StmtKind::Binding(binding) if binding.value.is_none()));
+    assert!(
+        matches!(&body.stmts[1].kind, StmtKind::Binding(binding) if binding.is_const && binding.value.is_none())
+    );
+}
+
+#[test]
+fn rejects_extern_binding_without_var_or_const() {
+    let (_module, errors) = parse_module("extern errno: i32;");
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("expected `struct`, `fn`, `var`, or `const` after `extern`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_extern_before_pub_modifier_order() {
+    let (_, errors) = parse_module("extern pub fn add(a: i32, b: i32) i32;");
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("expected `struct`, `fn`, `var`, or `const` after `extern`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn parses_extend_methods_and_struct_fields() {
+    let (module, errors) = parse_module(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn get(&const self) T { self.value }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Struct(item) = &module.items[0].kind else {
+        panic!("expected struct");
+    };
+    assert_eq!(item.generics, vec!["T"]);
+    assert_eq!(item.fields.len(), 1);
+    let ItemKind::Extend(extend) = &module.items[1].kind else {
+        panic!("expected extend");
+    };
+    assert_eq!(extend.generics, vec!["T"]);
+    assert_eq!(extend.methods.len(), 1);
+}
+
+#[test]
+fn parses_function_body_statements_and_expressions() {
+    let (module, errors) = parse_module(
+        r#"
+fn main() i32 {
+    var x = 1 + 2 * 3 << 1;
+    defer cleanup();
+    if x > 3 {
+        x = x + 1;
+    }
+    for var i = 0; i < 3; i += 1 {
+        x += i;
+        x >>= 1;
+    }
+    switch x {
+        0 => return 1,
+        _ => return 0,
+    }
+    x
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    assert_eq!(body.stmts.len(), 5);
+    assert!(matches!(body.stmts[0].kind, StmtKind::Binding(_)));
+    assert!(matches!(body.stmts[1].kind, StmtKind::Defer(_)));
+    assert!(matches!(body.stmts[2].kind, StmtKind::Expr(_)));
+    assert!(matches!(body.stmts[3].kind, StmtKind::For(_)));
+    let StmtKind::Switch(switch) = &body.stmts[4].kind else {
+        panic!("expected switch");
+    };
+    assert!(matches!(
+        &switch.arms[0].body,
+        SwitchArmBody::Stmt(boxed) if matches!(boxed.as_ref(), Stmt {
+            kind: StmtKind::Return(_),
+            ..
+        })
+    ));
+    assert!(body.tail.is_some());
+}
+
+#[test]
+fn parses_structured_types_and_aggregate_literals() {
+    let (module, errors) = parse_module(
+        r#"
+struct Header {
+    bytes: [_]u8,
+    callback: &const fn(i32, ...) void,
+}
+
+fn make() Header {
+    var data: [_]u8 = [0; 8];
+    var more: [_]u8 = [1, 2, 3];
+    var header: Header = { bytes: data, callback: cb };
+    header
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Struct(header) = &module.items[0].kind else {
+        panic!("expected struct");
+    };
+    assert!(matches!(
+        header.fields[0].ty.kind,
+        TypeKind::Array {
+            len: ArrayLen::Infer,
+            ..
+        }
+    ));
+    assert!(matches!(
+        header.fields[1].ty.kind,
+        TypeKind::Pointer { .. } | TypeKind::FunctionPointer { .. }
+    ));
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        binding.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::ArrayLiteral { .. })
+    ));
+    let StmtKind::Binding(more) = &body.stmts[1].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        more.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::ArrayLiteral { .. })
+    ));
+    let StmtKind::Binding(header) = &body.stmts[2].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        header.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::StructLiteral { .. })
+    ));
+    let tail = body.tail.as_ref().expect("expected tail");
+    assert!(matches!(tail.kind, ExprKind::Ident(_)));
+}
+
+#[test]
+fn parses_casts_builtins_and_struct_literals() {
+    let (module, errors) = parse_module(
+        r#"
+struct Pair[T] {
+    value: T,
+}
+
+fn make(ptr: &const u8, xs: &[_]i32) Pair[i32] {
+    var size = @size[Pair[i32]]();
+    var addr = ptr as usize;
+    var first = xs[0];
+    var value = ptr.*;
+    { value: (addr + size) as i32 }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(size) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    let Some(ExprKind::Call { callee, args }) = size.value.as_ref().map(|value| &value.kind) else {
+        panic!("expected builtin call");
+    };
+    assert!(args.is_empty());
+    assert!(matches!(
+        callee.kind,
+        ExprKind::Builtin {
+            type_arg: Some(_),
+            ..
+        }
+    ));
+    let StmtKind::Binding(addr) = &body.stmts[1].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        addr.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::Cast { .. })
+    ));
+    let StmtKind::Binding(first) = &body.stmts[2].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        first.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::BracketSuffix { .. })
+    ));
+    let StmtKind::Binding(value) = &body.stmts[3].kind else {
+        panic!("expected binding");
+    };
+    assert!(matches!(
+        value.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::Unary {
+            op: UnaryOp::Deref,
+            ..
+        })
+    ));
+    let tail = body.tail.as_ref().expect("expected tail");
+    assert!(matches!(tail.kind, ExprKind::StructLiteral { .. }));
+}
+
+#[test]
+fn parses_slice_types_and_ranges() {
+    let (module, errors) = parse_module(
+        r#"
+fn take(xs: &const [i32], ys: &[i32]) usize {
+    var a = &const xs[..];
+    var b = &const xs[0..2];
+    var c = &const xs[0..=2];
+    var d = &const xs[1..];
+    var e = &const xs[..3];
+    var f = &const xs[..=4];
+    @len(a) + @len(b) + @len(c) + @len(d) + @len(e) + @len(f)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.params[0].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Slice { is_const: true, .. })
+    ));
+    assert!(matches!(
+        function.params[1].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Slice {
+            is_const: false,
+            ..
+        })
+    ));
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(binding) = &body.stmts[0].kind else {
+        panic!("expected binding");
+    };
+    let Some(ExprKind::Unary { expr, .. }) = binding.value.as_ref().map(|value| &value.kind) else {
+        panic!("expected slice borrow");
+    };
+    assert!(matches!(
+        expr.kind,
+        ExprKind::Index {
+            index: nia_ast::IndexArg::Range(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn parses_nested_reference_slice_types() {
+    let (module, errors) = parse_module(
+        r#"
+fn take(xs: &const &const [u8]) {}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let Some(ty) = function.params[0].ty.as_ref() else {
+        panic!("expected parameter type");
+    };
+    let TypeKind::Pointer { elem, .. } = &ty.kind else {
+        panic!("expected outer pointer");
+    };
+    assert!(matches!(elem.kind, TypeKind::Slice { .. }));
+}
+
+#[test]
+fn parses_explicit_generic_function_instantiation() {
+    let (module, errors) = parse_module(
+        r#"
+fn id[T](value: T) T { value }
+fn main() i32 {
+    id[i32](1)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Call { callee, .. } = &tail.kind else {
+        panic!("expected call");
+    };
+    assert!(matches!(callee.kind, ExprKind::BracketSuffix { .. }));
+}
+
+#[test]
+fn parses_generic_type_prefix_associated_call() {
+    let (module, errors) = parse_module(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn make(value: T) Box[T] {
+        { value: value }
+    }
+}
+
+fn main() Box[i32] {
+    Box[i32]::make(1)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Call { callee, .. } = &tail.kind else {
+        panic!("expected call");
+    };
+    let ExprKind::Qualified { lhs, .. } = &callee.kind else {
+        panic!("expected qualified callee");
+    };
+    assert!(matches!(lhs.kind, ExprKind::BracketSuffix { .. }));
+}
+
+#[test]
+fn parses_index_before_field_as_index_not_generic_instantiation() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(items: &[i32], i: usize) i32 {
+    items[i].value
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Field { lhs, .. } = &tail.kind else {
+        panic!("expected field");
+    };
+    assert!(matches!(lhs.kind, ExprKind::BracketSuffix { .. }));
+}
+
+#[test]
+fn parses_lowercase_generic_associated_call_with_colon_colon() {
+    let (module, errors) = parse_module(
+        r#"
+struct box[T] {
+    value: T,
+}
+
+extend[T] box[T] {
+    fn make(value: T) box[T] {
+        { value: value }
+    }
+}
+
+fn main() box[i32] {
+    box[i32]::make(1)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Call { callee, .. } = &tail.kind else {
+        panic!("expected call");
+    };
+    let ExprKind::Qualified { lhs, .. } = &callee.kind else {
+        panic!("expected qualified callee");
+    };
+    assert!(matches!(lhs.kind, ExprKind::BracketSuffix { .. }));
+}
+
+#[test]
+fn reports_lexer_errors_through_parser() {
+    let (_module, errors) = parse_module(r#"fn main() { var x = "\q"; }"#);
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("InvalidStringEscape"))
+    );
+}
+
+#[test]
+fn rejects_string_import_as_invalid_import_path() {
+    let (_module, errors) = parse_module(r#"import "math";"#);
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("expected module path after `import`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_deep_relative_import_prefix() {
+    let (_module, errors) = parse_module("import ...math;");
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("relative import supports only `.` or `..`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn reports_bare_fn_type_with_function_pointer_hint() {
+    let (_module, errors) = parse_module(
+        r#"
+struct Vtable {
+    print: fn(&u8),
+    write: &fn(&u8),
+}
+"#,
+    );
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|error| error
+                .message
+                .contains("must be written as `&const fn(...)`"))
+            .count(),
+        2,
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn reports_missing_semicolon_between_expression_statements() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() {
+    effect()
+    other();
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected `;` after expression")),
+        "{errors:?}"
+    );
+}

@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use nia_span::Span;
+
+use crate::{Expr, ExprStub};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeRef {
+    pub span: Span,
+    pub text: String,
+    pub kind: TypeKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeKind {
+    Error,
+    Path {
+        segments: Vec<TypePathSegment>,
+    },
+    Pointer {
+        is_const: bool,
+        elem: Box<TypeRef>,
+    },
+    Slice {
+        is_const: bool,
+        elem: Box<TypeRef>,
+    },
+    Array {
+        len: ArrayLen,
+        elem: Box<TypeRef>,
+    },
+    FunctionPointer {
+        params: Vec<TypeRef>,
+        return_type: Option<Box<TypeRef>>,
+        is_variadic: bool,
+    },
+    Void,
+    Never,
+    Infer,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypePathSegment {
+    pub name: String,
+    pub args: Vec<TypeArg>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeArg {
+    Type(TypeRef),
+    Const(ExprStub),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArrayLen {
+    Infer,
+    Expr(Box<Expr>),
+}

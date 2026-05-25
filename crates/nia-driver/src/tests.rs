@@ -1,0 +1,963 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::*;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+#[test]
+fn loads_root_and_imported_modules_once() {
+    let root = temp_dir("loads_root_and_imported_modules_once");
+    write(
+        &root.join("main.nia"),
+        r#"import .math; fn main() i32 { 0 }"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(program.modules.len(), 2);
+    assert!(
+        program
+            .modules
+            .iter()
+            .all(|module| module.parse_errors.is_empty())
+    );
+    assert_eq!(
+        program
+            .graph
+            .get(program.graph.root())
+            .expect("root module")
+            .imports
+            .len(),
+        1
+    );
+    let math = program
+        .imports
+        .get(program.graph.root(), "math")
+        .expect("math import alias");
+    assert_eq!(math.target, ModuleId(1));
+}
+
+#[test]
+fn reports_missing_imported_modules() {
+    let root = temp_dir("reports_missing_imported_modules");
+    write(&root.join("main.nia"), r#"import .missing; fn main() {}"#);
+
+    let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("failed to read"))
+    );
+}
+
+#[test]
+fn checks_each_loaded_module() {
+    let root = temp_dir("checks_each_loaded_module");
+    write(
+        &root.join("main.nia"),
+        r#"import .math; fn main() i32 { 0 }"#,
+    );
+    write(&root.join("math.nia"), r#"fn bad() i32 { true }"#);
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert_eq!(program.modules.len(), 2);
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("function body"))
+    );
+}
+
+#[test]
+fn reports_import_cycles() {
+    let root = temp_dir("reports_import_cycles");
+    write(&root.join("main.nia"), r#"import .a; fn main() {}"#);
+    write(&root.join("a.nia"), r#"import .b;"#);
+    write(&root.join("b.nia"), r#"import .a;"#);
+
+    let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .diagnostic
+            .message
+            .contains("import cycle detected")
+    }));
+}
+
+#[test]
+fn deduplicates_imported_paths() {
+    let root = temp_dir("deduplicates_imported_paths");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math as math_a;
+import .math as math_b;
+fn main() {}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(program.modules.len(), 2);
+}
+
+#[test]
+fn resolves_qualified_imported_type_paths() {
+    let root = temp_dir("resolves_qualified_imported_type_paths");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+fn origin(p: math::Point) math::Point { p }
+"#,
+    );
+    write(&root.join("math.nia"), r#"pub struct Point { x: i32 }"#);
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main = program
+        .modules
+        .iter()
+        .find(|module| module.id == ModuleId(0))
+        .expect("main module");
+    assert_eq!(main.type_resolution.qualified_type_names.len(), 2);
+}
+
+#[test]
+fn resolves_qualified_imported_function_calls() {
+    let root = temp_dir("resolves_qualified_imported_function_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+fn main() i32 {
+    math::add(40, 2)
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main = program
+        .modules
+        .iter()
+        .find(|module| module.id == ModuleId(0))
+        .expect("main module");
+    assert_eq!(main.value_resolution.qualified_values.len(), 1);
+}
+
+#[test]
+fn extends_imported_type_in_current_module() {
+    let root = temp_dir("extends_imported_type_in_current_module");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+
+extend math::Point {
+    fn len2(&const self) i32 {
+        4
+    }
+}
+
+fn main(p: math::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imports_public_extension_methods() {
+    let root = temp_dir("imports_public_extension_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+import .point_ext;
+
+fn main(p: math::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+    write(
+        &root.join("point_ext.nia"),
+        r#"
+import .math;
+
+extend math::Point {
+    pub fn len2(&const self) i32 {
+        4
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn rejects_private_cross_module_items() {
+    let root = temp_dir("rejects_private_cross_module_items");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+fn take(p: math::Point) i32 {
+    math::add(1, 2)
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+struct Point { x: i32 }
+fn add(a: i32, b: i32) i32 { a + b }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .diagnostic
+            .message
+            .contains("type `math::Point` is private")
+    }));
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .diagnostic
+            .message
+            .contains("value `math::add` is private")
+    }));
+}
+
+#[test]
+fn checks_bodies_against_normalized_type_aliases() {
+    let root = temp_dir("checks_bodies_against_normalized_type_aliases");
+    write(
+        &root.join("main.nia"),
+        r#"
+type Byte = u8;
+fn id(x: Byte) u8 {
+    x
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn checks_bodies_against_normalized_generic_type_aliases() {
+    let root = temp_dir("checks_bodies_against_normalized_generic_type_aliases");
+    write(
+        &root.join("main.nia"),
+        r#"
+type Ptr[T] = &T;
+fn id(p: Ptr[u8]) &u8 {
+    p
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn reports_generic_type_argument_count_mismatches() {
+    let root = temp_dir("reports_generic_type_argument_count_mismatches");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+struct Point {}
+struct Box[T] { value: T }
+type Pair[T, U] = T;
+fn missing_arg(a: Box) {}
+fn extra_arg(a: Box[i32, bool]) {}
+fn alias_missing_arg(a: Pair[i32]) {}
+fn non_generic_arg(a: Point[i32]) {}
+fn qualified_missing_arg(a: math::RemoteBox) {}
+fn qualified_extra_arg(a: math::RemoteBox[i32, bool]) {}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub struct RemoteBox[T] {
+    value: T,
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let mismatch_count = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("generic argument count mismatch")
+        })
+        .count();
+    assert_eq!(mismatch_count, 6, "{:?}", program.diagnostics);
+}
+
+#[test]
+fn checks_qualified_explicit_generic_function_calls() {
+    let root = temp_dir("checks_qualified_explicit_generic_function_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+fn main(flag: bool) i32 {
+    var x: i32 = math::id[i32](1);
+    _ = math::id[i32](flag);
+    x
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub fn id[T](value: T) T {
+    value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        !program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("binding initializer")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.diagnostic.message.contains("call argument") })
+    );
+}
+
+#[test]
+fn checks_qualified_inferred_generic_function_calls() {
+    let root = temp_dir("checks_qualified_inferred_generic_function_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+fn main(flag: bool) i32 {
+    var x: i32 = math::id(1);
+    _ = math::choose(1, flag);
+    x
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub fn id[T](value: T) T {
+    value
+}
+
+pub fn choose[T](left: T, right: T) T {
+    left
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        !program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("binding initializer")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .diagnostic
+            .message
+            .contains("conflicting inferred type for generic parameter `T`")
+    }));
+}
+
+#[test]
+fn collects_unique_monomorphized_instances() {
+    let root = temp_dir("collects_unique_monomorphized_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    var a: i32 = id(1);
+    var b: i32 = id(2);
+    a + b
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(program.monomorphization.instances.len(), 1);
+}
+
+#[test]
+fn lowers_monomorphized_function_instances_with_readable_symbols() {
+    let root = temp_dir("lowers_monomorphized_function_instances_with_readable_symbols");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    id(1)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let module = &program.backend_lowering.program.modules[0];
+    assert_eq!(module.function_instances.len(), 1);
+    let symbol = &module.function_instances[0].symbol;
+    assert!(symbol.starts_with("nia__m0__d"), "{symbol}");
+    assert!(symbol.contains("__id__inst__"), "{symbol}");
+    assert!(symbol.contains("i32"), "{symbol}");
+}
+
+#[test]
+fn reports_recursive_generic_instantiations() {
+    let root = temp_dir("reports_recursive_generic_instantiations");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn recurse[T](value: T) T {
+    recurse[T](value)
+}
+
+fn main() i32 {
+    recurse(1)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .diagnostic
+            .message
+            .contains("recursive generic instantiation")
+    }));
+}
+
+#[test]
+fn reports_indirect_recursive_generic_instantiations() {
+    let root = temp_dir("reports_indirect_recursive_generic_instantiations");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn a[T](value: T) T {
+    b[T](value)
+}
+
+fn b[T](value: T) T {
+    a[T](value)
+}
+
+fn main() i32 {
+    a(1)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .diagnostic
+            .message
+            .contains("recursive generic instantiation")
+    }));
+}
+
+#[test]
+fn computes_layouts_in_check_pipeline() {
+    let root = temp_dir("computes_layouts_in_check_pipeline");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair {
+    a: u8,
+    b: i32,
+}
+
+fn main(p: Pair) {}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main = program
+        .modules
+        .iter()
+        .find(|module| module.id == ModuleId(0))
+        .expect("main module");
+    let pair_id = main.defs.module_scope.types.get("Pair").expect("Pair def");
+    let pair_layout = main.layouts.structs.get(&pair_id).expect("Pair layout");
+    assert_eq!(
+        pair_layout.layout,
+        nia_layout::TypeLayout { size: 8, align: 4 }
+    );
+    assert_eq!(pair_layout.fields[0].offset, 0);
+    assert_eq!(pair_layout.fields[1].offset, 4);
+}
+
+#[test]
+fn checks_cross_module_struct_literals() {
+    let root = temp_dir("checks_cross_module_struct_literals");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .geom;
+
+fn main() i32 {
+    var p: geom::Point = { x: 40, y: 2 };
+    p.x + p.y
+}
+"#,
+    );
+    write(
+        &root.join("geom.nia"),
+        r#"
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_brings_imported_function_into_scope() {
+    let root = temp_dir("using_brings_imported_function_into_scope");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+using math::add;
+
+fn main() i32 {
+    add(40, 2)
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_supports_group_and_rename() {
+    let root = temp_dir("using_supports_group_and_rename");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+using math::{add, sub as minus};
+
+fn main() i32 {
+    add(40, minus(4, 2))
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub fn add(a: i32, b: i32) i32 { a + b }
+pub fn sub(a: i32, b: i32) i32 { a - b }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_wildcard_imports_direct_pub_defs_only() {
+    let root = temp_dir("using_wildcard_imports_direct_pub_defs_only");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+using math::*;
+
+fn main(p: Point) i32 {
+    add(p.x, p.y)
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub struct Point { x: i32, y: i32 }
+pub fn add(a: i32, b: i32) i32 { a + b }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn pub_using_reexports_for_downstream_modules() {
+    let root = temp_dir("pub_using_reexports_for_downstream_modules");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+
+fn main() i32 {
+    facade::add(40, 2)
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .impl;
+pub using impl::add;
+"#,
+    );
+    write(
+        &root.join("impl.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_unknown_name_reports_diagnostic() {
+    let root = temp_dir("using_unknown_name_reports_diagnostic");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+using math::missing;
+
+fn main() i32 { 0 }
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("could not be resolved")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn pub_import_is_rejected() {
+    let root = temp_dir("pub_import_is_rejected");
+    write(
+        &root.join("main.nia"),
+        r#"
+pub import .math;
+fn main() i32 { 0 }
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("`pub` cannot be applied")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn using_local_enum_variant_brings_bare_name() {
+    let root = temp_dir("using_local_enum_variant_brings_bare_name");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Color: u8 { Red, Black }
+using Color::Red;
+
+fn main() Color { Red }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_local_enum_wildcard_brings_all_variants() {
+    let root = temp_dir("using_local_enum_wildcard_brings_all_variants");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Color: u8 { Red, Black, Green }
+using Color::*;
+
+fn pick(flag: bool) Color {
+    if flag { Red } else { Black }
+}
+
+fn main() Color { pick(true) }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_cross_module_enum_variant_three_segments() {
+    let root = temp_dir("using_cross_module_enum_variant_three_segments");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .palette;
+using palette::Color::{Red, Black as Dark};
+
+fn main() palette::Color {
+    var c: palette::Color = Red;
+    Dark
+}
+"#,
+    );
+    write(
+        &root.join("palette.nia"),
+        r#"
+pub enum Color: u8 { Red, Black, Green }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn pub_using_enum_variant_reexports_for_downstream() {
+    let root = temp_dir("pub_using_enum_variant_reexports_for_downstream");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+
+fn main() facade::Color {
+    facade::Red
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .palette;
+pub using palette::Color;
+pub using palette::Color::Red;
+"#,
+    );
+    write(
+        &root.join("palette.nia"),
+        r#"
+pub enum Color: u8 { Red, Black, Green }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_unknown_enum_variant_reports_diagnostic() {
+    let root = temp_dir("using_unknown_enum_variant_reports_diagnostic");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum Color: u8 { Red, Black }
+using Color::Purple;
+
+fn main() Color { Red }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("unknown enum variant")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn qualified_cross_module_enum_variant_access() {
+    let root = temp_dir("qualified_cross_module_enum_variant_access");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .palette;
+
+fn main() palette::Color {
+    var c: palette::Color = palette::Color::Red;
+    palette::Color::Black
+}
+"#,
+    );
+    write(
+        &root.join("palette.nia"),
+        r#"pub enum Color: u8 { Red, Black, Green }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn switch_exhaustive_over_cross_module_enum() {
+    let root = temp_dir("switch_exhaustive_over_cross_module_enum");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .palette;
+
+fn pick(c: palette::Color) i32 {
+    switch c {
+        palette::Color::Red => return 0,
+        palette::Color::Black => return 1,
+        palette::Color::Green => return 2,
+    }
+    -1
+}
+
+fn main() i32 { pick(palette::Color::Red) }
+"#,
+    );
+    write(
+        &root.join("palette.nia"),
+        r#"pub enum Color: u8 { Red, Black, Green }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn switch_over_cross_module_enum_reports_missing_variants() {
+    let root = temp_dir("switch_over_cross_module_enum_reports_missing_variants");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .palette;
+
+fn pick(c: palette::Color) i32 {
+    switch c {
+        palette::Color::Red => return 0,
+    }
+    -1
+}
+
+fn main() i32 { pick(palette::Color::Red) }
+"#,
+    );
+    write(
+        &root.join("palette.nia"),
+        r#"pub enum Color: u8 { Red, Black, Green }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("non-exhaustive enum switch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+fn temp_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("nia-driver-{name}"));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create temp dir");
+    dir
+}
+
+fn write(path: &Path, source: &str) {
+    fs::write(path, source).expect("write source file");
+}

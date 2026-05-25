@@ -1,0 +1,16 @@
+[package]
+name = "nia-backend-ir"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-ast.workspace = true
+nia-ids.workspace = true
+nia-layout.workspace = true
+nia-span.workspace = true
+nia-ty.workspace = true
+
+[lib]
+path = "src/lib.rs"
