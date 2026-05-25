@@ -252,16 +252,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             return Ok(struct_ty.const_named_struct(&values).into());
         }
-        let struct_fields = self.struct_fields(*def_id, args, span)?;
+        let struct_fields = self.physical_struct_fields(*def_id, args, span)?;
         let values = struct_fields
             .iter()
-            .filter(|field| {
-                !layouts
-                    .types
-                    .iter()
-                    .find_map(|(ty, layout)| (*ty == field.ty).then_some(layout))
-                    .is_some_and(|layout| layout.size == 0)
-            })
             .map(|field| {
                 let init = fields
                     .iter()

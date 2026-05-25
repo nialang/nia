@@ -292,6 +292,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                     locals: &checked_module.local_resolution,
                     type_lowering: &checked_module.type_lowering,
                     signatures: &checked_module.item_signatures,
+                    type_normalization: &checked_module.type_normalization,
                     body_check: &checked_module.body_check,
                     const_eval: &checked_module.const_eval,
                     layouts: &checked_module.layouts,

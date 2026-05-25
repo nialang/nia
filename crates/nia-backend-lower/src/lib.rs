@@ -9,6 +9,7 @@ mod struct_instances;
 use nia_ast::{BracketArg, Expr, ExprKind, ItemKind, Module};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
+    BackendStructInstanceKey,
 };
 use nia_body_check::BodyCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
@@ -21,6 +22,7 @@ use nia_monomorphize::Monomorphization;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 use nia_type_lower::TypeLowering;
+use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +42,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub locals: &'a LocalResolution,
     pub type_lowering: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
+    pub type_normalization: &'a TypeNormalization,
     pub body_check: &'a BodyCheck,
     pub extensions: &'a VisibleExtensionMethods,
     pub const_eval: &'a nia_const_eval::ConstEval,
@@ -158,11 +161,15 @@ impl<'a> ModuleLowerer<'a> {
             &function_instances,
         );
 
+        let mut backend_layouts =
+            BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts);
+        self.extend_backend_layouts_for_instances(&mut backend_layouts);
+
         BackendModule {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
             interner: self.interner.clone(),
-            layouts: BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts),
+            layouts: backend_layouts,
             structs,
             unions,
             struct_instances,
@@ -183,6 +190,36 @@ impl<'a> ModuleLowerer<'a> {
                     source_def_id: inst.source_def_id,
                 })
                 .collect(),
+        }
+    }
+
+    fn extend_backend_layouts_for_instances(&self, layouts: &mut BackendLayouts) {
+        let computed = nia_layout::compute_layouts_with_normalized_types(
+            self.input.defs,
+            &self.interner,
+            self.input.signatures,
+            &self.input.type_normalization.normalized,
+            self.input.layouts.target,
+        );
+        for (key, layout) in computed.struct_instances {
+            let key = BackendStructInstanceKey::from_module_key(self.input.module_id, &key);
+            if !layouts
+                .struct_instances
+                .iter()
+                .any(|(candidate, _)| *candidate == key)
+            {
+                layouts.struct_instances.push((key, layout));
+            }
+        }
+        for (key, layout) in computed.union_instances {
+            let key = BackendStructInstanceKey::from_module_key(self.input.module_id, &key);
+            if !layouts
+                .union_instances
+                .iter()
+                .any(|(candidate, _)| *candidate == key)
+            {
+                layouts.union_instances.push((key, layout));
+            }
         }
     }
 

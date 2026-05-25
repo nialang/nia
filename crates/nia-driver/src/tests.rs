@@ -974,6 +974,45 @@ fn main() i32 {
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
+#[test]
+fn rejects_cross_module_nia_types_at_extern_abi_boundaries() {
+    let root = temp_dir("rejects_cross_module_nia_types_at_extern_abi_boundaries");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .types;
+
+extern fn bad_struct(point: types::Point);
+extern fn bad_union(bits: types::Bits);
+extern fn bad_enum(color: types::Color);
+"#,
+    );
+    write(
+        &root.join("types.nia"),
+        r#"
+pub struct Point { x: i32 }
+pub union Bits { i: i32 }
+pub enum Color: u8 { Red }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    for expected in [
+        "normal Nia struct by value",
+        "union by value",
+        "enum directly",
+    ] {
+        assert!(
+            program
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.diagnostic.message.contains(expected)),
+            "{expected}: {:?}",
+            program.diagnostics
+        );
+    }
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("nia-driver-{name}"));
     let _ = fs::remove_dir_all(&dir);

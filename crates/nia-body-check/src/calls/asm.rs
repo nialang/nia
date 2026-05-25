@@ -4,6 +4,7 @@ use nia_ast::{ArrayElements, Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::TyId;
 use nia_span::Span;
+use nia_ty::{PrimitiveTy, TyKind};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_asm_builtin_call(
@@ -76,7 +77,8 @@ impl<'a> BodyChecker<'a> {
             return;
         };
         for field in fields {
-            self.check_expr(&field.value);
+            let value_ty = self.check_expr(&field.value);
+            self.check_asm_operand_type(field.value.span, value_ty, "inline assembly input");
         }
     }
 
@@ -92,12 +94,38 @@ impl<'a> BodyChecker<'a> {
         for field in fields {
             let value_ty = self.check_expr(&field.value);
             self.check_assignable(&field.value, "inline assembly output");
-            if self.is_invalid_temporary_type(value_ty) {
+            self.check_asm_operand_type(field.value.span, value_ty, "inline assembly output");
+        }
+    }
+
+    fn check_asm_operand_type(&mut self, span: Span, ty: TyId, context: &str) {
+        let ty = self.normalization.normalize(ty);
+        match self.interner.get(ty) {
+            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {
                 self.diagnostics.push(Diagnostic::error(
-                    field.value.span,
-                    "inline assembly output cannot have void or never type",
+                    span,
+                    format!("{context} cannot have void or never type"),
                 ));
             }
+            Some(TyKind::Array { .. } | TyKind::Slice { .. }) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("{context} cannot use aggregate type directly"),
+                ));
+            }
+            Some(TyKind::Nominal { def_id, .. }) if !self.is_enum_def(*def_id) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("{context} cannot use aggregate type directly"),
+                ));
+            }
+            Some(
+                TyKind::Primitive(_)
+                | TyKind::Pointer { .. }
+                | TyKind::FunctionPointer { .. }
+                | TyKind::Nominal { .. },
+            ) => {}
+            Some(TyKind::GenericParam(_) | TyKind::Error) | None => {}
         }
     }
 

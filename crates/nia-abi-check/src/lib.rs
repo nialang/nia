@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
-use nia_item_signatures::{FunctionSignature, ItemSignatures};
+use nia_ids::GlobalDefId;
+use nia_item_signatures::{FunctionSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramAbiSignatures<'a> {
+    pub structs: &'a HashMap<GlobalDefId, StructSignature>,
+    pub unions: &'a HashMap<GlobalDefId, UnionSignature>,
+    pub enums: &'a HashMap<GlobalDefId, nia_item_signatures::EnumSignature>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AbiCheck {
@@ -15,10 +25,32 @@ pub fn check_module_abi(
     interner: &TyInterner,
     signatures: &ItemSignatures,
 ) -> AbiCheck {
+    let empty_structs = HashMap::new();
+    let empty_unions = HashMap::new();
+    let empty_enums = HashMap::new();
+    check_module_abi_with_program_signatures(
+        defs,
+        interner,
+        signatures,
+        ProgramAbiSignatures {
+            structs: &empty_structs,
+            unions: &empty_unions,
+            enums: &empty_enums,
+        },
+    )
+}
+
+pub fn check_module_abi_with_program_signatures(
+    defs: &DefCollection,
+    interner: &TyInterner,
+    signatures: &ItemSignatures,
+    program_signatures: ProgramAbiSignatures<'_>,
+) -> AbiCheck {
     let mut checker = AbiChecker {
         defs,
         interner,
         signatures,
+        program_signatures,
         diagnostics: Vec::new(),
     };
     checker.check();
@@ -31,6 +63,7 @@ struct AbiChecker<'a> {
     defs: &'a DefCollection,
     interner: &'a TyInterner,
     signatures: &'a ItemSignatures,
+    program_signatures: ProgramAbiSignatures<'a>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -41,10 +74,21 @@ impl AbiChecker<'_> {
                 self.check_extern_function(*def_id, signature);
             }
         }
+        for signature in self.signatures.structs.values() {
+            if signature.is_extern {
+                self.check_extern_struct(signature);
+            }
+        }
         for signature in self.signatures.globals.values() {
             if signature.is_extern {
                 self.check_extern_global(signature);
             }
+        }
+    }
+
+    fn check_extern_struct(&mut self, signature: &nia_item_signatures::StructSignature) {
+        for field in &signature.fields {
+            self.check_extern_ty(field.span, field.ty, "extern struct field");
         }
     }
 
@@ -81,7 +125,12 @@ impl AbiChecker<'_> {
         for param in &signature.params {
             self.check_extern_ty(param.span, param.ty, "extern parameter");
         }
-        if !self.is_void_or_never(signature.return_type) {
+        if self.is_never(signature.return_type) {
+            self.diagnostics.push(Diagnostic::error(
+                signature.span,
+                "extern return type cannot use `!`",
+            ));
+        } else if !self.is_void(signature.return_type) {
             self.check_extern_ty(signature.span, signature.return_type, "extern return type");
         }
         if let Some(def) = self.defs.defs.get(def_id)
@@ -104,6 +153,13 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context} cannot use `char` directly"),
             )),
+            Some(TyKind::Primitive(PrimitiveTy::Void)) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use `void` directly"),
+            )),
+            Some(TyKind::Primitive(PrimitiveTy::Never)) => self.diagnostics.push(
+                Diagnostic::error(span, format!("{context} cannot use `!` directly")),
+            ),
             Some(TyKind::Primitive(_)) | Some(TyKind::Pointer { .. }) => {}
             Some(TyKind::Slice { .. }) => self.diagnostics.push(Diagnostic::error(
                 span,
@@ -123,7 +179,7 @@ impl AbiChecker<'_> {
                 for param in params {
                     self.check_extern_ty(span, *param, "extern function pointer parameter");
                 }
-                if !self.is_void_or_never(*return_type) {
+                if !self.is_void(*return_type) {
                     self.check_extern_ty(span, *return_type, "extern function pointer return type");
                 }
             }
@@ -132,21 +188,31 @@ impl AbiChecker<'_> {
                 format!("{context} cannot use array by value"),
             )),
             Some(TyKind::Nominal { def_id, .. }) => {
-                if def_id.module_id != self.defs.module_id {
-                    return;
-                }
-                if self.signatures.enums.contains_key(&def_id.def_id) {
+                if self.is_enum_def(*def_id) {
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         format!("{context} cannot use enum directly; use its backing integer type"),
                     ));
                 }
-                if self.signatures.unions.contains_key(&def_id.def_id) {
+                if self.is_union_def(*def_id) {
                     // NIA-FUTURE(internal-abi): classify union by-value passing separately from C ABI.
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         format!("{context} cannot use union by value"),
                     ));
+                }
+                if let Some(signature) = self.struct_signature(*def_id) {
+                    if signature.fields.is_empty() {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            format!("{context} cannot use empty struct by value"),
+                        ));
+                    } else if !signature.is_extern {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            format!("{context} cannot use normal Nia struct by value"),
+                        ));
+                    }
                 }
             }
             Some(TyKind::GenericParam(_)) => self.diagnostics.push(Diagnostic::error(
@@ -157,10 +223,41 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn is_void_or_never(&self, ty: nia_ids::TyId) -> bool {
+    fn is_void(&self, ty: nia_ids::TyId) -> bool {
         matches!(
             self.interner.get(ty),
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never))
+            Some(TyKind::Primitive(PrimitiveTy::Void))
+        )
+    }
+
+    fn struct_signature(&self, def_id: GlobalDefId) -> Option<&StructSignature> {
+        if def_id.module_id == self.defs.module_id {
+            self.signatures.structs.get(&def_id.def_id)
+        } else {
+            self.program_signatures.structs.get(&def_id)
+        }
+    }
+
+    fn is_union_def(&self, def_id: GlobalDefId) -> bool {
+        if def_id.module_id == self.defs.module_id {
+            self.signatures.unions.contains_key(&def_id.def_id)
+        } else {
+            self.program_signatures.unions.contains_key(&def_id)
+        }
+    }
+
+    fn is_enum_def(&self, def_id: GlobalDefId) -> bool {
+        if def_id.module_id == self.defs.module_id {
+            self.signatures.enums.contains_key(&def_id.def_id)
+        } else {
+            self.program_signatures.enums.contains_key(&def_id)
+        }
+    }
+
+    fn is_never(&self, ty: nia_ids::TyId) -> bool {
+        matches!(
+            self.interner.get(ty),
+            Some(TyKind::Primitive(PrimitiveTy::Never))
         )
     }
 }
@@ -179,8 +276,13 @@ mod tests {
         let (module, errors) = parse_module(
             r#"
 enum Color: u8 { Red }
+struct Pair { x: i32 }
+struct Empty {}
+extern struct BadExtern { flag: bool }
+extern struct ExternEmpty {}
 
-extern fn bad(flag: bool, ch: char, color: Color, xs: [2]u8, cb: &const fn(i32, ...) void, ...);
+extern fn bad(flag: bool, ch: char, nothing: void, color: Color, xs: [2]u8, pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &const fn(i32, ...) !, ...);
+extern fn bad_never_return() !;
 extern fn bad_variadic_definition(fmt: &u8, ...) {
 }
 extern const bad_global: bool;
@@ -197,8 +299,12 @@ extern fn bad_union(bits: Bits);
         for expected in [
             "`bool`",
             "`char`",
+            "`void`",
+            "`!`",
             "enum directly",
             "array by value",
+            "normal Nia struct by value",
+            "empty struct by value",
             "variadic function pointer",
             "variadic function definition",
             "union by value",

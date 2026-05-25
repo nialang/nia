@@ -382,7 +382,7 @@ impl<'a> LayoutComputer<'a> {
         signature: &StructSignature,
         substitutions: &HashMap<String, TyId>,
     ) -> Option<StructLayout> {
-        self.field_order_layout(key, signature, substitutions)
+        self.sorted_field_layout(key, signature, substitutions)
     }
 
     fn c_struct_layout(
@@ -400,33 +400,49 @@ impl<'a> LayoutComputer<'a> {
         signature: &StructSignature,
         substitutions: &HashMap<String, TyId>,
     ) -> Option<StructLayout> {
-        let mut fields = Vec::new();
-        let mut offset = 0u64;
-        let mut max_align = 1u64;
-        for field in &signature.fields {
+        let fields = self.layout_fields(key, &signature.fields, substitutions)?;
+        Some(place_struct_fields(fields))
+    }
+
+    fn sorted_field_layout(
+        &mut self,
+        key: &StructLayoutKey,
+        signature: &StructSignature,
+        substitutions: &HashMap<String, TyId>,
+    ) -> Option<StructLayout> {
+        let mut fields = self.layout_fields(key, &signature.fields, substitutions)?;
+        fields.sort_by(|left, right| {
+            right
+                .layout
+                .align
+                .cmp(&left.layout.align)
+                .then_with(|| right.layout.size.cmp(&left.layout.size))
+                .then_with(|| left.source_index.cmp(&right.source_index))
+        });
+        Some(place_struct_fields(fields))
+    }
+
+    fn layout_fields(
+        &mut self,
+        key: &StructLayoutKey,
+        fields: &[nia_item_signatures::FieldSignature],
+        substitutions: &HashMap<String, TyId>,
+    ) -> Option<Vec<PendingFieldLayout>> {
+        let mut layouts = Vec::new();
+        for (source_index, field) in fields.iter().enumerate() {
             let field_ty = self.normalize_ty(field.ty);
             let field_ty = substitute_generics(&mut self.interner, field_ty, substitutions);
             let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
                 self.visiting_structs.remove(key);
                 return None;
             };
-            offset = align_to(offset, field_layout.align);
-            fields.push(FieldLayout {
+            layouts.push(PendingFieldLayout {
                 def_id: field.def_id,
-                offset,
-                layout: field_layout.clone(),
+                source_index,
+                layout: field_layout,
             });
-            offset = offset.saturating_add(field_layout.size);
-            max_align = max_align.max(field_layout.align);
         }
-        let layout = TypeLayout {
-            size: align_to(offset, max_align),
-            align: max_align,
-        };
-        Some(StructLayout {
-            layout: layout.clone(),
-            fields,
-        })
+        Some(layouts)
     }
 
     fn union_field_layout(
@@ -459,7 +475,40 @@ impl<'a> LayoutComputer<'a> {
         };
         Some(StructLayout { layout, fields })
     }
+}
 
+#[derive(Debug, Clone)]
+struct PendingFieldLayout {
+    def_id: DefId,
+    source_index: usize,
+    layout: TypeLayout,
+}
+
+fn place_struct_fields(fields: Vec<PendingFieldLayout>) -> StructLayout {
+    let mut placed = Vec::new();
+    let mut offset = 0u64;
+    let mut max_align = 1u64;
+    for field in fields {
+        offset = align_to(offset, field.layout.align);
+        placed.push(FieldLayout {
+            def_id: field.def_id,
+            offset,
+            layout: field.layout.clone(),
+        });
+        offset = offset.saturating_add(field.layout.size);
+        max_align = max_align.max(field.layout.align);
+    }
+    let layout = TypeLayout {
+        size: align_to(offset, max_align),
+        align: max_align,
+    };
+    StructLayout {
+        layout,
+        fields: placed,
+    }
+}
+
+impl LayoutComputer<'_> {
     fn normalize_ty(&self, ty_id: TyId) -> TyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)
     }
@@ -659,6 +708,46 @@ fn main(value: Empty) {}
         let empty = layouts.structs.get(&empty_id).expect("Empty layout");
         assert_eq!(empty.layout, TypeLayout { size: 0, align: 1 });
         assert!(empty.fields.is_empty());
+    }
+
+    #[test]
+    fn computes_nia_struct_layout_in_physical_field_order() {
+        let (module, errors) = parse_module(
+            r#"
+struct Mixed {
+    a: u8,
+    b: i64,
+    c: u8,
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let mixed_id = defs.module_scope.types.get("Mixed").expect("Mixed def");
+        let signature = signatures.structs.get(&mixed_id).expect("Mixed signature");
+        let a_id = signature.fields[0].def_id;
+        let b_id = signature.fields[1].def_id;
+        let c_id = signature.fields[2].def_id;
+        let layouts = compute_layouts(
+            &defs,
+            &lowered.interner,
+            &signatures,
+            TargetDataLayout::LP64,
+        );
+        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        let mixed = layouts.structs.get(&mixed_id).expect("Mixed layout");
+        assert_eq!(mixed.layout, TypeLayout { size: 16, align: 8 });
+        assert_eq!(
+            mixed
+                .fields
+                .iter()
+                .map(|field| (field.def_id, field.offset))
+                .collect::<Vec<_>>(),
+            vec![(b_id, 0), (a_id, 8), (c_id, 9)]
+        );
     }
 
     #[test]

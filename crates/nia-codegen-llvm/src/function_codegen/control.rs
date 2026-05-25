@@ -31,9 +31,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             .build_unreachable()
                             .map_err(|_| self.error(stmt.span, "failed to build never return"))?;
                     } else {
-                        self.builder
-                            .build_return(Some(&value))
-                            .map_err(|_| self.error(stmt.span, "failed to build return"))?;
+                        self.emit_return_value(stmt.span, value)?;
                     }
                 } else {
                     self.emit_all_defers(stmt.span)?;

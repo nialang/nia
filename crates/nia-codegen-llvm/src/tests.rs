@@ -5,6 +5,7 @@ use nia_backend_ir::{
     TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind,
 };
 use nia_ids::{DefId, GlobalDefId, LocalId, ModuleId};
+use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 use nia_ty::{PrimitiveTy, TyKind};
 
 #[test]
@@ -210,8 +211,31 @@ fn rejects_field_access_with_mismatched_base_struct() {
             name: "main".to_string(),
             interner,
             layouts: BackendLayouts {
-                types: Vec::new(),
-                structs: Vec::new(),
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: vec![
+                    (
+                        point_id,
+                        StructLayout {
+                            layout: TypeLayout { size: 4, align: 4 },
+                            fields: vec![FieldLayout {
+                                def_id: point_x.def_id,
+                                offset: 0,
+                                layout: TypeLayout { size: 4, align: 4 },
+                            }],
+                        },
+                    ),
+                    (
+                        other_id,
+                        StructLayout {
+                            layout: TypeLayout { size: 4, align: 4 },
+                            fields: vec![FieldLayout {
+                                def_id: other_y.def_id,
+                                offset: 0,
+                                layout: TypeLayout { size: 4, align: 4 },
+                            }],
+                        },
+                    ),
+                ],
                 struct_instances: Vec::new(),
                 unions: Vec::new(),
                 union_instances: Vec::new(),
@@ -293,10 +317,9 @@ fn rejects_field_access_with_mismatched_base_struct() {
 
     let output = emit_llvm_ir(&program);
     assert!(
-        output
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("missing aggregate field index")),
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("missing struct field layout index")),
         "{:?}",
         output.diagnostics
     );
@@ -556,6 +579,98 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_nia_structs_in_physical_layout_order() {
+    let root = temp_dir("emits_nia_structs_in_physical_layout_order");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Mixed {
+    a: u8,
+    b: i64,
+    c: u8,
+}
+
+const mixed: Mixed = { a: 1, b: 2, c: 3 };
+
+fn main() i32 {
+    var local: Mixed = { a: 4, b: 5, c: 6 };
+    mixed.a as i32 + mixed.c as i32 + local.a as i32 + local.c as i32 + local.b as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("%nia__m0__d0__Mixed = type { i64, i8, i8 }"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("@nia__m0__d4__mixed = constant %nia__m0__d0__Mixed { i64 2, i8 1, i8 3 }"),
+        "{ir}"
+    );
+    assert!(ir.contains("ptr @nia__m0__d4__mixed, i32 0, i32 1"), "{ir}");
+    assert!(ir.contains("ptr %local, i32 0, i32 2"), "{ir}");
+    assert!(ir.contains("ptr %local, i32 0, i32 0"), "{ir}");
+}
+
+#[test]
+fn emits_nia_function_aggregate_parameter_and_return_abi() {
+    let root = temp_dir("emits_nia_function_aggregate_parameter_and_return_abi");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn id(pair: Pair) Pair {
+    pair
+}
+
+fn sum(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn main() i32 {
+    var pair: Pair = { a: 10, b: 20 };
+    var copied = id(pair);
+    sum(copied)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("define void @nia__m0__d3__id(ptr %0, ptr %1)"),
+        "{ir}"
+    );
+    assert!(ir.contains("define i32 @nia__m0__d4__sum(ptr %0)"), "{ir}");
+    assert!(
+        ir.contains("call void @nia__m0__d3__id(ptr %call.out, ptr %pair"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("call i32 @nia__m0__d4__sum(ptr %copied"),
+        "{ir}"
+    );
+}
+
+#[test]
 fn emits_unary_cast_float_and_enum_values() {
     let root = temp_dir("emits_unary_cast_float_and_enum_values");
     let main = root.join("main.nia");
@@ -701,7 +816,8 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("%nia__m0__d0__Box__inst__t_i32"));
     assert!(ir.contains("@nia__m0__d2__make__inst__i32"));
-    assert!(ir.contains("call %nia__m0__d0__Box__inst__t_i32 @nia__m0__d2__make__inst__i32"));
+    assert!(ir.contains("call void @nia__m0__d2__make__inst__i32(ptr %call.out, i32 42"));
+    assert!(ir.contains("define void @nia__m0__d2__make__inst__i32(ptr %0, i32 %1)"));
     assert!(ir.contains("ret i32"));
 }
 

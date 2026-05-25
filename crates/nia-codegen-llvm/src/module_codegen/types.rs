@@ -2,7 +2,7 @@
 use super::ModuleCodegen;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
-    BackendUnionInstance,
+    BackendStructInstanceKey, BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
@@ -13,8 +13,64 @@ use nia_llvm::{
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AbiParam {
+    Direct(TyId),
+    Omit,
+    IndirectReadonly(TyId),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AbiReturn {
+    Direct(TyId),
+    Void,
+    IndirectOut(TyId),
+    Never,
+}
+
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn function_type_in(
+        &self,
+        function: &BackendFunction,
+        interner: &TyInterner,
+        layouts: &BackendLayouts,
+    ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        if function.is_extern {
+            return self.c_function_type_in(function, interner, layouts);
+        }
+        let mut params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
+        if let AbiReturn::IndirectOut(ty) =
+            self.classify_return_in(function.return_type, interner, layouts)
+        {
+            params.push(self.pointer_abi_type(ty, function.span, interner, layouts)?);
+        }
+        for param in self.classify_params_in(
+            function.params.iter().map(|param| param.ty),
+            interner,
+            layouts,
+        ) {
+            match param {
+                AbiParam::Direct(ty) => {
+                    params.push(self.llvm_basic_type_in(ty, function.span, interner, layouts)?);
+                }
+                AbiParam::IndirectReadonly(ty) => {
+                    params.push(self.pointer_abi_type(ty, function.span, interner, layouts)?);
+                }
+                AbiParam::Omit => {}
+            }
+        }
+        match self.classify_return_in(function.return_type, interner, layouts) {
+            AbiReturn::Direct(ty) => Ok(self
+                .llvm_basic_type_in(ty, function.span, interner, layouts)?
+                .fn_type(&params, function.is_variadic)),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => Ok(self
+                .context
+                .void_type()
+                .fn_type(&params, function.is_variadic)),
+        }
+    }
+
+    fn c_function_type_in(
         &self,
         function: &BackendFunction,
         interner: &TyInterner,
@@ -45,17 +101,122 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        for param in params {
-            llvm_params.push(self.llvm_basic_type_in(*param, span, interner, layouts)?);
+        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type, interner, layouts)
+        {
+            llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
         }
-        match interner.get(return_type) {
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {
+        for param in self.classify_params_in(params.iter().copied(), interner, layouts) {
+            match param {
+                AbiParam::Direct(ty) => {
+                    llvm_params.push(self.llvm_basic_type_in(ty, span, interner, layouts)?);
+                }
+                AbiParam::IndirectReadonly(ty) => {
+                    llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
+                }
+                AbiParam::Omit => {}
+            }
+        }
+        match self.classify_return_in(return_type, interner, layouts) {
+            AbiReturn::Direct(ty) => Ok(self
+                .llvm_basic_type_in(ty, span, interner, layouts)?
+                .fn_type(&llvm_params, is_variadic)),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
                 Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
             }
-            _ => Ok(self
-                .llvm_basic_type_in(return_type, span, interner, layouts)?
-                .fn_type(&llvm_params, is_variadic)),
         }
+    }
+
+    pub(crate) fn classify_function_params(&self, params: &[TyId]) -> Vec<AbiParam> {
+        self.classify_params_in(
+            params.iter().copied(),
+            self.interner(),
+            &self.source.layouts,
+        )
+    }
+
+    pub(crate) fn classify_function_return(&self, ty: TyId) -> AbiReturn {
+        self.classify_return_in(ty, self.interner(), &self.source.layouts)
+    }
+
+    fn classify_params_in(
+        &self,
+        params: impl IntoIterator<Item = TyId>,
+        interner: &TyInterner,
+        layouts: &BackendLayouts,
+    ) -> Vec<AbiParam> {
+        params
+            .into_iter()
+            .map(|ty| self.classify_param_in(ty, interner, layouts))
+            .collect()
+    }
+
+    fn classify_param_in(
+        &self,
+        ty: TyId,
+        interner: &TyInterner,
+        layouts: &BackendLayouts,
+    ) -> AbiParam {
+        if self
+            .layout_of_in(ty, layouts)
+            .is_some_and(|layout| layout.size == 0)
+        {
+            return AbiParam::Omit;
+        }
+        match interner.get(ty) {
+            Some(
+                TyKind::Primitive(_)
+                | TyKind::Pointer { .. }
+                | TyKind::FunctionPointer { .. }
+                | TyKind::Slice { .. },
+            ) => AbiParam::Direct(ty),
+            Some(TyKind::Nominal { def_id, .. }) if self.program.enums.contains_key(def_id) => {
+                AbiParam::Direct(ty)
+            }
+            Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiParam::IndirectReadonly(ty),
+            Some(TyKind::GenericParam(_) | TyKind::Error) | None => AbiParam::Direct(ty),
+        }
+    }
+
+    fn classify_return_in(
+        &self,
+        ty: TyId,
+        interner: &TyInterner,
+        layouts: &BackendLayouts,
+    ) -> AbiReturn {
+        match interner.get(ty) {
+            Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
+            Some(TyKind::Primitive(PrimitiveTy::Void)) => return AbiReturn::Void,
+            _ => {}
+        }
+        if self
+            .layout_of_in(ty, layouts)
+            .is_some_and(|layout| layout.size == 0)
+        {
+            return AbiReturn::Void;
+        }
+        match interner.get(ty) {
+            Some(
+                TyKind::Primitive(_)
+                | TyKind::Pointer { .. }
+                | TyKind::FunctionPointer { .. }
+                | TyKind::Slice { .. },
+            ) => AbiReturn::Direct(ty),
+            Some(TyKind::Nominal { def_id, .. }) if self.program.enums.contains_key(def_id) => {
+                AbiReturn::Direct(ty)
+            }
+            Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiReturn::IndirectOut(ty),
+            Some(TyKind::GenericParam(_) | TyKind::Error) | None => AbiReturn::Direct(ty),
+        }
+    }
+
+    fn pointer_abi_type(
+        &self,
+        _ty: TyId,
+        _span: Span,
+        _interner: &TyInterner,
+        _layouts: &BackendLayouts,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        Ok(self.context.ptr_type(Default::default()).into())
     }
 
     pub(crate) fn llvm_basic_type(
@@ -214,17 +375,34 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return Err(self.error(span, "zero-sized aggregate field has no runtime index"));
         }
-        let fields = self.struct_fields(def_id, &args, span)?;
-        if let Some(index) = fields
-            .iter()
-            .position(|candidate| candidate.def_id == field)
-        {
-            return Ok(index as u32);
+        if let Some(layout) = self.struct_layout(def_id, &args) {
+            if let Some(index) = layout
+                .fields
+                .iter()
+                .filter(|field| field.layout.size != 0)
+                .position(|candidate| candidate.def_id == field.def_id)
+            {
+                return Ok(index as u32);
+            }
+            return Err(self.error(span, "missing struct field layout index"));
         }
-        if self.union_fields(def_id, &args, span).is_ok() {
+        if self.union_layout(def_id, &args).is_some() {
             return Ok(0);
         }
         Err(self.error(span, "missing aggregate field index"))
+    }
+
+    fn backend_struct_field(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        field: GlobalDefId,
+        span: Span,
+    ) -> Result<&BackendField, Diagnostic> {
+        self.struct_fields(def_id, args, span)?
+            .iter()
+            .find(|candidate| candidate.def_id == field)
+            .ok_or_else(|| self.error(span, "missing struct field"))
     }
 
     fn layout_of_in(&self, ty: TyId, layouts: &BackendLayouts) -> Option<nia_layout::TypeLayout> {
@@ -301,6 +479,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .or_else(|_| self.union_fields(def_id, args, span))
     }
 
+    pub(super) fn physical_struct_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        span: Span,
+    ) -> Result<Vec<&BackendField>, Diagnostic> {
+        let Some(layout) = self.struct_layout(def_id, args) else {
+            return Err(self.error(span, "missing struct layout"));
+        };
+        layout
+            .fields
+            .iter()
+            .filter(|field| field.layout.size != 0)
+            .map(|field| {
+                self.backend_struct_field(
+                    def_id,
+                    args,
+                    GlobalDefId {
+                        module_id: def_id.module_id,
+                        def_id: field.def_id,
+                    },
+                    span,
+                )
+            })
+            .collect()
+    }
+
     pub(crate) fn is_union_def(&self, def_id: GlobalDefId) -> bool {
         self.program.unions.contains_key(&def_id)
             || self
@@ -369,6 +574,34 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
+    fn struct_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+    ) -> Option<&nia_layout::StructLayout> {
+        let owner = self.program.module(def_id.module_id)?;
+        if args.is_empty() {
+            owner
+                .layouts
+                .structs
+                .iter()
+                .find_map(|(candidate, layout)| (*candidate == def_id).then_some(layout))
+        } else {
+            owner
+                .layouts
+                .struct_instances
+                .iter()
+                .find_map(|(key, layout)| {
+                    (*key
+                        == BackendStructInstanceKey {
+                            def_id,
+                            args: args.to_vec(),
+                        })
+                    .then_some(layout)
+                })
+        }
+    }
+
     fn struct_instance_type(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<StructType<'ctx>> {
         self.struct_instances
             .iter()
@@ -417,6 +650,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn function(&self, def_id: GlobalDefId) -> Option<FunctionValue<'ctx>> {
         self.functions.get(&def_id).copied()
+    }
+
+    pub(crate) fn function_item(&self, def_id: GlobalDefId) -> Option<&'a BackendFunction> {
+        self.program.functions.get(&def_id).copied()
     }
 
     pub(crate) fn function_instance_item(

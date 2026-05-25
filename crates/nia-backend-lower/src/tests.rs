@@ -114,6 +114,7 @@ fn main() i32 {
         locals: &locals,
         type_lowering: &type_lowering,
         signatures: &signatures,
+        type_normalization: &normalization,
         body_check: &body_check,
         extensions: &extensions,
         const_eval: &const_eval,

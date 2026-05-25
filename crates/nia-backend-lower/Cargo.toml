@@ -21,6 +21,7 @@ nia-monomorphize.workspace = true
 nia-span.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
+nia-type-normalize.workspace = true
 nia-value-resolve.workspace = true
 
 [dev-dependencies]
@@ -28,7 +29,6 @@ nia-abi-check.workspace = true
 nia-flow-check.workspace = true
 nia-parser.workspace = true
 nia-type-lower.workspace = true
-nia-type-normalize.workspace = true
 nia-type-resolve.workspace = true
 
 [lib]
