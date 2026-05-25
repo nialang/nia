@@ -17,7 +17,9 @@ pub struct BackendModule {
     pub interner: TyInterner,
     pub layouts: BackendLayouts,
     pub structs: Vec<BackendStruct>,
+    pub unions: Vec<BackendUnion>,
     pub struct_instances: Vec<BackendStructInstance>,
+    pub union_instances: Vec<BackendUnionInstance>,
     pub enums: Vec<BackendEnum>,
     pub globals: Vec<BackendGlobal>,
     pub functions: Vec<BackendFunction>,
@@ -29,7 +31,9 @@ pub struct BackendModule {
 pub struct BackendLayouts {
     pub types: Vec<(TyId, TypeLayout)>,
     pub structs: Vec<(GlobalDefId, StructLayout)>,
+    pub unions: Vec<(GlobalDefId, StructLayout)>,
     pub struct_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
+    pub union_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -59,8 +63,31 @@ impl BackendLayouts {
                     )
                 })
                 .collect(),
+            unions: layouts
+                .unions
+                .iter()
+                .map(|(def_id, layout)| {
+                    (
+                        GlobalDefId {
+                            module_id,
+                            def_id: *def_id,
+                        },
+                        layout.clone(),
+                    )
+                })
+                .collect(),
             struct_instances: layouts
                 .struct_instances
+                .iter()
+                .map(|(key, layout)| {
+                    (
+                        BackendStructInstanceKey::from_module_key(module_id, key),
+                        layout.clone(),
+                    )
+                })
+                .collect(),
+            union_instances: layouts
+                .union_instances
                 .iter()
                 .map(|(key, layout)| {
                     (
@@ -96,7 +123,28 @@ pub struct BackendStruct {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct BackendUnion {
+    pub def_id: GlobalDefId,
+    pub name: String,
+    pub generics: Vec<String>,
+    pub fields: Vec<BackendField>,
+    pub is_extern: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct BackendStructInstance {
+    pub def_id: GlobalDefId,
+    pub name: String,
+    pub args: Vec<TyId>,
+    pub symbol: String,
+    pub fields: Vec<BackendField>,
+    pub is_extern: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendUnionInstance {
     pub def_id: GlobalDefId,
     pub name: String,
     pub args: Vec<TyId>,
@@ -350,6 +398,10 @@ pub enum TypedExprKind {
     StructLiteral {
         def_id: GlobalDefId,
         fields: Vec<TypedFieldInit>,
+    },
+    UnionLiteral {
+        def_id: GlobalDefId,
+        field: Box<TypedFieldInit>,
     },
     Unary {
         op: UnaryOp,

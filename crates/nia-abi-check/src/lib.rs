@@ -141,6 +141,13 @@ impl AbiChecker<'_> {
                         format!("{context} cannot use enum directly; use its backing integer type"),
                     ));
                 }
+                if self.signatures.unions.contains_key(&def_id.def_id) {
+                    // NIA-FUTURE(internal-abi): classify union by-value passing separately from C ABI.
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        format!("{context} cannot use union by value"),
+                    ));
+                }
             }
             Some(TyKind::GenericParam(_)) => self.diagnostics.push(Diagnostic::error(
                 span,
@@ -177,6 +184,8 @@ extern fn bad(flag: bool, ch: char, color: Color, xs: [2]u8, cb: &const fn(i32, 
 extern fn bad_variadic_definition(fmt: &u8, ...) {
 }
 extern const bad_global: bool;
+union Bits { i: i32 }
+extern fn bad_union(bits: Bits);
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -192,6 +201,7 @@ extern const bad_global: bool;
             "array by value",
             "variadic function pointer",
             "variadic function definition",
+            "union by value",
         ] {
             assert!(
                 checked

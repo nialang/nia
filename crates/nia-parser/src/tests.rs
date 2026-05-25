@@ -156,7 +156,7 @@ fn rejects_extern_binding_without_var_or_const() {
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `fn`, `var`, or `const` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, `var`, or `const` after `extern`")),
         "{errors:?}"
     );
 }
@@ -167,7 +167,7 @@ fn rejects_extern_before_pub_modifier_order() {
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `fn`, `var`, or `const` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, `var`, or `const` after `extern`")),
         "{errors:?}"
     );
 }
@@ -615,4 +615,24 @@ fn main() {
             .any(|error| error.message.contains("expected `;` after expression")),
         "{errors:?}"
     );
+}
+
+#[test]
+fn parses_union_items() {
+    let (module, errors) = parse_module(
+        r#"
+pub extern union Bits[T] {
+    i: i64,
+    value: T,
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Union(item) = &module.items[0].kind else {
+        panic!("expected union item");
+    };
+    assert_eq!(item.name, "Bits");
+    assert_eq!(item.generics, ["T"]);
+    assert_eq!(item.fields.len(), 2);
+    assert!(item.is_extern);
 }

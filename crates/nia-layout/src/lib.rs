@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
-use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature};
+use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
@@ -52,7 +52,9 @@ pub struct Layouts {
     pub interner: TyInterner,
     pub types: HashMap<TyId, TypeLayout>,
     pub structs: HashMap<DefId, StructLayout>,
+    pub unions: HashMap<DefId, StructLayout>,
     pub struct_instances: HashMap<StructLayoutKey, StructLayout>,
+    pub union_instances: HashMap<StructLayoutKey, StructLayout>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -81,10 +83,13 @@ pub fn compute_layouts_with_normalized_types(
         target,
         types: HashMap::new(),
         structs: HashMap::new(),
+        unions: HashMap::new(),
         struct_instances: HashMap::new(),
+        union_instances: HashMap::new(),
         diagnostics: Vec::new(),
         visiting: HashSet::new(),
         visiting_structs: HashSet::new(),
+        visiting_unions: HashSet::new(),
     }
     .compute()
 }
@@ -97,10 +102,13 @@ struct LayoutComputer<'a> {
     target: TargetDataLayout,
     types: HashMap<TyId, TypeLayout>,
     structs: HashMap<DefId, StructLayout>,
+    unions: HashMap<DefId, StructLayout>,
     struct_instances: HashMap<StructLayoutKey, StructLayout>,
+    union_instances: HashMap<StructLayoutKey, StructLayout>,
     diagnostics: Vec<Diagnostic>,
     visiting: HashSet<TyId>,
     visiting_structs: HashSet<StructLayoutKey>,
+    visiting_unions: HashSet<StructLayoutKey>,
 }
 
 impl<'a> LayoutComputer<'a> {
@@ -124,12 +132,24 @@ impl<'a> LayoutComputer<'a> {
         for (def_id, signature) in struct_signatures {
             self.struct_layout(signature.span, def_id, &signature, &[]);
         }
+        let union_signatures: Vec<(DefId, UnionSignature)> = self
+            .signatures
+            .unions
+            .iter()
+            .filter(|(_, signature)| signature.generics.is_empty())
+            .map(|(def_id, signature)| (*def_id, signature.clone()))
+            .collect();
+        for (def_id, signature) in union_signatures {
+            self.union_layout(signature.span, def_id, &signature, &[]);
+        }
         Layouts {
             target: self.target,
             interner: self.interner,
             types: self.types,
             structs: self.structs,
+            unions: self.unions,
             struct_instances: self.struct_instances,
+            union_instances: self.union_instances,
             diagnostics: self.diagnostics,
         }
     }
@@ -254,6 +274,9 @@ impl<'a> LayoutComputer<'a> {
         if let Some(signature) = self.signatures.structs.get(&def_id.def_id).cloned() {
             return self.struct_layout(span, def_id.def_id, &signature, args);
         }
+        if let Some(signature) = self.signatures.unions.get(&def_id.def_id).cloned() {
+            return self.union_layout(span, def_id.def_id, &signature, args);
+        }
         if let Some(signature) = self.signatures.enums.get(&def_id.def_id).cloned() {
             return self.enum_layout(span, &signature);
         }
@@ -308,6 +331,51 @@ impl<'a> LayoutComputer<'a> {
         Some(layout)
     }
 
+    fn union_layout(
+        &mut self,
+        span: Span,
+        def_id: DefId,
+        signature: &UnionSignature,
+        args: &[TyId],
+    ) -> Option<TypeLayout> {
+        let key = StructLayoutKey {
+            def_id,
+            args: args.to_vec(),
+        };
+        if let Some(existing) = self.union_instances.get(&key) {
+            return Some(existing.layout.clone());
+        }
+        if signature.generics.len() != args.len() {
+            return None;
+        }
+        if signature.fields.is_empty() {
+            self.diagnostics
+                .push(Diagnostic::error(span, "union requires at least one field"));
+            return None;
+        }
+        if !self.visiting_unions.insert(key.clone()) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "recursive union layout is not supported",
+            ));
+            return None;
+        }
+        let substitutions: HashMap<String, TyId> = signature
+            .generics
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect();
+        let union_layout = self.union_field_layout(&key, signature, &substitutions)?;
+        let layout = union_layout.layout.clone();
+        if key.args.is_empty() {
+            self.unions.insert(def_id, union_layout.clone());
+        }
+        self.union_instances.insert(key.clone(), union_layout);
+        self.visiting_unions.remove(&key);
+        Some(layout)
+    }
+
     fn nia_struct_layout(
         &mut self,
         key: &StructLayoutKey,
@@ -359,6 +427,37 @@ impl<'a> LayoutComputer<'a> {
             layout: layout.clone(),
             fields,
         })
+    }
+
+    fn union_field_layout(
+        &mut self,
+        key: &StructLayoutKey,
+        signature: &UnionSignature,
+        substitutions: &HashMap<String, TyId>,
+    ) -> Option<StructLayout> {
+        let mut fields = Vec::new();
+        let mut max_size = 0u64;
+        let mut max_align = 1u64;
+        for field in &signature.fields {
+            let field_ty = self.normalize_ty(field.ty);
+            let field_ty = substitute_generics(&mut self.interner, field_ty, substitutions);
+            let Some(field_layout) = self.layout_ty(field_ty, field.span) else {
+                self.visiting_unions.remove(key);
+                return None;
+            };
+            max_size = max_size.max(field_layout.size);
+            max_align = max_align.max(field_layout.align);
+            fields.push(FieldLayout {
+                def_id: field.def_id,
+                offset: 0,
+                layout: field_layout,
+            });
+        }
+        let layout = TypeLayout {
+            size: align_to(max_size, max_align),
+            align: max_align,
+        };
+        Some(StructLayout { layout, fields })
     }
 
     fn normalize_ty(&self, ty_id: TyId) -> TyId {
@@ -645,5 +744,41 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             .expect("ArrayBox[i32] layout");
         assert_eq!(u8_layout.layout, TypeLayout { size: 3, align: 1 });
         assert_eq!(i32_layout.layout, TypeLayout { size: 12, align: 4 });
+    }
+
+    #[test]
+    fn computes_union_layouts() {
+        let (module, errors) = parse_module(
+            r#"
+union Bits[T] {
+    byte: u8,
+    value: T,
+}
+
+fn main(a: Bits[i32]) {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let layouts = compute_layouts(
+            &defs,
+            &lowered.interner,
+            &signatures,
+            TargetDataLayout::LP64,
+        );
+        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        let bits_id = defs.module_scope.types.get("Bits").expect("Bits def");
+        let bits_i32 = layouts
+            .union_instances
+            .get(&StructLayoutKey {
+                def_id: bits_id,
+                args: vec![lowered.interner.primitive(PrimitiveTy::I32)],
+            })
+            .expect("Bits[i32] layout");
+        assert_eq!(bits_i32.layout, TypeLayout { size: 4, align: 4 });
+        assert!(bits_i32.fields.iter().all(|field| field.offset == 0));
     }
 }

@@ -53,6 +53,11 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
                 visitor.visit_type(&field.ty);
             }
         }
+        ItemKind::Union(item_union) => {
+            for field in &item_union.fields {
+                visitor.visit_type(&field.ty);
+            }
+        }
         ItemKind::Extend(extend) => {
             visitor.visit_type(&extend.target);
             for method in &extend.methods {

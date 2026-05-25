@@ -89,7 +89,9 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_module(&mut self) -> BackendModule {
         let mut structs = Vec::new();
+        let mut unions = Vec::new();
         let mut struct_instances = Vec::new();
+        let mut union_instances = Vec::new();
         let mut enums = Vec::new();
         let mut globals = Vec::new();
         let mut functions = Vec::new();
@@ -104,6 +106,14 @@ impl<'a> ModuleLowerer<'a> {
                         structs.push(item);
                     }
                     struct_instances.extend(self.lower_struct_instances(item.span, item_struct));
+                }
+                ItemKind::Union(item_union) => {
+                    if item_union.generics.is_empty()
+                        && let Some(item) = self.lower_union(item.span, item_union)
+                    {
+                        unions.push(item);
+                    }
+                    union_instances.extend(self.lower_union_instances(item.span, item_union));
                 }
                 ItemKind::Extend(extend) => {
                     let extend_target_is_generic = self.extend_target_has_generics(extend);
@@ -143,6 +153,7 @@ impl<'a> ModuleLowerer<'a> {
         let function_instances = self.lower_function_instances(&function_templates);
         self.extend_struct_instances_from_functions(
             &mut struct_instances,
+            &mut union_instances,
             &functions,
             &function_instances,
         );
@@ -153,7 +164,9 @@ impl<'a> ModuleLowerer<'a> {
             interner: self.interner.clone(),
             layouts: BackendLayouts::from_module_layouts(self.input.module_id, self.input.layouts),
             structs,
+            unions,
             struct_instances,
+            union_instances,
             enums,
             globals,
             functions,
@@ -300,9 +313,14 @@ impl<'a> ModuleLowerer<'a> {
         let defs = self.defs_for_module(def_id.module_id)?;
         defs.scopes
             .struct_members
-            .get(&def_id.def_id)?
-            .fields
-            .get(name)
+            .get(&def_id.def_id)
+            .and_then(|members| members.fields.get(name))
+            .or_else(|| {
+                defs.scopes
+                    .union_members
+                    .get(&def_id.def_id)
+                    .and_then(|members| members.fields.get(name))
+            })
             .map(|field| GlobalDefId {
                 module_id: def_id.module_id,
                 def_id: field,
@@ -314,9 +332,14 @@ impl<'a> ModuleLowerer<'a> {
         let defs = self.defs_for_module(def_id.module_id)?;
         defs.scopes
             .struct_members
-            .get(&def_id.def_id)?
-            .fields
-            .get(name)
+            .get(&def_id.def_id)
+            .and_then(|members| members.fields.get(name))
+            .or_else(|| {
+                defs.scopes
+                    .union_members
+                    .get(&def_id.def_id)
+                    .and_then(|members| members.fields.get(name))
+            })
             .map(|field| GlobalDefId {
                 module_id: def_id.module_id,
                 def_id: field,

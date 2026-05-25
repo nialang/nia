@@ -138,6 +138,7 @@ impl<'a> LocalResolver<'a> {
                 ItemKind::Import(_)
                 | ItemKind::Using(_)
                 | ItemKind::Struct(_)
+                | ItemKind::Union(_)
                 | ItemKind::TypeAlias(_) => {}
             }
         }

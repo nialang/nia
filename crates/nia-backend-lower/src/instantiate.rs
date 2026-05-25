@@ -303,6 +303,15 @@ impl<'a> ModuleLowerer<'a> {
                         })
                         .collect(),
                 },
+                TypedExprKind::UnionLiteral { def_id, field } => TypedExprKind::UnionLiteral {
+                    def_id,
+                    field: Box::new(TypedFieldInit {
+                        field: field.field,
+                        name: field.name,
+                        value: self.instantiate_expr(field.value, substitutions),
+                        span: field.span,
+                    }),
+                },
                 TypedExprKind::Unary { op, expr } => TypedExprKind::Unary {
                     op,
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),

@@ -40,6 +40,7 @@ pub enum TokenKind {
     Switch,
     True,
     Type,
+    Union,
     Using,
     Var,
     Void,

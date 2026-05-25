@@ -73,20 +73,23 @@ impl<'a> ModuleLowerer<'a> {
                     }),
                 },
             },
-            ExprKind::StructLiteral { fields } => StaticInit::Struct(
-                fields
+            ExprKind::StructLiteral { fields } => {
+                let ty = self.expr_ty(expr).unwrap_or_else(|| self.error_ty());
+                let field_inits = fields
                     .iter()
                     .map(|field| StaticFieldInit {
                         field: self
-                            .field_def_for_struct_ty(
-                                self.expr_ty(expr).unwrap_or_else(|| self.error_ty()),
-                                &field.name,
-                            )
+                            .field_def_for_struct_ty(ty, &field.name)
                             .unwrap_or_else(|| self.global_error_def()),
                         value: self.lower_static_init(&field.value),
                     })
-                    .collect(),
-            ),
+                    .collect::<Vec<_>>();
+                let is_union = self.nominal_global_def(ty).is_some_and(|def_id| {
+                    self.input.signatures.unions.contains_key(&def_id.def_id)
+                });
+                let _ = is_union;
+                StaticInit::Struct(field_inits)
+            }
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Neg,
                 ..

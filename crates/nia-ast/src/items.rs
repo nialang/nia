@@ -27,6 +27,7 @@ pub enum ItemKind {
     Import(ImportItem),
     Using(UsingItem),
     Struct(StructItem),
+    Union(UnionItem),
     Extend(ExtendItem),
     Enum(EnumItem),
     TypeAlias(TypeAliasItem),
@@ -81,6 +82,14 @@ pub struct UsingName {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructItem {
+    pub name: String,
+    pub generics: Vec<String>,
+    pub fields: Vec<Field>,
+    pub is_extern: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnionItem {
     pub name: String,
     pub generics: Vec<String>,
     pub fields: Vec<Field>,

@@ -7,8 +7,11 @@ use nia_ids::{GlobalDefId, ModuleId, TyId};
 pub(super) struct ProgramIndex<'a> {
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
     pub(super) structs: HashMap<GlobalDefId, &'a nia_backend_ir::BackendStruct>,
+    pub(super) unions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendUnion>,
     pub(super) struct_instances:
         HashMap<(GlobalDefId, Vec<TyId>), &'a nia_backend_ir::BackendStructInstance>,
+    pub(super) union_instances:
+        HashMap<(GlobalDefId, Vec<TyId>), &'a nia_backend_ir::BackendUnionInstance>,
     pub(super) enums: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnum>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
@@ -20,7 +23,9 @@ impl<'a> ProgramIndex<'a> {
         let mut index = Self {
             modules: HashMap::new(),
             structs: HashMap::new(),
+            unions: HashMap::new(),
             struct_instances: HashMap::new(),
+            union_instances: HashMap::new(),
             enums: HashMap::new(),
             globals: HashMap::new(),
             functions: HashMap::new(),
@@ -31,9 +36,17 @@ impl<'a> ProgramIndex<'a> {
             for item in &module.structs {
                 index.structs.insert(item.def_id, item);
             }
+            for item in &module.unions {
+                index.unions.insert(item.def_id, item);
+            }
             for item in &module.struct_instances {
                 index
                     .struct_instances
+                    .insert((item.def_id, item.args.clone()), item);
+            }
+            for item in &module.union_instances {
+                index
+                    .union_instances
                     .insert((item.def_id, item.args.clone()), item);
             }
             for item in &module.enums {

@@ -203,6 +203,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             TypedExprKind::StructLiteral { def_id, fields } => {
                 self.emit_struct_literal(expr, *def_id, fields)
             }
+            TypedExprKind::UnionLiteral { def_id, field } => {
+                self.emit_union_literal(expr, *def_id, field)
+            }
             TypedExprKind::EnumVariant(def_id) => self.emit_enum_variant(expr, *def_id),
             TypedExprKind::Binary { lhs, op, rhs } => {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {

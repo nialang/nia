@@ -17,11 +17,12 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, LocalId, TyId};
 use nia_item_signatures::{
     EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures, StructSignature,
+    UnionSignature,
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyInterner};
+use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -77,6 +78,12 @@ pub struct ProgramStructSignature {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ProgramUnionSignature {
+    pub signature: UnionSignature,
+    pub interner: TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProgramEnumSignature {
     pub signature: nia_item_signatures::EnumSignature,
     pub interner: TyInterner,
@@ -87,6 +94,7 @@ pub struct ProgramSignatureMaps<'a> {
     pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
     pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
+    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
 }
 
@@ -147,6 +155,7 @@ pub fn check_module_bodies(
     let empty_functions = HashMap::new();
     let empty_globals = HashMap::new();
     let empty_structs = HashMap::new();
+    let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -164,6 +173,7 @@ pub fn check_module_bodies(
             functions: &empty_functions,
             globals: &empty_globals,
             structs: &empty_structs,
+            unions: &empty_unions,
             enums: &empty_enums,
         },
     });
@@ -219,6 +229,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_functions: input.program_signatures.functions,
         program_globals: input.program_signatures.globals,
         program_structs: input.program_signatures.structs,
+        program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
         expr_types: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
@@ -257,6 +268,7 @@ struct BodyChecker<'a> {
     program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
     program_globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
+    program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     expr_types: HashMap<Span, TyId>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
@@ -280,6 +292,11 @@ struct ReceiverBase {
 #[derive(Debug, Clone)]
 struct ResolvedStructSignature {
     signature: StructSignature,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedUnionSignature {
+    signature: UnionSignature,
 }
 
 #[derive(Debug, Clone)]
@@ -410,6 +427,18 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_block_with_expected(&mut self, block: &Block, expected_tail: Option<TyId>) -> TyId {
+        if block.stmts.is_empty()
+            && block.tail.is_none()
+            && let Some(expected) = expected_tail
+            && let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(expected)
+            && self.is_union_def(*def_id)
+        {
+            self.diagnostics.push(Diagnostic::error(
+                block.span,
+                "union literal requires exactly one field, got 0",
+            ));
+            return expected;
+        }
         for stmt in &block.stmts {
             self.check_stmt(stmt);
         }

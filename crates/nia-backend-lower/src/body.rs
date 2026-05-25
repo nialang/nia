@@ -265,19 +265,44 @@ impl<'a> ModuleLowerer<'a> {
             },
             ExprKind::StructLiteral { fields } => {
                 let def_id = self.nominal_global_def(ty);
-                TypedExprKind::StructLiteral {
-                    def_id: def_id.unwrap_or_else(|| self.global_error_def()),
-                    fields: fields
-                        .iter()
-                        .map(|field| TypedFieldInit {
-                            field: self
-                                .field_def_for_struct_ty(ty, &field.name)
-                                .unwrap_or_else(|| self.global_error_def()),
-                            name: field.name.clone(),
-                            value: self.lower_expr(&field.value),
-                            span: field.span,
-                        })
-                        .collect(),
+                let def_id = def_id.unwrap_or_else(|| self.global_error_def());
+                if self.input.signatures.unions.contains_key(&def_id.def_id) {
+                    let field = fields.first().map(|field| TypedFieldInit {
+                        field: self
+                            .field_def_for_struct_ty(ty, &field.name)
+                            .unwrap_or_else(|| self.global_error_def()),
+                        name: field.name.clone(),
+                        value: self.lower_expr(&field.value),
+                        span: field.span,
+                    });
+                    TypedExprKind::UnionLiteral {
+                        def_id,
+                        field: Box::new(field.unwrap_or_else(|| TypedFieldInit {
+                            field: self.global_error_def(),
+                            name: String::new(),
+                            value: TypedExpr {
+                                span: expr.span,
+                                ty: self.error_ty(),
+                                kind: TypedExprKind::Error,
+                            },
+                            span: expr.span,
+                        })),
+                    }
+                } else {
+                    TypedExprKind::StructLiteral {
+                        def_id,
+                        fields: fields
+                            .iter()
+                            .map(|field| TypedFieldInit {
+                                field: self
+                                    .field_def_for_struct_ty(ty, &field.name)
+                                    .unwrap_or_else(|| self.global_error_def()),
+                                name: field.name.clone(),
+                                value: self.lower_expr(&field.value),
+                                span: field.span,
+                            })
+                            .collect(),
+                    }
                 }
             }
             ExprKind::Unary { op, expr: inner } => {

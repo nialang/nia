@@ -72,6 +72,26 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(expr.span, "failed to load struct literal"))
     }
 
+    pub(super) fn emit_union_literal(
+        &mut self,
+        expr: &TypedExpr,
+        _def_id: GlobalDefId,
+        field: &TypedFieldInit,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let union_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let ptr = self
+            .builder
+            .build_alloca(union_ty, "uniontmp")
+            .map_err(|_| self.error(expr.span, "failed to allocate union literal"))?;
+        let value = self.emit_expr(&field.value)?;
+        self.builder
+            .build_store(ptr, value)
+            .map_err(|_| self.error(field.span, "failed to store union field"))?;
+        self.builder
+            .build_load(union_ty, ptr, "unionlit")
+            .map_err(|_| self.error(expr.span, "failed to load union literal"))
+    }
+
     pub(super) fn emit_enum_variant(
         &self,
         expr: &TypedExpr,

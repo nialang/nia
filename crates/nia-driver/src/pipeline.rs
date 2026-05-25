@@ -6,7 +6,8 @@ use crate::{
     module_diagnostics,
     program_signatures::{
         collect_extension_methods, collect_program_enums, collect_program_functions,
-        collect_program_globals, collect_program_structs, visible_extensions_for_module,
+        collect_program_globals, collect_program_structs, collect_program_unions,
+        visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -126,6 +127,11 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
         &type_lowerings,
         &item_signatures_by_module,
     );
+    let program_unions = collect_program_unions(
+        &parse_ok_modules,
+        &type_lowerings,
+        &item_signatures_by_module,
+    );
     let program_enums = collect_program_enums(
         &parse_ok_modules,
         &type_lowerings,
@@ -187,6 +193,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                 functions: &program_functions,
                 globals: &program_globals,
                 structs: &program_structs,
+                unions: &program_unions,
                 enums: &program_enums,
             },
         });

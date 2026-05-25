@@ -53,6 +53,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             } => Ok(self.emit_expr(expr)?.into_pointer_value()),
             TypedExprKind::Field { lhs, field } => {
                 let (base_ty, base_ptr) = self.emit_struct_base_addr(lhs)?;
+                if let Some((def_id, _)) = self.module_field_base_type(lhs.ty)
+                    && self.module.is_union_def(def_id)
+                {
+                    return Ok(base_ptr);
+                }
                 let field_index = self.field_index(lhs.ty, *field, span)?;
                 self.builder
                     .build_struct_gep(base_ty, base_ptr, field_index, "fieldptr")
@@ -74,6 +79,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_store(ptr, value)
             .map_err(|_| self.error(expr.span, "failed to store slice temporary"))?;
         Ok(ptr)
+    }
+
+    fn module_field_base_type(&self, ty: TyId) -> Option<(nia_ids::GlobalDefId, Vec<TyId>)> {
+        match self.module.interner().get(ty) {
+            Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
+            Some(TyKind::Pointer { elem, .. }) => self.module_field_base_type(*elem),
+            _ => None,
+        }
     }
 
     pub(super) fn emit_slice(
@@ -387,11 +400,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         current_ty = *elem;
                     }
                     let base_ty = self.module.llvm_basic_type(current_ty, place.span)?;
-                    let field_index = self.field_index(current_ty, *field, place.span)?;
-                    ptr = self
-                        .builder
-                        .build_struct_gep(base_ty, ptr, field_index, "fieldptr")
-                        .map_err(|_| self.error(place.span, "failed to build field address"))?;
+                    if !self.is_union_ty(current_ty) {
+                        let field_index = self.field_index(current_ty, *field, place.span)?;
+                        ptr = self
+                            .builder
+                            .build_struct_gep(base_ty, ptr, field_index, "fieldptr")
+                            .map_err(|_| self.error(place.span, "failed to build field address"))?;
+                    }
                     current_ty = self.field_ty(current_ty, *field, place.span)?;
                 }
                 nia_backend_ir::PlaceElem::Index(index) => {
@@ -438,6 +453,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 _ => place.ty,
             },
         }
+    }
+
+    fn is_union_ty(&self, ty: TyId) -> bool {
+        self.module_field_base_type(ty)
+            .is_some_and(|(def_id, _)| self.module.is_union_def(def_id))
     }
 
     fn emit_index_addr(

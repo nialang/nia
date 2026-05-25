@@ -213,6 +213,8 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 types: Vec::new(),
                 structs: Vec::new(),
                 struct_instances: Vec::new(),
+                unions: Vec::new(),
+                union_instances: Vec::new(),
             },
             structs: vec![
                 BackendStruct {
@@ -243,6 +245,8 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 },
             ],
             struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
             enums: Vec::new(),
             globals: Vec::new(),
             functions: vec![BackendFunction {
@@ -292,7 +296,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
         output
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("missing struct field index")),
+            .any(|diagnostic| diagnostic.message.contains("missing aggregate field index")),
         "{:?}",
         output.diagnostics
     );
@@ -1089,6 +1093,7 @@ fn main() i32 {
     });
     value as i32
 }
+
 "#,
     )
     .expect("write test source");
@@ -1102,6 +1107,37 @@ fn main() i32 {
     assert!(ir.contains("asm sideeffect"));
     assert!(ir.contains("mov rax, rax\\0Aadd rax, 0"));
     assert!(ir.contains("={rax},{rax},~{memory}"), "{ir}");
+}
+
+#[test]
+fn emits_union_storage_and_field_access() {
+    let root = temp_dir("emits_union_storage_and_field_access");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+union Bits {
+    i: i32,
+    f: f32,
+}
+
+fn main() i32 {
+    var bits: Bits = { i: 42 };
+    bits.i
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("%nia__m0__d0__Bits"));
+    assert!(ir.contains("store i32 42"));
+    assert!(ir.contains("ret i32"));
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {

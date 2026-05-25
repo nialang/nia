@@ -173,6 +173,7 @@ impl<'a> Tokenizer<'a> {
             "switch" => TokenKind::Switch,
             "true" => TokenKind::True,
             "type" => TokenKind::Type,
+            "union" => TokenKind::Union,
             "using" => TokenKind::Using,
             "var" => TokenKind::Var,
             "void" => TokenKind::Void,
