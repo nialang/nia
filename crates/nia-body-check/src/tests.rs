@@ -1888,4 +1888,30 @@ fn main() void {
         "{:?}",
         bare_option.diagnostics
     );
+
+    let aggregate_operand = pipeline(
+        r#"
+struct Pair { x: i64 }
+
+fn main() void {
+    var pair: Pair = { x: 1 };
+    @asm({
+        code: "nop",
+        inputs: { rax: pair },
+        outputs: { rax: pair },
+    });
+}
+"#,
+    );
+    assert!(
+        aggregate_operand
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("inline assembly")
+                && diagnostic.message.contains("aggregate type"))
+            .count()
+            >= 2,
+        "{:?}",
+        aggregate_operand.diagnostics
+    );
 }

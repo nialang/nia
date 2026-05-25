@@ -61,8 +61,31 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
         &type_normalization.normalized,
         nia_layout::TargetDataLayout::LP64,
     );
-    let abi_check =
-        nia_abi_check::check_module_abi(&defs, &type_lowering.interner, &item_signatures);
+    let program_structs = program_signatures
+        .structs
+        .iter()
+        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
+        .collect();
+    let program_unions = program_signatures
+        .unions
+        .iter()
+        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
+        .collect();
+    let program_enums = program_signatures
+        .enums
+        .iter()
+        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
+        .collect();
+    let abi_check = nia_abi_check::check_module_abi_with_program_signatures(
+        &defs,
+        &type_lowering.interner,
+        &item_signatures,
+        nia_abi_check::ProgramAbiSignatures {
+            structs: &program_structs,
+            unions: &program_unions,
+            enums: &program_enums,
+        },
+    );
     let static_check = nia_static_check::check_module_static_initializers(
         &loaded_module.module,
         &defs,
