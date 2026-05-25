@@ -430,14 +430,20 @@ impl<'a> BodyChecker<'a> {
         if block.stmts.is_empty()
             && block.tail.is_none()
             && let Some(expected) = expected_tail
-            && let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(expected)
-            && self.is_union_def(*def_id)
+            && let Some(TyKind::Nominal { def_id, args }) = self.interner.get(expected)
         {
-            self.diagnostics.push(Diagnostic::error(
-                block.span,
-                "union literal requires exactly one field, got 0",
-            ));
-            return expected;
+            let def_id = *def_id;
+            let args = args.clone();
+            if self.is_union_def(def_id) {
+                self.diagnostics.push(Diagnostic::error(
+                    block.span,
+                    "union literal requires exactly one field, got 0",
+                ));
+                return expected;
+            }
+            if self.is_empty_struct_type(def_id, &args) {
+                return expected;
+            }
         }
         for stmt in &block.stmts {
             self.check_stmt(stmt);
@@ -447,6 +453,13 @@ impl<'a> BodyChecker<'a> {
         } else {
             self.void()
         }
+    }
+
+    fn is_empty_struct_type(&mut self, def_id: GlobalDefId, args: &[TyId]) -> bool {
+        let Some(resolved) = self.resolved_struct_signature(def_id) else {
+            return false;
+        };
+        resolved.signature.generics.len() == args.len() && resolved.signature.fields.is_empty()
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) {

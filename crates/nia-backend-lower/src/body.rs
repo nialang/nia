@@ -15,6 +15,7 @@ use nia_defs::DefKind;
 use nia_ids::{GlobalDefId, LocalId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
+use nia_ty::TyKind;
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::decode_string_literal;
@@ -383,6 +384,14 @@ impl<'a> ModuleLowerer<'a> {
                     is_const: true,
                 },
             },
+            ExprKind::Block(block) if self.empty_struct_literal_expr(ty, block) => {
+                TypedExprKind::StructLiteral {
+                    def_id: self
+                        .nominal_global_def(ty)
+                        .unwrap_or_else(|| self.global_error_def()),
+                    fields: Vec::new(),
+                }
+            }
             ExprKind::Block(block) => TypedExprKind::Block(self.lower_body(block)),
             ExprKind::If {
                 cond,
@@ -401,6 +410,20 @@ impl<'a> ModuleLowerer<'a> {
             ty,
             kind,
         }
+    }
+
+    fn empty_struct_literal_expr(&self, ty: nia_ids::TyId, block: &Block) -> bool {
+        if !block.stmts.is_empty() || block.tail.is_some() {
+            return false;
+        }
+        let Some(TyKind::Nominal { def_id, .. }) = self.input.body_check.interner.get(ty) else {
+            return false;
+        };
+        self.input
+            .signatures
+            .structs
+            .get(&def_id.def_id)
+            .is_some_and(|signature| signature.fields.is_empty())
     }
 
     fn lower_ident_expr(&self, expr: &Expr) -> TypedExprKind {

@@ -255,10 +255,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let struct_fields = self.struct_fields(*def_id, args, span)?;
         let values = struct_fields
             .iter()
-            .enumerate()
-            .map(|(index, field)| {
+            .filter(|field| {
+                !layouts
+                    .types
+                    .iter()
+                    .find_map(|(ty, layout)| (*ty == field.ty).then_some(layout))
+                    .is_some_and(|layout| layout.size == 0)
+            })
+            .map(|field| {
                 let init = fields
-                    .get(index)
+                    .iter()
+                    .find(|init| init.field == field.def_id)
                     .ok_or_else(|| self.error(field.span, "missing static field initializer"))?;
                 self.static_init_value_in(field.ty, &init.value, field.span, interner, layouts)
             })

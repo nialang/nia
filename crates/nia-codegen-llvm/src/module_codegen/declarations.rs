@@ -42,6 +42,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             };
             let mut fields = Vec::new();
             for field in &item.fields {
+                if let Some(layout) = owner
+                    .layouts
+                    .types
+                    .iter()
+                    .find_map(|(ty, layout)| (*ty == field.ty).then_some(layout))
+                    && layout.size == 0
+                {
+                    continue;
+                }
                 fields.push(self.llvm_basic_type_in(
                     field.ty,
                     field.span,
@@ -64,6 +73,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             };
             let mut fields = Vec::new();
             for field in &item.fields {
+                if let Some(layout) = owner
+                    .layouts
+                    .types
+                    .iter()
+                    .find_map(|(ty, layout)| (*ty == field.ty).then_some(layout))
+                    && layout.size == 0
+                {
+                    continue;
+                }
                 fields.push(self.llvm_basic_type_in(
                     field.ty,
                     field.span,

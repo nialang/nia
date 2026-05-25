@@ -58,6 +58,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_binding(&mut self, span: Span, binding: &TypedBinding) -> Result<(), Diagnostic> {
         if let Some(value) = &binding.value {
+            if self.is_void_expr(value) {
+                self.emit_void_expr(value)?;
+                return Ok(());
+            }
             let value = self.emit_expr(value)?;
             let Some(ptr) = self.locals.get(&binding.local_id).copied() else {
                 return Err(self.error(span, "missing local binding storage"));
@@ -291,15 +295,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(())
             }
             TypedExprKind::InlineAsm(asm) => self.emit_inline_asm(asm),
-            TypedExprKind::Block(body) => {
-                for stmt in &body.stmts {
-                    self.emit_stmt(stmt)?;
-                }
-                if let Some(tail) = &body.tail {
-                    self.emit_void_expr(tail)?;
-                }
-                Ok(())
-            }
+            TypedExprKind::Block(body) => self.emit_zero_sized_body(body),
+            TypedExprKind::StructLiteral { .. } => Ok(()),
+            TypedExprKind::Local(_) | TypedExprKind::Global(_) => Ok(()),
             TypedExprKind::If {
                 cond,
                 then_branch,
@@ -315,6 +313,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn is_void_expr(&self, expr: &TypedExpr) -> bool {
         self.is_void(expr.ty)
             || self.is_never(expr.ty)
+            || self
+                .module
+                .layout_of(expr.ty)
+                .is_some_and(|layout| layout.size == 0)
             || matches!(expr.kind, TypedExprKind::Assign { .. })
     }
 
@@ -378,7 +380,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(phi.as_basic_value())
     }
 
-    fn emit_void_if_expr(
+    pub(super) fn emit_void_if_expr(
         &mut self,
         span: Span,
         cond: &TypedExpr,

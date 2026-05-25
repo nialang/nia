@@ -83,6 +83,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        if self
+            .layout_of_in(ty, layouts)
+            .is_some_and(|layout| layout.size == 0)
+            && !matches!(
+                interner.get(ty),
+                Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+            )
+        {
+            return Ok(self.context.struct_type(&[], false).into());
+        }
         match interner.get(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_type(*primitive, span),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => {
@@ -198,6 +208,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some((def_id, args)) = self.field_base_type(base_ty) else {
             return Err(self.error(span, "field base type is not nominal"));
         };
+        if self
+            .layout_of(base_ty)
+            .is_some_and(|layout| layout.size == 0)
+        {
+            return Err(self.error(span, "zero-sized aggregate field has no runtime index"));
+        }
         let fields = self.struct_fields(def_id, &args, span)?;
         if let Some(index) = fields
             .iter()
@@ -209,6 +225,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             return Ok(0);
         }
         Err(self.error(span, "missing aggregate field index"))
+    }
+
+    fn layout_of_in(&self, ty: TyId, layouts: &BackendLayouts) -> Option<nia_layout::TypeLayout> {
+        layouts
+            .types
+            .iter()
+            .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
     }
 
     pub(crate) fn field_ty(

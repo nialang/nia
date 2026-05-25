@@ -81,6 +81,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Ok(());
         }
         if let Some(tail) = &body.tail {
+            if self.is_zero_sized(tail.ty) {
+                self.emit_zero_sized_expr(tail)?;
+                self.pop_defer_scope_to(scope, true)?;
+                self.builder
+                    .build_return(None)
+                    .map_err(|_| self.error(tail.span, "failed to build void return"))?;
+                return Ok(());
+            }
             let value = self.emit_expr(tail)?;
             if self.current_block_has_terminator() {
                 self.pop_defer_scope_to(scope, false)?;
@@ -112,6 +120,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 local.kind,
                 TypedLocalKind::Param | TypedLocalKind::Binding | TypedLocalKind::ConstBinding
             ) {
+                if self.is_zero_sized(local.ty) {
+                    self.local_tys.insert(local.id, local.ty);
+                    continue;
+                }
                 let ty = self.module.llvm_basic_type(local.ty, local.span)?;
                 let ptr = self
                     .builder
@@ -156,6 +168,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .const_int(u64::from(*value), false)
                 .into()),
             TypedExprKind::Local(local_id) => {
+                if self.is_zero_sized(expr.ty) {
+                    return Err(self.error(expr.span, "zero-sized local has no runtime value"));
+                }
                 let Some(ptr) = self.locals.get(local_id).copied() else {
                     return Err(self.error(expr.span, "missing local storage"));
                 };
@@ -171,6 +186,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .copied()
                 .ok_or_else(|| self.error(expr.span, "missing global value"))
                 .and_then(|global| {
+                    if self.is_zero_sized(expr.ty) {
+                        return Err(self.error(expr.span, "zero-sized global has no runtime value"));
+                    }
                     let Some(global_info) = self.module.program.globals.get(def_id).copied() else {
                         return Err(self.error(expr.span, "missing global metadata"));
                     };
@@ -249,6 +267,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn emit_block_expr(&mut self, body: &TypedBody) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if self.is_zero_sized(body.ty) {
+            self.emit_zero_sized_body(body)?;
+            return Err(self.error(body.span, "zero-sized block has no runtime value"));
+        }
         let scope = self.push_defer_scope();
         for stmt in &body.stmts {
             self.emit_stmt(stmt)?;
@@ -292,6 +314,43 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn same_llvm_type(&self, lhs: TyId, rhs: TyId, span: Span) -> Result<bool, Diagnostic> {
         Ok(self.module.llvm_basic_type(lhs, span)? == self.module.llvm_basic_type(rhs, span)?)
+    }
+
+    pub(super) fn emit_zero_sized_expr(&mut self, expr: &TypedExpr) -> Result<(), Diagnostic> {
+        match &expr.kind {
+            TypedExprKind::Block(body) => self.emit_zero_sized_body(body),
+            TypedExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.emit_void_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
+            TypedExprKind::StructLiteral { .. } => Ok(()),
+            TypedExprKind::Local(_) | TypedExprKind::Global(_) => Ok(()),
+            _ => self.emit_void_expr(expr),
+        }
+    }
+
+    pub(super) fn emit_zero_sized_body(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
+        let scope = self.push_defer_scope();
+        for stmt in &body.stmts {
+            self.emit_stmt(stmt)?;
+            if self.current_block_has_terminator() {
+                break;
+            }
+        }
+        if !self.current_block_has_terminator()
+            && let Some(tail) = &body.tail
+        {
+            self.emit_zero_sized_expr(tail)?;
+        }
+        self.pop_defer_scope_to(scope, !self.current_block_has_terminator())?;
+        Ok(())
+    }
+
+    fn is_zero_sized(&self, ty: TyId) -> bool {
+        self.module
+            .layout_of(ty)
+            .is_some_and(|layout| layout.size == 0)
     }
 
     fn is_integer_like(&self, ty: TyId) -> bool {
