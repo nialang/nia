@@ -621,6 +621,56 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_nia_function_aggregate_parameter_and_return_abi() {
+    let root = temp_dir("emits_nia_function_aggregate_parameter_and_return_abi");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn id(pair: Pair) Pair {
+    pair
+}
+
+fn sum(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn main() i32 {
+    var pair: Pair = { a: 10, b: 20 };
+    var copied = id(pair);
+    sum(copied)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("define void @nia__m0__d3__id(ptr %0, ptr %1)"),
+        "{ir}"
+    );
+    assert!(ir.contains("define i32 @nia__m0__d4__sum(ptr %0)"), "{ir}");
+    assert!(
+        ir.contains("call void @nia__m0__d3__id(ptr %call.out, ptr %pair"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("call i32 @nia__m0__d4__sum(ptr %copied"),
+        "{ir}"
+    );
+}
+
+#[test]
 fn emits_unary_cast_float_and_enum_values() {
     let root = temp_dir("emits_unary_cast_float_and_enum_values");
     let main = root.join("main.nia");
@@ -766,7 +816,8 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("%nia__m0__d0__Box__inst__t_i32"));
     assert!(ir.contains("@nia__m0__d2__make__inst__i32"));
-    assert!(ir.contains("call %nia__m0__d0__Box__inst__t_i32 @nia__m0__d2__make__inst__i32"));
+    assert!(ir.contains("call void @nia__m0__d2__make__inst__i32(ptr %call.out, i32 42"));
+    assert!(ir.contains("define void @nia__m0__d2__make__inst__i32(ptr %0, i32 %1)"));
     assert!(ir.contains("ret i32"));
 }
 

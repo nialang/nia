@@ -3,6 +3,8 @@ mod declarations;
 mod static_init;
 mod types;
 
+pub(crate) use types::{AbiParam, AbiReturn};
+
 use std::collections::HashMap;
 
 use crate::function_codegen::FunctionCodegen;

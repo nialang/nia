@@ -10,7 +10,7 @@ mod place;
 
 use std::collections::HashMap;
 
-use crate::module_codegen::ModuleCodegen;
+use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
 use nia_backend_ir::{
@@ -33,6 +33,7 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     llvm_function: FunctionValue<'ctx>,
     locals: HashMap<LocalId, PointerValue<'ctx>>,
     local_tys: HashMap<LocalId, TyId>,
+    out_ptr: Option<PointerValue<'ctx>>,
     loops: Vec<LoopTargets<'ctx>>,
     defer_scopes: Vec<DeferScope>,
 }
@@ -56,6 +57,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             llvm_function,
             locals: HashMap::new(),
             local_tys: HashMap::new(),
+            out_ptr: None,
             loops: Vec::new(),
             defer_scopes: Vec::new(),
         }
@@ -67,6 +69,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .context
             .append_basic_block(self.llvm_function, "entry");
         self.builder.position_at_end(entry);
+        self.out_ptr = self.function_out_ptr()?;
         self.alloc_locals(body)?;
         self.store_params()?;
         let scope = self.push_defer_scope();
@@ -95,9 +98,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 return Ok(());
             }
             self.pop_defer_scope_to(scope, true)?;
-            self.builder
-                .build_return(Some(&value))
-                .map_err(|_| self.error(tail.span, "failed to build return"))?;
+            self.emit_return_value(tail.span, value)?;
         } else if self.is_void(self.function.return_type) {
             self.pop_defer_scope_to(scope, true)?;
             self.builder
@@ -137,19 +138,112 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn store_params(&mut self) -> Result<(), Diagnostic> {
-        for (index, param) in self.function.params.iter().enumerate() {
+        let classifications = self.module.classify_function_params(
+            &self
+                .function
+                .params
+                .iter()
+                .map(|param| param.ty)
+                .collect::<Vec<_>>(),
+        );
+        let mut llvm_index = usize::from(matches!(
+            self.module
+                .classify_function_return(self.function.return_type),
+            AbiReturn::IndirectOut(_)
+        ));
+        for (param, classification) in self.function.params.iter().zip(classifications) {
             let Some(local_id) = param.local_id else {
+                if !matches!(classification, AbiParam::Omit) {
+                    llvm_index += 1;
+                }
                 continue;
             };
             let Some(ptr) = self.locals.get(&local_id).copied() else {
+                if !matches!(classification, AbiParam::Omit) {
+                    llvm_index += 1;
+                }
                 continue;
             };
-            let Some(value) = self.llvm_function.get_nth_param(index as u32) else {
-                return Err(self.error(param.span, "missing LLVM function parameter"));
+            match classification {
+                AbiParam::Direct(_) => {
+                    let Some(value) = self.llvm_function.get_nth_param(llvm_index as u32) else {
+                        return Err(self.error(param.span, "missing LLVM function parameter"));
+                    };
+                    self.builder.build_store(ptr, value).map_err(|_| {
+                        self.error(param.span, "failed to store function parameter")
+                    })?;
+                    llvm_index += 1;
+                }
+                AbiParam::IndirectReadonly(ty) => {
+                    let Some(value) = self.llvm_function.get_nth_param(llvm_index as u32) else {
+                        return Err(self.error(param.span, "missing LLVM function parameter"));
+                    };
+                    let loaded_ty = self.module.llvm_basic_type(ty, param.span)?;
+                    let loaded = self
+                        .builder
+                        .build_load(loaded_ty, value.into_pointer_value(), "param.copy")
+                        .map_err(|_| self.error(param.span, "failed to load indirect parameter"))?;
+                    self.builder.build_store(ptr, loaded).map_err(|_| {
+                        self.error(param.span, "failed to store function parameter")
+                    })?;
+                    llvm_index += 1;
+                }
+                AbiParam::Omit => {}
             };
-            self.builder
-                .build_store(ptr, value)
-                .map_err(|_| self.error(param.span, "failed to store function parameter"))?;
+        }
+        Ok(())
+    }
+
+    fn function_out_ptr(&self) -> Result<Option<PointerValue<'ctx>>, Diagnostic> {
+        if !matches!(
+            self.module
+                .classify_function_return(self.function.return_type),
+            AbiReturn::IndirectOut(_)
+        ) {
+            return Ok(None);
+        }
+        self.llvm_function
+            .get_nth_param(0)
+            .map(|value| value.into_pointer_value())
+            .ok_or_else(|| self.error(self.function.span, "missing aggregate return pointer"))
+            .map(Some)
+    }
+
+    pub(super) fn emit_return_value(
+        &mut self,
+        span: Span,
+        value: BasicValueEnum<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        match self
+            .module
+            .classify_function_return(self.function.return_type)
+        {
+            AbiReturn::Direct(_) => self
+                .builder
+                .build_return(Some(&value))
+                .map_err(|_| self.error(span, "failed to build return"))
+                .map(|_| ())?,
+            AbiReturn::IndirectOut(_) => {
+                let Some(out_ptr) = self.out_ptr else {
+                    return Err(self.error(span, "missing aggregate return pointer"));
+                };
+                self.builder
+                    .build_store(out_ptr, value)
+                    .map_err(|_| self.error(span, "failed to store aggregate return"))?;
+                self.builder
+                    .build_return(None)
+                    .map_err(|_| self.error(span, "failed to build aggregate return"))?;
+            }
+            AbiReturn::Void => self
+                .builder
+                .build_return(None)
+                .map_err(|_| self.error(span, "failed to build void return"))
+                .map(|_| ())?,
+            AbiReturn::Never => self
+                .builder
+                .build_unreachable()
+                .map_err(|_| self.error(span, "failed to build never return"))
+                .map(|_| ())?,
         }
         Ok(())
     }
