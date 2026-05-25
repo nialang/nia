@@ -11,6 +11,7 @@ use crate::program_index::ProgramIndex;
 use nia_backend_ir::{BackendFunction, BackendModule};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
+use nia_layout::TypeLayout;
 use nia_llvm::{
     Context,
     target::TargetMachine,
@@ -121,6 +122,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             _ => false,
         }
+    }
+
+    pub(super) fn layout_of(&self, ty: TyId) -> Option<TypeLayout> {
+        self.source
+            .layouts
+            .types
+            .iter()
+            .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
     }
 
     fn is_const_argv_ty(&self, ty: TyId) -> bool {

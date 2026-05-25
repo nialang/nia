@@ -635,6 +635,33 @@ fn main(xs: [@size[Pair]()]u8, ys: [@align[Pair]()]u8) {}
     }
 
     #[test]
+    fn computes_empty_struct_layout() {
+        let (module, errors) = parse_module(
+            r#"
+struct Empty {}
+
+fn main(value: Empty) {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let layouts = compute_layouts(
+            &defs,
+            &lowered.interner,
+            &signatures,
+            TargetDataLayout::LP64,
+        );
+        assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
+        let empty_id = defs.module_scope.types.get("Empty").expect("Empty def");
+        let empty = layouts.structs.get(&empty_id).expect("Empty layout");
+        assert_eq!(empty.layout, TypeLayout { size: 0, align: 1 });
+        assert!(empty.fields.is_empty());
+    }
+
+    #[test]
     fn ignores_inferred_array_placeholders_during_global_layout_scan() {
         let (module, errors) = parse_module(
             r#"

@@ -263,6 +263,13 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn deref_result_type(&mut self, span: Span, ty: TyId) -> TyId {
         match self.interner.get(ty) {
+            Some(TyKind::Pointer { elem, .. })
+                if self.normalization.normalize(*elem) == self.void() =>
+            {
+                self.diagnostics
+                    .push(Diagnostic::error(span, "cannot dereference `&void`"));
+                self.error()
+            }
             Some(TyKind::Pointer { elem, .. }) => *elem,
             Some(TyKind::Error) | None => self.error(),
             _ => {

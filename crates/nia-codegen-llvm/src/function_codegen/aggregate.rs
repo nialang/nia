@@ -51,6 +51,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         _def_id: GlobalDefId,
         fields: &[TypedFieldInit],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if self
+            .module
+            .layout_of(expr.ty)
+            .is_some_and(|layout| layout.size == 0)
+        {
+            return Err(self.error(expr.span, "zero-sized struct has no runtime value"));
+        }
         let struct_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self
             .builder

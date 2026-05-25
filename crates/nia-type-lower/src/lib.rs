@@ -172,7 +172,7 @@ impl<'a> TypeLowerer<'a> {
         if context == TypeContext::Value && self.is_invalid_value_type(lowered) {
             self.diagnostics.push(Diagnostic::error(
                 ty.span,
-                "`void` and `!` are not valid as value, field, parameter, or array element types",
+                "`!` is not valid as a value, field, parameter, or array element type",
             ));
         }
         lowered
@@ -390,7 +390,7 @@ impl<'a> TypeLowerer<'a> {
     fn is_invalid_value_type(&self, ty: TyId) -> bool {
         matches!(
             self.interner.get(ty),
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never))
+            Some(TyKind::Primitive(PrimitiveTy::Never))
         )
     }
 }
@@ -602,7 +602,7 @@ fn non_generic_arg(a: Point[i32]) {}
     }
 
     #[test]
-    fn rejects_invalid_void_value_types_and_enum_backing_types() {
+    fn accepts_void_value_types_but_rejects_never_value_types_and_enum_backing_types() {
         let (module, errors) = parse_module(
             r#"
 enum Bad: bool {
@@ -619,6 +619,8 @@ fn bad_param(x: void) void {}
 fn bad_never_param(x: !) void {}
 fn good_return() void {}
 fn good_never_return() ! {}
+
+var global_void: void;
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -636,9 +638,9 @@ fn good_never_return() ! {}
             lowered
                 .diagnostics
                 .iter()
-                .filter(|diagnostic| diagnostic.message.contains("`void` and `!` are not valid"))
+                .filter(|diagnostic| diagnostic.message.contains("`!` is not valid"))
                 .count(),
-            5,
+            2,
             "{:?}",
             lowered.diagnostics
         );

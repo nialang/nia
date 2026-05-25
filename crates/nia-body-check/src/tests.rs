@@ -177,6 +177,63 @@ fn main() i32 {
 }
 
 #[test]
+fn checks_void_values_empty_structs_and_void_pointers() {
+    let checked = pipeline(
+        r#"
+struct Empty {}
+
+fn take_void(p: &void) {}
+fn take_const_void(p: &const void) {}
+
+fn main() {
+    var unit: void = {};
+    var empty: Empty = {};
+    var value: i32 = 1;
+    take_void(&value as &void);
+    take_const_void(&const value as &const void);
+    unit
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let bad_implicit = pipeline(
+        r#"
+fn main() {
+    var value: i32 = 1;
+    var ptr: &void = &value;
+}
+"#,
+    );
+    assert!(
+        bad_implicit
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+        "{:?}",
+        bad_implicit.diagnostics
+    );
+
+    let bad_deref = pipeline(
+        r#"
+fn main() i32 {
+    var value: i32 = 1;
+    var ptr: &void = &value as &void;
+    ptr.*
+}
+"#,
+    );
+    assert!(
+        bad_deref
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("cannot dereference `&void`")),
+        "{:?}",
+        bad_deref.diagnostics
+    );
+}
+
+#[test]
 fn accepts_explicit_return_without_tail_expression() {
     let checked = pipeline(
         r#"
