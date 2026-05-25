@@ -2,7 +2,7 @@
 use super::ModuleCodegen;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
-    BackendUnionInstance,
+    BackendStructInstanceKey, BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
@@ -214,17 +214,34 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return Err(self.error(span, "zero-sized aggregate field has no runtime index"));
         }
-        let fields = self.struct_fields(def_id, &args, span)?;
-        if let Some(index) = fields
-            .iter()
-            .position(|candidate| candidate.def_id == field)
-        {
-            return Ok(index as u32);
+        if let Some(layout) = self.struct_layout(def_id, &args) {
+            if let Some(index) = layout
+                .fields
+                .iter()
+                .filter(|field| field.layout.size != 0)
+                .position(|candidate| candidate.def_id == field.def_id)
+            {
+                return Ok(index as u32);
+            }
+            return Err(self.error(span, "missing struct field layout index"));
         }
-        if self.union_fields(def_id, &args, span).is_ok() {
+        if self.union_layout(def_id, &args).is_some() {
             return Ok(0);
         }
         Err(self.error(span, "missing aggregate field index"))
+    }
+
+    fn backend_struct_field(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        field: GlobalDefId,
+        span: Span,
+    ) -> Result<&BackendField, Diagnostic> {
+        self.struct_fields(def_id, args, span)?
+            .iter()
+            .find(|candidate| candidate.def_id == field)
+            .ok_or_else(|| self.error(span, "missing struct field"))
     }
 
     fn layout_of_in(&self, ty: TyId, layouts: &BackendLayouts) -> Option<nia_layout::TypeLayout> {
@@ -301,6 +318,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .or_else(|_| self.union_fields(def_id, args, span))
     }
 
+    pub(super) fn physical_struct_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+        span: Span,
+    ) -> Result<Vec<&BackendField>, Diagnostic> {
+        let Some(layout) = self.struct_layout(def_id, args) else {
+            return Err(self.error(span, "missing struct layout"));
+        };
+        layout
+            .fields
+            .iter()
+            .filter(|field| field.layout.size != 0)
+            .map(|field| {
+                self.backend_struct_field(
+                    def_id,
+                    args,
+                    GlobalDefId {
+                        module_id: def_id.module_id,
+                        def_id: field.def_id,
+                    },
+                    span,
+                )
+            })
+            .collect()
+    }
+
     pub(crate) fn is_union_def(&self, def_id: GlobalDefId) -> bool {
         self.program.unions.contains_key(&def_id)
             || self
@@ -365,6 +409,34 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .iter()
                 .find_map(|(key, layout)| {
                     (key.def_id == def_id && self.same_type_args(&key.args, args)).then_some(layout)
+                })
+        }
+    }
+
+    fn struct_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[TyId],
+    ) -> Option<&nia_layout::StructLayout> {
+        let owner = self.program.module(def_id.module_id)?;
+        if args.is_empty() {
+            owner
+                .layouts
+                .structs
+                .iter()
+                .find_map(|(candidate, layout)| (*candidate == def_id).then_some(layout))
+        } else {
+            owner
+                .layouts
+                .struct_instances
+                .iter()
+                .find_map(|(key, layout)| {
+                    (*key
+                        == BackendStructInstanceKey {
+                            def_id,
+                            args: args.to_vec(),
+                        })
+                    .then_some(layout)
                 })
         }
     }

@@ -41,16 +41,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 ));
             };
             let mut fields = Vec::new();
-            for field in &item.fields {
-                if let Some(layout) = owner
-                    .layouts
-                    .types
-                    .iter()
-                    .find_map(|(ty, layout)| (*ty == field.ty).then_some(layout))
-                    && layout.size == 0
-                {
-                    continue;
-                }
+            for field in self.physical_struct_fields(item.def_id, &[], item.span)? {
                 fields.push(self.llvm_basic_type_in(
                     field.ty,
                     field.span,
@@ -72,16 +63,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 return Err(self.error(item.span, "missing LLVM struct instance"));
             };
             let mut fields = Vec::new();
-            for field in &item.fields {
-                if let Some(layout) = owner
-                    .layouts
-                    .types
-                    .iter()
-                    .find_map(|(ty, layout)| (*ty == field.ty).then_some(layout))
-                    && layout.size == 0
-                {
-                    continue;
-                }
+            for field in self.physical_struct_fields(item.def_id, &item.args, item.span)? {
                 fields.push(self.llvm_basic_type_in(
                     field.ty,
                     field.span,
