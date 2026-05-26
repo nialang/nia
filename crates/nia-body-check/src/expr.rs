@@ -142,7 +142,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_cast(expr.span, source, target);
                 target
             }
-            ExprKind::Call { callee, args } => self.check_call(expr.span, callee, args),
+            ExprKind::Call { callee, args } => self.check_call(expr.span, callee, args, expected),
             ExprKind::Field { lhs, name } => self.check_field_access(expr.span, lhs, name),
             ExprKind::Qualified { lhs, name } => {
                 if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {

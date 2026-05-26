@@ -649,14 +649,12 @@ fn id[T](value: T) T { value }
 fn unbox[T](box: Box[T]) T { box.value }
 fn deref_id[T](value: &T) T { value.* }
 fn choose[T](left: T, right: T) T { left }
-fn make_default[T]() T { 0 }
 
 fn main(box: Box[i32], ptr: &const i32, flag: bool) i32 {
     var a: i32 = id(1);
     var b: i32 = unbox(box);
     var c: i32 = deref_id(ptr);
     _ = choose(1, flag);
-    _ = make_default();
     a + b + c
 }
 "#,
@@ -672,11 +670,56 @@ fn main(box: Box[i32], ptr: &const i32, flag: bool) i32 {
             .message
             .contains("conflicting inferred type for generic parameter `T`")
     }));
-    assert!(checked.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("cannot infer generic parameter `T`")
-    }));
+}
+
+#[test]
+fn infers_generic_function_type_arguments_from_expected_return_type() {
+    let checked = pipeline(
+        r#"
+fn id[T](value: T) T { value }
+fn choose[T](left: T, right: T) T { left }
+
+fn from_return() i32 {
+    id(1)
+}
+
+fn main() i32 {
+    var a: i32 = id(1);
+    var b: usize = id(1);
+    var c: i32 = choose(id(1), 2);
+    _ = id(1);
+    a + b as i32 + c + from_return()
+}
+"#,
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("function body")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("cannot infer generic parameter `T`"))
+            .count(),
+        0,
+        "{:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]

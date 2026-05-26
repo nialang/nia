@@ -107,6 +107,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         resolved: &ResolvedFunctionSignature,
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> TyId {
         let signature = &resolved.signature;
         if signature.generics.is_empty() {
@@ -114,7 +115,7 @@ impl<'a> BodyChecker<'a> {
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
             return signature.return_type;
         }
-        self.check_inferred_generic_function_call(span, resolved.def_id, signature, args)
+        self.check_inferred_generic_function_call(span, resolved.def_id, signature, args, expected)
     }
 
     pub(super) fn check_explicit_generic_call(
@@ -204,13 +205,27 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         signature: &FunctionSignature,
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> TyId {
         let params: Vec<TyId> = signature.params.iter().map(|param| param.ty).collect();
+        let mut substitutions = HashMap::new();
+        if let Some(expected) = expected {
+            self.infer_generics_from_type(
+                signature.return_type,
+                expected,
+                &mut substitutions,
+                span,
+            );
+        }
         let actuals: Vec<TyId> = args
             .iter()
             .enumerate()
             .map(|(index, arg)| {
-                if let Some(expected) = params.get(index).copied() {
+                if let Some(expected) = params
+                    .get(index)
+                    .copied()
+                    .map(|param| self.substitute_generics(param, &substitutions))
+                {
                     self.check_expr_with_expected(arg, Some(expected))
                 } else {
                     self.check_expr(arg)
@@ -219,7 +234,6 @@ impl<'a> BodyChecker<'a> {
             .collect();
         self.check_call_arg_count(span, args.len(), params.len(), signature.is_variadic);
 
-        let mut substitutions = HashMap::new();
         for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
             self.infer_generics_from_type(*param, *actual, &mut substitutions, arg.span);
         }
