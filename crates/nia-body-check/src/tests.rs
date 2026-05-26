@@ -446,22 +446,63 @@ fn main(flag: bool, x: usize) usize {
 }
 
 #[test]
-fn numeric_literal_suffixes_are_not_accepted() {
-    let (_module, parse_errors) = parse_module(
+fn checks_numeric_literal_suffixes() {
+    let checked = pipeline(
         r#"
-fn main() i32 {
-    var bad_int: i32 = 1u8;
-    var bad_float: f64 = 1.0f32;
-    0
+fn take_usize(value: usize) usize { value }
+fn take_f32(value: f32) f32 { value }
+
+fn main() usize {
+    var a = 1u8;
+    var b = 10usize;
+    var c = 1.0f32;
+    var d = 1e3f64;
+    var e: i32 = 1u8;
+    var f: u8 = 300u8;
+    var g: f64 = 1.0f32;
+    var h = 1foo;
+    var i = 1.0foo;
+    var j = 1.0usize;
+    take_usize(b) + take_f32(c) as usize + a as usize + d as usize
 }
 "#,
     );
     assert!(
-        parse_errors
+        checked
+            .diagnostics
             .iter()
-            .any(|error| error.message.contains("expected `;` after binding")),
+            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
         "{:?}",
-        parse_errors
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("out of range for u8")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("invalid integer literal suffix `foo`")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("invalid float literal suffix `foo`")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("invalid float literal suffix `usize`")),
+        "{:?}",
+        checked.diagnostics
     );
 }
 

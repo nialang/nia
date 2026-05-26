@@ -20,7 +20,7 @@ use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
-use crate::literals::decode_string_literal;
+use crate::literals::{decode_string_literal, numeric_literal_body};
 
 mod asm;
 
@@ -217,8 +217,10 @@ impl<'a> ModuleLowerer<'a> {
         }
         let kind = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) | ExprKind::Underscore => TypedExprKind::Error,
-            ExprKind::Integer(text) => TypedExprKind::Integer(text.clone()),
-            ExprKind::Float(text) => TypedExprKind::Float(text.clone()),
+            ExprKind::Integer(text) => {
+                TypedExprKind::Integer(numeric_literal_body(text).to_string())
+            }
+            ExprKind::Float(text) => TypedExprKind::Float(numeric_literal_body(text).to_string()),
             ExprKind::String(text) => {
                 TypedExprKind::String(decode_string_literal(text).unwrap_or_default())
             }
