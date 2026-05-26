@@ -74,7 +74,7 @@ impl<'ctx> Builder<'ctx> {
     }
 
     pub fn build_alloca<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PointerValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(PointerValue::new(unsafe {
             LLVMBuildAlloca(self.raw, ty.as_type_ref(), name.as_ptr())
         }))
@@ -96,15 +96,15 @@ impl<'ctx> Builder<'ctx> {
         ptr: PointerValue<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildLoad2(
                 self.raw,
                 ty.as_type_ref(),
                 ptr.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_volatile_store<V: BasicValue<'ctx>>(
@@ -140,7 +140,7 @@ impl<'ctx> Builder<'ctx> {
         indexes: &[IntValue<'ctx>],
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         let mut indexes = indexes
             .iter()
             .map(|idx| idx.as_value_ref())
@@ -167,7 +167,7 @@ impl<'ctx> Builder<'ctx> {
         index: u32,
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(PointerValue::new(unsafe {
             LLVMBuildStructGEP2(
                 self.raw,
@@ -186,7 +186,7 @@ impl<'ctx> Builder<'ctx> {
         rhs: PointerValue<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(IntValue::new(unsafe {
             LLVMBuildPtrDiff2(
                 self.raw,
@@ -199,7 +199,7 @@ impl<'ctx> Builder<'ctx> {
     }
 
     pub fn build_phi<T: AsTypeRef>(&self, ty: T, name: &str) -> LlvmResult<PhiValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(PhiValue::new(unsafe {
             LLVMBuildPhi(self.raw, ty.as_type_ref(), name.as_ptr())
         }))
@@ -231,12 +231,12 @@ impl<'ctx> Builder<'ctx> {
         args: &[BasicMetadataValueEnum<'ctx>],
         name: &str,
     ) -> LlvmResult<CallSiteValue<'ctx>> {
-        let name = if function_type.get_return_type().is_none() {
+        let name = if function_type.get_return_type()?.is_none() {
             ""
         } else {
             name
         };
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         let mut args = args
             .iter()
             .map(|arg| arg.as_value_ref())
@@ -322,10 +322,10 @@ impl<'ctx> Builder<'ctx> {
         index: u32,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildExtractValue(self.raw, aggregate.as_value_ref(), index, name.as_ptr())
-        }))
+        })
     }
 
     pub fn build_insert_value<AV: AggregateValue<'ctx>, BV: BasicValue<'ctx>>(
@@ -335,8 +335,8 @@ impl<'ctx> Builder<'ctx> {
         index: u32,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildInsertValue(
                 self.raw,
                 aggregate.as_value_ref(),
@@ -344,7 +344,7 @@ impl<'ctx> Builder<'ctx> {
                 index,
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_memcpy(
@@ -411,7 +411,7 @@ impl<'ctx> Builder<'ctx> {
         sync_scope: i32,
         name: &str,
     ) -> LlvmResult<InstructionValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(InstructionValue::new(unsafe {
             LLVMBuildFence(self.raw, ordering.into(), sync_scope, name.as_ptr())
         }))
@@ -577,7 +577,7 @@ impl<'ctx> Builder<'ctx> {
         rhs: IntValue<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(IntValue::new(unsafe {
             LLVMBuildICmp(
                 self.raw,
@@ -713,8 +713,8 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildICmp(
                 self.raw,
                 pred.into(),
@@ -722,7 +722,7 @@ impl<'ctx> Builder<'ctx> {
                 rhs.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_float_add(
@@ -777,7 +777,7 @@ impl<'ctx> Builder<'ctx> {
         rhs: FloatValue<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(IntValue::new(unsafe {
             LLVMBuildFCmp(
                 self.raw,
@@ -841,8 +841,8 @@ impl<'ctx> Builder<'ctx> {
         rhs: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildFCmp(
                 self.raw,
                 pred.into(),
@@ -850,11 +850,11 @@ impl<'ctx> Builder<'ctx> {
                 rhs.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_int_neg(&self, value: IntValue<'ctx>, name: &str) -> LlvmResult<IntValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(IntValue::new(unsafe {
             LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr())
         }))
@@ -865,14 +865,14 @@ impl<'ctx> Builder<'ctx> {
         value: FloatValue<'ctx>,
         name: &str,
     ) -> LlvmResult<FloatValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(FloatValue::new(unsafe {
             LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr())
         }))
     }
 
     pub fn build_not(&self, value: IntValue<'ctx>, name: &str) -> LlvmResult<IntValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(IntValue::new(unsafe {
             LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr())
         }))
@@ -883,10 +883,8 @@ impl<'ctx> Builder<'ctx> {
         value: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
-            LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr())
-        }))
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe { LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
 
     pub fn build_basic_float_neg(
@@ -894,10 +892,8 @@ impl<'ctx> Builder<'ctx> {
         value: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
-            LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr())
-        }))
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe { LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
 
     pub fn build_basic_not(
@@ -905,10 +901,8 @@ impl<'ctx> Builder<'ctx> {
         value: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
-            LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr())
-        }))
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe { LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr()) })
     }
 
     pub fn build_select(
@@ -918,8 +912,8 @@ impl<'ctx> Builder<'ctx> {
         on_false: BasicValueEnum<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildSelect(
                 self.raw,
                 cond.as_value_ref(),
@@ -927,7 +921,7 @@ impl<'ctx> Builder<'ctx> {
                 on_false.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_extract_element(
@@ -936,15 +930,15 @@ impl<'ctx> Builder<'ctx> {
         index: IntValue<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildExtractElement(
                 self.raw,
                 vector.as_value_ref(),
                 index.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_insert_element(
@@ -954,8 +948,8 @@ impl<'ctx> Builder<'ctx> {
         index: IntValue<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildInsertElement(
                 self.raw,
                 vector.as_value_ref(),
@@ -963,7 +957,7 @@ impl<'ctx> Builder<'ctx> {
                 index.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_shuffle_vector(
@@ -973,8 +967,8 @@ impl<'ctx> Builder<'ctx> {
         mask: VectorValue<'ctx>,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildShuffleVector(
                 self.raw,
                 lhs.as_value_ref(),
@@ -982,7 +976,7 @@ impl<'ctx> Builder<'ctx> {
                 mask.as_value_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_bit_cast<V: BasicValue<'ctx>, T: AsTypeRef>(
@@ -991,15 +985,15 @@ impl<'ctx> Builder<'ctx> {
         target: T,
         name: &str,
     ) -> LlvmResult<BasicValueEnum<'ctx>> {
-        let name = to_c_string(name);
-        Ok(BasicValueEnum::new(unsafe {
+        let name = to_c_string(name)?;
+        BasicValueEnum::new(unsafe {
             LLVMBuildBitCast(
                 self.raw,
                 value.as_value_ref(),
                 target.as_type_ref(),
                 name.as_ptr(),
             )
-        }))
+        })
     }
 
     pub fn build_pointer_cast(
@@ -1008,7 +1002,7 @@ impl<'ctx> Builder<'ctx> {
         target: PointerType<'ctx>,
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(PointerValue::new(unsafe {
             LLVMBuildPointerCast(
                 self.raw,
@@ -1025,7 +1019,7 @@ impl<'ctx> Builder<'ctx> {
         target: IntType<'ctx>,
         name: &str,
     ) -> LlvmResult<IntValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(IntValue::new(unsafe {
             LLVMBuildPtrToInt(
                 self.raw,
@@ -1042,7 +1036,7 @@ impl<'ctx> Builder<'ctx> {
         target: PointerType<'ctx>,
         name: &str,
     ) -> LlvmResult<PointerValue<'ctx>> {
-        let name = to_c_string(name);
+        let name = to_c_string(name)?;
         Ok(PointerValue::new(unsafe {
             LLVMBuildIntToPtr(
                 self.raw,
@@ -1139,7 +1133,7 @@ fn build_int_bin<'ctx>(
     rhs: IntValue<'ctx>,
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
-    let name = to_c_string(name);
+    let name = to_c_string(name)?;
     Ok(IntValue::new(unsafe {
         f(
             builder,
@@ -1157,7 +1151,7 @@ fn build_float_bin<'ctx>(
     rhs: FloatValue<'ctx>,
     name: &str,
 ) -> LlvmResult<FloatValue<'ctx>> {
-    let name = to_c_string(name);
+    let name = to_c_string(name)?;
     Ok(FloatValue::new(unsafe {
         f(
             builder,
@@ -1175,15 +1169,15 @@ fn build_basic_bin<'ctx>(
     rhs: BasicValueEnum<'ctx>,
     name: &str,
 ) -> LlvmResult<BasicValueEnum<'ctx>> {
-    let name = to_c_string(name);
-    Ok(BasicValueEnum::new(unsafe {
+    let name = to_c_string(name)?;
+    BasicValueEnum::new(unsafe {
         f(
             builder,
             lhs.as_value_ref(),
             rhs.as_value_ref(),
             name.as_ptr(),
         )
-    }))
+    })
 }
 
 fn cast_int<'ctx>(
@@ -1193,7 +1187,7 @@ fn cast_int<'ctx>(
     target: IntType<'ctx>,
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
-    let name = to_c_string(name);
+    let name = to_c_string(name)?;
     Ok(IntValue::new(unsafe {
         f(
             builder,
@@ -1211,7 +1205,7 @@ fn cast_float<'ctx, V: AsValueRef>(
     target: FloatType<'ctx>,
     name: &str,
 ) -> LlvmResult<FloatValue<'ctx>> {
-    let name = to_c_string(name);
+    let name = to_c_string(name)?;
     Ok(FloatValue::new(unsafe {
         f(
             builder,
@@ -1229,7 +1223,7 @@ fn cast_int_from_float<'ctx>(
     target: IntType<'ctx>,
     name: &str,
 ) -> LlvmResult<IntValue<'ctx>> {
-    let name = to_c_string(name);
+    let name = to_c_string(name)?;
     Ok(IntValue::new(unsafe {
         f(
             builder,

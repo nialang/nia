@@ -28,7 +28,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             UnaryOp::Ref | UnaryOp::RefConst => Ok(self.emit_addr_of(inner)?.into()),
             UnaryOp::Deref => {
-                let ptr = self.emit_expr(inner)?.into_pointer_value();
+                let ptr = self.emit_expr(inner)?.into_pointer_value()?;
                 let ty = self.module.llvm_basic_type(ty, span)?;
                 self.builder
                     .build_load(ty, ptr, "deref")
@@ -70,8 +70,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return self
                 .builder
                 .build_pointer_cast(
-                    value.into_pointer_value(),
-                    target.into_pointer_type(),
+                    value.into_pointer_value()?,
+                    target.into_pointer_type()?,
                     "casttmp",
                 )
                 .map(Into::into)
@@ -81,8 +81,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return self
                 .builder
                 .build_ptr_to_int(
-                    value.into_pointer_value(),
-                    target.into_int_type(),
+                    value.into_pointer_value()?,
+                    target.into_int_type()?,
                     "casttmp",
                 )
                 .map(Into::into)
@@ -92,8 +92,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return self
                 .builder
                 .build_int_to_ptr(
-                    value.into_int_value(),
-                    target.into_pointer_type(),
+                    value.into_int_value()?,
+                    target.into_pointer_type()?,
                     "casttmp",
                 )
                 .map(Into::into)
@@ -103,21 +103,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return self
                 .builder
                 .build_float_cast(
-                    value.into_float_value(),
-                    target.into_float_type(),
+                    value.into_float_value()?,
+                    target.into_float_type()?,
                     "casttmp",
                 )
                 .map(Into::into)
                 .map_err(|_| self.error(span, "failed to build float cast"));
         }
         if self.is_float(source_ty) && self.is_integer_like(target_ty) {
-            let target = target.into_int_type();
+            let target = target.into_int_type()?;
             let result = if self.is_signed_integer(target_ty) {
                 self.builder
-                    .build_float_to_signed_int(value.into_float_value(), target, "casttmp")
+                    .build_float_to_signed_int(value.into_float_value()?, target, "casttmp")
             } else {
                 self.builder.build_float_to_unsigned_int(
-                    value.into_float_value(),
+                    value.into_float_value()?,
                     target,
                     "casttmp",
                 )
@@ -127,13 +127,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map_err(|_| self.error(span, "failed to build float-to-int cast"));
         }
         if self.is_integer_like(source_ty) && self.is_float(target_ty) {
-            let target = target.into_float_type();
+            let target = target.into_float_type()?;
             let result = if self.is_signed_integer(source_ty) {
                 self.builder
-                    .build_signed_int_to_float(value.into_int_value(), target, "casttmp")
+                    .build_signed_int_to_float(value.into_int_value()?, target, "casttmp")
             } else {
                 self.builder
-                    .build_unsigned_int_to_float(value.into_int_value(), target, "casttmp")
+                    .build_unsigned_int_to_float(value.into_int_value()?, target, "casttmp")
             };
             return result
                 .map(Into::into)
@@ -141,12 +141,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
         if self.is_integer_like(source_ty) && self.is_integer_like(target_ty) {
             let source_bits = self.integer_bits(source_ty, span)?;
-            let target = target.into_int_type();
+            let target = target.into_int_type()?;
             let target_bits = target.bit_width();
             if source_bits == target_bits {
                 return Ok(value);
             }
-            let value = value.into_int_value();
+            let value = value.into_int_value()?;
             let result = if source_bits > target_bits {
                 self.builder.build_int_truncate(value, target, "casttmp")
             } else if self.is_signed_integer(source_ty) {
@@ -171,15 +171,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         op: BinaryOp,
         rhs: &TypedExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let lhs_value = self.emit_expr(lhs)?.into_int_value();
+        let lhs_value = self.emit_expr(lhs)?.into_int_value()?;
         let rhs_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "logic.rhs");
+            .append_basic_block(self.llvm_function, "logic.rhs")?;
         let merge_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "logic.end");
+            .append_basic_block(self.llvm_function, "logic.end")?;
         let lhs_block = self
             .builder
             .get_insert_block()
@@ -193,12 +193,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.builder
                     .build_conditional_branch(lhs_value, merge_block, rhs_block)
             }
-            _ => unreachable!("only logical operators reach emit_short_circuit"),
+            _ => {
+                return Err(nia_ice::Ice::new(
+                    "only logical operators reach short-circuit codegen",
+                )
+                .diagnostic());
+            }
         }
         .map_err(|_| self.error(span, "failed to build logical branch"))?;
 
         self.builder.position_at_end(rhs_block);
-        let rhs_value = self.emit_expr(rhs)?.into_int_value();
+        let rhs_value = self.emit_expr(rhs)?.into_int_value()?;
         let rhs_end = self
             .builder
             .get_insert_block()
@@ -220,7 +225,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .bool_type()
             .const_int(u64::from(op == BinaryOp::Or), false);
         phi.add_incoming(&[(&short_value, lhs_block), (&rhs_value, rhs_end)]);
-        Ok(phi.as_basic_value())
+        Ok(phi.as_basic_value()?)
     }
 
     pub(super) fn emit_compound_assignment(

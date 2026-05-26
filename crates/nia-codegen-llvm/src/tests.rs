@@ -6,7 +6,23 @@ use nia_backend_ir::{
 };
 use nia_ids::{DefId, GlobalDefId, LocalId, ModuleId};
 use nia_layout::{FieldLayout, StructLayout, TypeLayout};
+use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
+
+#[test]
+fn codegen_ice_boundary_converts_panic_to_diagnostic() {
+    let output = catch_llvm_codegen_ice(|| panic!("Nia ICE (LLVM): invalid value kind"));
+
+    assert!(output.modules.is_empty());
+    assert_eq!(output.diagnostics.len(), 1);
+    assert!(
+        output.diagnostics[0]
+            .message
+            .contains("internal compiler error: invalid value kind"),
+        "{:?}",
+        output.diagnostics
+    );
+}
 
 #[test]
 fn emits_declarations_for_checked_program() {

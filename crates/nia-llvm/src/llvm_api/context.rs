@@ -19,8 +19,8 @@ use llvm_sys::prelude::LLVMContextRef;
 
 use super::{
     AddressSpace, ArrayValue, AsTypeRef, AsValueRef, Attribute, BasicBlock, BasicTypeEnum, Builder,
-    FloatType, FunctionType, FunctionValue, InlineAsmDialect, IntType, Module, PointerType,
-    PointerValue, StructType, VoidType, bool_to_llvm, to_c_string,
+    FloatType, FunctionType, FunctionValue, InlineAsmDialect, IntType, LlvmError, LlvmResult,
+    Module, PointerType, PointerValue, StructType, VoidType, bool_to_llvm, to_c_string,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -49,19 +49,19 @@ impl Context {
         Builder::new(raw)
     }
 
-    pub fn create_module<'ctx>(&'ctx self, name: &str) -> Module<'ctx> {
-        let name = to_c_string(name);
+    pub fn create_module<'ctx>(&'ctx self, name: &str) -> LlvmResult<Module<'ctx>> {
+        let name = to_c_string(name)?;
         let raw = unsafe { LLVMModuleCreateWithNameInContext(name.as_ptr(), self.raw) };
         assert!(!raw.is_null());
-        Module::new(raw)
+        Ok(Module::new(raw))
     }
 
     pub fn parse_bitcode_module<'ctx>(
         &'ctx self,
         name: &str,
         bitcode: &[u8],
-    ) -> Result<Module<'ctx>, String> {
-        let name = to_c_string(name);
+    ) -> LlvmResult<Module<'ctx>> {
+        let name = to_c_string(name)?;
         let buffer = unsafe {
             LLVMCreateMemoryBufferWithMemoryRangeCopy(
                 bitcode.as_ptr() as *const _,
@@ -70,14 +70,18 @@ impl Context {
             )
         };
         if buffer.is_null() {
-            return Err("LLVM failed to create a bitcode memory buffer".to_string());
+            return Err(LlvmError::error(
+                "LLVM failed to create a bitcode memory buffer",
+            ));
         }
 
         let mut raw_module = std::ptr::null_mut();
         let failed = unsafe { LLVMParseBitcodeInContext2(self.raw, buffer, &mut raw_module) } != 0;
         unsafe { LLVMDisposeMemoryBuffer(buffer) };
         if failed || raw_module.is_null() {
-            return Err("LLVM failed to parse a serialized bitcode module".to_string());
+            return Err(LlvmError::error(
+                "LLVM failed to parse a serialized bitcode module",
+            ));
         }
 
         Ok(Module::new(raw_module))
@@ -189,20 +193,22 @@ impl Context {
         })
     }
 
-    pub fn opaque_struct_type<'ctx>(&'ctx self, name: &str) -> StructType<'ctx> {
-        let name = to_c_string(name);
-        StructType::new(unsafe { LLVMStructCreateNamed(self.raw, name.as_ptr()) })
+    pub fn opaque_struct_type<'ctx>(&'ctx self, name: &str) -> LlvmResult<StructType<'ctx>> {
+        let name = to_c_string(name)?;
+        Ok(StructType::new(unsafe {
+            LLVMStructCreateNamed(self.raw, name.as_ptr())
+        }))
     }
 
     pub fn append_basic_block<'ctx>(
         &'ctx self,
         function: FunctionValue<'ctx>,
         name: &str,
-    ) -> BasicBlock<'ctx> {
-        let name = to_c_string(name);
-        BasicBlock::new(unsafe {
+    ) -> LlvmResult<BasicBlock<'ctx>> {
+        let name = to_c_string(name)?;
+        Ok(BasicBlock::new(unsafe {
             LLVMAppendBasicBlockInContext(self.raw, function.as_value_ref(), name.as_ptr())
-        })
+        }))
     }
 
     pub fn const_string<'ctx>(

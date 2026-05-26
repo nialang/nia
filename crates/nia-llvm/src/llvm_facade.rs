@@ -6,7 +6,8 @@
 //! decoupled from the wrapper module layout.
 
 pub use crate::llvm_api::{
-    AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, OptimizationLevel,
+    AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, LlvmError,
+    LlvmResult, OptimizationLevel,
 };
 
 pub mod llvm_sys {

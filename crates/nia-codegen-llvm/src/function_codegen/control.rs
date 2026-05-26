@@ -104,19 +104,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let cond_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "for.cond");
+            .append_basic_block(self.llvm_function, "for.cond")?;
         let body_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "for.body");
+            .append_basic_block(self.llvm_function, "for.body")?;
         let step_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "for.step");
+            .append_basic_block(self.llvm_function, "for.step")?;
         let end_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "for.end");
+            .append_basic_block(self.llvm_function, "for.end")?;
 
         if !self.current_block_has_terminator() {
             self.builder
@@ -132,7 +132,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .map_err(|_| self.error(span, "failed to build loop condition branch"))?;
             }
             TypedForHeader::Condition(cond) => {
-                let cond = self.emit_expr(cond)?.into_int_value();
+                let cond = self.emit_expr(cond)?.into_int_value()?;
                 self.builder
                     .build_conditional_branch(cond, body_block, end_block)
                     .map_err(|_| self.error(span, "failed to build loop condition branch"))?;
@@ -140,7 +140,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             TypedForHeader::CStyle {
                 cond: Some(cond), ..
             } => {
-                let cond = self.emit_expr(cond)?.into_int_value();
+                let cond = self.emit_expr(cond)?.into_int_value()?;
                 self.builder
                     .build_conditional_branch(cond, body_block, end_block)
                     .map_err(|_| self.error(span, "failed to build loop condition branch"))?;
@@ -190,15 +190,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn emit_switch_stmt(&mut self, span: Span, switch: &TypedSwitch) -> Result<(), Diagnostic> {
-        let target = self.emit_expr(&switch.target)?.into_int_value();
+        let target = self.emit_expr(&switch.target)?.into_int_value()?;
         let end_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "switch.end");
+            .append_basic_block(self.llvm_function, "switch.end")?;
         let default_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "switch.default");
+            .append_basic_block(self.llvm_function, "switch.default")?;
         let mut arm_blocks = Vec::new();
         let mut cases = Vec::new();
         let mut default_arm = None;
@@ -210,7 +210,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let block = self
                         .module
                         .context
-                        .append_basic_block(self.llvm_function, &format!("switch.arm.{index}"));
+                        .append_basic_block(self.llvm_function, &format!("switch.arm.{index}"))?;
                     let value = self.emit_switch_pattern_value(pattern)?;
                     cases.push((value, block));
                     arm_blocks.push((block, &arm.body));
@@ -250,7 +250,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         pattern: &TypedExpr,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
-        Ok(self.emit_expr(pattern)?.into_int_value())
+        Ok(self.emit_expr(pattern)?.into_int_value()?)
     }
 
     fn emit_switch_arm_body(&mut self, body: &TypedSwitchArmBody) -> Result<(), Diagnostic> {
@@ -328,19 +328,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let Some(else_branch) = else_branch else {
             return Err(self.error(span, "value if-expression requires an else branch"));
         };
-        let cond = self.emit_expr(cond)?.into_int_value();
+        let cond = self.emit_expr(cond)?.into_int_value()?;
         let then_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "if.then");
+            .append_basic_block(self.llvm_function, "if.then")?;
         let else_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "if.else");
+            .append_basic_block(self.llvm_function, "if.else")?;
         let merge_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "if.end");
+            .append_basic_block(self.llvm_function, "if.end")?;
         self.builder
             .build_conditional_branch(cond, then_block, else_block)
             .map_err(|_| self.error(span, "failed to build if branch"))?;
@@ -366,7 +366,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.builder.position_at_end(merge_block);
         let phi = self
             .builder
-            .build_phi(then_value.get_type(), "iftmp")
+            .build_phi(then_value.get_type()?, "iftmp")
             .map_err(|_| self.error(span, "failed to build if phi"))?;
         let Some(then_end) = then_end else {
             return Err(self.error(span, "missing then block for if phi"));
@@ -375,7 +375,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Err(self.error(span, "missing else block for if phi"));
         };
         phi.add_incoming(&[(&then_value, then_end), (&else_value, else_end)]);
-        Ok(phi.as_basic_value())
+        Ok(phi.as_basic_value()?)
     }
 
     pub(super) fn emit_void_if_expr(
@@ -385,19 +385,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         then_branch: &TypedBody,
         else_branch: Option<&TypedExpr>,
     ) -> Result<(), Diagnostic> {
-        let cond = self.emit_expr(cond)?.into_int_value();
+        let cond = self.emit_expr(cond)?.into_int_value()?;
         let then_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "if.then");
+            .append_basic_block(self.llvm_function, "if.then")?;
         let else_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "if.else");
+            .append_basic_block(self.llvm_function, "if.else")?;
         let merge_block = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "if.end");
+            .append_basic_block(self.llvm_function, "if.end")?;
         self.builder
             .build_conditional_branch(cond, then_block, else_block)
             .map_err(|_| self.error(span, "failed to build if branch"))?;

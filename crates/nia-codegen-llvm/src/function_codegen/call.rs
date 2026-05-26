@@ -59,7 +59,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let call = self.emit_call_raw_with_out(expr, callee, args, None)?;
                 call.try_as_basic_value()
                     .basic()
-                    .ok_or_else(|| self.error(expr.span, "call did not produce a value"))
+                    .ok_or_else(|| self.error(expr.span, "call did not produce a value"))?
+                    .map_err(Into::into)
             }
             AbiReturn::Void | AbiReturn::Never => {
                 let _ = self.emit_call_raw_with_out(expr, callee, args, None)?;
@@ -181,7 +182,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     *is_variadic,
                     callee.span,
                 )?;
-                let function_pointer = self.emit_expr(callee)?.into_pointer_value();
+                let function_pointer = self.emit_expr(callee)?.into_pointer_value()?;
                 let call_args = args.iter().collect::<Vec<_>>();
                 let llvm_args = self.emit_call_args(expr.span, &call_args, out_ptr)?;
                 self.builder

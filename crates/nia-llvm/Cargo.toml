@@ -6,6 +6,9 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-diagnostic.workspace = true
+nia-ice.workspace = true
+nia-span.workspace = true
 llvm-sys.workspace = true
 
 [lib]

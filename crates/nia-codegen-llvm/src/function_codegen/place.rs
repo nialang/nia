@@ -50,7 +50,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             TypedExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 expr,
-            } => Ok(self.emit_expr(expr)?.into_pointer_value()),
+            } => Ok(self.emit_expr(expr)?.into_pointer_value()?),
             TypedExprKind::Field { lhs, field } => {
                 let (base_ty, base_ptr) = self.emit_struct_base_addr(lhs)?;
                 if let Some((def_id, _)) = self.module_field_base_type(lhs.ty)
@@ -130,7 +130,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
             Some(TyKind::Pointer { elem, .. }) => {
-                let base_ptr = self.emit_expr(lhs)?.into_pointer_value();
+                let base_ptr = self.emit_expr(lhs)?.into_pointer_value()?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {
                     self.builder
@@ -139,7 +139,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
             Some(TyKind::Slice { elem, .. }) => {
-                let slice = self.emit_expr(lhs)?.into_struct_value();
+                let slice = self.emit_expr(lhs)?.into_struct_value()?;
                 let base_ptr = self.extract_slice_ptr(span, slice)?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {
@@ -173,11 +173,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok((ptr, len, *elem))
             }
             Some(TyKind::Pointer { elem, .. }) => {
-                let ptr = self.emit_expr(lhs)?.into_pointer_value();
+                let ptr = self.emit_expr(lhs)?.into_pointer_value()?;
                 Ok((ptr, one, *elem))
             }
             Some(TyKind::Slice { elem, .. }) => {
-                let slice = self.emit_expr(lhs)?.into_struct_value();
+                let slice = self.emit_expr(lhs)?.into_struct_value()?;
                 let ptr = self.extract_slice_ptr(span, slice)?;
                 let len = self.extract_slice_len(span, slice)?;
                 Ok((ptr, len, *elem))
@@ -233,7 +233,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn emit_usize_value(&mut self, expr: &TypedExpr) -> Result<IntValue<'ctx>, Diagnostic> {
-        let value = self.emit_expr(expr)?.into_int_value();
+        let value = self.emit_expr(expr)?.into_int_value()?;
         let target = self.module.context.i64_type();
         let bits = value.get_type().bit_width();
         if bits == 64 {
@@ -259,7 +259,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_insert_value(undef, ptr, 0, "slice.ptr")
             .map_err(|_| self.error(Span::default(), "failed to insert slice pointer"))?
-            .into_struct_value();
+            .into_struct_value()?;
         self.builder
             .build_insert_value(value, len, 1, "slice.len")
             .map_err(|_| self.error(Span::default(), "failed to insert slice length"))
@@ -270,10 +270,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         slice: StructValue<'ctx>,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
-        self.builder
+        let value = self
+            .builder
             .build_extract_value(slice, 0, "slice.ptr")
-            .map(|value| value.into_pointer_value())
-            .map_err(|_| self.error(span, "failed to extract slice pointer"))
+            .map_err(|_| self.error(span, "failed to extract slice pointer"))?;
+        Ok(value.into_pointer_value()?)
     }
 
     fn extract_slice_len(
@@ -281,10 +282,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         slice: StructValue<'ctx>,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
-        self.builder
+        let value = self
+            .builder
             .build_extract_value(slice, 1, "slice.len")
-            .map(|value| value.into_int_value())
-            .map_err(|_| self.error(span, "failed to extract slice length"))
+            .map_err(|_| self.error(span, "failed to extract slice length"))?;
+        Ok(value.into_int_value()?)
     }
 
     pub(super) fn emit_len(
@@ -298,7 +300,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(self.module.context.i64_type().const_int(len, false).into())
             }
             Some(TyKind::Slice { .. }) => {
-                let slice = self.emit_expr(inner)?.into_struct_value();
+                let slice = self.emit_expr(inner)?.into_struct_value()?;
                 self.extract_slice_len(span, slice).map(Into::into)
             }
             _ => Err(self.error(span, "`@len` requires an array or slice")),
@@ -310,7 +312,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         inner: &TypedExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let slice = self.emit_expr(inner)?.into_struct_value();
+        let slice = self.emit_expr(inner)?.into_struct_value()?;
         self.extract_slice_ptr(span, slice).map(Into::into)
     }
 
@@ -380,7 +382,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .get(def_id)
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(place.span, "missing global value"))?,
-            nia_backend_ir::PlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value(),
+            nia_backend_ir::PlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
         };
         let mut current_ty = self.place_base_ty(place);
         for elem in &place.elems {
@@ -396,7 +398,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             .map_err(|_| {
                                 self.error(place.span, "failed to load pointer for field access")
                             })?
-                            .into_pointer_value();
+                            .into_pointer_value()?;
                         current_ty = *elem;
                     }
                     let base_ty = self.module.llvm_basic_type(current_ty, place.span)?;
@@ -424,7 +426,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<(BasicTypeEnum<'ctx>, PointerValue<'ctx>), Diagnostic> {
         match self.module.interner().get(expr.ty) {
             Some(TyKind::Pointer { elem, .. }) => {
-                let ptr = self.emit_expr(expr)?.into_pointer_value();
+                let ptr = self.emit_expr(expr)?.into_pointer_value()?;
                 let ty = self.module.llvm_basic_type(*elem, expr.span)?;
                 Ok((ty, ptr))
             }
@@ -484,7 +486,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .builder
                     .build_load(ptr_ty, base_ptr, "loadptr")
                     .map_err(|_| self.error(span, "failed to load pointer base"))?
-                    .into_pointer_value();
+                    .into_pointer_value()?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {
                     self.builder
@@ -498,7 +500,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .builder
                     .build_load(slice_ty, base_ptr, "loadslice")
                     .map_err(|_| self.error(span, "failed to load slice base"))?
-                    .into_struct_value();
+                    .into_struct_value()?;
                 let ptr = self.extract_slice_ptr(span, slice)?;
                 let elem_ty = self.module.llvm_basic_type(*elem, span)?;
                 unsafe {

@@ -30,7 +30,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let param_tys = input_values
             .iter()
             .map(|value| value.get_type())
-            .collect::<Vec<BasicMetadataTypeEnum<'ctx>>>();
+            .collect::<Result<Vec<BasicMetadataTypeEnum<'ctx>>, _>>()?;
         let fn_ty = match output_tys.as_slice() {
             [] => self.module.context.void_type().fn_type(&param_tys, false),
             [ty] => ty.fn_type(&param_tys, false),
@@ -63,14 +63,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let result = call
             .try_as_basic_value()
             .basic()
-            .ok_or_else(|| self.error(self.function.span, "inline assembly output is missing"))?;
+            .ok_or_else(|| self.error(self.function.span, "inline assembly output is missing"))??;
         for (index, ptr) in output_ptrs.iter().enumerate() {
             let value = if output_tys.len() == 1 {
                 result
             } else {
                 self.builder
                     .build_extract_value(
-                        result.into_struct_value(),
+                        result.into_struct_value()?,
                         index as u32,
                         &format!("asm.out.{index}"),
                     )

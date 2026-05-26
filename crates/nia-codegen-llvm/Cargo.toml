@@ -10,6 +10,7 @@ nia-ast.workspace = true
 nia-backend-ir.workspace = true
 nia-const-eval.workspace = true
 nia-diagnostic.workspace = true
+nia-ice.workspace = true
 nia-ids.workspace = true
 nia-layout.workspace = true
 nia-mangle.workspace = true

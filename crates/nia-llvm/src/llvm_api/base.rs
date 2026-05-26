@@ -31,23 +31,53 @@ use llvm_sys::{
     LLVMAtomicOrdering, LLVMAtomicRMWBinOp, LLVMInlineAsmDialect, LLVMIntPredicate, LLVMLinkage,
     LLVMOpcode, LLVMRealPredicate, LLVMTypeKind,
 };
-use std::convert::Infallible;
 use std::ffi::CString;
 use std::marker::PhantomData;
 use std::slice;
 
 use super::{Context, DISubprogram};
 
-pub(super) fn to_c_string(input: &str) -> CString {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LlvmError {
+    Error(String),
+    Ice(nia_ice::Ice),
+}
+
+pub type LlvmResult<T> = Result<T, LlvmError>;
+
+impl LlvmError {
+    pub fn error(message: impl Into<String>) -> Self {
+        Self::Error(message.into())
+    }
+
+    pub fn ice(message: impl Into<String>) -> Self {
+        Self::Ice(nia_ice::Ice::new(format!("LLVM: {}", message.into())))
+    }
+
+    pub fn diagnostic(&self) -> nia_diagnostic::Diagnostic {
+        match self {
+            Self::Error(message) => {
+                nia_diagnostic::Diagnostic::error(nia_span::Span::default(), message.clone())
+            }
+            Self::Ice(ice) => ice.diagnostic(),
+        }
+    }
+}
+
+impl From<LlvmError> for nia_diagnostic::Diagnostic {
+    fn from(error: LlvmError) -> Self {
+        error.diagnostic()
+    }
+}
+
+pub(super) fn to_c_string(input: &str) -> LlvmResult<CString> {
     CString::new(input)
-        .unwrap_or_else(|_| panic!("Nia ICE (LLVM): string contains interior NUL byte: {input:?}"))
+        .map_err(|_| LlvmError::ice(format!("string contains interior NUL byte: {input:?}")))
 }
 
 pub(super) fn bool_to_llvm(value: bool) -> i32 {
     if value { 1 } else { 0 }
 }
-
-pub type LlvmResult<T> = Result<T, Infallible>;
 
 pub trait AsTypeRef {
     fn as_type_ref(&self) -> LLVMTypeRef;
@@ -457,7 +487,7 @@ impl<'ctx> StructType<'ctx> {
         unsafe { LLVMIsPackedStruct(self.as_type_ref()) != 0 }
     }
 
-    pub fn get_field_type_at_index(self, index: u32) -> Option<BasicTypeEnum<'ctx>> {
+    pub fn get_field_type_at_index(self, index: u32) -> Option<LlvmResult<BasicTypeEnum<'ctx>>> {
         if index >= self.count_fields() {
             None
         } else {
@@ -501,7 +531,7 @@ impl<'ctx> ArrayType<'ctx> {
         unsafe { llvm_sys::core::LLVMGetArrayLength2(self.as_type_ref()) as u32 }
     }
 
-    pub fn get_element_type(self) -> BasicTypeEnum<'ctx> {
+    pub fn get_element_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMGetElementType(self.as_type_ref()) })
     }
 
@@ -530,32 +560,32 @@ impl<'ctx> ArrayType<'ctx> {
 }
 
 impl<'ctx> VectorType<'ctx> {
-    pub fn const_zero(self) -> BasicValueEnum<'ctx> {
+    pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMConstNull(self.as_type_ref()) })
     }
 
-    pub fn get_undef(self) -> BasicValueEnum<'ctx> {
+    pub fn get_undef(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 }
 
 impl<'ctx> ScalableVectorType<'ctx> {
-    pub fn const_zero(self) -> BasicValueEnum<'ctx> {
+    pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMConstNull(self.as_type_ref()) })
     }
 
-    pub fn get_undef(self) -> BasicValueEnum<'ctx> {
+    pub fn get_undef(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(unsafe { LLVMGetUndef(self.as_type_ref()) })
     }
 }
 
 impl<'ctx> FunctionType<'ctx> {
-    pub fn get_return_type(self) -> Option<BasicTypeEnum<'ctx>> {
+    pub fn get_return_type(self) -> LlvmResult<Option<BasicTypeEnum<'ctx>>> {
         let ty = unsafe { LLVMGetReturnType(self.as_type_ref()) };
         if unsafe { LLVMGetTypeKind(ty) } == LLVMTypeKind::LLVMVoidTypeKind {
-            None
+            Ok(None)
         } else {
-            Some(BasicTypeEnum::new(ty))
+            BasicTypeEnum::new(ty).map(Some)
         }
     }
 }
@@ -572,33 +602,35 @@ pub enum BasicTypeEnum<'ctx> {
 }
 
 impl<'ctx> BasicTypeEnum<'ctx> {
-    pub(super) fn new(raw: LLVMTypeRef) -> Self {
+    pub(super) fn new(raw: LLVMTypeRef) -> LlvmResult<Self> {
         match unsafe { LLVMGetTypeKind(raw) } {
-            LLVMTypeKind::LLVMArrayTypeKind => Self::ArrayType(ArrayType::new(raw)),
+            LLVMTypeKind::LLVMArrayTypeKind => Ok(Self::ArrayType(ArrayType::new(raw))),
             LLVMTypeKind::LLVMFloatTypeKind | LLVMTypeKind::LLVMDoubleTypeKind => {
-                Self::FloatType(FloatType::new(raw))
+                Ok(Self::FloatType(FloatType::new(raw)))
             }
-            LLVMTypeKind::LLVMIntegerTypeKind => Self::IntType(IntType::new(raw)),
-            LLVMTypeKind::LLVMPointerTypeKind => Self::PointerType(PointerType::new(raw)),
-            LLVMTypeKind::LLVMStructTypeKind => Self::StructType(StructType::new(raw)),
-            LLVMTypeKind::LLVMVectorTypeKind => Self::VectorType(VectorType::new(raw)),
+            LLVMTypeKind::LLVMIntegerTypeKind => Ok(Self::IntType(IntType::new(raw))),
+            LLVMTypeKind::LLVMPointerTypeKind => Ok(Self::PointerType(PointerType::new(raw))),
+            LLVMTypeKind::LLVMStructTypeKind => Ok(Self::StructType(StructType::new(raw))),
+            LLVMTypeKind::LLVMVectorTypeKind => Ok(Self::VectorType(VectorType::new(raw))),
             LLVMTypeKind::LLVMScalableVectorTypeKind => {
-                Self::ScalableVectorType(ScalableVectorType::new(raw))
+                Ok(Self::ScalableVectorType(ScalableVectorType::new(raw)))
             }
-            other => panic!("Nia ICE (LLVM): unsupported LLVM basic type kind: {other:?}"),
+            other => Err(LlvmError::ice(format!(
+                "unsupported LLVM basic type kind: {other:?}"
+            ))),
         }
     }
 
-    pub fn const_zero(self) -> BasicValueEnum<'ctx> {
-        match self {
+    pub fn const_zero(self) -> LlvmResult<BasicValueEnum<'ctx>> {
+        Ok(match self {
             Self::ArrayType(t) => t.const_zero().into(),
             Self::FloatType(t) => t.const_zero().into(),
             Self::IntType(t) => t.const_zero().into(),
             Self::PointerType(t) => t.const_zero().into(),
             Self::StructType(t) => t.const_zero().into(),
-            Self::VectorType(t) => t.const_zero(),
-            Self::ScalableVectorType(t) => t.const_zero(),
-        }
+            Self::VectorType(t) => t.const_zero()?,
+            Self::ScalableVectorType(t) => t.const_zero()?,
+        })
     }
 
     pub fn array_type(self, len: u32) -> ArrayType<'ctx> {
@@ -632,38 +664,38 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         matches!(self, Self::PointerType(_))
     }
 
-    pub fn into_array_type(self) -> ArrayType<'ctx> {
+    pub fn into_array_type(self) -> LlvmResult<ArrayType<'ctx>> {
         match self {
-            Self::ArrayType(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected array type"),
+            Self::ArrayType(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected array type")),
         }
     }
 
-    pub fn into_float_type(self) -> FloatType<'ctx> {
+    pub fn into_float_type(self) -> LlvmResult<FloatType<'ctx>> {
         match self {
-            Self::FloatType(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected float type"),
+            Self::FloatType(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected float type")),
         }
     }
 
-    pub fn into_int_type(self) -> IntType<'ctx> {
+    pub fn into_int_type(self) -> LlvmResult<IntType<'ctx>> {
         match self {
-            Self::IntType(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected int type"),
+            Self::IntType(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected int type")),
         }
     }
 
-    pub fn into_pointer_type(self) -> PointerType<'ctx> {
+    pub fn into_pointer_type(self) -> LlvmResult<PointerType<'ctx>> {
         match self {
-            Self::PointerType(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected pointer type"),
+            Self::PointerType(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected pointer type")),
         }
     }
 
-    pub fn into_struct_type(self) -> StructType<'ctx> {
+    pub fn into_struct_type(self) -> LlvmResult<StructType<'ctx>> {
         match self {
-            Self::StructType(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected struct type"),
+            Self::StructType(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected struct type")),
         }
     }
 }
@@ -885,21 +917,21 @@ pub enum BasicValueEnum<'ctx> {
 }
 
 impl<'ctx> BasicValueEnum<'ctx> {
-    pub(super) fn new(raw: LLVMValueRef) -> Self {
-        match BasicTypeEnum::new(unsafe { LLVMTypeOf(raw) }) {
-            BasicTypeEnum::ArrayType(_) => Self::ArrayValue(ArrayValue::new(raw)),
-            BasicTypeEnum::FloatType(_) => Self::FloatValue(FloatValue::new(raw)),
-            BasicTypeEnum::IntType(_) => Self::IntValue(IntValue::new(raw)),
-            BasicTypeEnum::PointerType(_) => Self::PointerValue(PointerValue::new(raw)),
-            BasicTypeEnum::StructType(_) => Self::StructValue(StructValue::new(raw)),
-            BasicTypeEnum::VectorType(_) => Self::VectorValue(VectorValue::new(raw)),
+    pub(super) fn new(raw: LLVMValueRef) -> LlvmResult<Self> {
+        match BasicTypeEnum::new(unsafe { LLVMTypeOf(raw) })? {
+            BasicTypeEnum::ArrayType(_) => Ok(Self::ArrayValue(ArrayValue::new(raw))),
+            BasicTypeEnum::FloatType(_) => Ok(Self::FloatValue(FloatValue::new(raw))),
+            BasicTypeEnum::IntType(_) => Ok(Self::IntValue(IntValue::new(raw))),
+            BasicTypeEnum::PointerType(_) => Ok(Self::PointerValue(PointerValue::new(raw))),
+            BasicTypeEnum::StructType(_) => Ok(Self::StructValue(StructValue::new(raw))),
+            BasicTypeEnum::VectorType(_) => Ok(Self::VectorValue(VectorValue::new(raw))),
             BasicTypeEnum::ScalableVectorType(_) => {
-                Self::ScalableVectorValue(ScalableVectorValue::new(raw))
+                Ok(Self::ScalableVectorValue(ScalableVectorValue::new(raw)))
             }
         }
     }
 
-    pub fn get_type(self) -> BasicTypeEnum<'ctx> {
+    pub fn get_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMTypeOf(self.as_value_ref()) })
     }
 
@@ -923,45 +955,45 @@ impl<'ctx> BasicValueEnum<'ctx> {
         matches!(self, Self::VectorValue(_) | Self::ScalableVectorValue(_))
     }
 
-    pub fn into_array_value(self) -> ArrayValue<'ctx> {
+    pub fn into_array_value(self) -> LlvmResult<ArrayValue<'ctx>> {
         match self {
-            Self::ArrayValue(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected array value"),
+            Self::ArrayValue(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected array value")),
         }
     }
 
-    pub fn into_vector_value(self) -> VectorValue<'ctx> {
+    pub fn into_vector_value(self) -> LlvmResult<VectorValue<'ctx>> {
         match self {
-            Self::VectorValue(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected vector value"),
+            Self::VectorValue(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected vector value")),
         }
     }
 
-    pub fn into_float_value(self) -> FloatValue<'ctx> {
+    pub fn into_float_value(self) -> LlvmResult<FloatValue<'ctx>> {
         match self {
-            Self::FloatValue(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected float value"),
+            Self::FloatValue(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected float value")),
         }
     }
 
-    pub fn into_int_value(self) -> IntValue<'ctx> {
+    pub fn into_int_value(self) -> LlvmResult<IntValue<'ctx>> {
         match self {
-            Self::IntValue(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected int value"),
+            Self::IntValue(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected int value")),
         }
     }
 
-    pub fn into_pointer_value(self) -> PointerValue<'ctx> {
+    pub fn into_pointer_value(self) -> LlvmResult<PointerValue<'ctx>> {
         match self {
-            Self::PointerValue(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected pointer value"),
+            Self::PointerValue(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected pointer value")),
         }
     }
 
-    pub fn into_struct_value(self) -> StructValue<'ctx> {
+    pub fn into_struct_value(self) -> LlvmResult<StructValue<'ctx>> {
         match self {
-            Self::StructValue(value) => value,
-            _ => panic!("Nia ICE (LLVM): expected struct value"),
+            Self::StructValue(value) => Ok(value),
+            _ => Err(LlvmError::ice("expected struct value")),
         }
     }
 
@@ -1054,7 +1086,7 @@ impl<'ctx> FunctionValue<'ctx> {
         }
     }
 
-    pub fn get_nth_param(self, index: u32) -> Option<BasicValueEnum<'ctx>> {
+    pub fn get_nth_param(self, index: u32) -> Option<LlvmResult<BasicValueEnum<'ctx>>> {
         let count = unsafe { LLVMCountParams(self.raw) };
         if index >= count {
             None
@@ -1141,10 +1173,11 @@ impl<'ctx> GlobalValue<'ctx> {
         unsafe { LLVMSetLinkage(self.raw, linkage.into()) };
     }
 
-    pub fn set_section(self, section: Option<&str>) {
+    pub fn set_section(self, section: Option<&str>) -> LlvmResult<()> {
         let section = section.unwrap_or("");
-        let section = to_c_string(section);
+        let section = to_c_string(section)?;
         unsafe { LLVMSetSection(self.raw, section.as_ptr()) };
+        Ok(())
     }
 
     pub fn set_alignment(self, bytes: u32) {
@@ -1250,7 +1283,7 @@ impl<'ctx> InstructionValue<'ctx> {
         unsafe { LLVMGetInstructionOpcode(self.raw) }
     }
 
-    pub fn get_allocated_type(self) -> BasicTypeEnum<'ctx> {
+    pub fn get_allocated_type(self) -> LlvmResult<BasicTypeEnum<'ctx>> {
         BasicTypeEnum::new(unsafe { LLVMGetAllocatedType(self.raw) })
     }
 
@@ -1305,7 +1338,7 @@ impl<'ctx> PhiValue<'ctx> {
         };
     }
 
-    pub fn as_basic_value(self) -> BasicValueEnum<'ctx> {
+    pub fn as_basic_value(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         BasicValueEnum::new(self.raw)
     }
 }
@@ -1337,16 +1370,16 @@ impl<'ctx> CallSiteValue<'ctx> {
 }
 
 pub struct CallSiteTryAsValue<'ctx> {
-    value: Option<BasicValueEnum<'ctx>>,
+    value: Option<LlvmResult<BasicValueEnum<'ctx>>>,
 }
 
 impl<'ctx> CallSiteTryAsValue<'ctx> {
-    pub fn basic(self) -> Option<BasicValueEnum<'ctx>> {
+    pub fn basic(self) -> Option<LlvmResult<BasicValueEnum<'ctx>>> {
         self.value
     }
 
-    pub fn unwrap_basic(self) -> BasicValueEnum<'ctx> {
+    pub fn unwrap_basic(self) -> LlvmResult<BasicValueEnum<'ctx>> {
         self.value
-            .expect("Nia ICE (LLVM): expected non-void call result")
+            .ok_or_else(|| LlvmError::ice("expected non-void call result"))?
     }
 }
