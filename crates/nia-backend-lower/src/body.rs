@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use crate::{ModuleLowerer, generic_inst_base};
 use nia_ast::{
     ArrayElements, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg, SliceRange,
@@ -12,15 +14,21 @@ use nia_backend_ir::{
 };
 use nia_body_check::BuiltinValue;
 use nia_defs::DefKind;
-use nia_ids::{GlobalDefId, LocalId};
+use nia_ids::{GlobalDefId, LocalId, TyId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::decode_string_literal;
 
 mod asm;
+
+#[derive(Clone, Copy)]
+struct MethodCandidate {
+    target_ty: TyId,
+    method_id: GlobalDefId,
+}
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_body(&mut self, block: &Block) -> TypedBody {
@@ -518,9 +526,10 @@ impl<'a> ModuleLowerer<'a> {
         }
         if let ExprKind::Qualified { lhs, name } = &base.kind
             && let Some((struct_id, struct_args)) = self.type_prefix_instance(lhs)
-            && let Some(method_id) = self.single_method_def(struct_id, name)
+            && let Some(method_id) =
+                self.single_method_def_for_target(struct_id, &struct_args, name)
         {
-            if struct_args.is_empty() {
+            if struct_args.is_empty() || !self.method_has_effective_generics(method_id) {
                 return TypedCallee::Function(method_id);
             }
             return TypedCallee::FunctionInstance {
@@ -564,9 +573,7 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         };
         let receiver = self.lower_expr(lhs);
-        let (struct_id, struct_args) = self.receiver_base_type(receiver.ty)?;
-        let method_id = self.single_method_def(struct_id, name)?;
-        let mut args = struct_args;
+        let (method_id, mut args) = self.single_method_for_receiver(receiver.ty, name)?;
         args.extend(type_args);
         Some(TypedCallee::Method {
             def_id: method_id,
@@ -575,11 +582,398 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn single_method_def(&self, struct_id: GlobalDefId, name: &str) -> Option<GlobalDefId> {
-        let methods = self.input.extensions.methods(struct_id, name);
-        match methods.as_slice() {
-            [method] => Some(*method),
+    fn single_method_def_for_target(
+        &self,
+        struct_id: GlobalDefId,
+        struct_args: &[TyId],
+        name: &str,
+    ) -> Option<GlobalDefId> {
+        let mut candidates = self.methods_for_nominal_target(struct_id, name);
+        if !struct_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
+            let target_ty = self.nominal_ty(struct_id, struct_args)?;
+            candidates.retain(|candidate| {
+                self.match_type_pattern(candidate.target_ty, target_ty, &mut HashMap::new())
+            });
+        }
+        let candidates = self.most_specific_candidates(&candidates);
+        match candidates.as_slice() {
+            [method] => Some(method.method_id),
             _ => None,
+        }
+    }
+
+    fn method_has_effective_generics(&self, def_id: GlobalDefId) -> bool {
+        let own_generics = self
+            .input
+            .defs
+            .defs
+            .get(def_id.def_id)
+            .map(|def| def.generics.as_slice())
+            .unwrap_or(&[]);
+        !self.effective_generics(def_id, own_generics).is_empty()
+    }
+
+    fn type_prefix_has_no_generics(&self, def_id: GlobalDefId) -> bool {
+        let Some(signature) = self.input.signatures.structs.get(&def_id.def_id) else {
+            return false;
+        };
+        signature.generics.is_empty()
+    }
+
+    fn nominal_ty(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<TyId> {
+        self.input
+            .body_check
+            .interner
+            .iter()
+            .find_map(|(ty_id, ty)| {
+                matches!(
+                    ty,
+                    TyKind::Nominal {
+                        def_id: ty_def,
+                        args: ty_args,
+                    } if *ty_def == def_id && ty_args == args
+                )
+                .then_some(ty_id)
+            })
+    }
+
+    fn methods_for_nominal_target(
+        &self,
+        struct_id: GlobalDefId,
+        name: &str,
+    ) -> Vec<MethodCandidate> {
+        self.input
+            .extensions
+            .all_methods_named(name)
+            .into_iter()
+            .filter_map(|(target_ty, method_id)| {
+                let target_ty = self.input.type_normalization.normalize(target_ty);
+                matches!(
+                    self.input.body_check.interner.get(target_ty),
+                    Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
+                )
+                .then_some(MethodCandidate {
+                    target_ty,
+                    method_id,
+                })
+            })
+            .collect()
+    }
+
+    fn single_method_for_receiver(
+        &self,
+        receiver_ty: TyId,
+        name: &str,
+    ) -> Option<(GlobalDefId, Vec<TyId>)> {
+        let receiver_ty = self.input.type_normalization.normalize(receiver_ty);
+        let mut candidates = self.method_candidates_for_receiver(receiver_ty, name);
+        candidates = self.most_specific_candidates(&candidates);
+        match candidates.as_slice() {
+            [candidate] => {
+                let mut substitutions = HashMap::new();
+                self.match_type_pattern(candidate.target_ty, receiver_ty, &mut substitutions)
+                    .then(|| {
+                        (
+                            candidate.method_id,
+                            self.extension_target_instance_args(
+                                candidate.target_ty,
+                                &substitutions,
+                            ),
+                        )
+                    })
+            }
+            _ => None,
+        }
+    }
+
+    fn method_candidates_for_receiver(
+        &self,
+        mut receiver_ty: TyId,
+        name: &str,
+    ) -> Vec<MethodCandidate> {
+        loop {
+            let candidates = self
+                .input
+                .extensions
+                .all_methods_named(name)
+                .into_iter()
+                .filter_map(|(target_ty, method_id)| {
+                    let target_ty = self.input.type_normalization.normalize(target_ty);
+                    self.match_type_pattern(target_ty, receiver_ty, &mut HashMap::new())
+                        .then_some(MethodCandidate {
+                            target_ty,
+                            method_id,
+                        })
+                })
+                .collect::<Vec<_>>();
+            if !candidates.is_empty() {
+                return candidates;
+            }
+            match self.input.body_check.interner.get(receiver_ty) {
+                Some(TyKind::Pointer { elem, .. }) => {
+                    receiver_ty = self.input.type_normalization.normalize(*elem);
+                }
+                _ => return Vec::new(),
+            }
+        }
+    }
+
+    fn extension_target_instance_args(
+        &self,
+        target_ty: TyId,
+        substitutions: &HashMap<String, TyId>,
+    ) -> Vec<TyId> {
+        self.generic_params_in_ty(target_ty)
+            .iter()
+            .filter_map(|generic| substitutions.get(generic).copied())
+            .collect()
+    }
+
+    fn match_type_pattern(
+        &self,
+        pattern: TyId,
+        actual: TyId,
+        substitutions: &mut HashMap<String, TyId>,
+    ) -> bool {
+        let pattern = self.input.type_normalization.normalize(pattern);
+        let actual = self.input.type_normalization.normalize(actual);
+        match self.input.body_check.interner.get(pattern) {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(name).copied() {
+                    self.types_match(existing, actual)
+                } else {
+                    substitutions.insert(name.clone(), actual);
+                    true
+                }
+            }
+            Some(TyKind::Pointer {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.input.body_check.interner.get(actual),
+                Some(TyKind::Pointer { is_const, elem })
+                    if is_const == pattern_const
+                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Slice {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.input.body_check.interner.get(actual),
+                Some(TyKind::Slice { is_const, elem })
+                    if is_const == pattern_const
+                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Array {
+                len: pattern_len,
+                elem: pattern_elem,
+            }) => match self.input.body_check.interner.get(actual) {
+                Some(TyKind::Array { len, elem }) if self.array_lens_match(pattern_len, len) => {
+                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::FunctionPointer {
+                params: pattern_params,
+                return_type: pattern_return,
+                is_variadic: pattern_variadic,
+            }) => match self.input.body_check.interner.get(actual) {
+                Some(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    }) && self.match_type_pattern(*pattern_return, *return_type, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Nominal {
+                def_id: pattern_def,
+                args: pattern_args,
+            }) => match self.input.body_check.interner.get(actual) {
+                Some(TyKind::Nominal { def_id, args })
+                    if pattern_def == def_id && pattern_args.len() == args.len() =>
+                {
+                    pattern_args.iter().zip(args).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    })
+                }
+                _ => false,
+            },
+            Some(TyKind::Primitive(_)) | Some(TyKind::Error) | None => {
+                self.types_match(pattern, actual)
+            }
+        }
+    }
+
+    fn most_specific_candidates(&self, candidates: &[MethodCandidate]) -> Vec<MethodCandidate> {
+        candidates
+            .iter()
+            .copied()
+            .filter(|candidate| {
+                !candidates.iter().any(|other| {
+                    other.method_id != candidate.method_id
+                        && self.strictly_more_specific(other.target_ty, candidate.target_ty)
+                })
+            })
+            .collect()
+    }
+
+    fn strictly_more_specific(&self, specific: TyId, general: TyId) -> bool {
+        self.pattern_subsumes(general, specific) && !self.pattern_subsumes(specific, general)
+    }
+
+    fn pattern_subsumes(&self, general: TyId, specific: TyId) -> bool {
+        self.pattern_subsumes_inner(general, specific, &mut HashMap::new())
+    }
+
+    fn pattern_subsumes_inner(
+        &self,
+        general: TyId,
+        specific: TyId,
+        substitutions: &mut HashMap<String, TyId>,
+    ) -> bool {
+        let general = self.input.type_normalization.normalize(general);
+        let specific = self.input.type_normalization.normalize(specific);
+        match self.input.body_check.interner.get(general) {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(name).copied() {
+                    self.patterns_equivalent(existing, specific)
+                } else {
+                    substitutions.insert(name.clone(), specific);
+                    true
+                }
+            }
+            Some(TyKind::Primitive(general_primitive)) => matches!(
+                self.input.body_check.interner.get(specific),
+                Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
+            ),
+            Some(TyKind::Pointer {
+                is_const: general_const,
+                elem: general_elem,
+            }) => matches!(
+                self.input.body_check.interner.get(specific),
+                Some(TyKind::Pointer {
+                    is_const: specific_const,
+                    elem: specific_elem,
+                }) if general_const == specific_const
+                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+            ),
+            Some(TyKind::Slice {
+                is_const: general_const,
+                elem: general_elem,
+            }) => matches!(
+                self.input.body_check.interner.get(specific),
+                Some(TyKind::Slice {
+                    is_const: specific_const,
+                    elem: specific_elem,
+                }) if general_const == specific_const
+                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+            ),
+            Some(TyKind::Array {
+                len: general_len,
+                elem: general_elem,
+            }) => match self.input.body_check.interner.get(specific) {
+                Some(TyKind::Array {
+                    len: specific_len,
+                    elem: specific_elem,
+                }) if self.array_lens_match(general_len, specific_len) => {
+                    self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::FunctionPointer {
+                params: general_params,
+                return_type: general_return,
+                is_variadic: general_variadic,
+            }) => match self.input.body_check.interner.get(specific) {
+                Some(TyKind::FunctionPointer {
+                    params: specific_params,
+                    return_type: specific_return,
+                    is_variadic: specific_variadic,
+                }) if general_variadic == specific_variadic
+                    && general_params.len() == specific_params.len() =>
+                {
+                    general_params
+                        .iter()
+                        .zip(specific_params)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                        && self.pattern_subsumes_inner(
+                            *general_return,
+                            *specific_return,
+                            substitutions,
+                        )
+                }
+                _ => false,
+            },
+            Some(TyKind::Nominal {
+                def_id: general_def,
+                args: general_args,
+            }) => match self.input.body_check.interner.get(specific) {
+                Some(TyKind::Nominal {
+                    def_id: specific_def,
+                    args: specific_args,
+                }) if general_def == specific_def && general_args.len() == specific_args.len() => {
+                    general_args
+                        .iter()
+                        .zip(specific_args)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                }
+                _ => false,
+            },
+            Some(TyKind::Error) | None => false,
+        }
+    }
+
+    fn patterns_equivalent(&self, left: TyId, right: TyId) -> bool {
+        self.pattern_subsumes(left, right) && self.pattern_subsumes(right, left)
+    }
+
+    fn types_match(&self, expected: TyId, actual: TyId) -> bool {
+        let expected = self.input.type_normalization.normalize(expected);
+        let actual = self.input.type_normalization.normalize(actual);
+        let never = self.input.body_check.interner.primitive(PrimitiveTy::Never);
+        expected == actual || never == actual
+    }
+
+    fn array_lens_match(&self, expected: &ArrayLenTy, actual: &ArrayLenTy) -> bool {
+        if expected == actual {
+            return true;
+        }
+        let expected = self.array_len_value(expected).ok();
+        let actual = self.array_len_value(actual).ok();
+        expected.is_some() && expected == actual
+    }
+
+    fn array_len_value(&self, len: &ArrayLenTy) -> Result<u64, nia_const_eval::ConstEvalError> {
+        match len {
+            ArrayLenTy::ConstExpr(text) => nia_const_eval::eval_array_len_text(text),
+            ArrayLenTy::Builtin { name, ty } => {
+                let ty = self.input.type_normalization.normalize(*ty);
+                let Some(layout) = self.input.layouts.types.get(&ty) else {
+                    return Err(nia_const_eval::ConstEvalError {
+                        message: format!(
+                            "cannot compute layout for array length builtin `@{name}`"
+                        ),
+                    });
+                };
+                match name.as_str() {
+                    "size" => Ok(layout.size),
+                    "align" => Ok(layout.align),
+                    _ => Err(nia_const_eval::ConstEvalError {
+                        message: format!("unsupported array length builtin `@{name}`"),
+                    }),
+                }
+            }
+            ArrayLenTy::Infer => Err(nia_const_eval::ConstEvalError {
+                message: "array length is not concrete".to_string(),
+            }),
         }
     }
 

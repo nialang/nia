@@ -7,13 +7,13 @@ use nia_ids::{GlobalDefId, ModuleId, TyId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExtensionMethods {
-    by_module: HashMap<ModuleId, HashMap<GlobalDefId, Vec<ExtensionMethod>>>,
+    by_module: HashMap<ModuleId, Vec<ExtensionMethod>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionMethod {
     pub def_id: GlobalDefId,
-    pub target_args: Vec<TyId>,
+    pub target_ty: TyId,
     pub visibility: Visibility,
 }
 
@@ -30,39 +30,28 @@ pub struct VisibleExtensionMethod {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleExtensionTarget {
-    pub target: GlobalDefId,
-    pub args: Vec<TyId>,
+    pub target_ty: TyId,
     pub methods: Vec<VisibleExtensionMethod>,
 }
 
 impl ExtensionMethods {
-    pub fn insert(&mut self, module_id: ModuleId, target: GlobalDefId, method: ExtensionMethod) {
-        self.by_module
-            .entry(module_id)
-            .or_default()
-            .entry(target)
-            .or_default()
-            .push(method);
+    pub fn insert(&mut self, module_id: ModuleId, method: ExtensionMethod) {
+        self.by_module.entry(module_id).or_default().push(method);
     }
 
     pub fn visible_methods(
         &self,
         current_module: ModuleId,
         imported_modules: impl IntoIterator<Item = ModuleId>,
-        target: GlobalDefId,
     ) -> Vec<ExtensionMethod> {
         let mut methods = Vec::new();
-        if let Some(module_methods) = self.by_module.get(&current_module)
-            && let Some(target_methods) = module_methods.get(&target)
-        {
-            methods.extend(target_methods.iter().cloned());
+        if let Some(module_methods) = self.by_module.get(&current_module) {
+            methods.extend(module_methods.iter().cloned());
         }
         for module_id in imported_modules {
-            if let Some(module_methods) = self.by_module.get(&module_id)
-                && let Some(target_methods) = module_methods.get(&target)
-            {
+            if let Some(module_methods) = self.by_module.get(&module_id) {
                 methods.extend(
-                    target_methods
+                    module_methods
                         .iter()
                         .filter(|method| method.visibility == Visibility::Public)
                         .cloned(),
@@ -76,7 +65,6 @@ impl ExtensionMethods {
         self.by_module
             .get(&module_id)
             .into_iter()
-            .flat_map(|targets| targets.values())
             .flat_map(|methods| methods.iter())
             .map(|method| method.def_id.def_id)
             .collect()
@@ -84,29 +72,40 @@ impl ExtensionMethods {
 }
 
 impl VisibleExtensionMethods {
-    pub fn insert(&mut self, target: GlobalDefId, args: Vec<TyId>, method: VisibleExtensionMethod) {
+    pub fn insert(&mut self, target_ty: TyId, method: VisibleExtensionMethod) {
         if let Some(existing) = self
             .targets
             .iter_mut()
-            .find(|item| item.target == target && item.args == args)
+            .find(|item| item.target_ty == target_ty)
         {
             existing.methods.push(method);
             return;
         }
         self.targets.push(VisibleExtensionTarget {
-            target,
-            args,
+            target_ty,
             methods: vec![method],
         });
     }
 
-    pub fn methods(&self, target: GlobalDefId, name: &str) -> Vec<GlobalDefId> {
+    pub fn methods(&self, target_ty: TyId, name: &str) -> Vec<GlobalDefId> {
         self.targets
             .iter()
-            .filter(|item| item.target == target)
+            .filter(|item| item.target_ty == target_ty)
             .flat_map(|item| item.methods.iter())
             .filter(|method| method.name == name)
             .map(|method| method.def_id)
+            .collect()
+    }
+
+    pub fn all_methods_named(&self, name: &str) -> Vec<(TyId, GlobalDefId)> {
+        self.targets
+            .iter()
+            .flat_map(|item| {
+                item.methods
+                    .iter()
+                    .filter(move |method| method.name == name)
+                    .map(move |method| (item.target_ty, method.def_id))
+            })
             .collect()
     }
 

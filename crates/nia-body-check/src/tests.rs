@@ -32,6 +32,11 @@ fn pipeline(source: &str) -> BodyCheck {
         "{:?}",
         signatures.diagnostics
     );
+    let normalization = TypeNormalization {
+        interner: lowered.interner.clone(),
+        normalized: HashMap::new(),
+        diagnostics: Vec::new(),
+    };
     let mut extensions = VisibleExtensionMethods::default();
     for item in &module.items {
         let nia_ast::ItemKind::Extend(extend) = &item.kind else {
@@ -40,13 +45,7 @@ fn pipeline(source: &str) -> BodyCheck {
         let Some(target_ty) = lowered.type_uses.get(&extend.target.span).copied() else {
             continue;
         };
-        let Some(nia_ty::TyKind::Nominal {
-            def_id: target,
-            args,
-        }) = lowered.interner.get(target_ty)
-        else {
-            continue;
-        };
+        let target_ty = normalization.normalize(target_ty);
         for method in &extend.methods {
             let Some(method_id) = defs.def_spans.get(method.function.span) else {
                 continue;
@@ -58,8 +57,7 @@ fn pipeline(source: &str) -> BodyCheck {
                 continue;
             }
             extensions.insert(
-                *target,
-                args.clone(),
+                target_ty,
                 VisibleExtensionMethod {
                     name: method_def.name.clone(),
                     def_id: GlobalDefId {
@@ -70,11 +68,6 @@ fn pipeline(source: &str) -> BodyCheck {
             );
         }
     }
-    let normalization = TypeNormalization {
-        interner: lowered.interner.clone(),
-        normalized: HashMap::new(),
-        diagnostics: Vec::new(),
-    };
     let layouts = nia_layout::compute_layouts(
         &defs,
         &lowered.interner,
@@ -1361,6 +1354,78 @@ fn main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn selects_most_specific_extension_method_target() {
+    let checked = pipeline(
+        r#"
+extend[T] T {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend i32 {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+extend[T] &T {
+    fn ptr_rank(self) i32 {
+        3
+    }
+}
+
+extend &i32 {
+    fn ptr_rank(self) i32 {
+        4
+    }
+}
+
+fn main(value: &i32) i32 {
+    1.rank() + value.ptr_rank()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn reports_ambiguous_extension_method_specializations() {
+    let checked = pipeline(
+        r#"
+struct Pair[A, B] {
+    a: A,
+    b: B,
+}
+
+extend[T] Pair[T, i32] {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend[U] Pair[i32, U] {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+fn main(pair: Pair[i32, i32]) i32 {
+    pair.rank()
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("ambiguous method `rank`")),
+        "{:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]

@@ -9,6 +9,8 @@ mod literals;
 mod places;
 mod type_support;
 
+pub use calls::import_type_into;
+
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, ForInit, FunctionItem, ItemKind, Module, Stmt, StmtKind,
 };
@@ -220,7 +222,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         all_defs: input.all_defs,
         values: input.values,
         locals: input.locals,
-        interner: input.lowered.interner.clone(),
+        interner: input.normalization.interner.clone(),
         type_uses: &input.lowered.type_uses,
         signatures: input.signatures,
         normalization: input.normalization,
@@ -238,7 +240,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         diagnostics: Vec::new(),
-        current_return: input.lowered.interner.primitive(PrimitiveTy::Void),
+        current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
         current_def_id: None,
     };
     checker.seed_global_types();

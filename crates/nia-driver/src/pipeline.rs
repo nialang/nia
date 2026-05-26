@@ -150,6 +150,8 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                 module.id,
                 &loaded.imports,
                 &defs_by_module,
+                &type_lowerings,
+                &type_normalizations,
                 &extension_methods,
             )
         })

@@ -65,12 +65,22 @@ fn main() i32 {
         })
         .expect("make def");
     let mut extensions = VisibleExtensionMethods::default();
+    let point_ty = normalization
+        .interner
+        .iter()
+        .find_map(|(ty_id, ty)| {
+            matches!(
+                ty,
+                nia_ty::TyKind::Nominal {
+                    def_id,
+                    args
+                } if def_id.module_id == ModuleId(0) && def_id.def_id == point_id && args.is_empty()
+            )
+            .then_some(ty_id)
+        })
+        .expect("Point type");
     extensions.insert(
-        GlobalDefId {
-            module_id: ModuleId(0),
-            def_id: point_id,
-        },
-        Vec::new(),
+        point_ty,
         VisibleExtensionMethod {
             name: "make".to_string(),
             def_id: GlobalDefId {
