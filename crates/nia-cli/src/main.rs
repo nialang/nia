@@ -15,6 +15,24 @@ mod help;
 use help::help_text;
 
 fn main() -> ExitCode {
+    nia_ice::install_panic_hook();
+    run_with_ice_boundary(run_main, |ice| eprintln!("{}", ice.render_message()))
+}
+
+fn run_with_ice_boundary(
+    f: impl FnOnce() -> ExitCode,
+    report: impl FnOnce(&nia_ice::Ice),
+) -> ExitCode {
+    match nia_ice::catch_ice(f) {
+        Ok(code) => code,
+        Err(ice) => {
+            report(&ice);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_main() -> ExitCode {
     match parse_cli(env::args().skip(1).collect()) {
         Ok(CliAction::Help(topic)) => {
             print!("{}", help_text(topic));
@@ -163,7 +181,12 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
             continue;
         }
         if arg == "--module" {
-            let option = args.next().unwrap();
+            let Some(option) = args.next() else {
+                return Err(CliError::new(
+                    "missing argument after `--module`",
+                    HelpTopic::Main,
+                ));
+            };
             let payload = args.next().ok_or_else(|| {
                 CliError::new(
                     format!("missing argument after `{option}`"),
@@ -271,7 +294,9 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         return Err(CliError::help(HelpTopic::Emit));
     }
     let mut args = args.into_iter();
-    let target = args.next().unwrap();
+    let Some(target) = args.next() else {
+        return Err(CliError::help(HelpTopic::Emit));
+    };
     let rest = args.collect::<Vec<_>>();
     if has_help_flag(&rest) {
         return Err(CliError::help(match target.as_str() {
@@ -646,5 +671,23 @@ fn print_codegen_diagnostics(path: &str, source: &str, diagnostics: &[nia_diagno
     eprintln!("codegen diagnostics:");
     for diagnostic in diagnostics {
         eprintln!("{}", render_diagnostic(path, source, diagnostic));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ice_boundary_converts_panic_to_failure() {
+        let mut message = String::new();
+        let code = run_with_ice_boundary(
+            || panic!("Nia ICE: forced failure"),
+            |ice| message = ice.render_message(),
+        );
+
+        assert_eq!(code, ExitCode::FAILURE);
+        assert!(message.contains("internal compiler error: forced failure"));
+        assert!(message.contains("Please report it"));
     }
 }
