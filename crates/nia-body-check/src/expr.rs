@@ -140,6 +140,9 @@ impl<'a> BodyChecker<'a> {
                 let source = self.check_expr(inner);
                 let target = self.ty_for_span(ty.span);
                 self.check_cast(expr.span, source, target);
+                if self.is_open_enum(target) {
+                    self.check_integer_literal_enum_backing_range(inner, target, "cast");
+                }
                 target
             }
             ExprKind::Call { callee, args } => self.check_call(expr.span, callee, args, expected),

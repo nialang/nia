@@ -574,7 +574,17 @@ impl<'a> BodyChecker<'a> {
                 }
                 nia_ast::SwitchPattern::Expr(pattern) => {
                     let pattern_ty = self.check_expr_with_expected(pattern, Some(target_ty));
-                    self.expect_expr_type(pattern, target_ty, pattern_ty, "switch pattern");
+                    if self.is_open_enum(target_ty)
+                        && self.check_integer_literal_enum_backing_range(
+                            pattern,
+                            target_ty,
+                            "switch pattern",
+                        )
+                    {
+                        self.expr_types.insert(pattern.span, target_ty);
+                    } else {
+                        self.expect_expr_type(pattern, target_ty, pattern_ty, "switch pattern");
+                    }
                     if let Some(expected_enum) = enum_id
                         && let Some((variant_enum, variant_id)) = self.enum_variant_info(pattern)
                         && variant_enum == expected_enum

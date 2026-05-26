@@ -1838,7 +1838,7 @@ fn main() i32 {
 fn checks_open_enum_integer_casts_and_switch_exhaustiveness() {
     let checked = pipeline(
         r#"
-enum Flag {
+enum Flag: u8 {
     A,
     B,
     _,
@@ -1851,6 +1851,10 @@ enum Closed {
 
 fn open_cast() Flag {
     3 as Flag
+}
+
+fn bad_open_cast() Flag {
+    256 as Flag
 }
 
 fn closed_cast() Closed {
@@ -1869,7 +1873,17 @@ fn with_open_default(flag: Flag) i32 {
     switch flag {
         Flag::A => return 1,
         Flag::B => return 2,
+        3 => return 3,
+        256 => return 4,
         _ => return 0,
+    }
+    0
+}
+
+fn closed_integer_pattern(closed: Closed) i32 {
+    switch closed {
+        0 => return 0,
+        _ => return 1,
     }
     0
 }
@@ -1902,6 +1916,25 @@ fn with_open_default(flag: Flag) i32 {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.message.contains("i32 to Flag")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("out of range for nominal backing type"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("type mismatch in switch pattern")),
         "{:?}",
         checked.diagnostics
     );
