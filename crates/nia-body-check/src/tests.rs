@@ -415,6 +415,26 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_binary_numeric_literals_from_the_other_operand() {
+    let checked = pipeline(
+        r#"
+const a = 10;
+const ptr = &const a;
+
+fn main(x: usize) bool {
+    var forward = a as usize == 0;
+    var reverse = 0 == a as usize;
+    var sum: usize = 1 + x;
+    var expected_sum: usize = 1 + 2;
+    var shifted: usize = 1 << 2;
+    forward and reverse and sum == x + 1 and expected_sum == 3 and shifted == 4
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn numeric_literal_suffixes_are_not_accepted() {
     let (_module, parse_errors) = parse_module(
         r#"

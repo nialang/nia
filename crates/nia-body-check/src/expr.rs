@@ -122,9 +122,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Binary { lhs, op, rhs } => {
-                let lhs_ty = self.check_expr(lhs);
-                let rhs_ty = self.check_expr(rhs);
-                self.check_binary(expr.span, lhs_ty, *op, rhs_ty)
+                self.check_binary_expr(expr.span, lhs, *op, rhs, expected)
             }
             ExprKind::Assign { lhs, rhs, .. } => {
                 if matches!(lhs.kind, ExprKind::Underscore) {
@@ -223,7 +221,14 @@ impl<'a> BodyChecker<'a> {
         }))
     }
 
-    fn check_binary(&mut self, span: Span, lhs: TyId, op: BinaryOp, rhs: TyId) -> TyId {
+    fn check_binary_expr(
+        &mut self,
+        span: Span,
+        lhs: &Expr,
+        op: BinaryOp,
+        rhs: &Expr,
+        expected: Option<TyId>,
+    ) -> TyId {
         match op {
             BinaryOp::Lt
             | BinaryOp::Le
@@ -231,11 +236,12 @@ impl<'a> BodyChecker<'a> {
             | BinaryOp::Ge
             | BinaryOp::Eq
             | BinaryOp::Ne => {
-                self.expect_type(span, lhs, rhs, "binary comparison");
+                let (lhs_ty, _) =
+                    self.check_same_type_binary_operands(lhs, rhs, "binary comparison");
                 if matches!(
                     op,
                     BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
-                ) && !self.is_numeric(lhs)
+                ) && !self.is_numeric(lhs_ty)
                 {
                     self.diagnostics.push(Diagnostic::error(
                         span,
@@ -245,46 +251,129 @@ impl<'a> BodyChecker<'a> {
                 self.bool()
             }
             BinaryOp::And | BinaryOp::Or => {
-                self.expect_type(span, self.bool(), lhs, "logical operator");
-                self.expect_type(span, self.bool(), rhs, "logical operator");
+                let expected = self.bool();
+                let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
+                self.expect_expr_type(lhs, expected, lhs_ty, "logical operator");
+                let rhs_ty = self.check_expr_with_expected(rhs, Some(expected));
+                self.expect_expr_type(rhs, expected, rhs_ty, "logical operator");
                 self.bool()
             }
             BinaryOp::BitAnd | BinaryOp::BitXor | BinaryOp::BitOr => {
-                self.expect_type(span, lhs, rhs, "binary operator");
-                if !self.is_integer(lhs) {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "bitwise operator requires integer operands",
-                    ));
-                }
-                lhs
+                let Some(expected) = expected.filter(|ty| self.is_integer(*ty)) else {
+                    let (lhs_ty, _) =
+                        self.check_same_type_binary_operands(lhs, rhs, "binary operator");
+                    if !self.is_integer(lhs_ty) {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            "bitwise operator requires integer operands",
+                        ));
+                    }
+                    return lhs_ty;
+                };
+                let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
+                self.expect_expr_type(lhs, expected, lhs_ty, "binary operator");
+                let rhs_ty = self.check_expr_with_expected(rhs, Some(expected));
+                self.expect_expr_type(rhs, expected, rhs_ty, "binary operator");
+                expected
             }
             BinaryOp::Shl | BinaryOp::Shr => {
-                if !self.is_integer(lhs) {
+                let lhs_expected = expected.filter(|ty| self.is_integer(*ty));
+                let lhs_actual = self.check_expr_with_expected(lhs, lhs_expected);
+                if let Some(expected) = lhs_expected {
+                    self.expect_expr_type(lhs, expected, lhs_actual, "shift operator");
+                }
+                let lhs_ty = self
+                    .expr_types
+                    .get(&lhs.span)
+                    .copied()
+                    .unwrap_or(lhs_actual);
+                if !self.is_integer(lhs_ty) {
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         "shift operator requires integer left operand",
                     ));
                 }
-                if !self.is_integer(rhs) {
+                let rhs_ty = if self.is_numeric_literal_expr(rhs) {
+                    self.check_expr_with_expected(rhs, Some(lhs_ty))
+                } else {
+                    self.check_expr(rhs)
+                };
+                if self.is_numeric_literal_expr(rhs) {
+                    self.expect_expr_type(rhs, lhs_ty, rhs_ty, "shift operator");
+                }
+                if !self.is_integer(rhs_ty) {
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         "shift operator requires integer right operand",
                     ));
                 }
-                lhs
+                lhs_ty
             }
             _ => {
-                self.expect_type(span, lhs, rhs, "binary operator");
-                if !self.is_numeric(lhs) {
+                let Some(expected) = expected.filter(|ty| self.is_numeric(*ty)) else {
+                    let (lhs_ty, _) =
+                        self.check_same_type_binary_operands(lhs, rhs, "binary operator");
+                    if !self.is_numeric(lhs_ty) {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            "arithmetic operator requires numeric operands",
+                        ));
+                    }
+                    return lhs_ty;
+                };
+                let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
+                self.expect_expr_type(lhs, expected, lhs_ty, "binary operator");
+                let rhs_ty = self.check_expr_with_expected(rhs, Some(expected));
+                self.expect_expr_type(rhs, expected, rhs_ty, "binary operator");
+                if !self.is_numeric(lhs_ty) {
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         "arithmetic operator requires numeric operands",
                     ));
                 }
-                lhs
+                expected
             }
         }
+    }
+
+    fn check_same_type_binary_operands(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        context: &str,
+    ) -> (TyId, TyId) {
+        if self.is_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs) {
+            let rhs_ty = self.check_expr(rhs);
+            let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
+            self.expect_expr_type(lhs, rhs_ty, lhs_actual, context);
+            let lhs_ty = self
+                .expr_types
+                .get(&lhs.span)
+                .copied()
+                .unwrap_or(lhs_actual);
+            return (lhs_ty, rhs_ty);
+        }
+
+        let lhs_ty = self.check_expr(lhs);
+        let rhs_actual = self.check_expr_with_expected(rhs, Some(lhs_ty));
+        self.expect_expr_type(rhs, lhs_ty, rhs_actual, context);
+        let rhs_ty = self
+            .expr_types
+            .get(&rhs.span)
+            .copied()
+            .unwrap_or(rhs_actual);
+        (lhs_ty, rhs_ty)
+    }
+
+    fn is_numeric_literal_expr(&self, expr: &Expr) -> bool {
+        matches!(expr.kind, ExprKind::Integer(_) | ExprKind::Float(_))
+            || matches!(
+                &expr.kind,
+                ExprKind::Unary {
+                    op: UnaryOp::Neg,
+                    expr,
+                } if matches!(expr.kind, ExprKind::Integer(_) | ExprKind::Float(_))
+            )
     }
 
     fn check_cast(&mut self, span: Span, source: TyId, target: TyId) {
