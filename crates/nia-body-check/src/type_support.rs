@@ -380,7 +380,8 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::Nominal { def_id, args }) => self.nominal_ty_name(*def_id, args),
             Some(TyKind::GenericParam(name)) => name.clone(),
-            Some(TyKind::Error) | None => "error".to_string(),
+            Some(TyKind::Error) => "<error type>".to_string(),
+            None => "<unknown type>".to_string(),
         }
     }
 
@@ -399,7 +400,7 @@ impl<'a> BodyChecker<'a> {
             .find(|defs| defs.module_id == def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id))
             .map(|def| def.name.clone())
-            .unwrap_or_else(|| "nominal".to_string());
+            .unwrap_or_else(|| "<unknown type>".to_string());
         if args.is_empty() {
             base
         } else {
