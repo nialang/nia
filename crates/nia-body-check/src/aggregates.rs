@@ -11,6 +11,15 @@ use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyKind};
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> TyId {
+        let ExprKind::ArrayLiteral { elems } = &expr.kind else {
+            return self.check_expr(expr);
+        };
+        let ty = self.infer_array_literal_type(expr.span, elems);
+        self.expr_types.insert(expr.span, ty);
+        ty
+    }
+
     pub(crate) fn check_array_literal(
         &mut self,
         span: Span,
@@ -43,6 +52,48 @@ impl<'a> BodyChecker<'a> {
             self.expect_expr_type(elem, elem_ty, actual, "array literal element");
         }
         self.check_array_literal_len(span, len, elem_ty, elems)
+    }
+
+    fn infer_array_literal_type(&mut self, span: Span, elems: &nia_ast::ArrayElements) -> TyId {
+        match elems {
+            nia_ast::ArrayElements::List(values) => {
+                let Some(anchor_index) = self.array_literal_anchor_index(values) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "empty array literal requires an element type annotation",
+                    ));
+                    return self.error();
+                };
+                let elem_ty = self.infer_array_literal_elem_type(&values[anchor_index]);
+                for (index, elem) in values.iter().enumerate() {
+                    if index == anchor_index {
+                        continue;
+                    }
+                    let actual = self.check_expr_with_expected(elem, Some(elem_ty));
+                    self.expect_expr_type(elem, elem_ty, actual, "array literal element");
+                }
+                self.check_array_literal_len(span, ArrayLenTy::Infer, elem_ty, elems)
+            }
+            nia_ast::ArrayElements::Repeat { value, .. } => {
+                let elem_ty = self.infer_array_literal_elem_type(value);
+                self.check_array_literal_len(span, ArrayLenTy::Infer, elem_ty, elems)
+            }
+        }
+    }
+
+    fn array_literal_anchor_index(&self, elems: &[Expr]) -> Option<usize> {
+        elems
+            .iter()
+            .position(|elem| !self.is_numeric_literal_expr(elem))
+            .or((!elems.is_empty()).then_some(0))
+    }
+
+    fn infer_array_literal_elem_type(&mut self, elem: &Expr) -> TyId {
+        if matches!(elem.kind, ExprKind::ArrayLiteral { .. }) {
+            self.infer_array_literal_expr(elem)
+        } else {
+            self.check_expr(elem)
+        }
     }
 
     fn check_array_literal_len(

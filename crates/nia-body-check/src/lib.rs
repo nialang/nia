@@ -359,7 +359,13 @@ impl<'a> BodyChecker<'a> {
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
-            None => self.check_expr(value),
+            None => {
+                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                    self.infer_array_literal_expr(value)
+                } else {
+                    self.check_expr(value)
+                }
+            }
         };
         self.global_types.insert(def_id, global_ty);
     }
@@ -547,7 +553,13 @@ impl<'a> BodyChecker<'a> {
                     .unwrap_or(explicit)
             }
             (Some(ty), None) => self.ty_for_span(ty.span),
-            (None, Some(value)) => self.check_expr(value),
+            (None, Some(value)) => {
+                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                    self.infer_array_literal_expr(value)
+                } else {
+                    self.check_expr(value)
+                }
+            }
             (None, None) => {
                 self.diagnostics.push(Diagnostic::error(
                     span,

@@ -444,7 +444,7 @@ impl<'a> BodyChecker<'a> {
         (lhs_ty, rhs_ty)
     }
 
-    fn is_numeric_literal_expr(&self, expr: &Expr) -> bool {
+    pub(crate) fn is_numeric_literal_expr(&self, expr: &Expr) -> bool {
         matches!(expr.kind, ExprKind::Integer(_) | ExprKind::Float(_))
             || matches!(
                 &expr.kind,

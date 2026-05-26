@@ -358,8 +358,15 @@ Array literals:
 [b'n', b'i', b'a', b'\0']
 ```
 
-An array literal does not carry its element type or length by itself. The
-expected type must supply them. `var xs = [1, 2, 3];` is not supported.
+When an array literal initializes a binding without a type annotation, the
+binding type is inferred from the literal:
+
+```nia
+var xs = [1, 2, 3]; // [3]i32
+```
+
+In other expression contexts, the expected type must still supply the array
+element type and length.
 
 Repeated array literals use semicolon syntax:
 

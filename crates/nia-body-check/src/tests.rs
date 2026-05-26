@@ -933,6 +933,62 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_unannotated_array_literal_bindings() {
+    let checked = pipeline(
+        r#"
+var global_xs = [1, 2, 3];
+
+fn take_triplet(xs: [3]i32) i32 {
+    xs[2]
+}
+
+fn take_matrix(xs: [2][2]i32) i32 {
+    xs[1][0]
+}
+
+fn main() i32 {
+    var xs = [1, 2, 3];
+    var repeated = [1; 3];
+    var anchored = [1, xs[0], 3];
+    var matrix = [[1, 2], [3, 4]];
+    var bad = [xs[0], true];
+    _ = take_triplet(global_xs);
+    _ = take_triplet(xs);
+    _ = take_triplet(repeated);
+    _ = take_triplet(anchored);
+    _ = take_matrix(matrix);
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("array literal element"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("array literal requires an expected")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("call argument")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn reports_invalid_array_repeat_count() {
     let checked = pipeline(
         r#"
