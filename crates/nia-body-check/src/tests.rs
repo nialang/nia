@@ -1658,6 +1658,47 @@ fn bad(c: Color) i32 {
 }
 
 #[test]
+fn infers_switch_pattern_numeric_literals_from_target_type() {
+    let checked = pipeline(
+        r#"
+fn classify(value: usize) i32 {
+    switch value {
+        0 => return 0,
+        1 + 1 => return 2,
+        _ => return 3,
+    }
+    4
+}
+
+fn bad(value: u8) i32 {
+    switch value {
+        256 => return 1,
+        _ => return 0,
+    }
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("out of range for U8"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("type mismatch in switch pattern")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_implicit_enum_integer_mixing() {
     let checked = pipeline(
         r#"
