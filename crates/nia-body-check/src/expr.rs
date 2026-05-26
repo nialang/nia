@@ -185,22 +185,7 @@ impl<'a> BodyChecker<'a> {
                 cond,
                 then_branch,
                 else_branch,
-            } => {
-                let cond_ty = self.check_expr(cond);
-                self.expect_type(cond.span, self.bool(), cond_ty, "if condition");
-                let then_ty = self.check_block(then_branch);
-                if let Some(else_branch) = else_branch {
-                    let else_ty = self.check_expr(else_branch);
-                    self.expect_expr_type(else_branch, then_ty, else_ty, "if branches");
-                    if self.is_never(then_ty) {
-                        else_ty
-                    } else {
-                        then_ty
-                    }
-                } else {
-                    self.void()
-                }
-            }
+            } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
         };
         let ty = if let Some(expected) = expected {
             self.coerce_array_to_slice(expr, expected, ty)
@@ -211,6 +196,97 @@ impl<'a> BodyChecker<'a> {
         };
         self.expr_types.insert(expr.span, ty);
         ty
+    }
+
+    fn check_if_expr(
+        &mut self,
+        cond: &Expr,
+        then_branch: &nia_ast::Block,
+        else_branch: Option<&Expr>,
+        expected: Option<TyId>,
+    ) -> TyId {
+        let cond_ty = self.check_expr(cond);
+        self.expect_type(cond.span, self.bool(), cond_ty, "if condition");
+        let Some(else_branch) = else_branch else {
+            self.check_block(then_branch);
+            return self.void();
+        };
+
+        if let Some(expected) = expected {
+            let then_ty = self.check_block_with_expected(then_branch, Some(expected));
+            self.expect_block_tail_type(then_branch, expected, then_ty, "if branches");
+            let else_ty = self.check_expr_with_expected(else_branch, Some(expected));
+            self.expect_expr_or_block_tail_type(else_branch, expected, else_ty, "if branches");
+            return expected;
+        }
+
+        if self.block_tail_is_numeric_literal(then_branch)
+            && !self.is_numeric_literal_expr(else_branch)
+        {
+            let else_ty = self.check_expr(else_branch);
+            let then_ty = self.check_block_with_expected(then_branch, Some(else_ty));
+            self.expect_block_tail_type(then_branch, else_ty, then_ty, "if branches");
+            return if self.is_never(then_ty) {
+                else_ty
+            } else {
+                self.block_tail_materialized_type(then_branch, then_ty)
+            };
+        }
+
+        let then_ty = self.check_block(then_branch);
+        let else_ty = self.check_expr_with_expected(else_branch, Some(then_ty));
+        self.expect_expr_type(else_branch, then_ty, else_ty, "if branches");
+        if self.is_never(then_ty) {
+            self.expr_types
+                .get(&else_branch.span)
+                .copied()
+                .unwrap_or(else_ty)
+        } else {
+            then_ty
+        }
+    }
+
+    fn expect_block_tail_type(
+        &mut self,
+        block: &nia_ast::Block,
+        expected: TyId,
+        actual: TyId,
+        context: &str,
+    ) {
+        if let Some(tail) = block.tail.as_deref() {
+            self.expect_expr_type(tail, expected, actual, context);
+        } else {
+            self.expect_type(block.span, expected, actual, context);
+        }
+    }
+
+    fn expect_expr_or_block_tail_type(
+        &mut self,
+        expr: &Expr,
+        expected: TyId,
+        actual: TyId,
+        context: &str,
+    ) {
+        if let ExprKind::Block(block) = &expr.kind {
+            self.expect_block_tail_type(block, expected, actual, context);
+        } else {
+            self.expect_expr_type(expr, expected, actual, context);
+        }
+    }
+
+    fn block_tail_materialized_type(&self, block: &nia_ast::Block, fallback: TyId) -> TyId {
+        block
+            .tail
+            .as_deref()
+            .and_then(|tail| self.expr_types.get(&tail.span).copied())
+            .unwrap_or(fallback)
+    }
+
+    fn block_tail_is_numeric_literal(&self, block: &nia_ast::Block) -> bool {
+        block
+            .tail
+            .as_deref()
+            .is_some_and(|tail| self.is_numeric_literal_expr(tail))
     }
 
     fn array_expected_from_index_expected(&mut self, expected: Option<TyId>) -> Option<TyId> {

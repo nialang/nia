@@ -435,6 +435,24 @@ fn main(x: usize) bool {
 }
 
 #[test]
+fn infers_if_branch_numeric_literals_from_expected_and_peer_types() {
+    let checked = pipeline(
+        r#"
+fn from_return(flag: bool) usize {
+    if flag { 1 } else { 2 }
+}
+
+fn main(flag: bool, x: usize) usize {
+    var from_binding: usize = if flag { 0 } else { x };
+    var from_peer = if flag { 1 } else { x };
+    from_return(flag) + from_binding + from_peer
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn numeric_literal_suffixes_are_not_accepted() {
     let (_module, parse_errors) = parse_module(
         r#"
