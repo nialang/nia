@@ -147,6 +147,44 @@ impl<'a> BodyChecker<'a> {
         true
     }
 
+    pub(crate) fn check_integer_literal_enum_backing_range(
+        &mut self,
+        expr: &Expr,
+        expected_enum: TyId,
+        context: &str,
+    ) -> bool {
+        let Some(value) = integer_literal_value(expr) else {
+            return false;
+        };
+        let Some(enum_id) = self.enum_global_def_id(expected_enum) else {
+            return false;
+        };
+        let Some(signature) = self
+            .resolved_enum_signature(enum_id)
+            .map(|resolved| resolved.signature)
+        else {
+            return false;
+        };
+        let backing_type = signature.backing_type;
+        let backing_type = self.normalization.normalize(backing_type);
+        let Some(TyKind::Primitive(primitive)) = self.interner.get(backing_type) else {
+            return false;
+        };
+        let Some((min, max)) = integer_range(*primitive) else {
+            return false;
+        };
+        if value < min || value > max {
+            self.diagnostics.push(Diagnostic::error(
+                expr.span,
+                format!(
+                    "integer literal {value} is out of range for {} backing type in {context}",
+                    self.ty_name(expected_enum)
+                ),
+            ));
+        }
+        true
+    }
+
     pub(crate) fn check_float_literal_target(
         &mut self,
         expr: &Expr,

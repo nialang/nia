@@ -8,6 +8,16 @@ use nia_ids::{GlobalDefId, TyId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
 
+struct MethodCall<'a> {
+    span: Span,
+    receiver: &'a Expr,
+    receiver_ty: TyId,
+    name: &'a str,
+    type_args: Option<&'a [BracketArg]>,
+    args: &'a [Expr],
+    expected: Option<TyId>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_associated_call(
         &mut self,
@@ -15,8 +25,9 @@ impl<'a> BodyChecker<'a> {
         ty_expr: &Expr,
         name: &str,
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> Option<TyId> {
-        self.check_associated_call_inner(span, ty_expr, name, None, args)
+        self.check_associated_call_inner(span, ty_expr, name, None, args, expected)
     }
 
     pub(super) fn check_explicit_generic_associated_call(
@@ -26,8 +37,16 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         method_type_args: &[BracketArg],
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> Option<TyId> {
-        self.check_associated_call_inner(span, ty_expr, name, Some(method_type_args), args)
+        self.check_associated_call_inner(
+            span,
+            ty_expr,
+            name,
+            Some(method_type_args),
+            args,
+            expected,
+        )
     }
 
     fn check_associated_call_inner(
@@ -37,8 +56,9 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         method_type_args: Option<&[BracketArg]>,
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> Option<TyId> {
-        let (struct_id, type_args) = self.type_prefix_instance(ty_expr)?;
+        let (struct_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
         let candidates = self.method_defs_for_struct(struct_id, name);
         let Some(method_id) = self.single_method_candidate(span, name, candidates) else {
             self.diagnostics.push(Diagnostic::error(
@@ -57,6 +77,13 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
+        if type_args.is_empty()
+            && let Some(expected) = expected
+            && let Some(inferred) = self
+                .infer_associated_type_args_from_expected_return(struct_id, &signature, expected)
+        {
+            type_args = inferred;
+        }
         if !self.check_type_prefix_arg_count(span, struct_id, type_args.len()) {
             for arg in args {
                 self.check_expr(arg);
@@ -73,9 +100,7 @@ impl<'a> BodyChecker<'a> {
         };
         let mut substitutions = substitutions;
         let method_arg_count = method_instantiation_args.len();
-        if signature.generics.len() != method_arg_count
-            && (!signature.generics.is_empty() || method_type_args.is_some())
-        {
+        if method_type_args.is_some() && signature.generics.len() != method_arg_count {
             self.diagnostics.push(Diagnostic::error(
                 span,
                 format!(
@@ -91,6 +116,13 @@ impl<'a> BodyChecker<'a> {
         if method_type_args.is_some() {
             substitutions.extend(
                 self.generic_substitutions(&signature.generics, &method_instantiation_args),
+            );
+        } else if let Some(expected) = expected {
+            self.infer_generics_from_type(
+                signature.return_type,
+                expected,
+                &mut substitutions,
+                span,
             );
         }
         let is_receiver_method = signature
@@ -123,6 +155,19 @@ impl<'a> BodyChecker<'a> {
         } else {
             args
         };
+        if method_type_args.is_none() {
+            self.infer_method_generics_from_args(value_args, &params, &mut substitutions);
+            if !self.method_generics_are_complete(span, &signature, &substitutions) {
+                self.check_call_arg_count(span, value_args.len(), params.len(), false);
+                return Some(self.error());
+            }
+        }
+        let params: Vec<TyId> = signature
+            .params
+            .iter()
+            .skip(if is_receiver_method { 1 } else { 0 })
+            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .collect();
         self.check_direct_call_args(span, value_args, &params, false);
         if !type_args.is_empty() || !method_instantiation_args.is_empty() {
             let mut instance_args = type_args.clone();
@@ -152,6 +197,32 @@ impl<'a> BodyChecker<'a> {
                 is_const: false,
                 elem: nominal,
             }),
+        }
+    }
+
+    fn infer_associated_type_args_from_expected_return(
+        &mut self,
+        struct_id: GlobalDefId,
+        signature: &FunctionSignature,
+        expected: TyId,
+    ) -> Option<Vec<TyId>> {
+        let expected = self.normalization.normalize(expected);
+        let Some(nia_ty::TyKind::Nominal {
+            def_id: expected_def,
+            args: expected_args,
+        }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        if expected_def != struct_id {
+            return None;
+        }
+        let substitutions = self.struct_generic_substitutions(struct_id, &expected_args);
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        if self.types_match(expected, return_type) {
+            Some(expected_args)
+        } else {
+            None
         }
     }
 
@@ -233,6 +304,7 @@ impl<'a> BodyChecker<'a> {
         receiver: &Expr,
         name: &str,
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> Option<TyId> {
         let receiver_ty = self.check_expr(receiver);
         let base = self.receiver_base_type(receiver_ty)?;
@@ -241,7 +313,15 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         self.single_method_candidate(span, name, candidates)?;
-        self.check_method_call_with_receiver_ty(span, receiver, receiver_ty, name, None, args)
+        self.check_method_call_with_receiver_ty(MethodCall {
+            span,
+            receiver,
+            receiver_ty,
+            name,
+            type_args: None,
+            args,
+            expected,
+        })
     }
 
     pub(super) fn check_explicit_generic_field_method_call(
@@ -251,6 +331,7 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         type_args: &[BracketArg],
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> Option<TyId> {
         let receiver_ty = self.check_expr(receiver);
         let base = self.receiver_base_type(receiver_ty)?;
@@ -259,37 +340,30 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         self.single_method_candidate(span, name, candidates)?;
-        self.check_method_call_with_receiver_ty(
+        self.check_method_call_with_receiver_ty(MethodCall {
             span,
             receiver,
             receiver_ty,
             name,
-            Some(type_args),
+            type_args: Some(type_args),
             args,
-        )
+            expected,
+        })
     }
 
-    fn check_method_call_with_receiver_ty(
-        &mut self,
-        span: Span,
-        receiver: &Expr,
-        receiver_ty: TyId,
-        name: &str,
-        type_args: Option<&[BracketArg]>,
-        args: &[Expr],
-    ) -> Option<TyId> {
-        let base = self.receiver_base_type(receiver_ty)?;
+    fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<TyId> {
+        let base = self.receiver_base_type(call.receiver_ty)?;
         let method_id = self.single_method_candidate(
-            span,
-            name,
-            self.method_defs_for_struct(base.def_id, name),
+            call.span,
+            call.name,
+            self.method_defs_for_struct(base.def_id, call.name),
         )?;
         let Some(signature) = self
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)
         else {
             self.diagnostics
-                .push(Diagnostic::error(span, "method signature not found"));
+                .push(Diagnostic::error(call.span, "method signature not found"));
             return Some(self.error());
         };
         let Some(receiver_param) = signature
@@ -298,7 +372,7 @@ impl<'a> BodyChecker<'a> {
             .filter(|param| param.receiver.is_some())
         else {
             self.diagnostics.push(Diagnostic::error(
-                span,
+                call.span,
                 "associated functions are not supported by receiver method call syntax",
             ));
             return Some(self.error());
@@ -307,23 +381,23 @@ impl<'a> BodyChecker<'a> {
         let receiver_kind = receiver_param
             .receiver
             .expect("receiver param was checked above");
-        self.check_receiver_match(receiver, &base, receiver_kind);
+        self.check_receiver_match(call.receiver, &base, receiver_kind);
 
-        let Some(method_instantiation_args) = self.lowered_method_type_args(type_args) else {
-            for arg in args {
+        let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
+            for arg in call.args {
                 self.check_expr(arg);
             }
             return Some(self.error());
         };
-        let Some(substitutions) = self.method_generic_substitutions(
-            span,
-            base.def_id,
-            &base.args,
+        let Some(mut substitutions) = self.method_generic_substitutions(
+            call.span,
+            &base,
             &signature,
-            type_args,
+            call.type_args,
             &method_instantiation_args,
+            call.expected,
         ) else {
-            for arg in args {
+            for arg in call.args {
                 self.check_expr(arg);
             }
             return Some(self.error());
@@ -334,11 +408,18 @@ impl<'a> BodyChecker<'a> {
             .skip(1)
             .map(|param| self.substitute_generics(param.ty, &substitutions))
             .collect();
-        self.check_direct_call_args(span, args, &params, false);
+        if call.type_args.is_none() {
+            self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+            if !self.method_generics_are_complete(call.span, &signature, &substitutions) {
+                self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
+                return Some(self.error());
+            }
+        }
+        self.check_direct_call_args(call.span, call.args, &params, false);
         if !base.args.is_empty() || !method_instantiation_args.is_empty() {
             let mut instance_args = base.args.clone();
             instance_args.extend(method_instantiation_args);
-            self.record_generic_instantiation(method_id, &instance_args, span);
+            self.record_generic_instantiation(method_id, &instance_args, call.span);
         }
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
@@ -379,17 +460,15 @@ impl<'a> BodyChecker<'a> {
     fn method_generic_substitutions(
         &mut self,
         span: Span,
-        struct_id: GlobalDefId,
-        struct_args: &[TyId],
+        base: &ReceiverBase,
         signature: &FunctionSignature,
         method_args: Option<&[BracketArg]>,
         lowered_method_args: &[TyId],
+        expected: Option<TyId>,
     ) -> Option<HashMap<String, TyId>> {
-        let mut substitutions = self.struct_generic_substitutions(struct_id, struct_args);
+        let mut substitutions = self.struct_generic_substitutions(base.def_id, &base.args);
         let method_arg_count = lowered_method_args.len();
-        if signature.generics.len() != method_arg_count
-            && (!signature.generics.is_empty() || method_args.is_some())
-        {
+        if method_args.is_some() && signature.generics.len() != method_arg_count {
             self.diagnostics.push(Diagnostic::error(
                 span,
                 format!(
@@ -402,8 +481,60 @@ impl<'a> BodyChecker<'a> {
         if method_args.is_some() {
             substitutions
                 .extend(self.generic_substitutions(&signature.generics, lowered_method_args));
+        } else if let Some(expected) = expected {
+            self.infer_generics_from_type(
+                signature.return_type,
+                expected,
+                &mut substitutions,
+                span,
+            );
         }
         Some(substitutions)
+    }
+
+    fn infer_method_generics_from_args(
+        &mut self,
+        args: &[Expr],
+        params: &[TyId],
+        substitutions: &mut HashMap<String, TyId>,
+    ) {
+        let actuals = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                if let Some(expected) = params
+                    .get(index)
+                    .copied()
+                    .map(|param| self.substitute_generics(param, substitutions))
+                {
+                    self.check_expr_with_expected(arg, Some(expected))
+                } else {
+                    self.check_expr(arg)
+                }
+            })
+            .collect::<Vec<_>>();
+        for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
+            self.infer_generics_from_type(*param, *actual, substitutions, arg.span);
+        }
+    }
+
+    fn method_generics_are_complete(
+        &mut self,
+        span: Span,
+        signature: &FunctionSignature,
+        substitutions: &HashMap<String, TyId>,
+    ) -> bool {
+        let mut complete = true;
+        for generic in &signature.generics {
+            if !substitutions.contains_key(generic) {
+                complete = false;
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("cannot infer generic parameter `{generic}`"),
+                ));
+            }
+        }
+        complete
     }
 
     fn check_receiver_match(

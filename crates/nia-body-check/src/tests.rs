@@ -415,6 +415,44 @@ fn main() i32 {
 }
 
 #[test]
+fn infers_binary_numeric_literals_from_the_other_operand() {
+    let checked = pipeline(
+        r#"
+const a = 10;
+const ptr = &const a;
+
+fn main(x: usize) bool {
+    var forward = a as usize == 0;
+    var reverse = 0 == a as usize;
+    var sum: usize = 1 + x;
+    var expected_sum: usize = 1 + 2;
+    var shifted: usize = 1 << 2;
+    forward and reverse and sum == x + 1 and expected_sum == 3 and shifted == 4
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn infers_if_branch_numeric_literals_from_expected_and_peer_types() {
+    let checked = pipeline(
+        r#"
+fn from_return(flag: bool) usize {
+    if flag { 1 } else { 2 }
+}
+
+fn main(flag: bool, x: usize) usize {
+    var from_binding: usize = if flag { 0 } else { x };
+    var from_peer = if flag { 1 } else { x };
+    from_return(flag) + from_binding + from_peer
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn numeric_literal_suffixes_are_not_accepted() {
     let (_module, parse_errors) = parse_module(
         r#"
@@ -611,14 +649,12 @@ fn id[T](value: T) T { value }
 fn unbox[T](box: Box[T]) T { box.value }
 fn deref_id[T](value: &T) T { value.* }
 fn choose[T](left: T, right: T) T { left }
-fn make_default[T]() T { 0 }
 
 fn main(box: Box[i32], ptr: &const i32, flag: bool) i32 {
     var a: i32 = id(1);
     var b: i32 = unbox(box);
     var c: i32 = deref_id(ptr);
     _ = choose(1, flag);
-    _ = make_default();
     a + b + c
 }
 "#,
@@ -634,11 +670,56 @@ fn main(box: Box[i32], ptr: &const i32, flag: bool) i32 {
             .message
             .contains("conflicting inferred type for generic parameter `T`")
     }));
-    assert!(checked.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("cannot infer generic parameter `T`")
-    }));
+}
+
+#[test]
+fn infers_generic_function_type_arguments_from_expected_return_type() {
+    let checked = pipeline(
+        r#"
+fn id[T](value: T) T { value }
+fn choose[T](left: T, right: T) T { left }
+
+fn from_return() i32 {
+    id(1)
+}
+
+fn main() i32 {
+    var a: i32 = id(1);
+    var b: usize = id(1);
+    var c: i32 = choose(id(1), 2);
+    _ = id(1);
+    a + b as i32 + c + from_return()
+}
+"#,
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("function body")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("cannot infer generic parameter `T`"))
+            .count(),
+        0,
+        "{:?}",
+        checked.diagnostics
+    );
 }
 
 #[test]
@@ -848,6 +929,62 @@ fn main() i32 {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.message.contains("call argument"))
+    );
+}
+
+#[test]
+fn infers_unannotated_array_literal_bindings() {
+    let checked = pipeline(
+        r#"
+var global_xs = [1, 2, 3];
+
+fn take_triplet(xs: [3]i32) i32 {
+    xs[2]
+}
+
+fn take_matrix(xs: [2][2]i32) i32 {
+    xs[1][0]
+}
+
+fn main() i32 {
+    var xs = [1, 2, 3];
+    var repeated = [1; 3];
+    var anchored = [1, xs[0], 3];
+    var matrix = [[1, 2], [3, 4]];
+    var bad = [xs[0], true];
+    _ = take_triplet(global_xs);
+    _ = take_triplet(xs);
+    _ = take_triplet(repeated);
+    _ = take_triplet(anchored);
+    _ = take_matrix(matrix);
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("array literal element"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("array literal requires an expected")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("call argument")),
+        "{:?}",
+        checked.diagnostics
     );
 }
 
@@ -1380,8 +1517,56 @@ fn main(flag: bool) i32 {
                 .message
                 .contains("generic argument count mismatch for method"))
             .count(),
-        2
+        1
     );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("cannot infer generic parameter `U`"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn infers_method_generics_from_expected_return_type() {
+    let checked = pipeline(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+struct EmptyBox[T] {}
+
+extend[T] Box[T] {
+    fn replace[U](&const self, value: U) U {
+        value
+    }
+
+    fn make[U](value: U) U {
+        value
+    }
+
+}
+
+extend[T] EmptyBox[T] {
+    fn empty() EmptyBox[T] {}
+}
+
+fn main() i32 {
+    var box: Box[i32] = { value: 1 };
+    var a: usize = box.replace(1);
+    var b: usize = Box[i32]::make(1);
+    var c: EmptyBox[i32] = EmptyBox::empty();
+    _ = c;
+    a as i32 + b as i32
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]
@@ -1620,6 +1805,47 @@ fn bad(c: Color) i32 {
 }
 
 #[test]
+fn infers_switch_pattern_numeric_literals_from_target_type() {
+    let checked = pipeline(
+        r#"
+fn classify(value: usize) i32 {
+    switch value {
+        0 => return 0,
+        1 + 1 => return 2,
+        _ => return 3,
+    }
+    4
+}
+
+fn bad(value: u8) i32 {
+    switch value {
+        256 => return 1,
+        _ => return 0,
+    }
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("out of range for U8"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("type mismatch in switch pattern")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_implicit_enum_integer_mixing() {
     let checked = pipeline(
         r#"
@@ -1668,7 +1894,7 @@ fn main() i32 {
 fn checks_open_enum_integer_casts_and_switch_exhaustiveness() {
     let checked = pipeline(
         r#"
-enum Flag {
+enum Flag: u8 {
     A,
     B,
     _,
@@ -1681,6 +1907,10 @@ enum Closed {
 
 fn open_cast() Flag {
     3 as Flag
+}
+
+fn bad_open_cast() Flag {
+    256 as Flag
 }
 
 fn closed_cast() Closed {
@@ -1699,7 +1929,17 @@ fn with_open_default(flag: Flag) i32 {
     switch flag {
         Flag::A => return 1,
         Flag::B => return 2,
+        3 => return 3,
+        256 => return 4,
         _ => return 0,
+    }
+    0
+}
+
+fn closed_integer_pattern(closed: Closed) i32 {
+    switch closed {
+        0 => return 0,
+        _ => return 1,
     }
     0
 }
@@ -1732,6 +1972,25 @@ fn with_open_default(flag: Flag) i32 {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.message.contains("i32 to Flag")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("out of range for nominal backing type"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("type mismatch in switch pattern")),
         "{:?}",
         checked.diagnostics
     );

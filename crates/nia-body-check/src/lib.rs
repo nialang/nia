@@ -359,7 +359,13 @@ impl<'a> BodyChecker<'a> {
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
-            None => self.check_expr(value),
+            None => {
+                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                    self.infer_array_literal_expr(value)
+                } else {
+                    self.check_expr(value)
+                }
+            }
         };
         self.global_types.insert(def_id, global_ty);
     }
@@ -547,7 +553,13 @@ impl<'a> BodyChecker<'a> {
                     .unwrap_or(explicit)
             }
             (Some(ty), None) => self.ty_for_span(ty.span),
-            (None, Some(value)) => self.check_expr(value),
+            (None, Some(value)) => {
+                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                    self.infer_array_literal_expr(value)
+                } else {
+                    self.check_expr(value)
+                }
+            }
             (None, None) => {
                 self.diagnostics.push(Diagnostic::error(
                     span,
@@ -573,8 +585,18 @@ impl<'a> BodyChecker<'a> {
                     has_default = true;
                 }
                 nia_ast::SwitchPattern::Expr(pattern) => {
-                    let pattern_ty = self.check_expr(pattern);
-                    self.expect_type(pattern.span, target_ty, pattern_ty, "switch pattern");
+                    let pattern_ty = self.check_expr_with_expected(pattern, Some(target_ty));
+                    if self.is_open_enum(target_ty)
+                        && self.check_integer_literal_enum_backing_range(
+                            pattern,
+                            target_ty,
+                            "switch pattern",
+                        )
+                    {
+                        self.expr_types.insert(pattern.span, target_ty);
+                    } else {
+                        self.expect_expr_type(pattern, target_ty, pattern_ty, "switch pattern");
+                    }
                     if let Some(expected_enum) = enum_id
                         && let Some((variant_enum, variant_id)) = self.enum_variant_info(pattern)
                         && variant_enum == expected_enum
