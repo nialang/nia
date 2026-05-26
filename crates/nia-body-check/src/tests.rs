@@ -1461,8 +1461,56 @@ fn main(flag: bool) i32 {
                 .message
                 .contains("generic argument count mismatch for method"))
             .count(),
-        2
+        1
     );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("cannot infer generic parameter `U`"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn infers_method_generics_from_expected_return_type() {
+    let checked = pipeline(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+struct EmptyBox[T] {}
+
+extend[T] Box[T] {
+    fn replace[U](&const self, value: U) U {
+        value
+    }
+
+    fn make[U](value: U) U {
+        value
+    }
+
+}
+
+extend[T] EmptyBox[T] {
+    fn empty() EmptyBox[T] {}
+}
+
+fn main() i32 {
+    var box: Box[i32] = { value: 1 };
+    var a: usize = box.replace(1);
+    var b: usize = Box[i32]::make(1);
+    var c: EmptyBox[i32] = EmptyBox::empty();
+    _ = c;
+    a as i32 + b as i32
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]

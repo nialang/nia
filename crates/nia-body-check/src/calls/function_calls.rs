@@ -124,16 +124,18 @@ impl<'a> BodyChecker<'a> {
         callee: &Expr,
         type_args: &[BracketArg],
         args: &[Expr],
+        expected: Option<TyId>,
     ) -> TyId {
         if let ExprKind::Field { lhs, name } = &callee.kind
-            && let Some(return_type) =
-                self.check_explicit_generic_field_method_call(span, lhs, name, type_args, args)
+            && let Some(return_type) = self.check_explicit_generic_field_method_call(
+                span, lhs, name, type_args, args, expected,
+            )
         {
             return return_type;
         }
         if let ExprKind::Qualified { lhs, name } = &callee.kind
-            && let Some(return_type) =
-                self.check_explicit_generic_associated_call(span, lhs, name, type_args, args)
+            && let Some(return_type) = self
+                .check_explicit_generic_associated_call(span, lhs, name, type_args, args, expected)
         {
             return return_type;
         }
@@ -271,7 +273,7 @@ impl<'a> BodyChecker<'a> {
         self.substitute_generics(signature.return_type, &substitutions)
     }
 
-    fn infer_generics_from_type(
+    pub(crate) fn infer_generics_from_type(
         &mut self,
         pattern: TyId,
         actual: TyId,
