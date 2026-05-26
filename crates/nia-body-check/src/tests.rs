@@ -1357,6 +1357,78 @@ fn main() i32 {
 }
 
 #[test]
+fn selects_most_specific_extension_method_target() {
+    let checked = pipeline(
+        r#"
+extend[T] T {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend i32 {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+extend[T] &T {
+    fn ptr_rank(self) i32 {
+        3
+    }
+}
+
+extend &i32 {
+    fn ptr_rank(self) i32 {
+        4
+    }
+}
+
+fn main(value: &i32) i32 {
+    1.rank() + value.ptr_rank()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn reports_ambiguous_extension_method_specializations() {
+    let checked = pipeline(
+        r#"
+struct Pair[A, B] {
+    a: A,
+    b: B,
+}
+
+extend[T] Pair[T, i32] {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend[U] Pair[i32, U] {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+fn main(pair: Pair[i32, i32]) i32 {
+    pair.rank()
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("ambiguous method `rank`")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_assignment_targets_and_const_bindings() {
     let checked = pipeline(
         r#"

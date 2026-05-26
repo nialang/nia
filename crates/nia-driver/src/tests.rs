@@ -380,6 +380,86 @@ fn main(ptr: &i32, xs: &const [i32], triple: [3]i32) i32 {
 }
 
 #[test]
+fn supports_extension_method_specialization() {
+    let root = temp_dir("supports_extension_method_specialization");
+    write(
+        &root.join("main.nia"),
+        r#"
+extend[T] T {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend i32 {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+extend[T] &T {
+    fn ptr_rank(self) i32 {
+        3
+    }
+}
+
+extend &i32 {
+    fn ptr_rank(self) i32 {
+        4
+    }
+}
+
+fn main(value: &i32) i32 {
+    1.rank() + value.ptr_rank()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn reports_ambiguous_extension_method_specialization() {
+    let root = temp_dir("reports_ambiguous_extension_method_specialization");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair[A, B] {
+    a: A,
+    b: B,
+}
+
+extend[T] Pair[T, i32] {
+    fn rank(self) i32 {
+        1
+    }
+}
+
+extend[U] Pair[i32, U] {
+    fn rank(self) i32 {
+        2
+    }
+}
+
+fn main(pair: Pair[i32, i32]) i32 {
+    pair.rank()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("ambiguous method `rank`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn rejects_invalid_structural_extension_members() {
     let root = temp_dir("rejects_invalid_structural_extension_members");
     write(

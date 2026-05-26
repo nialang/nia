@@ -20,7 +20,11 @@ impl<'a> ModuleLowerer<'a> {
         generics.iter().cloned().zip(args.iter().copied()).collect()
     }
 
-    fn effective_generics(&self, def_id: GlobalDefId, own_generics: &[String]) -> Vec<String> {
+    pub(crate) fn effective_generics(
+        &self,
+        def_id: GlobalDefId,
+        own_generics: &[String],
+    ) -> Vec<String> {
         let mut generics = self.extension_target_generics(def_id).unwrap_or_else(|| {
             self.input
                 .defs

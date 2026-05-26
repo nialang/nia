@@ -268,10 +268,7 @@ impl<'a> ModuleLowerer<'a> {
         else {
             return !extend.generics.is_empty();
         };
-        match self.input.type_lowering.interner.get(ty) {
-            Some(TyKind::Nominal { args, .. }) => !args.is_empty(),
-            _ => !extend.generics.is_empty(),
-        }
+        !self.generic_params_in_ty(ty).is_empty()
     }
 
     fn def_name(&self, def_id: DefId) -> String {

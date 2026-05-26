@@ -7,7 +7,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{ArrayLenTy, TyKind};
 
 struct MethodCall<'a> {
     span: Span,
@@ -26,6 +26,12 @@ struct MethodGenericContext<'a> {
     method_args: Option<&'a [BracketArg]>,
     lowered_method_args: &'a [TyId],
     expected: Option<TyId>,
+}
+
+#[derive(Clone, Copy)]
+struct MethodCandidate {
+    target_ty: TyId,
+    method_id: GlobalDefId,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -69,7 +75,23 @@ impl<'a> BodyChecker<'a> {
         expected: Option<TyId>,
     ) -> Option<TyId> {
         let (struct_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
-        let candidates = self.method_defs_for_struct(struct_id, name);
+        let mut candidates = self.method_candidates_for_struct(struct_id, name);
+        if type_args.is_empty()
+            && let Some(expected) = expected
+            && let Some(inferred) =
+                self.infer_associated_type_args_from_candidates(struct_id, &candidates, expected)
+        {
+            type_args = inferred;
+        }
+        if !type_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
+            let target_ty = self.interner.intern(TyKind::Nominal {
+                def_id: struct_id,
+                args: type_args.clone(),
+            });
+            candidates.retain(|candidate| {
+                self.match_type_pattern(candidate.target_ty, target_ty, &mut HashMap::new())
+            });
+        }
         let Some(method_id) = self.single_method_candidate(span, name, candidates) else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -87,13 +109,6 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        if type_args.is_empty()
-            && let Some(expected) = expected
-            && let Some(inferred) = self
-                .infer_associated_type_args_from_expected_return(struct_id, &signature, expected)
-        {
-            type_args = inferred;
-        }
         if !self.check_type_prefix_arg_count(span, struct_id, type_args.len()) {
             for arg in args {
                 self.check_expr(arg);
@@ -234,6 +249,39 @@ impl<'a> BodyChecker<'a> {
         } else {
             None
         }
+    }
+
+    fn infer_associated_type_args_from_candidates(
+        &mut self,
+        struct_id: GlobalDefId,
+        candidates: &[MethodCandidate],
+        expected: TyId,
+    ) -> Option<Vec<TyId>> {
+        let mut inferred = Vec::new();
+        for candidate in candidates {
+            let Some(signature) = self
+                .resolved_function_signature(candidate.method_id)
+                .map(|resolved| resolved.signature)
+            else {
+                continue;
+            };
+            if let Some(args) = self
+                .infer_associated_type_args_from_expected_return(struct_id, &signature, expected)
+                && !inferred.contains(&args)
+            {
+                inferred.push(args);
+            }
+        }
+        match inferred.as_slice() {
+            [args] => Some(args.clone()),
+            _ => None,
+        }
+    }
+
+    fn type_prefix_has_no_generics(&mut self, def_id: GlobalDefId) -> bool {
+        self.resolved_struct_signature(def_id)
+            .map(|resolved| resolved.signature.generics.is_empty())
+            .unwrap_or(false)
     }
 
     fn check_type_prefix_arg_count(
@@ -432,11 +480,11 @@ impl<'a> BodyChecker<'a> {
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
 
-    pub(crate) fn method_defs_for_struct(
+    fn method_candidates_for_struct(
         &mut self,
         struct_id: GlobalDefId,
         name: &str,
-    ) -> Vec<GlobalDefId> {
+    ) -> Vec<MethodCandidate> {
         self.extensions
             .all_methods_named(name)
             .into_iter()
@@ -446,7 +494,10 @@ impl<'a> BodyChecker<'a> {
                     self.interner.get(target_ty),
                     Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
                 )
-                .then_some(method_id)
+                .then_some(MethodCandidate {
+                    target_ty,
+                    method_id,
+                })
             })
             .collect()
     }
@@ -455,26 +506,43 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         receiver_ty: TyId,
         name: &str,
-    ) -> Vec<GlobalDefId> {
-        let receiver_ty = self.normalization.normalize(receiver_ty);
-        self.extensions
-            .all_methods_named(name)
-            .into_iter()
-            .filter_map(|(target_ty, method_id)| {
-                self.match_receiver_target(target_ty, receiver_ty, &mut HashMap::new())
-                    .then_some(method_id)
-            })
-            .collect()
+    ) -> Vec<MethodCandidate> {
+        let mut receiver_ty = self.normalization.normalize(receiver_ty);
+        loop {
+            let candidates = self
+                .extensions
+                .all_methods_named(name)
+                .into_iter()
+                .filter_map(|(target_ty, method_id)| {
+                    let target_ty = self.normalization.normalize(target_ty);
+                    self.match_type_pattern(target_ty, receiver_ty, &mut HashMap::new())
+                        .then_some(MethodCandidate {
+                            target_ty,
+                            method_id,
+                        })
+                })
+                .collect::<Vec<_>>();
+            if !candidates.is_empty() {
+                return candidates;
+            }
+            match self.interner.get(receiver_ty) {
+                Some(TyKind::Pointer { elem, .. }) => {
+                    receiver_ty = self.normalization.normalize(*elem);
+                }
+                _ => return Vec::new(),
+            }
+        }
     }
 
     fn single_method_candidate(
         &mut self,
         span: Span,
         name: &str,
-        candidates: Vec<GlobalDefId>,
+        candidates: Vec<MethodCandidate>,
     ) -> Option<GlobalDefId> {
+        let candidates = self.most_specific_candidates(&candidates);
         match candidates.as_slice() {
-            [method] => Some(*method),
+            [method] => Some(method.method_id),
             [] => None,
             _ => {
                 self.diagnostics.push(Diagnostic::error(
@@ -484,6 +552,133 @@ impl<'a> BodyChecker<'a> {
                 None
             }
         }
+    }
+
+    fn most_specific_candidates(&self, candidates: &[MethodCandidate]) -> Vec<MethodCandidate> {
+        candidates
+            .iter()
+            .copied()
+            .filter(|candidate| {
+                !candidates.iter().any(|other| {
+                    other.method_id != candidate.method_id
+                        && self.strictly_more_specific(other.target_ty, candidate.target_ty)
+                })
+            })
+            .collect()
+    }
+
+    fn strictly_more_specific(&self, specific: TyId, general: TyId) -> bool {
+        self.pattern_subsumes(general, specific) && !self.pattern_subsumes(specific, general)
+    }
+
+    fn pattern_subsumes(&self, general: TyId, specific: TyId) -> bool {
+        self.pattern_subsumes_inner(general, specific, &mut HashMap::new())
+    }
+
+    fn pattern_subsumes_inner(
+        &self,
+        general: TyId,
+        specific: TyId,
+        substitutions: &mut HashMap<String, TyId>,
+    ) -> bool {
+        let general = self.normalization.normalize(general);
+        let specific = self.normalization.normalize(specific);
+        match self.interner.get(general) {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(name).copied() {
+                    self.patterns_equivalent(existing, specific)
+                } else {
+                    substitutions.insert(name.clone(), specific);
+                    true
+                }
+            }
+            Some(TyKind::Primitive(general_primitive)) => matches!(
+                self.interner.get(specific),
+                Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
+            ),
+            Some(TyKind::Pointer {
+                is_const: general_const,
+                elem: general_elem,
+            }) => matches!(
+                self.interner.get(specific),
+                Some(TyKind::Pointer {
+                    is_const: specific_const,
+                    elem: specific_elem,
+                }) if general_const == specific_const
+                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+            ),
+            Some(TyKind::Slice {
+                is_const: general_const,
+                elem: general_elem,
+            }) => matches!(
+                self.interner.get(specific),
+                Some(TyKind::Slice {
+                    is_const: specific_const,
+                    elem: specific_elem,
+                }) if general_const == specific_const
+                    && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+            ),
+            Some(TyKind::Array {
+                len: general_len,
+                elem: general_elem,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::Array {
+                    len: specific_len,
+                    elem: specific_elem,
+                }) if self.array_lens_match(general_len, specific_len) => {
+                    self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::FunctionPointer {
+                params: general_params,
+                return_type: general_return,
+                is_variadic: general_variadic,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::FunctionPointer {
+                    params: specific_params,
+                    return_type: specific_return,
+                    is_variadic: specific_variadic,
+                }) if general_variadic == specific_variadic
+                    && general_params.len() == specific_params.len() =>
+                {
+                    general_params
+                        .iter()
+                        .zip(specific_params)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                        && self.pattern_subsumes_inner(
+                            *general_return,
+                            *specific_return,
+                            substitutions,
+                        )
+                }
+                _ => false,
+            },
+            Some(TyKind::Nominal {
+                def_id: general_def,
+                args: general_args,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::Nominal {
+                    def_id: specific_def,
+                    args: specific_args,
+                }) if general_def == specific_def && general_args.len() == specific_args.len() => {
+                    general_args
+                        .iter()
+                        .zip(specific_args)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                }
+                _ => false,
+            },
+            Some(TyKind::Error) | None => false,
+        }
+    }
+
+    fn patterns_equivalent(&self, left: TyId, right: TyId) -> bool {
+        self.pattern_subsumes(left, right) && self.pattern_subsumes(right, left)
     }
 
     fn lowered_method_type_args(&mut self, type_args: Option<&[BracketArg]>) -> Option<Vec<TyId>> {
@@ -626,7 +821,7 @@ impl<'a> BodyChecker<'a> {
                 len: pattern_len,
                 elem: pattern_elem,
             }) => match self.interner.get(actual) {
-                Some(TyKind::Array { len, elem }) if pattern_len == len => {
+                Some(TyKind::Array { len, elem }) if self.array_lens_match(pattern_len, len) => {
                     self.match_type_pattern(*pattern_elem, *elem, substitutions)
                 }
                 _ => false,
@@ -664,6 +859,15 @@ impl<'a> BodyChecker<'a> {
                 self.types_match(pattern, actual)
             }
         }
+    }
+
+    fn array_lens_match(&self, expected: &ArrayLenTy, actual: &ArrayLenTy) -> bool {
+        if expected == actual {
+            return true;
+        }
+        let expected = self.array_len_value(Span::default(), expected).ok();
+        let actual = self.array_len_value(Span::default(), actual).ok();
+        expected.is_some() && expected == actual
     }
 
     fn infer_method_generics_from_args(

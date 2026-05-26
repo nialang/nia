@@ -213,9 +213,9 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::TyId) -> bool {
             | TyKind::Pointer { .. }
             | TyKind::Slice { .. }
             | TyKind::FunctionPointer { .. }
-            | TyKind::Nominal { .. },
+            | TyKind::Nominal { .. }
+            | TyKind::GenericParam(_),
         ) => true,
-        Some(TyKind::GenericParam(_)) => false,
     }
 }
 

@@ -892,6 +892,48 @@ fn main(ptr: &i32, xs: &const [i32], triple: [3]i32) i32 {
 }
 
 #[test]
+fn emits_specialized_associated_extension_function_calls() {
+    let root = temp_dir("emits_specialized_associated_extension_function_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn make(value: T) Box[T] {
+        { value: value }
+    }
+}
+
+extend Box[i32] {
+    fn make(value: i32) Box[i32] {
+        { value: value + 1 }
+    }
+}
+
+fn main() i32 {
+    var a = Box[i32]::make(41);
+    var b = Box[bool]::make(true);
+    if b.value { a.value } else { 0 }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call void @nia__m0__d3__make(ptr %call.out, i32 41"));
+    assert!(ir.contains("call void @nia__m0__d2__make__inst__bool(ptr %call.out1, i1 true"));
+}
+
+#[test]
 fn emits_short_circuit_logical_operators() {
     let root = temp_dir("emits_short_circuit_logical_operators");
     let main = root.join("main.nia");
