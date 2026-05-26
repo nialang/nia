@@ -356,7 +356,7 @@ impl<'a> TypeLowerer<'a> {
                     type_arg: Some(type_arg),
                 } = &callee.kind
                 else {
-                    unreachable!();
+                    return ArrayLenTy::ConstExpr(expr_text(expr));
                 };
                 ArrayLenTy::Builtin {
                     name: name.clone(),

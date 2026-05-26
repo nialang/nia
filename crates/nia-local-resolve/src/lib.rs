@@ -458,10 +458,13 @@ impl<'a> LocalResolver<'a> {
             span,
         });
         self.local_defs.insert(span, id);
-        let scope = self
-            .scopes
-            .last_mut()
-            .expect("local resolver always has an active scope");
+        let Some(scope) = self.scopes.last_mut() else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "internal compiler error: local resolver has no active scope",
+            ));
+            return;
+        };
         if let Some(existing) = scope.get(name) {
             self.diagnostics.push(Diagnostic::error(
                 span,
