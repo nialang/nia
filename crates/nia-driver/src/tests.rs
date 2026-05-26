@@ -294,6 +294,53 @@ fn id(p: Ptr[u8]) &u8 {
 }
 
 #[test]
+fn avoids_void_receiver_cascades_after_invalid_extend_target() {
+    let root = temp_dir("avoids_void_receiver_cascades_after_invalid_extend_target");
+    write(
+        &root.join("main.nia"),
+        r#"
+type Ptr[T] = &T;
+
+extend[T] Ptr[T] {
+    fn is_null(self) bool {
+        self as usize == 0
+    }
+}
+
+fn main(ptr: Ptr[i32]) void {
+    if ptr.is_null() {}
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("extend target must be a nominal type")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        !program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("cannot cast void to usize")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        !program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("cannot cast <error type> to usize")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn reports_generic_type_argument_count_mismatches() {
     let root = temp_dir("reports_generic_type_argument_count_mismatches");
     write(

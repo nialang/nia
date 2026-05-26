@@ -358,7 +358,14 @@ impl<'a> SignatureCollector<'a> {
     fn param_signature(&mut self, param: &Param) -> ParamSignature {
         let ty = match &param.ty {
             Some(ty) => self.ty_for_span(ty.span),
-            None => self.primitive(PrimitiveTy::Void),
+            None if param.receiver.is_some() => self.error(),
+            None => {
+                self.diagnostics.push(Diagnostic::error(
+                    param.span,
+                    "parameter requires an explicit type",
+                ));
+                self.error()
+            }
         };
         ParamSignature {
             name: param.name.clone(),
@@ -407,6 +414,10 @@ impl<'a> SignatureCollector<'a> {
 
     fn primitive(&self, primitive: PrimitiveTy) -> TyId {
         self.lowered.interner.primitive(primitive)
+    }
+
+    fn error(&self) -> TyId {
+        self.lowered.interner.error()
     }
 }
 

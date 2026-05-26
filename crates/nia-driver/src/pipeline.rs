@@ -137,8 +137,12 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
         &type_lowerings,
         &item_signatures_by_module,
     );
-    let (extension_methods, extension_diagnostics) =
-        collect_extension_methods(&parse_ok_modules, &defs_by_module, &type_lowerings);
+    let (extension_methods, extension_diagnostics) = collect_extension_methods(
+        &parse_ok_modules,
+        &defs_by_module,
+        &type_lowerings,
+        &type_normalizations,
+    );
     let visible_extensions_by_module = parse_ok_modules
         .iter()
         .map(|module| {

@@ -15,6 +15,7 @@ use nia_ids::GlobalDefId;
 use nia_item_signatures::ItemSignatures;
 use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
+use nia_type_normalize::TypeNormalization;
 
 pub(crate) fn collect_program_functions(
     modules: &[LoadedModule],
@@ -135,10 +136,16 @@ pub(crate) fn collect_extension_methods(
     modules: &[LoadedModule],
     defs_by_module: &[DefCollection],
     lowerings: &[TypeLowering],
+    normalizations: &[TypeNormalization],
 ) -> (ExtensionMethods, Vec<Diagnostic>) {
     let mut extensions = ExtensionMethods::default();
     let mut diagnostics = Vec::new();
-    for ((module, defs), lowering) in modules.iter().zip(defs_by_module).zip(lowerings) {
+    for (((module, defs), lowering), normalization) in modules
+        .iter()
+        .zip(defs_by_module)
+        .zip(lowerings)
+        .zip(normalizations)
+    {
         for item in &module.module.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
@@ -150,6 +157,7 @@ pub(crate) fn collect_extension_methods(
                 ));
                 continue;
             };
+            let target_ty = normalization.normalize(target_ty);
             let Some(TyKind::Nominal {
                 def_id: target,
                 args: target_args,
