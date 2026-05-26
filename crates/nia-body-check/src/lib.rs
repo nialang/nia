@@ -419,7 +419,7 @@ impl<'a> BodyChecker<'a> {
         for (param, param_sig) in function.params.iter().zip(&signature.params) {
             if let Some(local_id) = self.locals.local_defs.get(&param.span).copied() {
                 let ty = if param_sig.receiver.is_some() {
-                    self_ty.unwrap_or(param_sig.ty)
+                    self_ty.unwrap_or_else(|| self.error())
                 } else {
                     param_sig.ty
                 };

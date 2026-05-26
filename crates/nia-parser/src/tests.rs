@@ -45,6 +45,21 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn reports_parameter_without_explicit_type() {
+    let (_, errors) = parse_module(
+        r#"
+fn bad(value) {}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected `:` after parameter name")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn parses_open_enum_marker() {
     let (module, errors) = parse_module(
         r#"
