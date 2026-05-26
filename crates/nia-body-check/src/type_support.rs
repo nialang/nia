@@ -347,14 +347,69 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn ty_name(&self, ty: TyId) -> String {
         match self.interner.get(ty) {
-            Some(TyKind::Primitive(primitive)) => format!("{primitive:?}"),
-            Some(TyKind::Pointer { .. }) => "pointer".to_string(),
-            Some(TyKind::Slice { .. }) => "slice".to_string(),
-            Some(TyKind::Array { .. }) => "array".to_string(),
-            Some(TyKind::FunctionPointer { .. }) => "function".to_string(),
-            Some(TyKind::Nominal { .. }) => "nominal".to_string(),
+            Some(TyKind::Primitive(primitive)) => primitive_ty_name(*primitive).to_string(),
+            Some(TyKind::Pointer { is_const, elem }) => {
+                let const_part = if *is_const { "const " } else { "" };
+                format!("&{const_part}{}", self.ty_name(*elem))
+            }
+            Some(TyKind::Slice { is_const, elem }) => {
+                let const_part = if *is_const { "const " } else { "" };
+                format!("&{const_part}[{}]", self.ty_name(*elem))
+            }
+            Some(TyKind::Array { len, elem }) => {
+                format!("[{}]{}", self.array_len_name(len), self.ty_name(*elem))
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let mut params = params
+                    .iter()
+                    .map(|param| self.ty_name(*param))
+                    .collect::<Vec<_>>();
+                if *is_variadic {
+                    params.push("...".to_string());
+                }
+                let return_part = if self.is_void(*return_type) {
+                    String::new()
+                } else {
+                    format!(" {}", self.ty_name(*return_type))
+                };
+                format!("&const fn({}){return_part}", params.join(", "))
+            }
+            Some(TyKind::Nominal { def_id, args }) => self.nominal_ty_name(*def_id, args),
             Some(TyKind::GenericParam(name)) => name.clone(),
-            Some(TyKind::Error) | None => "error".to_string(),
+            Some(TyKind::Error) => "<error type>".to_string(),
+            None => "<unknown type>".to_string(),
+        }
+    }
+
+    fn array_len_name(&self, len: &ArrayLenTy) -> String {
+        match len {
+            ArrayLenTy::Infer => "_".to_string(),
+            ArrayLenTy::ConstExpr(text) => text.clone(),
+            ArrayLenTy::Builtin { name, ty } => format!("@{name}[{}]()", self.ty_name(*ty)),
+        }
+    }
+
+    fn nominal_ty_name(&self, def_id: nia_ids::GlobalDefId, args: &[TyId]) -> String {
+        let base = self
+            .all_defs
+            .iter()
+            .find(|defs| defs.module_id == def_id.module_id)
+            .and_then(|defs| defs.defs.get(def_id.def_id))
+            .map(|def| def.name.clone())
+            .unwrap_or_else(|| "<unknown type>".to_string());
+        if args.is_empty() {
+            base
+        } else {
+            let args = args
+                .iter()
+                .map(|arg| self.ty_name(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{base}[{args}]")
         }
     }
 
@@ -466,5 +521,28 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn error(&self) -> TyId {
         self.interner.error()
+    }
+}
+
+fn primitive_ty_name(primitive: PrimitiveTy) -> &'static str {
+    match primitive {
+        PrimitiveTy::I8 => "i8",
+        PrimitiveTy::I16 => "i16",
+        PrimitiveTy::I32 => "i32",
+        PrimitiveTy::I64 => "i64",
+        PrimitiveTy::I128 => "i128",
+        PrimitiveTy::Isize => "isize",
+        PrimitiveTy::U8 => "u8",
+        PrimitiveTy::U16 => "u16",
+        PrimitiveTy::U32 => "u32",
+        PrimitiveTy::U64 => "u64",
+        PrimitiveTy::U128 => "u128",
+        PrimitiveTy::Usize => "usize",
+        PrimitiveTy::F32 => "f32",
+        PrimitiveTy::F64 => "f64",
+        PrimitiveTy::Bool => "bool",
+        PrimitiveTy::Char => "char",
+        PrimitiveTy::Void => "void",
+        PrimitiveTy::Never => "!",
     }
 }
