@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use crate::{ModuleLowerer, generic_inst_base};
 use nia_ast::{
     ArrayElements, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg, SliceRange,
@@ -12,10 +14,10 @@ use nia_backend_ir::{
 };
 use nia_body_check::BuiltinValue;
 use nia_defs::DefKind;
-use nia_ids::{GlobalDefId, LocalId};
+use nia_ids::{GlobalDefId, LocalId, TyId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::decode_string_literal;
@@ -564,9 +566,7 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         };
         let receiver = self.lower_expr(lhs);
-        let (struct_id, struct_args) = self.receiver_base_type(receiver.ty)?;
-        let method_id = self.single_method_def(struct_id, name)?;
-        let mut args = struct_args;
+        let (method_id, mut args) = self.single_method_for_receiver(receiver.ty, name)?;
         args.extend(type_args);
         Some(TypedCallee::Method {
             def_id: method_id,
@@ -576,10 +576,200 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn single_method_def(&self, struct_id: GlobalDefId, name: &str) -> Option<GlobalDefId> {
-        let methods = self.input.extensions.methods(struct_id, name);
+        let methods = self.methods_for_nominal_target(struct_id, name);
         match methods.as_slice() {
             [method] => Some(*method),
             _ => None,
+        }
+    }
+
+    fn methods_for_nominal_target(&self, struct_id: GlobalDefId, name: &str) -> Vec<GlobalDefId> {
+        self.input
+            .extensions
+            .all_methods_named(name)
+            .into_iter()
+            .filter_map(|(target_ty, method_id)| {
+                let target_ty = self.input.type_normalization.normalize(target_ty);
+                matches!(
+                    self.input.body_check.interner.get(target_ty),
+                    Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
+                )
+                .then_some(method_id)
+            })
+            .collect()
+    }
+
+    fn single_method_for_receiver(
+        &self,
+        receiver_ty: TyId,
+        name: &str,
+    ) -> Option<(GlobalDefId, Vec<TyId>)> {
+        let mut candidates = self
+            .input
+            .extensions
+            .all_methods_named(name)
+            .into_iter()
+            .filter_map(|(target_ty, method_id)| {
+                let mut substitutions = HashMap::new();
+                self.match_receiver_target(target_ty, receiver_ty, &mut substitutions)
+                    .then(|| {
+                        (
+                            method_id,
+                            self.extension_target_instance_args(target_ty, &substitutions),
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+        (candidates.len() == 1).then(|| candidates.remove(0))
+    }
+
+    fn extension_target_instance_args(
+        &self,
+        target_ty: TyId,
+        substitutions: &HashMap<String, TyId>,
+    ) -> Vec<TyId> {
+        self.generic_params_in_ty(target_ty)
+            .iter()
+            .filter_map(|generic| substitutions.get(generic).copied())
+            .collect()
+    }
+
+    fn match_receiver_target(
+        &self,
+        target_ty: TyId,
+        receiver_ty: TyId,
+        substitutions: &mut HashMap<String, TyId>,
+    ) -> bool {
+        let receiver_ty = self.input.type_normalization.normalize(receiver_ty);
+        if self.match_type_pattern(target_ty, receiver_ty, substitutions) {
+            return true;
+        }
+        match self.input.body_check.interner.get(receiver_ty) {
+            Some(TyKind::Pointer { elem, .. }) => {
+                self.match_receiver_target(target_ty, *elem, substitutions)
+            }
+            _ => false,
+        }
+    }
+
+    fn match_type_pattern(
+        &self,
+        pattern: TyId,
+        actual: TyId,
+        substitutions: &mut HashMap<String, TyId>,
+    ) -> bool {
+        let pattern = self.input.type_normalization.normalize(pattern);
+        let actual = self.input.type_normalization.normalize(actual);
+        match self.input.body_check.interner.get(pattern) {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(name).copied() {
+                    self.types_match(existing, actual)
+                } else {
+                    substitutions.insert(name.clone(), actual);
+                    true
+                }
+            }
+            Some(TyKind::Pointer {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.input.body_check.interner.get(actual),
+                Some(TyKind::Pointer { is_const, elem })
+                    if is_const == pattern_const
+                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Slice {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.input.body_check.interner.get(actual),
+                Some(TyKind::Slice { is_const, elem })
+                    if is_const == pattern_const
+                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Array {
+                len: pattern_len,
+                elem: pattern_elem,
+            }) => match self.input.body_check.interner.get(actual) {
+                Some(TyKind::Array { len, elem }) if self.array_lens_match(pattern_len, len) => {
+                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::FunctionPointer {
+                params: pattern_params,
+                return_type: pattern_return,
+                is_variadic: pattern_variadic,
+            }) => match self.input.body_check.interner.get(actual) {
+                Some(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    }) && self.match_type_pattern(*pattern_return, *return_type, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Nominal {
+                def_id: pattern_def,
+                args: pattern_args,
+            }) => match self.input.body_check.interner.get(actual) {
+                Some(TyKind::Nominal { def_id, args })
+                    if pattern_def == def_id && pattern_args.len() == args.len() =>
+                {
+                    pattern_args.iter().zip(args).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    })
+                }
+                _ => false,
+            },
+            Some(TyKind::Primitive(_)) | Some(TyKind::Error) | None => {
+                self.types_match(pattern, actual)
+            }
+        }
+    }
+
+    fn types_match(&self, expected: TyId, actual: TyId) -> bool {
+        let expected = self.input.type_normalization.normalize(expected);
+        let actual = self.input.type_normalization.normalize(actual);
+        let never = self.input.body_check.interner.primitive(PrimitiveTy::Never);
+        expected == actual || never == actual
+    }
+
+    fn array_lens_match(&self, expected: &ArrayLenTy, actual: &ArrayLenTy) -> bool {
+        if expected == actual {
+            return true;
+        }
+        let expected = self.array_len_value(expected).ok();
+        let actual = self.array_len_value(actual).ok();
+        expected.is_some() && expected == actual
+    }
+
+    fn array_len_value(&self, len: &ArrayLenTy) -> Result<u64, nia_const_eval::ConstEvalError> {
+        match len {
+            ArrayLenTy::ConstExpr(text) => nia_const_eval::eval_array_len_text(text),
+            ArrayLenTy::Builtin { name, ty } => {
+                let ty = self.input.type_normalization.normalize(*ty);
+                let Some(layout) = self.input.layouts.types.get(&ty) else {
+                    return Err(nia_const_eval::ConstEvalError {
+                        message: format!(
+                            "cannot compute layout for array length builtin `@{name}`"
+                        ),
+                    });
+                };
+                match name.as_str() {
+                    "size" => Ok(layout.size),
+                    "align" => Ok(layout.align),
+                    _ => Err(nia_const_eval::ConstEvalError {
+                        message: format!("unsupported array length builtin `@{name}`"),
+                    }),
+                }
+            }
+            ArrayLenTy::Infer => Err(nia_const_eval::ConstEvalError {
+                message: "array length is not concrete".to_string(),
+            }),
         }
     }
 

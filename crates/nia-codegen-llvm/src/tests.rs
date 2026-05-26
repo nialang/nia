@@ -822,6 +822,76 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_structural_extension_method_calls() {
+    let root = temp_dir("emits_structural_extension_method_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+type Ptr[T] = &T;
+
+extend i32 {
+    fn is_zero(self) bool {
+        self == 0
+    }
+}
+
+extend[T] Ptr[T] {
+    fn is_null(self) bool {
+        self as usize == 0
+    }
+}
+
+extend[T] &const [T] {
+    fn size(self) usize {
+        @len(self)
+    }
+}
+
+extend[T] [3]T {
+    fn first(self) T {
+        self[0]
+    }
+}
+
+extend &const fn(i32) i32 {
+    fn apply(self, value: i32) i32 {
+        self(value)
+    }
+}
+
+fn inc(value: i32) i32 {
+    value + 1
+}
+
+fn main(ptr: &i32, xs: &const [i32], triple: [3]i32) i32 {
+    if 0.is_zero() {}
+    if ptr.is_null() {}
+    xs.size() as i32 + triple.first() + (&const inc).apply(1)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("@nia__m0__d1__is_zero"));
+    assert!(ir.contains("@nia__m0__d2__is_null__inst__i32"));
+    assert!(ir.contains("@nia__m0__d3__size__inst__i32"));
+    assert!(ir.contains("@nia__m0__d4__first__inst__i32"));
+    assert!(ir.contains("@nia__m0__d5__apply"));
+    assert!(ir.contains("call i1 @nia__m0__d1__is_zero"));
+    assert!(ir.contains("call i1 @nia__m0__d2__is_null__inst__i32"));
+    assert!(ir.contains("call i64 @nia__m0__d3__size__inst__i32"));
+    assert!(ir.contains("call i32 @nia__m0__d4__first__inst__i32"));
+    assert!(ir.contains("call i32 @nia__m0__d5__apply"));
+}
+
+#[test]
 fn emits_short_circuit_logical_operators() {
     let root = temp_dir("emits_short_circuit_logical_operators");
     let main = root.join("main.nia");

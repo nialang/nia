@@ -5,6 +5,55 @@ use nia_ids::{GlobalDefId, TyId};
 use nia_item_signatures::FunctionSignature;
 use nia_ty::{TyInterner, TyKind};
 
+pub fn import_type_into(target: &mut TyInterner, source: &TyInterner, ty: TyId) -> TyId {
+    match source.get(ty) {
+        Some(TyKind::Error) | None => target.error(),
+        Some(TyKind::Primitive(primitive)) => target.primitive(*primitive),
+        Some(TyKind::GenericParam(name)) => target.intern(TyKind::GenericParam(name.clone())),
+        Some(TyKind::Pointer { is_const, elem }) => {
+            let is_const = *is_const;
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Pointer { is_const, elem })
+        }
+        Some(TyKind::Slice { is_const, elem }) => {
+            let is_const = *is_const;
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Slice { is_const, elem })
+        }
+        Some(TyKind::Array { len, elem }) => {
+            let len = len.clone();
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Array { len, elem })
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        }) => {
+            let params = params
+                .iter()
+                .map(|param| import_type_into(target, source, *param))
+                .collect();
+            let return_type = import_type_into(target, source, *return_type);
+            target.intern(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: *is_variadic,
+            })
+        }
+        Some(TyKind::Nominal { def_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::Nominal {
+                def_id: *def_id,
+                args,
+            })
+        }
+    }
+}
+
 impl<'a> BodyChecker<'a> {
     pub(super) fn qualified_callee_signature(
         &mut self,
@@ -53,55 +102,6 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn import_type_from(&mut self, source: &TyInterner, ty: TyId) -> TyId {
-        match source.get(ty) {
-            Some(TyKind::Error) | None => self.error(),
-            Some(TyKind::Primitive(primitive)) => self.primitive(*primitive),
-            Some(TyKind::GenericParam(name)) => {
-                self.interner.intern(TyKind::GenericParam(name.clone()))
-            }
-            Some(TyKind::Pointer { is_const, elem }) => {
-                let is_const = *is_const;
-                let elem = self.import_type_from(source, *elem);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
-            }
-            Some(TyKind::Slice { is_const, elem }) => {
-                let is_const = *is_const;
-                let elem = self.import_type_from(source, *elem);
-                self.interner.intern(TyKind::Slice { is_const, elem })
-            }
-            Some(TyKind::Array { len, elem }) => {
-                let len = len.clone();
-                let elem = self.import_type_from(source, *elem);
-                self.interner.intern(TyKind::Array { len, elem })
-            }
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                is_variadic,
-            }) => {
-                let params = params.clone();
-                let return_type = *return_type;
-                let is_variadic = *is_variadic;
-                let params = params
-                    .iter()
-                    .map(|param| self.import_type_from(source, *param))
-                    .collect();
-                let return_type = self.import_type_from(source, return_type);
-                self.interner.intern(TyKind::FunctionPointer {
-                    params,
-                    return_type,
-                    is_variadic,
-                })
-            }
-            Some(TyKind::Nominal { def_id, args }) => {
-                let def_id = *def_id;
-                let args = args.clone();
-                let args = args
-                    .iter()
-                    .map(|arg| self.import_type_from(source, *arg))
-                    .collect();
-                self.interner.intern(TyKind::Nominal { def_id, args })
-            }
-        }
+        import_type_into(&mut self.interner, source, ty)
     }
 }

@@ -58,16 +58,7 @@ impl<'a> BodyChecker<'a> {
             .targets()
             .iter()
             .find(|target| target.methods.iter().any(|method| method.def_id == def_id))
-            .map(|target| {
-                target
-                    .args
-                    .iter()
-                    .filter_map(|arg| match self.interner.get(*arg) {
-                        Some(nia_ty::TyKind::GenericParam(name)) => Some(name.clone()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-            })
+            .map(|target| self.generic_params_in_ty(target.target_ty))
             .unwrap_or_default();
         if def_id.module_id == self.defs.module_id {
             if generics.is_empty() {
@@ -85,5 +76,43 @@ impl<'a> BodyChecker<'a> {
             }
         }
         generics
+    }
+
+    pub(crate) fn generic_params_in_ty(&self, ty: TyId) -> Vec<String> {
+        let mut generics = Vec::new();
+        self.collect_generic_params_in_ty(ty, &mut generics);
+        generics
+    }
+
+    fn collect_generic_params_in_ty(&self, ty: TyId, generics: &mut Vec<String>) {
+        match self.interner.get(ty) {
+            Some(TyKind::GenericParam(name)) => {
+                if !generics.contains(name) {
+                    generics.push(name.clone());
+                }
+            }
+            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
+                self.collect_generic_params_in_ty(*elem, generics);
+            }
+            Some(TyKind::Array { elem, .. }) => {
+                self.collect_generic_params_in_ty(*elem, generics);
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                for param in params {
+                    self.collect_generic_params_in_ty(*param, generics);
+                }
+                self.collect_generic_params_in_ty(*return_type, generics);
+            }
+            Some(TyKind::Nominal { args, .. }) => {
+                for arg in args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+            }
+            Some(TyKind::Error | TyKind::Primitive(_)) | None => {}
+        }
     }
 }

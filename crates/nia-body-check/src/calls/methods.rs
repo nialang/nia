@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::{BodyChecker, ReceiverBase};
+use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
+use nia_ty::TyKind;
 
 struct MethodCall<'a> {
     span: Span,
@@ -15,6 +16,15 @@ struct MethodCall<'a> {
     name: &'a str,
     type_args: Option<&'a [BracketArg]>,
     args: &'a [Expr],
+    expected: Option<TyId>,
+}
+
+struct MethodGenericContext<'a> {
+    span: Span,
+    receiver_ty: TyId,
+    method_id: GlobalDefId,
+    method_args: Option<&'a [BracketArg]>,
+    lowered_method_args: &'a [TyId],
     expected: Option<TyId>,
 }
 
@@ -307,8 +317,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<TyId>,
     ) -> Option<TyId> {
         let receiver_ty = self.check_expr(receiver);
-        let base = self.receiver_base_type(receiver_ty)?;
-        let candidates = self.method_defs_for_struct(base.def_id, name);
+        let candidates = self.method_candidates_for_receiver(receiver_ty, name);
         if candidates.is_empty() {
             return None;
         }
@@ -334,8 +343,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<TyId>,
     ) -> Option<TyId> {
         let receiver_ty = self.check_expr(receiver);
-        let base = self.receiver_base_type(receiver_ty)?;
-        let candidates = self.method_defs_for_struct(base.def_id, name);
+        let candidates = self.method_candidates_for_receiver(receiver_ty, name);
         if candidates.is_empty() {
             return None;
         }
@@ -352,12 +360,8 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<TyId> {
-        let base = self.receiver_base_type(call.receiver_ty)?;
-        let method_id = self.single_method_candidate(
-            call.span,
-            call.name,
-            self.method_defs_for_struct(base.def_id, call.name),
-        )?;
+        let candidates = self.method_candidates_for_receiver(call.receiver_ty, call.name);
+        let method_id = self.single_method_candidate(call.span, call.name, candidates)?;
         let Some(signature) = self
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)
@@ -381,7 +385,7 @@ impl<'a> BodyChecker<'a> {
         let receiver_kind = receiver_param
             .receiver
             .expect("receiver param was checked above");
-        self.check_receiver_match(call.receiver, &base, receiver_kind);
+        self.check_receiver_match(call.receiver, call.receiver_ty, receiver_kind);
 
         let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
             for arg in call.args {
@@ -390,12 +394,15 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
         let Some(mut substitutions) = self.method_generic_substitutions(
-            call.span,
-            &base,
+            MethodGenericContext {
+                span: call.span,
+                receiver_ty: call.receiver_ty,
+                method_id,
+                method_args: call.type_args,
+                lowered_method_args: &method_instantiation_args,
+                expected: call.expected,
+            },
             &signature,
-            call.type_args,
-            &method_instantiation_args,
-            call.expected,
         ) else {
             for arg in call.args {
                 self.check_expr(arg);
@@ -416,8 +423,9 @@ impl<'a> BodyChecker<'a> {
             }
         }
         self.check_direct_call_args(call.span, call.args, &params, false);
-        if !base.args.is_empty() || !method_instantiation_args.is_empty() {
-            let mut instance_args = base.args.clone();
+        let target_args = self.extension_target_instance_args(method_id, &substitutions);
+        if !target_args.is_empty() || !method_instantiation_args.is_empty() {
+            let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, call.span);
         }
@@ -425,11 +433,38 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn method_defs_for_struct(
-        &self,
+        &mut self,
         struct_id: GlobalDefId,
         name: &str,
     ) -> Vec<GlobalDefId> {
-        self.extensions.methods(struct_id, name)
+        self.extensions
+            .all_methods_named(name)
+            .into_iter()
+            .filter_map(|(target_ty, method_id)| {
+                let target_ty = self.normalization.normalize(target_ty);
+                matches!(
+                    self.interner.get(target_ty),
+                    Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
+                )
+                .then_some(method_id)
+            })
+            .collect()
+    }
+
+    fn method_candidates_for_receiver(
+        &mut self,
+        receiver_ty: TyId,
+        name: &str,
+    ) -> Vec<GlobalDefId> {
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        self.extensions
+            .all_methods_named(name)
+            .into_iter()
+            .filter_map(|(target_ty, method_id)| {
+                self.match_receiver_target(target_ty, receiver_ty, &mut HashMap::new())
+                    .then_some(method_id)
+            })
+            .collect()
     }
 
     fn single_method_candidate(
@@ -459,18 +494,15 @@ impl<'a> BodyChecker<'a> {
 
     fn method_generic_substitutions(
         &mut self,
-        span: Span,
-        base: &ReceiverBase,
+        context: MethodGenericContext<'_>,
         signature: &FunctionSignature,
-        method_args: Option<&[BracketArg]>,
-        lowered_method_args: &[TyId],
-        expected: Option<TyId>,
     ) -> Option<HashMap<String, TyId>> {
-        let mut substitutions = self.struct_generic_substitutions(base.def_id, &base.args);
-        let method_arg_count = lowered_method_args.len();
-        if method_args.is_some() && signature.generics.len() != method_arg_count {
+        let mut substitutions =
+            self.extension_target_substitutions(context.method_id, context.receiver_ty);
+        let method_arg_count = context.lowered_method_args.len();
+        if context.method_args.is_some() && signature.generics.len() != method_arg_count {
             self.diagnostics.push(Diagnostic::error(
-                span,
+                context.span,
                 format!(
                     "generic argument count mismatch for method: expected {}, got {method_arg_count}",
                     signature.generics.len()
@@ -478,18 +510,160 @@ impl<'a> BodyChecker<'a> {
             ));
             return None;
         }
-        if method_args.is_some() {
-            substitutions
-                .extend(self.generic_substitutions(&signature.generics, lowered_method_args));
-        } else if let Some(expected) = expected {
+        if context.method_args.is_some() {
+            substitutions.extend(
+                self.generic_substitutions(&signature.generics, context.lowered_method_args),
+            );
+        } else if let Some(expected) = context.expected {
             self.infer_generics_from_type(
                 signature.return_type,
                 expected,
                 &mut substitutions,
-                span,
+                context.span,
             );
         }
         Some(substitutions)
+    }
+
+    fn extension_target_substitutions(
+        &mut self,
+        method_id: GlobalDefId,
+        receiver_ty: TyId,
+    ) -> HashMap<String, TyId> {
+        let Some(target_ty) = self.extension_target_ty_for_method(method_id) else {
+            return HashMap::new();
+        };
+        let mut substitutions = HashMap::new();
+        self.match_receiver_target(target_ty, receiver_ty, &mut substitutions);
+        substitutions
+    }
+
+    fn extension_target_instance_args(
+        &mut self,
+        method_id: GlobalDefId,
+        substitutions: &HashMap<String, TyId>,
+    ) -> Vec<TyId> {
+        let Some(target_ty) = self.extension_target_ty_for_method(method_id) else {
+            return Vec::new();
+        };
+        self.generic_params_in_ty(target_ty)
+            .iter()
+            .filter_map(|generic| substitutions.get(generic).copied())
+            .collect()
+    }
+
+    fn extension_target_ty_for_method(&self, method_id: GlobalDefId) -> Option<TyId> {
+        self.extensions
+            .targets()
+            .iter()
+            .find(|target| {
+                target
+                    .methods
+                    .iter()
+                    .any(|method| method.def_id == method_id)
+            })
+            .map(|target| target.target_ty)
+    }
+
+    fn match_receiver_target(
+        &self,
+        target_ty: TyId,
+        receiver_ty: TyId,
+        substitutions: &mut HashMap<String, TyId>,
+    ) -> bool {
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        if self.match_type_pattern(target_ty, receiver_ty, substitutions) {
+            return true;
+        }
+        match self.interner.get(receiver_ty) {
+            Some(TyKind::Pointer { elem, .. }) => {
+                self.match_receiver_target(target_ty, *elem, substitutions)
+            }
+            _ => false,
+        }
+    }
+
+    fn match_type_pattern(
+        &self,
+        pattern: TyId,
+        actual: TyId,
+        substitutions: &mut HashMap<String, TyId>,
+    ) -> bool {
+        let pattern = self.normalization.normalize(pattern);
+        let actual = self.normalization.normalize(actual);
+        match self.interner.get(pattern) {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(name).copied() {
+                    self.types_match(existing, actual)
+                } else {
+                    substitutions.insert(name.clone(), actual);
+                    true
+                }
+            }
+            Some(TyKind::Pointer {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.interner.get(actual),
+                Some(TyKind::Pointer {
+                    is_const,
+                    elem
+                }) if is_const == pattern_const
+                    && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Slice {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.interner.get(actual),
+                Some(TyKind::Slice {
+                    is_const,
+                    elem
+                }) if is_const == pattern_const
+                    && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Array {
+                len: pattern_len,
+                elem: pattern_elem,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::Array { len, elem }) if pattern_len == len => {
+                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::FunctionPointer {
+                params: pattern_params,
+                return_type: pattern_return,
+                is_variadic: pattern_variadic,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    }) && self.match_type_pattern(*pattern_return, *return_type, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Nominal {
+                def_id: pattern_def,
+                args: pattern_args,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::Nominal { def_id, args })
+                    if pattern_def == def_id && pattern_args.len() == args.len() =>
+                {
+                    pattern_args.iter().zip(args).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    })
+                }
+                _ => false,
+            },
+            Some(TyKind::Primitive(_)) | Some(TyKind::Error) | None => {
+                self.types_match(pattern, actual)
+            }
+        }
     }
 
     fn infer_method_generics_from_args(
@@ -540,16 +714,17 @@ impl<'a> BodyChecker<'a> {
     fn check_receiver_match(
         &mut self,
         receiver: &Expr,
-        base: &ReceiverBase,
+        receiver_ty: TyId,
         receiver_kind: ReceiverKind,
     ) {
         if receiver_kind == ReceiverKind::Ref {
-            if base.has_readonly_pointer {
+            let base = self.receiver_base_type(receiver_ty);
+            if base.as_ref().is_some_and(|base| base.has_readonly_pointer) {
                 self.diagnostics.push(Diagnostic::error(
                     receiver.span,
                     "receiver cannot be matched through `&const T`",
                 ));
-            } else if !base.from_pointer {
+            } else if !base.as_ref().is_some_and(|base| base.from_pointer) {
                 self.check_assignable(receiver, "receiver");
             }
         }

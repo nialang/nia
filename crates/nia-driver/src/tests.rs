@@ -294,8 +294,8 @@ fn id(p: Ptr[u8]) &u8 {
 }
 
 #[test]
-fn avoids_void_receiver_cascades_after_invalid_extend_target() {
-    let root = temp_dir("avoids_void_receiver_cascades_after_invalid_extend_target");
+fn supports_alias_to_pointer_extension_methods_without_void_cascades() {
+    let root = temp_dir("supports_alias_to_pointer_extension_methods_without_void_cascades");
     write(
         &root.join("main.nia"),
         r#"
@@ -314,14 +314,7 @@ fn main(ptr: Ptr[i32]) void {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .message
-            .contains("extend target must be a nominal type")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
@@ -335,6 +328,87 @@ fn main(ptr: Ptr[i32]) void {
             .diagnostic
             .message
             .contains("cannot cast <error type> to usize")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn supports_structural_extension_methods() {
+    let root = temp_dir("supports_structural_extension_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+type Ptr[T] = &T;
+
+extend i32 {
+    fn is_zero(self) bool { self == 0 }
+}
+
+extend void {
+    fn unit(self) i32 { 1 }
+}
+
+extend[T] Ptr[T] {
+    fn is_null(self) bool { self as usize == 0 }
+}
+
+extend[T] &const [T] {
+    fn size(self) usize { @len(self) }
+}
+
+extend[T] [3]T {
+    fn first(self) T { self[0] }
+}
+
+extend &const fn(i32) i32 {
+    fn apply(self, value: i32) i32 { self(value) }
+}
+
+fn inc(value: i32) i32 { value + 1 }
+
+fn main(ptr: &i32, xs: &const [i32], triple: [3]i32) i32 {
+    if 0.is_zero() {}
+    if ptr.is_null() {}
+    {}.unit() + xs.size() as i32 + triple.first() + (&const inc).apply(1)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn rejects_invalid_structural_extension_members() {
+    let root = temp_dir("rejects_invalid_structural_extension_members");
+    write(
+        &root.join("main.nia"),
+        r#"
+extend ! {
+    fn nope(self) void {}
+}
+
+extend i32 {
+    fn make() i32 { 0 }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("extend target must be an extendable value type")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("associated functions are not supported for non-nominal extend targets")),
         "{:?}",
         program.diagnostics
     );

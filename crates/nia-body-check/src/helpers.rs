@@ -37,10 +37,7 @@ impl<'a> BodyChecker<'a> {
         let method_id = self.global_def_id(def_id);
         for item in self.extensions.targets() {
             if item.methods.iter().any(|method| method.def_id == method_id) {
-                return Some(self.interner.intern(TyKind::Nominal {
-                    def_id: item.target,
-                    args: item.args.clone(),
-                }));
+                return Some(item.target_ty);
             }
         }
         None

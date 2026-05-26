@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::LoadedModule;
 use nia_body_check::{
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
-    ProgramUnionSignature,
+    ProgramUnionSignature, import_type_into,
 };
 use nia_defs::{
     DefCollection, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
@@ -13,7 +13,7 @@ use nia_defs::{
 use nia_diagnostic::Diagnostic;
 use nia_ids::GlobalDefId;
 use nia_item_signatures::ItemSignatures;
-use nia_ty::TyKind;
+use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
@@ -158,30 +158,42 @@ pub(crate) fn collect_extension_methods(
                 continue;
             };
             let target_ty = normalization.normalize(target_ty);
-            let Some(TyKind::Nominal {
-                def_id: target,
-                args: target_args,
-            }) = lowering.interner.get(target_ty)
-            else {
+            if !is_extendable_target(&lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::error(
                     extend.target.span,
-                    "extend target must be a nominal type",
+                    "extend target must be an extendable value type",
                 ));
                 continue;
-            };
+            }
+            let is_nominal_target = matches!(
+                lowering.interner.get(target_ty),
+                Some(TyKind::Nominal { .. })
+            );
             for method in &extend.methods {
                 let Some(method_id) = defs.def_spans.get(method.function.span) else {
                     continue;
                 };
+                if !is_nominal_target
+                    && method
+                        .function
+                        .params
+                        .first()
+                        .is_none_or(|param| param.receiver.is_none())
+                {
+                    diagnostics.push(Diagnostic::error(
+                        method.function.span,
+                        "associated functions are not supported for non-nominal extend targets",
+                    ));
+                    continue;
+                }
                 extensions.insert(
                     module.id,
-                    *target,
                     ExtensionMethod {
                         def_id: GlobalDefId {
                             module_id: module.id,
                             def_id: method_id,
                         },
-                        target_args: target_args.clone(),
+                        target_ty,
                         visibility: method.vis,
                     },
                 );
@@ -191,10 +203,28 @@ pub(crate) fn collect_extension_methods(
     (extensions, diagnostics)
 }
 
+fn is_extendable_target(interner: &TyInterner, ty: nia_ids::TyId) -> bool {
+    match interner.get(ty) {
+        Some(TyKind::Error) | None => false,
+        Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
+        Some(TyKind::Array { len, .. }) => !matches!(len, nia_ty::ArrayLenTy::Infer),
+        Some(
+            TyKind::Primitive(_)
+            | TyKind::Pointer { .. }
+            | TyKind::Slice { .. }
+            | TyKind::FunctionPointer { .. }
+            | TyKind::Nominal { .. },
+        ) => true,
+        Some(TyKind::GenericParam(_)) => false,
+    }
+}
+
 pub(crate) fn visible_extensions_for_module(
     module_id: nia_ids::ModuleId,
     imports: &nia_imports::ImportAliasMap,
     defs_by_module: &[DefCollection],
+    lowerings: &[TypeLowering],
+    normalizations: &[TypeNormalization],
     extensions: &ExtensionMethods,
 ) -> VisibleExtensionMethods {
     let imported_modules = imports
@@ -203,39 +233,45 @@ pub(crate) fn visible_extensions_for_module(
         .flat_map(|aliases| aliases.values())
         .map(|alias| alias.target)
         .collect::<Vec<_>>();
+    let Some(current_lowering) = lowerings
+        .iter()
+        .zip(defs_by_module)
+        .find(|(_, defs)| defs.module_id == module_id)
+        .map(|(lowering, _)| lowering)
+    else {
+        return VisibleExtensionMethods::default();
+    };
+    let mut target_interner = current_lowering.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
-    for target_defs in defs_by_module {
-        for (def_id, def) in target_defs.defs.iter() {
-            let target = GlobalDefId {
-                module_id: target_defs.module_id,
-                def_id,
-            };
-            for method in extensions.visible_methods(module_id, imported_modules.clone(), target) {
-                let Some(method_defs) = defs_by_module
-                    .iter()
-                    .find(|defs| defs.module_id == method.def_id.module_id)
-                else {
-                    continue;
-                };
-                let Some(method_def) = method_defs.defs.get(method.def_id.def_id) else {
-                    continue;
-                };
-                if !matches!(
-                    def.kind,
-                    nia_defs::DefKind::Struct | nia_defs::DefKind::Union
-                ) {
-                    continue;
-                }
-                visible.insert(
-                    target,
-                    method.target_args.clone(),
-                    VisibleExtensionMethod {
-                        name: method_def.name.clone(),
-                        def_id: method.def_id,
-                    },
-                );
-            }
-        }
+    for method in extensions.visible_methods(module_id, imported_modules) {
+        let Some(method_defs) = defs_by_module
+            .iter()
+            .find(|defs| defs.module_id == method.def_id.module_id)
+        else {
+            continue;
+        };
+        let Some(method_def) = method_defs.defs.get(method.def_id.def_id) else {
+            continue;
+        };
+        let Some(method_module_index) = defs_by_module
+            .iter()
+            .position(|defs| defs.module_id == method.def_id.module_id)
+        else {
+            continue;
+        };
+        let target_ty = normalizations[method_module_index].normalize(method.target_ty);
+        let target_ty = import_type_into(
+            &mut target_interner,
+            &lowerings[method_module_index].interner,
+            target_ty,
+        );
+        visible.insert(
+            target_ty,
+            VisibleExtensionMethod {
+                name: method_def.name.clone(),
+                def_id: method.def_id,
+            },
+        );
     }
     visible
 }
