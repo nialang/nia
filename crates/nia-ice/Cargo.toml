@@ -1,5 +1,5 @@
 [package]
-name = "nia-llvm"
+name = "nia-ice"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,9 +7,7 @@ license.workspace = true
 
 [dependencies]
 nia-diagnostic.workspace = true
-nia-ice.workspace = true
 nia-span.workspace = true
-llvm-sys.workspace = true
 
 [lib]
 path = "src/lib.rs"

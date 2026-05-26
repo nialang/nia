@@ -22,7 +22,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         match init {
             StaticInit::Zero => Ok(self
                 .llvm_basic_type_in(ty, span, interner, layouts)?
-                .const_zero()),
+                .const_zero()?),
             StaticInit::Int(value) => {
                 let Some(TyKind::Primitive(primitive)) = interner.get(ty) else {
                     return Err(
@@ -127,7 +127,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
         let target_ptr_ty = self
             .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
-            .into_pointer_type();
+            .into_pointer_type()?;
         Ok(ptr.const_bitcast(target_ptr_ty).into())
     }
 
@@ -144,7 +144,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .ok_or_else(|| self.error(span, "missing function for static address initializer"))?;
         let target_ptr_ty = self
             .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
-            .into_pointer_type();
+            .into_pointer_type()?;
         Ok(function
             .as_global_value()
             .as_pointer_value()
@@ -232,7 +232,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let struct_ty = self
             .llvm_basic_type_in(ty, span, interner, layouts)?
-            .into_struct_type();
+            .into_struct_type()?;
         let Some(TyKind::Nominal { def_id, args }) = interner.get(ty) else {
             return Err(self.error(span, "struct static initializer target is not nominal"));
         };
@@ -248,7 +248,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 let Some(field_ty) = struct_ty.get_field_type_at_index(index) else {
                     continue;
                 };
-                values.push(field_ty.const_zero());
+                values.push(field_ty?.const_zero()?);
             }
             return Ok(struct_ty.const_named_struct(&values).into());
         }
@@ -290,7 +290,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     &values
                         .iter()
                         .map(|value| value.into_int_value())
-                        .collect::<Vec<_>>(),
+                        .collect::<Result<Vec<_>, _>>()?,
                 )
                 .into()),
             BasicTypeEnum::FloatType(ty) => Ok(ty
@@ -298,7 +298,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     &values
                         .iter()
                         .map(|value| value.into_float_value())
-                        .collect::<Vec<_>>(),
+                        .collect::<Result<Vec<_>, _>>()?,
                 )
                 .into()),
             BasicTypeEnum::PointerType(ty) => Ok(ty
@@ -306,7 +306,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     &values
                         .iter()
                         .map(|value| value.into_pointer_value())
-                        .collect::<Vec<_>>(),
+                        .collect::<Result<Vec<_>, _>>()?,
                 )
                 .into()),
             BasicTypeEnum::StructType(ty) => Ok(ty
@@ -314,7 +314,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     &values
                         .iter()
                         .map(|value| value.into_struct_value())
-                        .collect::<Vec<_>>(),
+                        .collect::<Result<Vec<_>, _>>()?,
                 )
                 .into()),
             BasicTypeEnum::ArrayType(ty) => Ok(ty
@@ -322,7 +322,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     &values
                         .iter()
                         .map(|value| value.into_array_value())
-                        .collect::<Vec<_>>(),
+                        .collect::<Result<Vec<_>, _>>()?,
                 )
                 .into()),
             _ => Err(self.error(

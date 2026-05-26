@@ -4,6 +4,7 @@ members = [
     "crates/nia-span",
     "crates/nia-ids",
     "crates/nia-diagnostic",
+    "crates/nia-ice",
     "crates/nia-ast",
     "crates/nia-ast-walk",
     "crates/nia-lexer",
@@ -43,6 +44,7 @@ license = "GPL-3.0-or-later"
 nia-span = { path = "crates/nia-span" }
 nia-ids = { path = "crates/nia-ids" }
 nia-diagnostic = { path = "crates/nia-diagnostic" }
+nia-ice = { path = "crates/nia-ice" }
 nia-ast = { path = "crates/nia-ast" }
 nia-ast-walk = { path = "crates/nia-ast-walk" }
 nia-lexer = { path = "crates/nia-lexer" }

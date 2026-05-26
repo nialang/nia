@@ -80,9 +80,11 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_stmt(&mut self, stmt: &Stmt) -> TypedStmt {
         let kind = match &stmt.kind {
-            StmtKind::Using(_) => {
-                unreachable!("using statements should be filtered out before lowering")
-            }
+            StmtKind::Using(_) => TypedStmtKind::Expr(TypedExpr {
+                span: stmt.span,
+                ty: self.error_ty(),
+                kind: TypedExprKind::Error,
+            }),
             StmtKind::Binding(binding) => {
                 TypedStmtKind::Binding(self.lower_binding_stmt(stmt.span, binding))
             }

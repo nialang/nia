@@ -19,7 +19,7 @@ use std::ptr;
 use std::slice;
 use std::sync::OnceLock;
 
-use super::{Module, OptimizationLevel, to_c_string};
+use super::{LlvmError, LlvmResult, Module, OptimizationLevel, to_c_string};
 
 #[derive(Debug)]
 pub struct TargetMachine {
@@ -27,7 +27,7 @@ pub struct TargetMachine {
 }
 
 impl TargetMachine {
-    pub fn native() -> Result<Self, String> {
+    pub fn native() -> LlvmResult<Self> {
         initialize_native_target()?;
 
         let triple = llvm_owned_string(unsafe { LLVMGetDefaultTargetTriple() })?;
@@ -41,26 +41,28 @@ impl TargetMachine {
         cpu: &str,
         features: &str,
         opt_level: OptimizationLevel,
-    ) -> Result<Self, String> {
+    ) -> LlvmResult<Self> {
         initialize_native_target()?;
 
-        let triple_c = to_c_string(triple);
+        let triple_c = to_c_string(triple)?;
         let mut target: LLVMTargetRef = ptr::null_mut();
         let mut message = ptr::null_mut();
         let failed =
             unsafe { LLVMGetTargetFromTriple(triple_c.as_ptr(), &mut target, &mut message) } != 0;
         if failed {
-            return Err(take_llvm_message(
+            return Err(LlvmError::error(take_llvm_message(
                 message,
                 "LLVM failed to find target for triple",
-            ));
+            )));
         }
         if target.is_null() {
-            return Err(format!("LLVM returned no target for triple `{triple}`"));
+            return Err(LlvmError::error(format!(
+                "LLVM returned no target for triple `{triple}`"
+            )));
         }
 
-        let cpu_c = to_c_string(cpu);
-        let features_c = to_c_string(features);
+        let cpu_c = to_c_string(cpu)?;
+        let features_c = to_c_string(features)?;
         let machine = unsafe {
             LLVMCreateTargetMachine(
                 target,
@@ -73,14 +75,14 @@ impl TargetMachine {
             )
         };
         if machine.is_null() {
-            return Err(format!(
+            return Err(LlvmError::error(format!(
                 "LLVM failed to create target machine for triple `{triple}`"
-            ));
+            )));
         }
         Ok(Self { raw: machine })
     }
 
-    pub fn configure_module<'ctx>(&self, module: &Module<'ctx>) {
+    pub fn configure_module<'ctx>(&self, module: &Module<'ctx>) -> LlvmResult<()> {
         let target_data = unsafe { LLVMCreateTargetDataLayout(self.raw) };
         if !target_data.is_null() {
             unsafe {
@@ -90,11 +92,12 @@ impl TargetMachine {
         }
         let triple = unsafe { llvm_sys::target_machine::LLVMGetTargetMachineTriple(self.raw) };
         if let Ok(triple) = llvm_owned_string(triple) {
-            module.set_triple(&triple);
+            module.set_triple(&triple)?;
         }
+        Ok(())
     }
 
-    pub fn emit_object<'ctx>(&self, module: &Module<'ctx>) -> Result<Vec<u8>, String> {
+    pub fn emit_object<'ctx>(&self, module: &Module<'ctx>) -> LlvmResult<Vec<u8>> {
         let mut message = ptr::null_mut();
         let mut buffer = ptr::null_mut();
         let failed = unsafe {
@@ -107,13 +110,13 @@ impl TargetMachine {
             )
         } != 0;
         if failed {
-            return Err(take_llvm_message(
+            return Err(LlvmError::error(take_llvm_message(
                 message,
                 "LLVM failed to emit object file",
-            ));
+            )));
         }
         if buffer.is_null() {
-            return Err("LLVM returned a null object buffer".to_string());
+            return Err(LlvmError::error("LLVM returned a null object buffer"));
         }
 
         let bytes = unsafe {
@@ -132,18 +135,22 @@ impl Drop for TargetMachine {
     }
 }
 
-fn initialize_native_target() -> Result<(), String> {
-    static RESULT: OnceLock<Result<(), String>> = OnceLock::new();
+fn initialize_native_target() -> LlvmResult<()> {
+    static RESULT: OnceLock<LlvmResult<()>> = OnceLock::new();
     RESULT
         .get_or_init(|| {
             if unsafe { LLVM_InitializeNativeTarget() } != 0 {
-                return Err("LLVM failed to initialize native target".to_string());
+                return Err(LlvmError::error("LLVM failed to initialize native target"));
             }
             if unsafe { LLVM_InitializeNativeAsmPrinter() } != 0 {
-                return Err("LLVM failed to initialize native asm printer".to_string());
+                return Err(LlvmError::error(
+                    "LLVM failed to initialize native asm printer",
+                ));
             }
             if unsafe { LLVM_InitializeNativeAsmParser() } != 0 {
-                return Err("LLVM failed to initialize native asm parser".to_string());
+                return Err(LlvmError::error(
+                    "LLVM failed to initialize native asm parser",
+                ));
             }
             Ok(())
         })
@@ -159,9 +166,9 @@ fn codegen_opt_level(level: OptimizationLevel) -> LLVMCodeGenOptLevel {
     }
 }
 
-fn llvm_owned_string(ptr: *mut std::os::raw::c_char) -> Result<String, String> {
+fn llvm_owned_string(ptr: *mut std::os::raw::c_char) -> LlvmResult<String> {
     if ptr.is_null() {
-        return Err("LLVM returned a null string".to_string());
+        return Err(LlvmError::error("LLVM returned a null string"));
     }
     let text = unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() };
     unsafe { LLVMDisposeMessage(ptr) };

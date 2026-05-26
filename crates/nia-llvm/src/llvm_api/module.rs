@@ -26,7 +26,7 @@ use std::slice;
 
 use super::{
     AddressSpace, AsTypeRef, BasicTypeEnum, Context, FunctionType, FunctionValue, GlobalValue,
-    Linkage, to_c_string,
+    Linkage, LlvmError, LlvmResult, to_c_string,
 };
 
 #[derive(Debug)]
@@ -54,10 +54,12 @@ impl<'ctx> Module<'ctx> {
         raw
     }
 
-    pub fn bitcode(&self) -> Result<Vec<u8>, String> {
+    pub fn bitcode(&self) -> LlvmResult<Vec<u8>> {
         let buffer = unsafe { LLVMWriteBitcodeToMemoryBuffer(self.raw) };
         if buffer.is_null() {
-            return Err("LLVM failed to serialize a module to bitcode".to_string());
+            return Err(LlvmError::error(
+                "LLVM failed to serialize a module to bitcode",
+            ));
         }
 
         let bytes = unsafe {
@@ -74,23 +76,23 @@ impl<'ctx> Module<'ctx> {
         name: &str,
         ty: FunctionType<'ctx>,
         linkage: Option<Linkage>,
-    ) -> FunctionValue<'ctx> {
-        let name = to_c_string(name);
+    ) -> LlvmResult<FunctionValue<'ctx>> {
+        let name = to_c_string(name)?;
         let value = unsafe { LLVMAddFunction(self.raw, name.as_ptr(), ty.as_type_ref()) };
         let func = FunctionValue::new(value);
         if let Some(linkage) = linkage {
             unsafe { LLVMSetLinkage(value, linkage.into()) };
         }
-        func
+        Ok(func)
     }
 
-    pub fn get_function(&self, name: &str) -> Option<FunctionValue<'ctx>> {
-        let name = to_c_string(name);
+    pub fn get_function(&self, name: &str) -> LlvmResult<Option<FunctionValue<'ctx>>> {
+        let name = to_c_string(name)?;
         let value = unsafe { LLVMGetNamedFunction(self.raw, name.as_ptr()) };
         if value.is_null() {
-            None
+            Ok(None)
         } else {
-            Some(FunctionValue::new(value))
+            Ok(Some(FunctionValue::new(value)))
         }
     }
 
@@ -108,32 +110,33 @@ impl<'ctx> Module<'ctx> {
         ty: BasicTypeEnum<'ctx>,
         _addr_space: Option<AddressSpace>,
         name: &str,
-    ) -> GlobalValue<'ctx> {
-        let name = to_c_string(name);
+    ) -> LlvmResult<GlobalValue<'ctx>> {
+        let name = to_c_string(name)?;
         let value = unsafe { LLVMAddGlobal(self.raw, ty.as_type_ref(), name.as_ptr()) };
-        GlobalValue::new(value)
+        Ok(GlobalValue::new(value))
     }
 
-    pub fn get_global(&self, name: &str) -> Option<GlobalValue<'ctx>> {
-        let name = to_c_string(name);
+    pub fn get_global(&self, name: &str) -> LlvmResult<Option<GlobalValue<'ctx>>> {
+        let name = to_c_string(name)?;
         let value = unsafe { LLVMGetNamedGlobal(self.raw, name.as_ptr()) };
         if value.is_null() {
-            None
+            Ok(None)
         } else {
-            Some(GlobalValue::new(value))
+            Ok(Some(GlobalValue::new(value)))
         }
     }
 
-    pub fn set_triple(&self, triple: &str) {
-        let triple = to_c_string(triple);
+    pub fn set_triple(&self, triple: &str) -> LlvmResult<()> {
+        let triple = to_c_string(triple)?;
         unsafe { llvm_sys::core::LLVMSetTarget(self.raw, triple.as_ptr()) };
+        Ok(())
     }
 
-    pub fn link_in(&mut self, source: Module<'ctx>) -> Result<(), String> {
+    pub fn link_in(&mut self, source: Module<'ctx>) -> LlvmResult<()> {
         let source = source.into_raw();
         let failed = unsafe { LLVMLinkModules2(self.raw, source) } != 0;
         if failed {
-            return Err("LLVM failed to link modules".to_string());
+            return Err(LlvmError::error("LLVM failed to link modules"));
         }
         Ok(())
     }
@@ -151,7 +154,7 @@ impl<'ctx> Module<'ctx> {
         unsafe { LLVMSetModuleDataLayout(self.raw, target_data) };
     }
 
-    pub fn verify(&self) -> Result<(), String> {
+    pub fn verify(&self) -> LlvmResult<()> {
         let mut message = ptr::null_mut();
         let failed = unsafe {
             LLVMVerifyModule(
@@ -163,13 +166,13 @@ impl<'ctx> Module<'ctx> {
         if failed {
             let text = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
             unsafe { LLVMDisposeMessage(message) };
-            Err(text)
+            Err(LlvmError::error(text))
         } else {
             Ok(())
         }
     }
 
-    pub fn ir_string(&self) -> Result<String, String> {
+    pub fn ir_string(&self) -> LlvmResult<String> {
         #[cfg(windows)]
         {
             self.ir_string_via_temp_file()
@@ -182,7 +185,7 @@ impl<'ctx> Module<'ctx> {
     }
 
     #[cfg(windows)]
-    fn ir_string_via_temp_file(&self) -> Result<String, String> {
+    fn ir_string_via_temp_file(&self) -> LlvmResult<String> {
         let unique = format!(
             "nia_llvm_ir_{}_{}.ll",
             std::process::id(),
@@ -192,7 +195,7 @@ impl<'ctx> Module<'ctx> {
                 .unwrap_or_default()
         );
         let path = std::env::temp_dir().join(unique);
-        let path_cstr = to_c_string(&path.to_string_lossy());
+        let path_cstr = to_c_string(&path.to_string_lossy())?;
         let mut message = ptr::null_mut();
 
         let failed =
@@ -205,25 +208,25 @@ impl<'ctx> Module<'ctx> {
                 unsafe { LLVMDisposeMessage(message) };
                 text
             };
-            return Err(text);
+            return Err(LlvmError::error(text));
         }
 
         let read_result = std::fs::read_to_string(&path).map_err(|err| {
-            format!(
+            LlvmError::error(format!(
                 "Failed to read printed LLVM IR from `{}`: {}",
                 path.display(),
                 err
-            )
+            ))
         });
         let _ = std::fs::remove_file(path);
         read_result
     }
 
     #[cfg(not(windows))]
-    fn ir_string_via_llvm_string(&self) -> Result<String, String> {
+    fn ir_string_via_llvm_string(&self) -> LlvmResult<String> {
         let text = unsafe { LLVMPrintModuleToString(self.raw) };
         if text.is_null() {
-            return Err("LLVM returned a null IR buffer".to_string());
+            return Err(LlvmError::error("LLVM returned a null IR buffer"));
         }
 
         let rendered = unsafe { CStr::from_ptr(text).to_string_lossy().into_owned() };

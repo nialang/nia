@@ -430,9 +430,13 @@ impl<'a> BodyChecker<'a> {
             return Some(self.error());
         };
 
-        let receiver_kind = receiver_param
-            .receiver
-            .expect("receiver param was checked above");
+        let Some(receiver_kind) = receiver_param.receiver else {
+            self.diagnostics.push(Diagnostic::error(
+                call.span,
+                "internal compiler error: receiver method candidate has no receiver",
+            ));
+            return Some(self.error());
+        };
         self.check_receiver_match(call.receiver, call.receiver_ty, receiver_kind);
 
         let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {

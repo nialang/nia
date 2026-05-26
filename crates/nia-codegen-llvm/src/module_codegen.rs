@@ -15,7 +15,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
 use nia_layout::TypeLayout;
 use nia_llvm::{
-    Context,
+    Context, LlvmError,
     target::TargetMachine,
     types::StructType,
     values::{FunctionValue, GlobalValue},
@@ -45,12 +45,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         source: &'a BackendModule,
         program: &'a ProgramIndex<'a>,
         options: LlvmCodegenOptions,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Diagnostic> {
+        Ok(Self {
             context,
             source,
             program,
-            module: context.create_module(&source.name),
+            module: context
+                .create_module(&source.name)
+                .map_err(Self::diagnostic_from_llvm_error)?,
             options,
             structs: HashMap::new(),
             unions: HashMap::new(),
@@ -59,24 +61,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             functions: HashMap::new(),
             function_instances: HashMap::new(),
             globals: HashMap::new(),
-        }
+        })
     }
 
     pub(super) fn emit_ir(&mut self) -> Result<String, Diagnostic> {
         self.emit_module()?;
-        self.module.ir_string().map_err(|message| {
-            self.error(
-                Span::default(),
-                format!("LLVM IR emission failed: {message}"),
-            )
-        })
+        self.module
+            .ir_string()
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     pub(super) fn emit_object(&mut self, target: &TargetMachine) -> Result<Vec<u8>, Diagnostic> {
         self.emit_module()?;
         target
             .emit_object(&self.module)
-            .map_err(|message| self.error(Span::default(), message))
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
@@ -86,9 +85,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.declare_functions()?;
         self.declare_globals()?;
         self.emit_function_bodies()?;
-        self.module.verify().map_err(|message| {
-            self.error(Span::default(), format!("LLVM verify failed: {message}"))
-        })
+        self.module
+            .verify()
+            .map_err(Self::diagnostic_from_llvm_error)
     }
 
     fn check_hosted_entry_signatures(&self) -> Result<(), Diagnostic> {
@@ -253,5 +252,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {
         Diagnostic::error(span, message)
+    }
+
+    pub(super) fn diagnostic_from_llvm_error(error: LlvmError) -> Diagnostic {
+        error.diagnostic()
     }
 }

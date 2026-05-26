@@ -67,7 +67,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let entry = self
             .module
             .context
-            .append_basic_block(self.llvm_function, "entry");
+            .append_basic_block(self.llvm_function, "entry")?;
         self.builder.position_at_end(entry);
         self.out_ptr = self.function_out_ptr()?;
         self.alloc_locals(body)?;
@@ -169,6 +169,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let Some(value) = self.llvm_function.get_nth_param(llvm_index as u32) else {
                         return Err(self.error(param.span, "missing LLVM function parameter"));
                     };
+                    let value = value?;
                     self.builder.build_store(ptr, value).map_err(|_| {
                         self.error(param.span, "failed to store function parameter")
                     })?;
@@ -178,10 +179,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let Some(value) = self.llvm_function.get_nth_param(llvm_index as u32) else {
                         return Err(self.error(param.span, "missing LLVM function parameter"));
                     };
+                    let value = value?;
                     let loaded_ty = self.module.llvm_basic_type(ty, param.span)?;
                     let loaded = self
                         .builder
-                        .build_load(loaded_ty, value.into_pointer_value(), "param.copy")
+                        .build_load(loaded_ty, value.into_pointer_value()?, "param.copy")
                         .map_err(|_| self.error(param.span, "failed to load indirect parameter"))?;
                     self.builder.build_store(ptr, loaded).map_err(|_| {
                         self.error(param.span, "failed to store function parameter")
@@ -202,11 +204,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ) {
             return Ok(None);
         }
-        self.llvm_function
-            .get_nth_param(0)
-            .map(|value| value.into_pointer_value())
-            .ok_or_else(|| self.error(self.function.span, "missing aggregate return pointer"))
-            .map(Some)
+        let Some(value) = self.llvm_function.get_nth_param(0) else {
+            return Err(self.error(self.function.span, "missing aggregate return pointer"));
+        };
+        Ok(Some(value?.into_pointer_value()?))
     }
 
     pub(super) fn emit_return_value(

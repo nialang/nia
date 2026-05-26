@@ -111,10 +111,7 @@ impl TyInterner {
     }
 
     pub fn primitive(&self, primitive: PrimitiveTy) -> TyId {
-        self.map
-            .get(&TyKind::Primitive(primitive))
-            .copied()
-            .expect("primitive types are pre-interned")
+        TyId(primitive.index() + 1)
     }
 
     pub fn len(&self) -> usize {
@@ -147,6 +144,29 @@ impl PrimitiveTy {
         Self::Void,
         Self::Never,
     ];
+
+    const fn index(self) -> u32 {
+        match self {
+            Self::I8 => 0,
+            Self::I16 => 1,
+            Self::I32 => 2,
+            Self::I64 => 3,
+            Self::I128 => 4,
+            Self::Isize => 5,
+            Self::U8 => 6,
+            Self::U16 => 7,
+            Self::U32 => 8,
+            Self::U64 => 9,
+            Self::U128 => 10,
+            Self::Usize => 11,
+            Self::F32 => 12,
+            Self::F64 => 13,
+            Self::Bool => 14,
+            Self::Char => 15,
+            Self::Void => 16,
+            Self::Never => 17,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -160,5 +180,14 @@ mod tests {
         let b = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         assert_eq!(a, b);
         assert_eq!(interner.len(), 19);
+    }
+
+    #[test]
+    fn primitive_ids_match_preinterned_layout() {
+        let interner = TyInterner::new();
+        for primitive in PrimitiveTy::ALL {
+            let id = interner.primitive(primitive);
+            assert_eq!(interner.get(id), Some(&TyKind::Primitive(primitive)));
+        }
     }
 }

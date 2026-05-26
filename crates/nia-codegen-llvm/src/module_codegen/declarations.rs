@@ -8,21 +8,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
         for item in self.program.structs.values() {
             let name = self.struct_symbol_name(item.def_id, &item.name);
-            let ty = self.context.opaque_struct_type(&name);
+            let ty = self
+                .context
+                .opaque_struct_type(&name)
+                .map_err(Self::diagnostic_from_llvm_error)?;
             self.structs.insert(item.def_id, ty);
         }
         for item in self.program.struct_instances.values() {
-            let ty = self.context.opaque_struct_type(&item.symbol);
+            let ty = self
+                .context
+                .opaque_struct_type(&item.symbol)
+                .map_err(Self::diagnostic_from_llvm_error)?;
             self.struct_instances
                 .insert((item.def_id, item.args.clone()), ty);
         }
         for item in self.program.unions.values() {
             let name = self.struct_symbol_name(item.def_id, &item.name);
-            let ty = self.context.opaque_struct_type(&name);
+            let ty = self
+                .context
+                .opaque_struct_type(&name)
+                .map_err(Self::diagnostic_from_llvm_error)?;
             self.unions.insert(item.def_id, ty);
         }
         for item in self.program.union_instances.values() {
-            let ty = self.context.opaque_struct_type(&item.symbol);
+            let ty = self
+                .context
+                .opaque_struct_type(&item.symbol)
+                .map_err(Self::diagnostic_from_llvm_error)?;
             self.union_instances
                 .insert((item.def_id, item.args.clone()), ty);
         }
@@ -116,7 +128,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             };
             let value = self
                 .module
-                .add_function(&self.function_symbol_name(function), ty, linkage);
+                .add_function(&self.function_symbol_name(function), ty, linkage)
+                .map_err(Self::diagnostic_from_llvm_error)?;
             self.functions.insert(function.def_id, value);
         }
         for instance in self.program.function_instances.values() {
@@ -135,15 +148,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 span: instance.span,
             };
             let ty = self.function_type_in(&function, &owner.interner, &owner.layouts)?;
-            let value = self.module.add_function(
-                &instance.symbol,
-                ty,
-                if instance.is_extern {
-                    Some(Linkage::External)
-                } else {
-                    None
-                },
-            );
+            let value = self
+                .module
+                .add_function(
+                    &instance.symbol,
+                    ty,
+                    if instance.is_extern {
+                        Some(Linkage::External)
+                    } else {
+                        None
+                    },
+                )
+                .map_err(Self::diagnostic_from_llvm_error)?;
             self.function_instances
                 .insert((instance.def_id, instance.args.clone()), value);
         }
@@ -159,7 +175,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 self.llvm_basic_type_in(global.ty, global.span, &owner.interner, &owner.layouts)?;
             let value = self
                 .module
-                .add_global(ty, None, &self.global_symbol_name(global));
+                .add_global(ty, None, &self.global_symbol_name(global))
+                .map_err(Self::diagnostic_from_llvm_error)?;
             let is_local = global.def_id.module_id == self.source.id;
             if global.is_extern || !is_local {
                 value.set_linkage(Linkage::External);
@@ -189,7 +206,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     &owner.interner,
                     &owner.layouts,
                 )?,
-                None => ty.const_zero(),
+                None => ty.const_zero().map_err(Self::diagnostic_from_llvm_error)?,
             };
             value.set_initializer(&init);
         }

@@ -145,6 +145,7 @@ dependencies = [
  "nia-codegen-llvm",
  "nia-diagnostic",
  "nia-driver",
+ "nia-ice",
  "nia-ids",
  "nia-imports",
  "nia-lexer",
@@ -160,6 +161,7 @@ dependencies = [
  "nia-const-eval",
  "nia-diagnostic",
  "nia-driver",
+ "nia-ice",
  "nia-ids",
  "nia-layout",
  "nia-llvm",
@@ -248,6 +250,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nia-ice"
+version = "0.1.7"
+dependencies = [
+ "nia-diagnostic",
+ "nia-span",
+]
+
+[[package]]
 name = "nia-ids"
 version = "0.1.7"
 
@@ -305,6 +315,9 @@ name = "nia-llvm"
 version = "0.1.7"
 dependencies = [
  "llvm-sys",
+ "nia-diagnostic",
+ "nia-ice",
+ "nia-span",
 ]
 
 [[package]]

@@ -10,6 +10,7 @@ mod llvm_facade;
 
 pub use llvm_api::{Context, InlineAsmDialect, InlineAsmOptions};
 pub use llvm_facade::{
-    AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, OptimizationLevel,
-    attributes, basic_block, builder, context, intrinsics, llvm_sys, module, target, types, values,
+    AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, LlvmError,
+    LlvmResult, OptimizationLevel, attributes, basic_block, builder, context, intrinsics, llvm_sys,
+    module, target, types, values,
 };
