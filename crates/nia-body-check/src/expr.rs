@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
+use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -18,8 +19,8 @@ impl<'a> BodyChecker<'a> {
         let array_expected = self.array_expected_from_slice_expected(expected);
         let ty = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) => self.error(),
-            ExprKind::Integer(_) => self.i32(),
-            ExprKind::Float(_) => self.f64(),
+            ExprKind::Integer(_) => self.integer_literal_type(expr),
+            ExprKind::Float(_) => self.float_literal_type(expr),
             ExprKind::String(text) => self.string_literal_type(text),
             ExprKind::Char(_) => self.primitive(PrimitiveTy::Char),
             ExprKind::ByteChar(_) => self.primitive(PrimitiveTy::U8),
@@ -199,6 +200,32 @@ impl<'a> BodyChecker<'a> {
         };
         self.expr_types.insert(expr.span, ty);
         ty
+    }
+
+    fn integer_literal_type(&mut self, expr: &Expr) -> TyId {
+        if let Some(primitive) = integer_literal_suffix_ty(expr) {
+            let ty = self.primitive(primitive);
+            self.check_integer_literal_range(expr, ty, "literal suffix");
+            return ty;
+        }
+        if self.numeric_literal_has_suffix(expr) {
+            self.report_invalid_numeric_literal_suffix(expr, "integer");
+            return self.error();
+        }
+        self.i32()
+    }
+
+    fn float_literal_type(&mut self, expr: &Expr) -> TyId {
+        if let Some(primitive) = float_literal_suffix_ty(expr) {
+            let ty = self.primitive(primitive);
+            self.check_float_literal_target(expr, ty, "literal suffix");
+            return ty;
+        }
+        if self.numeric_literal_has_suffix(expr) {
+            self.report_invalid_numeric_literal_suffix(expr, "float");
+            return self.error();
+        }
+        self.f64()
     }
 
     fn check_if_expr(

@@ -4,11 +4,13 @@ use nia_ty::PrimitiveTy;
 
 pub(super) fn integer_literal_value(expr: &Expr) -> Option<i128> {
     match &expr.kind {
-        ExprKind::Integer(text) => nia_const_eval::eval_int_literal(text).ok(),
+        ExprKind::Integer(text) => {
+            nia_const_eval::eval_int_literal(numeric_literal_body(text)).ok()
+        }
         ExprKind::Unary {
             op: UnaryOp::Neg,
             expr,
-        } => nia_const_eval::eval_int_literal(integer_literal_text(expr)?)
+        } => nia_const_eval::eval_int_literal(numeric_literal_body(integer_literal_text(expr)?))
             .ok()?
             .checked_neg(),
         _ => None,
@@ -24,7 +26,142 @@ fn integer_literal_text(expr: &Expr) -> Option<&str> {
 
 pub(super) fn float_literal_text(expr: &Expr) -> Option<&str> {
     match &expr.kind {
-        ExprKind::Float(text) => Some(text),
+        ExprKind::Float(text) => Some(numeric_literal_body(text)),
+        _ => None,
+    }
+}
+
+pub(super) fn integer_literal_suffix_ty(expr: &Expr) -> Option<PrimitiveTy> {
+    match &expr.kind {
+        ExprKind::Integer(text) => integer_suffix_ty(text),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            expr,
+        } => match &expr.kind {
+            ExprKind::Integer(text) => integer_suffix_ty(text),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+pub(super) fn float_literal_suffix_ty(expr: &Expr) -> Option<PrimitiveTy> {
+    match &expr.kind {
+        ExprKind::Float(text) => float_suffix_ty(text),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            expr,
+        } => match &expr.kind {
+            ExprKind::Float(text) => float_suffix_ty(text),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+pub(super) fn has_numeric_literal_suffix(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Integer(text) | ExprKind::Float(text) => numeric_literal_suffix(text).is_some(),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            expr,
+        } => has_numeric_literal_suffix(expr),
+        _ => false,
+    }
+}
+
+pub(super) fn numeric_literal_body(text: &str) -> &str {
+    let suffix_start = numeric_suffix_start(text).unwrap_or(text.len());
+    &text[..suffix_start]
+}
+
+pub(super) fn numeric_literal_suffix(text: &str) -> Option<&str> {
+    let start = numeric_suffix_start(text)?;
+    Some(&text[start..])
+}
+
+fn integer_suffix_ty(text: &str) -> Option<PrimitiveTy> {
+    Some(match numeric_literal_suffix(text)? {
+        "i8" => PrimitiveTy::I8,
+        "i16" => PrimitiveTy::I16,
+        "i32" => PrimitiveTy::I32,
+        "i64" => PrimitiveTy::I64,
+        "i128" => PrimitiveTy::I128,
+        "isize" => PrimitiveTy::Isize,
+        "u8" => PrimitiveTy::U8,
+        "u16" => PrimitiveTy::U16,
+        "u32" => PrimitiveTy::U32,
+        "u64" => PrimitiveTy::U64,
+        "u128" => PrimitiveTy::U128,
+        "usize" => PrimitiveTy::Usize,
+        _ => return None,
+    })
+}
+
+fn float_suffix_ty(text: &str) -> Option<PrimitiveTy> {
+    Some(match numeric_literal_suffix(text)? {
+        "f32" => PrimitiveTy::F32,
+        "f64" => PrimitiveTy::F64,
+        _ => return None,
+    })
+}
+
+fn numeric_suffix_start(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let non_decimal_radix = text.starts_with("0x")
+        || text.starts_with("0X")
+        || text.starts_with("0b")
+        || text.starts_with("0B")
+        || text.starts_with("0o")
+        || text.starts_with("0O");
+    let mut index = if non_decimal_radix { 2 } else { 0 };
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'_'
+            || if non_decimal_radix {
+                digit_value(byte).is_some()
+            } else {
+                byte.is_ascii_digit()
+            }
+        {
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    if index < bytes.len() && bytes[index] == b'.' {
+        index += 1;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if byte == b'_' || byte.is_ascii_digit() {
+                index += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    if index < bytes.len() && matches!(bytes[index], b'e' | b'E') {
+        index += 1;
+        if index < bytes.len() && matches!(bytes[index], b'+' | b'-') {
+            index += 1;
+        }
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if byte == b'_' || byte.is_ascii_digit() {
+                index += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    (index < bytes.len()).then_some(index)
+}
+
+fn digit_value(byte: u8) -> Option<u32> {
+    match byte {
+        b'0'..=b'9' => Some((byte - b'0') as u32),
+        b'a'..=b'f' => Some((byte - b'a' + 10) as u32),
+        b'A'..=b'F' => Some((byte - b'A' + 10) as u32),
         _ => None,
     }
 }

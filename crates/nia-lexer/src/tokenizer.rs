@@ -189,6 +189,7 @@ impl<'a> Tokenizer<'a> {
             if digits == 0 || invalid {
                 return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
             }
+            self.consume_numeric_suffix();
             return self.token(TokenKind::Integer, start, self.pos);
         }
         if self.source.get(start) == Some(&b'0') && matches!(self.peek(), Some(b'b' | b'B')) {
@@ -197,6 +198,7 @@ impl<'a> Tokenizer<'a> {
             if digits == 0 || invalid {
                 return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
             }
+            self.consume_numeric_suffix();
             return self.token(TokenKind::Integer, start, self.pos);
         }
         if self.source.get(start) == Some(&b'0') && matches!(self.peek(), Some(b'o' | b'O')) {
@@ -205,6 +207,7 @@ impl<'a> Tokenizer<'a> {
             if digits == 0 || invalid {
                 return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
             }
+            self.consume_numeric_suffix();
             return self.token(TokenKind::Integer, start, self.pos);
         }
         self.consume_digits(10);
@@ -214,14 +217,17 @@ impl<'a> Tokenizer<'a> {
             if self.try_scan_exponent() == Some(false) {
                 return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
             }
+            self.consume_numeric_suffix();
             return self.token(TokenKind::Float, start, self.pos);
         }
         if let Some(valid) = self.try_scan_exponent() {
             if !valid {
                 return self.token(TokenKind::Error(LexError::InvalidNumber), start, self.pos);
             }
+            self.consume_numeric_suffix();
             return self.token(TokenKind::Float, start, self.pos);
         }
+        self.consume_numeric_suffix();
         self.token(TokenKind::Integer, start, self.pos)
     }
 
@@ -254,6 +260,16 @@ impl<'a> Tokenizer<'a> {
             }
         }
         (digits, invalid)
+    }
+
+    fn consume_numeric_suffix(&mut self) {
+        if !self.peek().is_some_and(is_ident_start) {
+            return;
+        }
+        self.bump();
+        while self.peek().is_some_and(is_ident_continue) {
+            self.bump();
+        }
     }
 
     fn string(&mut self, start: usize) -> Token {
@@ -568,6 +584,10 @@ fn is_ident_continue(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
+fn is_ident_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
 fn digit_value(byte: u8) -> Option<u32> {
     match byte {
         b'0'..=b'9' => Some((byte - b'0') as u32),
@@ -696,12 +716,14 @@ mod tests {
     #[test]
     fn tokenizes_numeric_forms_and_ellipsis() {
         assert_eq!(
-            kinds("0xff 0b1010 0o755 1.5 1e-3 ... .. ..="),
+            kinds("0xff 0b1010 0o755 1.5 1e-3 10usize 1.0f32 ... .. ..="),
             vec![
                 TokenKind::Integer,
                 TokenKind::Integer,
                 TokenKind::Integer,
                 TokenKind::Float,
+                TokenKind::Float,
+                TokenKind::Integer,
                 TokenKind::Float,
                 TokenKind::Ellipsis,
                 TokenKind::DotDot,

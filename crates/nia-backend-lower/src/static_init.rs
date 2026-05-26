@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::ModuleLowerer;
-use crate::literals::{decode_byte_char, decode_string_literal, parse_int_literal};
+use crate::literals::{
+    decode_byte_char, decode_string_literal, numeric_literal_body, parse_int_literal,
+};
 use nia_ast::{ArrayElements, Expr, ExprKind};
 use nia_backend_ir::{PlaceBase, StaticFieldInit, StaticInit};
 use nia_body_check::BuiltinValue;
@@ -22,7 +24,7 @@ impl<'a> ModuleLowerer<'a> {
                         StaticInit::Zero
                     })
             }
-            ExprKind::Float(text) => StaticInit::Float(text.clone()),
+            ExprKind::Float(text) => StaticInit::Float(numeric_literal_body(text).to_string()),
             ExprKind::Bool(value) => StaticInit::Bool(*value),
             ExprKind::String(text) => decode_string_literal(text)
                 .map(StaticInit::Bytes)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::literals::{
-    float_literal_text, integer_literal_value, integer_range, parse_float_literal,
-    string_literal_byte_len,
+    float_literal_text, has_numeric_literal_suffix, integer_literal_value, integer_range,
+    numeric_literal_suffix, parse_float_literal, string_literal_byte_len,
 };
 use crate::{ArrayToSliceCoercion, BodyChecker};
 use nia_ast::{Expr, ExprKind, UnaryOp};
@@ -38,11 +38,15 @@ impl<'a> BodyChecker<'a> {
             self.expr_types.insert(expr.span, coerced);
             return;
         }
-        if self.check_integer_literal_range(expr, expected, context) {
+        if !has_numeric_literal_suffix(expr)
+            && self.check_integer_literal_range(expr, expected, context)
+        {
             self.materialize_literal_expr_type(expr, expected);
             return;
         }
-        if self.check_float_literal_target(expr, expected, context) {
+        if !has_numeric_literal_suffix(expr)
+            && self.check_float_literal_target(expr, expected, context)
+        {
             self.materialize_literal_expr_type(expr, expected);
             return;
         }
@@ -219,6 +223,18 @@ impl<'a> BodyChecker<'a> {
             }
             _ => false,
         }
+    }
+
+    pub(crate) fn numeric_literal_has_suffix(&self, expr: &Expr) -> bool {
+        has_numeric_literal_suffix(expr)
+    }
+
+    pub(crate) fn report_invalid_numeric_literal_suffix(&mut self, expr: &Expr, kind: &str) {
+        let suffix = numeric_literal_suffix_for_expr(expr).unwrap_or("<unknown>");
+        self.diagnostics.push(Diagnostic::error(
+            expr.span,
+            format!("invalid {kind} literal suffix `{suffix}`"),
+        ));
     }
 
     pub(crate) fn expect_integer(&mut self, span: Span, actual: TyId, context: &str) {
@@ -521,6 +537,17 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn error(&self) -> TyId {
         self.interner.error()
+    }
+}
+
+fn numeric_literal_suffix_for_expr(expr: &Expr) -> Option<&str> {
+    match &expr.kind {
+        ExprKind::Integer(text) | ExprKind::Float(text) => numeric_literal_suffix(text),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            expr,
+        } => numeric_literal_suffix_for_expr(expr),
+        _ => None,
     }
 }
 

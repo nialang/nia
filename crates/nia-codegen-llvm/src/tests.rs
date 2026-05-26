@@ -934,6 +934,36 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_numeric_literal_suffix_extension_method_calls() {
+    let root = temp_dir("emits_numeric_literal_suffix_extension_method_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extend usize {
+    fn plus_one(self) usize {
+        self + 1usize
+    }
+}
+
+fn main() usize {
+    10usize.plus_one()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("@nia__m0__d0__plus_one"));
+    assert!(ir.contains("call i64 @nia__m0__d0__plus_one(i64 10"));
+}
+
+#[test]
 fn emits_short_circuit_logical_operators() {
     let root = temp_dir("emits_short_circuit_logical_operators");
     let main = root.join("main.nia");

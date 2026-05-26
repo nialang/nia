@@ -2,6 +2,7 @@
 use nia_ast::{AssignOp, BinaryOp};
 
 pub(super) fn parse_int_literal(text: &str) -> Option<i128> {
+    let text = numeric_literal_body(text);
     let (radix, digits) =
         if let Some(rest) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
             (16, rest)
@@ -16,7 +17,73 @@ pub(super) fn parse_int_literal(text: &str) -> Option<i128> {
 }
 
 pub(super) fn parse_float_literal(text: &str) -> Option<f64> {
+    let text = numeric_literal_body(text);
     text.parse::<f64>().ok()
+}
+
+fn numeric_literal_body(text: &str) -> &str {
+    let suffix_start = numeric_suffix_start(text).unwrap_or(text.len());
+    &text[..suffix_start]
+}
+
+fn numeric_suffix_start(text: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let non_decimal_radix = text.starts_with("0x")
+        || text.starts_with("0X")
+        || text.starts_with("0b")
+        || text.starts_with("0B")
+        || text.starts_with("0o")
+        || text.starts_with("0O");
+    let mut index = if non_decimal_radix { 2 } else { 0 };
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'_'
+            || if non_decimal_radix {
+                digit_value(byte).is_some()
+            } else {
+                byte.is_ascii_digit()
+            }
+        {
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    if !non_decimal_radix && index < bytes.len() && bytes[index] == b'.' {
+        index += 1;
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if byte == b'_' || byte.is_ascii_digit() {
+                index += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    if !non_decimal_radix && index < bytes.len() && matches!(bytes[index], b'e' | b'E') {
+        index += 1;
+        if index < bytes.len() && matches!(bytes[index], b'+' | b'-') {
+            index += 1;
+        }
+        while index < bytes.len() {
+            let byte = bytes[index];
+            if byte == b'_' || byte.is_ascii_digit() {
+                index += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    (index < bytes.len()).then_some(index)
+}
+
+fn digit_value(byte: u8) -> Option<u32> {
+    match byte {
+        b'0'..=b'9' => Some((byte - b'0') as u32),
+        b'a'..=b'f' => Some((byte - b'a' + 10) as u32),
+        b'A'..=b'F' => Some((byte - b'A' + 10) as u32),
+        _ => None,
+    }
 }
 
 pub(super) fn decode_char_literal(text: &str) -> Option<u32> {
