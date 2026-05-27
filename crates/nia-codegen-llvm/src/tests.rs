@@ -1144,10 +1144,48 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("call void @log(i32 11)"));
-    assert!(ir.contains("call void @log(i32 10)"));
+    assert_substrings_in_order(ir, &["call void @log(i32 11)", "call void @log(i32 10)"]);
     assert!(ir.contains("call void @log(i32 12)") || ir.contains("call void @log(i32 12,"));
     assert!(ir.contains("ret i32 1"));
+}
+
+#[test]
+fn emits_defer_lifo_for_normal_nested_block_exit() {
+    let root = temp_dir("emits_defer_lifo_for_normal_nested_block_exit");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main() i32 {
+    defer log(1);
+    defer log(2);
+    {
+        defer log(3);
+        defer log(4);
+    }
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_substrings_in_order(
+        ir,
+        &[
+            "call void @log(i32 4)",
+            "call void @log(i32 3)",
+            "call void @log(i32 2)",
+            "call void @log(i32 1)",
+        ],
+    );
 }
 
 #[test]
@@ -1183,8 +1221,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("call void @log(i32 21)"));
-    assert!(ir.contains("call void @log(i32 20)"));
+    assert_substrings_in_order(ir, &["call void @log(i32 21)", "call void @log(i32 20)"]);
     assert!(ir.contains("call void @log(i32 22)"));
     assert!(ir.contains("br label"));
 }
@@ -1578,4 +1615,14 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
+}
+
+fn assert_substrings_in_order(haystack: &str, needles: &[&str]) {
+    let mut offset = 0usize;
+    for needle in needles {
+        let Some(index) = haystack[offset..].find(needle) else {
+            panic!("missing `{needle}` after byte offset {offset}");
+        };
+        offset += index + needle.len();
+    }
 }

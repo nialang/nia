@@ -522,4 +522,60 @@ fn main() {
             checked.diagnostics
         );
     }
+
+    #[test]
+    fn rejects_all_control_flow_inside_deferred_expressions() {
+        let checked = pipeline(
+            r#"
+fn cleanup() {}
+
+fn main() {
+    defer {
+        if true {
+            return;
+        }
+    };
+    for {
+        defer {
+            break;
+        };
+        defer {
+            continue;
+        };
+        break;
+    }
+    defer {
+        switch 1 {
+            1 => return,
+            _ => cleanup(),
+        }
+    };
+}
+"#,
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("`return` is not allowed")),
+            "{:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("`break` is not allowed")),
+            "{:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("`continue` is not allowed")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
 }
