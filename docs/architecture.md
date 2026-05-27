@@ -23,7 +23,7 @@ Primary goals:
 - use `ModuleId`, `DefId`, `LocalId`, `TyId`, and `GlobalDefId` for identity;
 - make every phase independently testable;
 - use typed backend IR as the backend boundary;
-- keep constant evaluation distinct from future compile-time execution.
+- keep compile-time value checking distinct from static storage checking.
 
 Forbidden shapes:
 
@@ -51,10 +51,10 @@ source files
   -> type normalization
   -> value path resolution
   -> local name resolution
-  -> const evaluation
-  -> static initializer check
+  -> comptime checking
   -> layout computation
   -> ABI check
+  -> static initializer check
   -> flow check
   -> body check
   -> monomorphization
@@ -211,30 +211,42 @@ bindings, block-local `using`, deferred expressions, and local identifiers.
 It also marks expressions that syntactically act as type prefixes for associated
 function calls or enum variant paths.
 
-## 8. Constants, Static Data, Layout, And ABI
+## 8. Comptime Values, Static Data, Layout, And ABI
 
-### 8.1 `nia-const-eval`
+### 8.1 `nia-comptime-engine`
 
-Evaluates the small compile-time expression subset needed by enum values and
-array lengths. It is not a compile-time interpreter and must not execute user
-programs.
+Evaluates the pure expression subset used by current compile-time values. It is
+an evaluator, not a language semantic pass: it does not load modules, know
+visibility, own storage rules, or make backend decisions.
 
-Supported evaluation is intentionally small: literals, simple arithmetic and bit
-operations, and builtin layout queries once layout information is available.
+Supported evaluation is intentionally small: integer literals, identifiers
+resolved by a caller-provided comptime environment, casts that preserve the
+underlying value, and simple arithmetic and bit operations.
 
-### 8.2 `nia-static-check`
+### 8.2 `nia-comptime-check`
+
+Consumes language-level semantic tables and uses `nia-comptime-engine` to check
+and collect current compile-time values. It owns `comptime` binding dependency
+resolution, cycle diagnostics, enum discriminant values, and array length values
+that depend on local or imported comptime bindings.
+
+This crate is the semantic boundary for current compile-time value requirements.
+It is separate from static storage because `comptime` bindings have no runtime
+storage or address, while top-level `const` and `var` bindings do.
+
+### 8.3 `nia-static-check`
 
 Validates static initializers for top-level storage. It distinguishes static data
-from future compile-time execution. Address initializers are allowed only when
-they can be represented as target static relocations.
+from compile-time value bindings. Address initializers are allowed only when they
+can be represented as target static relocations.
 
-### 8.3 `nia-layout`
+### 8.4 `nia-layout`
 
 Computes ABI-relevant layout for primitive, pointer, array, struct, enum, and
 instantiated nominal types. It uses explicit target data layout assumptions, such
 as LP64, rather than hidden host assumptions.
 
-### 8.4 `nia-abi-check`
+### 8.5 `nia-abi-check`
 
 Checks C ABI boundaries for `extern` functions, globals, and structs. It rejects
 Nia-only types that cannot be passed directly through the C ABI, such as slices,
@@ -384,9 +396,9 @@ filesystem paths as semantic identity.
 
 Import cycles are not errors by themselves. Modules in a cycle keep separate
 `ModuleId`s and source paths, and references still go through explicit import
-aliases and normal visibility checks. Recursive aliases, constants, layouts,
-generic expansion, or re-export chains remain concrete semantic errors for their
-owning phases.
+aliases and normal visibility checks. Recursive aliases, comptime dependencies,
+layouts, generic expansion, or re-export chains remain concrete semantic errors
+for their owning phases.
 
 ## 16. Evolution Rules
 
@@ -412,7 +424,7 @@ These principles guide future maintenance:
 - prefer explicit language rules over hidden runtime policy;
 - keep host and bare output models separate;
 - keep C ABI interop direct but not contagious into normal Nia symbols;
-- keep compile-time constants separate from future compile-time execution;
+- keep compile-time value bindings separate from static storage;
 - prefer small, inspectable tables over large mutable world objects;
 - prefer readable symbols and IR over compact but opaque encodings;
 - keep the language small enough that the compiler can remain understandable.

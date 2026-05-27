@@ -22,6 +22,7 @@ Nia provides:
 - methods declared in `extend` blocks;
 - expression-oriented blocks and `if`;
 - C-style enums with namespaces and `switch` without fallthrough;
+- compile-time value bindings with `comptime`;
 - `defer` for scope cleanup;
 - C ABI interop through `extern`;
 - file-level modules with explicit `import`, `using`, and `pub using`;
@@ -112,6 +113,7 @@ and
 as
 bool
 break
+comptime
 const
 continue
 defer
@@ -764,7 +766,7 @@ switch code {
 Switches over closed enums must cover all variants or provide `_`. Switches over
 open enums must provide `_`, even if every named variant is covered.
 
-### 5.5 Const Bindings
+### 5.5 Const And Comptime Bindings
 
 `const` is an immutable binding, not a general compile-time execution mechanism
 and not macro substitution.
@@ -821,9 +823,42 @@ const p = &const hello[0]; // allowed: global static address
 const bad = { 1 + 2 };     // error: block execution is not static data
 ```
 
-Contexts requiring compile-time values, such as array lengths, do not
-automatically read `const` bindings. Current constant evaluation covers literals,
-simple arithmetic and bit operations, and expressions needed by array lengths.
+Contexts requiring compile-time values, such as non-literal array lengths, read
+`comptime` bindings rather than top-level static `const` storage.
+
+`comptime` creates a compile-time value binding with no runtime storage and no
+address:
+
+```nia
+comptime width: usize = 4;
+
+fn main() i32 {
+    comptime local_width: usize = width;
+    var xs: [local_width]i32 = [1, 2, 3, 4];
+    xs[0]
+}
+```
+
+`comptime` may appear wherever `var` or `const` binding syntax is accepted. A
+`comptime` binding must have an initializer. Its initializer must be evaluable
+with the current compile-time value evaluator. Current compile-time values cover
+integer literals, casts that preserve the underlying value, simple arithmetic and
+bit operations, and references to other visible `comptime` bindings. Cyclic
+`comptime` dependencies are errors.
+
+Top-level `pub comptime` bindings participate in normal module visibility and
+may be used through imports:
+
+```nia
+// config.nia
+pub comptime width: usize = 4;
+
+// main.nia
+import .config;
+var xs: [config::width]i32 = [1, 2, 3, 4];
+```
+
+Taking the address of a `comptime` binding is invalid because it has no storage.
 
 ### 5.6 Global Storage
 
@@ -1141,7 +1176,7 @@ Nia provides a small builtin surface:
 `@align[T]()` returns the ABI alignment of `T` in bytes as `usize`.
 
 `@size[T]()` and `@align[T]()` are compile-time known values and may appear in
-array lengths, constants, and ordinary expressions.
+array lengths, static initializers, and ordinary expressions.
 
 `@len(value)` returns array or slice length as `usize`. For `[N]T`, it returns
 `N`. For `&[T]` and `&const [T]`, it returns the runtime slice length.
@@ -1599,7 +1634,7 @@ A conforming Nia compiler supports:
 - source-span diagnostics;
 - primitive type checking;
 - arrays, slices, pointers, structs, C-style enums, and function types;
-- `var` and `const` bindings;
+- `var`, `const`, and `comptime` bindings;
 - expression blocks and tail expressions;
 - `if` expressions;
 - the three `for` forms;
@@ -1627,6 +1662,13 @@ niac emit obj <file.nia> [-o file.o | --out-dir dir]
 niac emit exe <file.nia> [-o executable]
 ```
 
+Module-map options are accepted before or after the command:
+
+```text
+-M name=path
+--module name=path
+```
+
 `emit obj` writes one object per backend codegen unit. `-o` is only valid for a
 single-unit program. Multi-unit output uses `--out-dir`. `emit exe` writes
 temporary objects and invokes the host C linker.
@@ -1652,7 +1694,7 @@ The following are not part of the language:
 - SIMD as a language primitive;
 - arbitrary attributes and compiler intrinsics outside the compiler's needs;
 - macros;
-- general compile-time execution.
+- general compile-time execution beyond the current `comptime` value subset.
 
 ## 15. Example
 
