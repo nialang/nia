@@ -177,6 +177,32 @@ fn rejects_extern_binding_without_var_or_const() {
 }
 
 #[test]
+fn rejects_bare_binding_syntax() {
+    let (_, top_level_errors) = parse_module("answer: i32 = 42;");
+    assert!(
+        top_level_errors
+            .iter()
+            .any(|error| error.message.contains("expected item")),
+        "{top_level_errors:?}"
+    );
+
+    let (_, local_errors) = parse_module(
+        r#"
+fn main() i32 {
+    answer: i32 = 42;
+    answer
+}
+"#,
+    );
+    assert!(
+        local_errors
+            .iter()
+            .any(|error| error.message.contains("expected `;` after expression")),
+        "{local_errors:?}"
+    );
+}
+
+#[test]
 fn rejects_extern_before_pub_modifier_order() {
     let (_, errors) = parse_module("extern pub fn add(a: i32, b: i32) i32;");
     assert!(

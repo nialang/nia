@@ -828,8 +828,14 @@ open enums must provide `_`, even if every named variant is covered.
 and not macro substitution.
 
 ```nia
-const size = 16;
+const name = "nia";
 const mask: u32 = 0xff;
+```
+
+Use `comptime` for named compile-time values:
+
+```nia
+comptime size: usize = 16;
 ```
 
 Local `const` bindings cannot be assigned after declaration:
@@ -935,7 +941,7 @@ Top-level bindings may infer their type or write it explicitly:
 ```nia
 var hello = "hello\n";
 var counter: i32 = 0;
-const banner = "nia\0";
+const banner = c"nia";
 ```
 
 Non-extern top-level initialized bindings must satisfy static initialization
@@ -960,7 +966,7 @@ Inferred type declaration:
 
 ```nia
 var x = 1;
-var name = "nia\0";
+var name = "nia";
 ```
 
 Explicit type declaration:
