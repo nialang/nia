@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::literals::{
-    decode_byte_char_literal, decode_char_literal, parse_float_literal, parse_int_literal,
-};
+use crate::literals::{decode_byte_char_literal, parse_float_literal, parse_int_literal};
 use nia_backend_ir::StaticInit;
 use nia_diagnostic::Diagnostic;
 use nia_ids::TyId;
@@ -50,10 +48,30 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &self,
         ty: TyId,
         span: Span,
-        bytes: &[u8],
+        scalars: &[u32],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(TyKind::Array { elem, .. }) = self.module.interner().get(ty) else {
             return Err(self.error(span, "string literal target type is not an array"));
+        };
+        let values = scalars
+            .iter()
+            .map(|scalar| {
+                self.module
+                    .static_init_value_in_current(*elem, &StaticInit::Char(*scalar), span)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.module
+            .const_array_from_values_in_current(*elem, &values, span)
+    }
+
+    pub(super) fn emit_byte_string_literal(
+        &self,
+        ty: TyId,
+        span: Span,
+        bytes: &[u8],
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Array { elem, .. }) = self.module.interner().get(ty) else {
+            return Err(self.error(span, "byte string literal target type is not an array"));
         };
         let values = bytes
             .iter()
@@ -70,10 +88,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &self,
         ty: TyId,
         span: Span,
-        text: &str,
+        value: u32,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let value = decode_char_literal(text)
-            .ok_or_else(|| self.error(span, format!("invalid char literal `{text}`")))?;
         let Some(TyKind::Primitive(primitive)) = self.module.interner().get(ty) else {
             return Err(self.error(span, "char literal target type is not primitive"));
         };

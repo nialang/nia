@@ -213,11 +213,39 @@ pub(super) fn integer_range(primitive: PrimitiveTy) -> Option<(i128, i128)> {
     })
 }
 
-pub(super) fn string_literal_byte_len(text: &str) -> Option<usize> {
-    if text.starts_with("\\\\") {
-        return multiline_string_literal_byte_len(text);
+pub(super) fn string_literal_char_len(text: &str) -> Option<usize> {
+    if text
+        .strip_prefix("b")
+        .or_else(|| text.strip_prefix("c"))
+        .unwrap_or(text)
+        .starts_with("\\\\")
+    {
+        return multiline_string_literal_char_len(text);
     }
     let inner = text.strip_prefix('"')?.strip_suffix('"')?;
+    decoded_scalar_len(inner)
+}
+
+pub(super) fn byte_string_literal_len(text: &str) -> Option<usize> {
+    if text.strip_prefix("b").unwrap_or(text).starts_with("\\\\") {
+        return multiline_string_literal_byte_len(text);
+    }
+    let inner = text
+        .strip_prefix("b\"")
+        .or_else(|| text.strip_prefix('"'))?
+        .strip_suffix('"')?;
+    decoded_byte_len(inner)
+}
+
+pub(super) fn c_string_literal_len(text: &str) -> Option<usize> {
+    if text.strip_prefix("c").unwrap_or(text).starts_with("\\\\") {
+        return multiline_string_literal_byte_len(text)?.checked_add(1);
+    }
+    let inner = text.strip_prefix("c\"")?.strip_suffix('"')?;
+    decoded_byte_len(inner)?.checked_add(1)
+}
+
+fn decoded_byte_len(inner: &str) -> Option<usize> {
     let mut bytes = 0usize;
     let mut chars = inner.chars();
     while let Some(ch) = chars.next() {
@@ -239,31 +267,97 @@ pub(super) fn string_literal_byte_len(text: &str) -> Option<usize> {
     Some(bytes)
 }
 
-fn multiline_string_literal_byte_len(text: &str) -> Option<usize> {
-    let mut bytes = 0usize;
+fn decoded_scalar_len(inner: &str) -> Option<usize> {
+    let mut scalars = 0usize;
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            scalars += 1;
+            continue;
+        }
+        match chars.next()? {
+            'n' | 'r' | 't' | '\\' | '\'' | '"' | '0' => scalars += 1,
+            'x' => {
+                chars.next()?.to_digit(16)?;
+                chars.next()?.to_digit(16)?;
+                scalars += 1;
+            }
+            'u' => {
+                unicode_escape_byte_len(&mut chars)?;
+                scalars += 1;
+            }
+            _ => return None,
+        }
+    }
+    Some(scalars)
+}
+
+fn multiline_string_literal_char_len(text: &str) -> Option<usize> {
+    let mut scalars = 0usize;
+    let source = strip_multiline_prefix(text)?;
     let mut pos = 0usize;
     loop {
-        if !text[pos..].starts_with("\\\\") {
+        if !source[pos..].starts_with("\\\\") {
             return None;
         }
         pos += 2;
 
         let content_start = pos;
-        while pos < text.len() && !matches!(text.as_bytes()[pos], b'\n' | b'\r') {
+        while pos < source.len() && !matches!(source.as_bytes()[pos], b'\n' | b'\r') {
             pos += 1;
         }
-        bytes += text[content_start..pos].len();
+        scalars += source[content_start..pos].chars().count();
 
-        if pos == text.len() {
+        if pos == source.len() {
+            break;
+        }
+        scalars += 1;
+        pos = consume_newline(source, pos)?;
+        while matches!(source.as_bytes().get(pos), Some(b' ' | b'\t')) {
+            pos += 1;
+        }
+    }
+    Some(scalars)
+}
+
+fn multiline_string_literal_byte_len(text: &str) -> Option<usize> {
+    let source = strip_multiline_prefix(text)?;
+    let mut bytes = 0usize;
+    let mut pos = 0usize;
+    loop {
+        if !source[pos..].starts_with("\\\\") {
+            return None;
+        }
+        pos += 2;
+
+        let content_start = pos;
+        while pos < source.len() && !matches!(source.as_bytes()[pos], b'\n' | b'\r') {
+            pos += 1;
+        }
+        bytes += source[content_start..pos].len();
+
+        if pos == source.len() {
             break;
         }
         bytes += 1;
-        pos = consume_newline(text, pos)?;
-        while matches!(text.as_bytes().get(pos), Some(b' ' | b'\t')) {
+        pos = consume_newline(source, pos)?;
+        while matches!(source.as_bytes().get(pos), Some(b' ' | b'\t')) {
             pos += 1;
         }
     }
     Some(bytes)
+}
+
+fn strip_multiline_prefix(text: &str) -> Option<&str> {
+    if text.starts_with("\\\\") {
+        Some(text)
+    } else if let Some(rest) = text.strip_prefix('b') {
+        rest.starts_with("\\\\").then_some(rest)
+    } else if let Some(rest) = text.strip_prefix('c') {
+        rest.starts_with("\\\\").then_some(rest)
+    } else {
+        None
+    }
 }
 
 fn unicode_escape_byte_len(chars: &mut std::str::Chars<'_>) -> Option<usize> {
@@ -296,18 +390,18 @@ mod tests {
 
     #[test]
     fn rejects_unclosed_unicode_string_escape() {
-        assert_eq!(string_literal_byte_len(r#""\u{41""#), None);
+        assert_eq!(string_literal_char_len(r#""\u{41""#), None);
     }
 
     #[test]
-    fn counts_multiline_string_literal_bytes() {
+    fn counts_multiline_string_literal_scalars() {
         assert_eq!(
-            string_literal_byte_len("\\\\hello\n    \\\\world"),
-            Some("hello\nworld".len())
+            string_literal_char_len("\\\\hello\n    \\\\world"),
+            Some("hello\nworld".chars().count())
         );
         assert_eq!(
-            string_literal_byte_len("\\\\hello\\n"),
-            Some(br"hello\n".len())
+            string_literal_char_len("\\\\hello\\n"),
+            Some("hello\\n".chars().count())
         );
     }
 }

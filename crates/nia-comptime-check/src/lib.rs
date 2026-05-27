@@ -536,6 +536,8 @@ fn expr_for_span(expr: &Expr, span: Span) -> Option<&Expr> {
         | ExprKind::Integer(_)
         | ExprKind::Float(_)
         | ExprKind::String(_)
+        | ExprKind::ByteString(_)
+        | ExprKind::CString(_)
         | ExprKind::Char(_)
         | ExprKind::ByteChar(_)
         | ExprKind::Bool(_)

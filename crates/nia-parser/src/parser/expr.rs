@@ -360,6 +360,8 @@ impl<'a> Parser<'a> {
             TokenKind::Integer => Some(self.literal_expr(token, ExprKind::Integer)),
             TokenKind::Float => Some(self.literal_expr(token, ExprKind::Float)),
             TokenKind::String => Some(self.literal_expr(token, ExprKind::String)),
+            TokenKind::ByteString => Some(self.literal_expr(token, ExprKind::ByteString)),
+            TokenKind::CString => Some(self.literal_expr(token, ExprKind::CString)),
             TokenKind::Char => Some(self.literal_expr(token, ExprKind::Char)),
             TokenKind::ByteChar => Some(self.literal_expr(token, ExprKind::ByteChar)),
             TokenKind::True => {

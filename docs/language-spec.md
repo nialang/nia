@@ -102,7 +102,8 @@ Block comments are not part of the language.
 Identifiers start with an ASCII letter or `_`. Later characters may be ASCII
 letters, digits, or `_`.
 
-Unicode identifiers are not part of the language.
+Identifiers themselves are ASCII-only. This does not restrict character or
+string literal contents.
 
 ### 3.3 Keywords
 
@@ -151,15 +152,32 @@ Integer literals:
 42
 0xff
 0b1010
+0o755
+1_000_000
 ```
 
 Integer literal type is inferred from context. Without context, a decimal
-integer literal defaults to `i32`. Integer suffixes are not supported; use an
-expected type instead:
+integer literal defaults to `i32`. Integer literals may use an explicit suffix:
+
+```text
+i8 i16 i32 i64 i128 isize
+u8 u16 u32 u64 u128 usize
+```
 
 ```nia
 var x: u8 = 1;
 var n: usize = 10;
+var chained = 10i32;
+```
+
+The suffix selects the literal's type before contextual inference. The literal
+value must fit in that type. Underscores may separate digits and do not affect
+the value. Radix prefixes and underscores may be combined with suffixes:
+
+```nia
+var mask = 0xffu8;
+var bits = 0b1010_0000u8;
+var mode = 0o755usize;
 ```
 
 Floating-point literals:
@@ -167,14 +185,22 @@ Floating-point literals:
 ```nia
 1.0
 1e3
+1_000.5
+1.0e-3
 ```
 
 Floating literal type is inferred from context. Without context, it defaults to
-`f64`. Floating suffixes are not supported:
+`f64`. Floating literals may use `f32` or `f64` suffixes:
 
 ```nia
 var x: f32 = 1.5;
+var y = 1.5f32;
+var z = 1.0e-3f64;
 ```
+
+The suffix selects the literal's type before contextual inference. The value
+must be finite and representable in that type. Integer suffixes are invalid on
+floating literals.
 
 Boolean literals:
 
@@ -207,17 +233,44 @@ String literals:
 
 ```nia
 "nia"
-"nia\0"
+"中a"
 "hello\n"
 ```
 
 String literals are not `String`, pointers, or slices. A string literal is fixed
-length byte-array syntax, with type `[N]u8`.
+length Unicode scalar array syntax, with type `[N]char`.
 
-Multiline string literals use consecutive lines beginning with `\\`:
+Byte string literals:
+
+```nia
+b"nia"
+b"nia\0"
+```
+
+Byte string literals are fixed length byte-array syntax, with type `[N]u8`.
+
+C string literals:
+
+```nia
+c"nia"
+```
+
+C string literals are byte string literals with one trailing NUL byte appended.
+`c"nia"` has type `[4]u8` and is equivalent to `b"nia\0"`. Interior NUL bytes
+are allowed; the syntax only appends one trailing NUL.
+
+Multiline string literals use consecutive lines beginning with `\\`. Byte and C
+multiline string literals use `b\\` or `c\\` on the first line; continuation
+lines still use `\\`:
 
 ```nia
 \\mov rax, 60
+\\syscall
+
+b\\mov rax, 60
+\\syscall
+
+c\\mov rax, 60
 \\syscall
 ```
 
@@ -225,6 +278,8 @@ For multiline strings, indentation before the delimiter is ignored, the delimite
 itself is not part of the string, and the text after the delimiter is copied as
 is. Adjacent lines are joined with `\n`; no extra newline is appended after the
 last line. Escape sequences are not interpreted inside multiline string lines.
+The prefix selects the same type family as the quoted form: `[N]char`, `[N]u8`,
+or NUL-terminated `[N + 1]u8`.
 
 The literal:
 
@@ -235,13 +290,13 @@ The literal:
 is equivalent to:
 
 ```nia
-[b'n', b'i', b'a']
+['n', 'i', 'a']
 ```
 
 The literal:
 
 ```nia
-"nia\0"
+b"nia\0"
 ```
 
 is equivalent to:
@@ -249,8 +304,6 @@ is equivalent to:
 ```nia
 [b'n', b'i', b'a', b'\0']
 ```
-
-String literals do not append an implicit trailing NUL byte.
 
 ## 4. Types
 
@@ -330,7 +383,7 @@ when a stable address is needed:
 var point: Point = { x: 10, y: 20 };
 var p: &Point = &point;
 
-const hello = "hello\0";
+const hello = c"hello";
 _ = &const hello[0];
 ```
 
@@ -346,8 +399,8 @@ Array length may be written explicitly in type syntax, or inferred with `_` when
 an array literal provides the element count:
 
 ```nia
-xs: [_]i32 = [1, 2, 3];
-name: [_]u8 = "nia\0";
+var xs: [_]i32 = [1, 2, 3];
+var name: [_]u8 = c"nia";
 ```
 
 `[_]T` is only valid in contexts initialized by an array literal or string
@@ -384,12 +437,12 @@ length, the repeat count must match it.
 Arrays may be nested:
 
 ```nia
-matrix: [2][3]i32 = [
+var matrix: [2][3]i32 = [
     [1, 2, 3],
     [4, 5, 6],
 ];
 
-zeros: [2][3]i32 = [[0; 3]; 2];
+var zeros: [2][3]i32 = [[0; 3]; 2];
 ```
 
 Array indexing:
@@ -421,18 +474,18 @@ Slices may be constructed by combining range indexing with address-of:
 
 ```nia
 var hello = "hello";
-var s = &const hello[..];       // &const [u8]
-var t = &const hello[0..2];     // &const [u8]
-var u = &const hello[0..=1];    // &const [u8]
-var v = &const hello[1..];      // &const [u8]
-var w = &const hello[..3];      // &const [u8]
-var x = &const hello[..=3];     // &const [u8]
+var s = &const hello[..];       // &const [char]
+var t = &const hello[0..2];     // &const [char]
+var u = &const hello[0..=1];    // &const [char]
+var v = &const hello[1..];      // &const [char]
+var w = &const hello[..3];      // &const [char]
+var x = &const hello[..=3];     // &const [char]
 ```
 
 Writable slices use `&` and require a writable base place:
 
 ```nia
-xs: [4]i32 = [1, 2, 3, 4];
+var xs: [4]i32 = [1, 2, 3, 4];
 var s = &xs[1..3]; // &[i32]
 s[0] = 10;
 ```
@@ -487,12 +540,12 @@ The base of a slice construction may be an array, another slice, or a
 single-element pointer:
 
 ```nia
-arr: [4]i32 = [1, 2, 3, 4];
+var arr: [4]i32 = [1, 2, 3, 4];
 var a = &arr[..];      // len = 4
 
 var b = &a[1..3];      // slice from slice
 
-x: i32 = 10;
+var x: i32 = 10;
 var p = &x;
 var c = &p[..];        // len = 1
 var d = &p[0..1];      // len = 1
@@ -556,12 +609,15 @@ fn add(a: i32, b: i32) i32 {
 If the return type is omitted, it is `void`:
 
 ```nia
-const log_fmt = "value=%d\n\0";
+const log_fmt = c"value=%d\n";
 
 fn log(value: i32) {
     printf(&const log_fmt[0], value);
 }
 ```
+
+Use top-level `const` rather than `comptime` for data that must have a stable
+address, such as a C format string.
 
 Function pointer type:
 
@@ -584,7 +640,7 @@ Addressing a function item with `&const` creates a function pointer:
 
 ```nia
 var f = &const add;                  // &const fn(i32, i32) i32
-g: &const fn(i32, i32) i32 = &const add;   // allowed
+var g: &const fn(i32, i32) i32 = &const add;   // allowed
 ```
 
 Generic functions must be explicitly instantiated before taking a function
@@ -810,7 +866,7 @@ Top-level `const` creates immutable global static storage. Implementations shoul
 place it in read-only data where possible:
 
 ```nia
-const hello = "hello\n\0";
+const hello = c"hello\n";
 ```
 
 Top-level `const` initializers must be expressible as static initialization data.
@@ -818,7 +874,7 @@ They do not execute arbitrary compile-time programs:
 
 ```nia
 const a = 1 + 2;           // allowed: integer static expression
-const hello = "hi\0";      // allowed: byte-array static data
+const hello = c"hi";       // allowed: byte-array static data
 const p = &const hello[0]; // allowed: global static address
 const bad = { 1 + 2 };     // error: block execution is not static data
 ```
@@ -877,8 +933,8 @@ fn main() i32 {
 Top-level bindings may infer their type or write it explicitly:
 
 ```nia
-var hello = "hello\n\0";
-counter: i32 = 0;
+var hello = "hello\n";
+var counter: i32 = 0;
 const banner = "nia\0";
 ```
 
@@ -886,9 +942,9 @@ Non-extern top-level initialized bindings must satisfy static initialization
 rules. A bare global value does not automatically become an address:
 
 ```nia
-target: i32 = 1;
-p: &i32 = &target; // allowed
-q: &i32 = target;  // error
+var target: i32 = 1;
+var p: &i32 = &target; // allowed
+var q: &i32 = target;  // error
 ```
 
 Top-level bindings are visible inside the same module. Cross-module visibility
@@ -896,7 +952,9 @@ is controlled by the module system.
 
 ## 6. Local Bindings And Assignment
 
-Nia variables are mutable by default.
+`var` introduces mutable bindings. `const` introduces immutable bindings with
+storage. `comptime` introduces immutable compile-time value bindings with no
+storage.
 
 Inferred type declaration:
 
@@ -908,8 +966,8 @@ var name = "nia\0";
 Explicit type declaration:
 
 ```nia
-x: i32 = 1;
-name: [4]u8 = "nia\0";
+var x: i32 = 1;
+var name: [4]u8 = c"nia";
 ```
 
 Assignment to an existing place:
@@ -941,7 +999,7 @@ Nia uses semicolons for statement boundaries.
 Statements requiring semicolons:
 
 ```nia
-const int_fmt = "%d\n\0";
+const int_fmt = c"%d\n";
 
 var x = 1;
 x = x + 1;
@@ -1101,6 +1159,10 @@ Casts:
 value as Type
 ```
 
+Numeric casts are explicit. `char as u32` is allowed and returns the Unicode
+scalar value. Integer-to-`char` casts are not allowed because they would require
+a runtime Unicode scalar validity check.
+
 Operator precedence follows the Rust-style shape: assignment is lower than
 logical operators; calls, indexing, and field access are higher than unary
 operators.
@@ -1194,27 +1256,27 @@ fn syscall1(sys_num: usize, arg1: usize) isize {
     var ret: isize = 0;
     @asm({
         code:
-            \\syscall
+            b\\syscall
         ,
         outputs: { rax: ret },
         inputs: {
             rax: sys_num,
             rdi: arg1,
         },
-        clobbers: ["rcx", "r11", "memory"],
-        options: ["volatile"],
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
     });
     ret
 }
 ```
 
-`code` must be a string literal. `inputs` and `outputs` are struct literals that
-map register classes or fixed registers to expressions or places. `reg` means a
-general register class. `freg` means a floating-point register class. Other
-field names are fixed registers such as `rax` and `rdi`. Output values must be
-assignable places. `clobbers` is an array of string literals. `options` is a
-string literal or an array of string literals; currently only `"volatile"` is
-defined.
+`code` must be a byte string literal. `inputs` and `outputs` are struct literals
+that map register classes or fixed registers to expressions or places. `reg`
+means a general register class. `freg` means a floating-point register class.
+Other field names are fixed registers such as `rax` and `rdi`. Output values
+must be assignable places. `clobbers` is an array of byte string literals.
+`options` is a byte string literal or an array of byte string literals;
+currently only `b"volatile"` is defined.
 
 Inline assembly is target-specific. The compiler communicates with the optimizer
 only through explicit inputs, outputs, clobbers, and options; it does not
@@ -1248,7 +1310,7 @@ struct Pair[T, U] {
 Generic type instantiation uses `[]`:
 
 ```nia
-p: Pair[i32, bool] = { first: 1, second: true };
+var p: Pair[i32, bool] = { first: 1, second: true };
 ```
 
 Expression generic instantiation also uses `[]` for explicit type arguments in
@@ -1261,9 +1323,10 @@ var f = &const id[i32];
 
 In expressions, `expr[...]` is parsed uniformly and disambiguated semantically.
 It is a generic instantiation if `expr` denotes a generic function, generic
-method, or type prefix. It is indexing if `expr` is an array, slice, or pointer
-and the bracket contains a single expression. If the bracket contains `..`, it
-is range indexing.
+method, or type prefix and the bracket arguments are valid type arguments in
+that context. It is indexing if `expr` is an array, slice, or pointer and the
+bracket contains a single expression. If the bracket contains `..`, it is range
+indexing.
 
 ```nia
 xs[i]       // index
@@ -1351,6 +1414,13 @@ extension methods are visible only in their defining module. If multiple visible
 extension methods provide the same method name for the same receiver type, the
 call is ambiguous.
 
+Receiver methods may also be called through their associated type path by
+passing the receiver explicitly:
+
+```nia
+var n = Vec2::len2(&const v);
+```
+
 Generic structs may have methods:
 
 ```nia
@@ -1378,8 +1448,6 @@ extend[T] Box[T] {
 var box: Box[i32] = { value: 1 };
 var x = box.replace[bool](true);
 ```
-
-Nia has no `impl` syntax.
 
 ## 11. Modules
 
@@ -1416,7 +1484,8 @@ niac check src/main.nia -M std=/usr/share/nia/std.nia
 
 ```nia
 import std;            // loads the mapped std file
-import std.io;         // loads io.nia next to the mapped std file
+import std.io;         // if std maps to /usr/share/nia/std.nia,
+                       // loads /usr/share/nia/std/io.nia
 ```
 
 Unmapped bare imports are errors. Bare imports do not fall back to relative file
@@ -1477,6 +1546,9 @@ using palette::Color::Red;
 using palette::Color::*;
 ```
 
+Grouped `using` accepts names and renames from one host. It does not nest
+additional hosts inside the group.
+
 Wildcard rules:
 
 - `using mod::*` imports only the module's directly declared public top-level
@@ -1527,6 +1599,8 @@ fn main() facade::Color {
 The selected item must be visible to the current module. Visibility includes the
 source module's direct public definitions and items it re-exported with
 `pub using`. Re-export chains may be transitive, but cycles are diagnosed.
+Downstream modules may name re-exported items through the re-exporting module
+path, such as `facade::add`.
 
 Wildcard `pub using mod::*` has the same expansion rule as `using mod::*`.
 Wildcard `pub using Enum::*` re-exports every enum variant.
@@ -1563,16 +1637,17 @@ Extern interop uses the C ABI:
 extern fn printf(fmt: &const u8, ...);
 ```
 
-When calling C string APIs, write the trailing NUL explicitly:
+When calling C string APIs, use `c"..."` to produce NUL-terminated byte arrays:
 
 ```nia
-const message = "hello\n\0";
+const message = c"hello\n";
 printf(&const message[0]);
 ```
 
-String literals are array values, not places. They may be passed through
-array-to-slice conversion when a slice is expected. If a stable C string address
-is required, bind the string to top-level `const` storage.
+String, byte string, and C string literals are array values, not places. They
+may be passed through array-to-slice conversion when a slice is expected. If a
+stable C string address is required, bind the C string to top-level `const`
+storage.
 
 ### 12.1 Internal Symbol Names
 
@@ -1676,9 +1751,10 @@ temporary objects and invokes the host C linker.
 `build` is reserved for an external build system. The current CLI does not
 provide `run`; use `emit exe` and execute the result.
 
-## 14. Non-Goals And Reserved Features
+## 14. Current Non-Goals And Reserved Features
 
-The following are not part of the language:
+The following are not part of the current language. Some may be considered by
+future versions, but this specification does not reserve their final design:
 
 - traits;
 - trait objects;
@@ -1701,9 +1777,9 @@ The following are not part of the language:
 ```nia
 extern fn printf(fmt: &const u8, ...);
 
-const hello_fmt = "hello, %s\n\0";
-const not_answer_fmt = "not answer\n\0";
-const len2_fmt = "len2=%d\n\0";
+const hello_fmt = c"hello, %s\n";
+const not_answer_fmt = c"not answer\n";
+const len2_fmt = c"len2=%d\n";
 
 struct String {
     ptr: &const u8,
@@ -1731,7 +1807,7 @@ fn add(a: i32, b: i32) i32 {
 }
 
 fn main() i32 {
-    var name = "nia\0";
+    var name = c"nia";
     var x = add(40, 2);
 
     if x == 42 {

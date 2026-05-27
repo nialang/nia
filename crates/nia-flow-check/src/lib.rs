@@ -200,6 +200,8 @@ impl FlowChecker<'_> {
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
             | ExprKind::String(_)
+            | ExprKind::ByteString(_)
+            | ExprKind::CString(_)
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Raw(_)
