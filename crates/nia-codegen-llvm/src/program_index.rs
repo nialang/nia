@@ -15,7 +15,8 @@ pub(super) struct ProgramIndex<'a> {
     pub(super) enums: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnum>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
-    pub(super) function_instances: HashMap<(GlobalDefId, Vec<TyId>), &'a BackendFunctionInstance>,
+    pub(super) function_instances:
+        HashMap<(GlobalDefId, ModuleId, Vec<TyId>), &'a BackendFunctionInstance>,
 }
 
 impl<'a> ProgramIndex<'a> {
@@ -61,7 +62,7 @@ impl<'a> ProgramIndex<'a> {
             for item in &module.function_instances {
                 index
                     .function_instances
-                    .insert((item.def_id, item.args.clone()), item);
+                    .insert((item.def_id, item.arg_module_id, item.args.clone()), item);
             }
         }
         index

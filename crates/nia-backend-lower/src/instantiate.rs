@@ -55,7 +55,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn collect_generic_params_in_ty(&self, ty: TyId, generics: &mut Vec<String>) {
-        match self.input.type_lowering.interner.get(ty) {
+        match self.ty_kind(ty) {
             Some(TyKind::GenericParam(name)) => {
                 if !generics.contains(name) {
                     generics.push(name.clone());

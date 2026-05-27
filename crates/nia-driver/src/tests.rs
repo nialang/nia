@@ -538,6 +538,63 @@ extend[T] &T {
 }
 
 #[test]
+fn lowers_imported_generic_structural_extension_instances() {
+    let root = temp_dir("lowers_imported_generic_structural_extension_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .share;
+
+extern fn read_const() &const u8;
+
+fn main(mut_ptr: &u8) i32 {
+    var const_ptr = read_const();
+    if mut_ptr.null() {
+        return 1;
+    }
+    if const_ptr.null() {
+        return 2;
+    }
+    0
+}
+"#,
+    );
+    write(&root.join("share.nia"), r#"import .ptr;"#);
+    write(
+        &root.join("ptr.nia"),
+        r#"
+extend[T] &const T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+extend[T] &T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    let instances = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| module.function_instances.iter())
+        .collect::<Vec<_>>();
+    assert_eq!(instances.len(), 2, "{instances:?}");
+    for instance in instances {
+        assert_eq!(instance.args.len(), 1, "{instance:?}");
+        assert_eq!(instance.arg_module_id, instance.args[0].module_id);
+    }
+}
+
+#[test]
 fn imports_generic_structural_extension_methods_with_alias_targets() {
     let root = temp_dir("imports_generic_structural_extension_methods_with_alias_targets");
     write(

@@ -199,7 +199,7 @@ fn main() i32 {
 
 #[test]
 fn rejects_field_access_with_mismatched_base_struct() {
-    let mut interner = nia_ty::TyInterner::new();
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let point_id = GlobalDefId {
         module_id: ModuleId(0),
@@ -905,6 +905,65 @@ fn main(ptr: &i32, xs: &const [i32], triple: [3]i32) i32 {
     assert!(ir.contains("call i64 @nia__m0__d3__size__inst__i32"));
     assert!(ir.contains("call i32 @nia__m0__d4__first__inst__i32"));
     assert!(ir.contains("call i32 @nia__m0__d5__apply"));
+}
+
+#[test]
+fn emits_imported_generic_structural_extension_method_calls() {
+    let root = temp_dir("emits_imported_generic_structural_extension_method_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .share;
+
+extern fn read_const() &const u8;
+
+fn main(mut_ptr: &u8) i32 {
+    var const_ptr = read_const();
+    if mut_ptr.null() {
+        return 1;
+    }
+    if const_ptr.null() {
+        return 2;
+    }
+    0
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(root.join("share.nia"), "import .ptr;").expect("write share source");
+    std::fs::write(
+        root.join("ptr.nia"),
+        r#"
+extend[T] &const T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+extend[T] &T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+"#,
+    )
+    .expect("write ptr source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = output
+        .modules
+        .iter()
+        .map(|module| module.ir.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(ir.contains("__null__inst__u8"), "{ir}");
+    assert!(ir.contains("call i1 @"), "{ir}");
+    assert!(ir.contains("define i1 @"), "{ir}");
 }
 
 #[test]

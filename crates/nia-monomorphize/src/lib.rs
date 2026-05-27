@@ -309,7 +309,7 @@ impl MonoCollector<'_> {
 
     fn type_symbol(&self, module_id: ModuleId, ty: TyId) -> String {
         let Some(interner) = self.interners_by_module.get(&module_id) else {
-            return format!("ty{}", ty.0);
+            return format!("m{}_ty{}", ty.module_id.0, ty.local_id.index());
         };
         match interner.get(ty) {
             Some(TyKind::Primitive(_)) => {
@@ -341,7 +341,9 @@ impl MonoCollector<'_> {
                 }
             }
             Some(TyKind::GenericParam(name)) => sanitize_symbol_part(name),
-            Some(TyKind::Error) | None => format!("ty{}", ty.0),
+            Some(TyKind::Error) | None => {
+                format!("m{}_ty{}", ty.module_id.0, ty.local_id.index())
+            }
         }
     }
 }
@@ -395,7 +397,7 @@ mod tests {
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let def_id = defs.module_scope.values.get("id").expect("id def");
-        let interner = TyInterner::new();
+        let interner = TyInterner::new(ModuleId(0));
         let i32_ty = interner.primitive(PrimitiveTy::I32);
         let instantiations = vec![
             GenericInstantiation {

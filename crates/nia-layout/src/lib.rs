@@ -115,7 +115,14 @@ impl<'a> LayoutComputer<'a> {
     fn compute(mut self) -> Layouts {
         let mut next = 0usize;
         while next < self.interner.len() {
-            let ty_id = TyId(next as u32);
+            let ty_ids = self
+                .interner
+                .iter()
+                .map(|(ty_id, _)| ty_id)
+                .collect::<Vec<_>>();
+            let Some(ty_id) = ty_ids.get(next).copied() else {
+                break;
+            };
             next += 1;
             if self.is_inferred_array_type(ty_id) {
                 continue;

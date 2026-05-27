@@ -130,6 +130,7 @@ fn main() i32 {
         extensions: &extensions,
         const_eval: &const_eval,
         layouts: &layouts,
+        extension_interner: None,
     };
     let lowering = lower_backend_program(
         &[input],

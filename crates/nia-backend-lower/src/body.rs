@@ -651,9 +651,8 @@ impl<'a> ModuleLowerer<'a> {
             .all_methods_named(name)
             .into_iter()
             .filter_map(|(target_ty, method_id)| {
-                let target_ty = self.input.type_normalization.normalize(target_ty);
                 matches!(
-                    self.input.body_check.interner.get(target_ty),
+                    self.ty_kind(target_ty),
                     Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
                 )
                 .then_some(MethodCandidate {
@@ -669,7 +668,7 @@ impl<'a> ModuleLowerer<'a> {
         receiver_ty: TyId,
         name: &str,
     ) -> Option<(GlobalDefId, Vec<TyId>)> {
-        let receiver_ty = self.input.type_normalization.normalize(receiver_ty);
+        let receiver_ty = self.normalize_ty(receiver_ty);
         let mut candidates = self.method_candidates_for_receiver(receiver_ty, name);
         candidates = self.most_specific_candidates(&candidates);
         match candidates.as_slice() {
@@ -702,7 +701,6 @@ impl<'a> ModuleLowerer<'a> {
                 .all_methods_named(name)
                 .into_iter()
                 .filter_map(|(target_ty, method_id)| {
-                    let target_ty = self.input.type_normalization.normalize(target_ty);
                     self.match_type_pattern(target_ty, receiver_ty, &mut HashMap::new())
                         .then_some(MethodCandidate {
                             target_ty,
@@ -713,9 +711,9 @@ impl<'a> ModuleLowerer<'a> {
             if !candidates.is_empty() {
                 return candidates;
             }
-            match self.input.body_check.interner.get(receiver_ty) {
+            match self.ty_kind(receiver_ty) {
                 Some(TyKind::Pointer { elem, .. }) => {
-                    receiver_ty = self.input.type_normalization.normalize(*elem);
+                    receiver_ty = self.normalize_ty(*elem);
                 }
                 _ => return Vec::new(),
             }
@@ -739,9 +737,9 @@ impl<'a> ModuleLowerer<'a> {
         actual: TyId,
         substitutions: &mut HashMap<String, TyId>,
     ) -> bool {
-        let pattern = self.input.type_normalization.normalize(pattern);
-        let actual = self.input.type_normalization.normalize(actual);
-        match self.input.body_check.interner.get(pattern) {
+        let pattern = self.normalize_ty(pattern);
+        let actual = self.normalize_ty(actual);
+        match self.ty_kind(pattern) {
             Some(TyKind::GenericParam(name)) => {
                 if let Some(existing) = substitutions.get(name).copied() {
                     self.types_match(existing, actual)
@@ -754,7 +752,7 @@ impl<'a> ModuleLowerer<'a> {
                 is_const: pattern_const,
                 elem: pattern_elem,
             }) => matches!(
-                self.input.body_check.interner.get(actual),
+                self.ty_kind(actual),
                 Some(TyKind::Pointer { is_const, elem })
                     if is_const == pattern_const
                         && self.match_type_pattern(*pattern_elem, *elem, substitutions)
@@ -763,7 +761,7 @@ impl<'a> ModuleLowerer<'a> {
                 is_const: pattern_const,
                 elem: pattern_elem,
             }) => matches!(
-                self.input.body_check.interner.get(actual),
+                self.ty_kind(actual),
                 Some(TyKind::Slice { is_const, elem })
                     if is_const == pattern_const
                         && self.match_type_pattern(*pattern_elem, *elem, substitutions)
@@ -771,7 +769,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Array {
                 len: pattern_len,
                 elem: pattern_elem,
-            }) => match self.input.body_check.interner.get(actual) {
+            }) => match self.ty_kind(actual) {
                 Some(TyKind::Array { len, elem }) if self.array_lens_match(pattern_len, len) => {
                     self.match_type_pattern(*pattern_elem, *elem, substitutions)
                 }
@@ -781,7 +779,7 @@ impl<'a> ModuleLowerer<'a> {
                 params: pattern_params,
                 return_type: pattern_return,
                 is_variadic: pattern_variadic,
-            }) => match self.input.body_check.interner.get(actual) {
+            }) => match self.ty_kind(actual) {
                 Some(TyKind::FunctionPointer {
                     params,
                     return_type,
@@ -796,7 +794,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Nominal {
                 def_id: pattern_def,
                 args: pattern_args,
-            }) => match self.input.body_check.interner.get(actual) {
+            }) => match self.ty_kind(actual) {
                 Some(TyKind::Nominal { def_id, args })
                     if pattern_def == def_id && pattern_args.len() == args.len() =>
                 {
@@ -839,9 +837,9 @@ impl<'a> ModuleLowerer<'a> {
         specific: TyId,
         substitutions: &mut HashMap<String, TyId>,
     ) -> bool {
-        let general = self.input.type_normalization.normalize(general);
-        let specific = self.input.type_normalization.normalize(specific);
-        match self.input.body_check.interner.get(general) {
+        let general = self.normalize_ty(general);
+        let specific = self.normalize_ty(specific);
+        match self.ty_kind(general) {
             Some(TyKind::GenericParam(name)) => {
                 if let Some(existing) = substitutions.get(name).copied() {
                     self.patterns_equivalent(existing, specific)
@@ -851,14 +849,14 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             Some(TyKind::Primitive(general_primitive)) => matches!(
-                self.input.body_check.interner.get(specific),
+                self.ty_kind(specific),
                 Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
             ),
             Some(TyKind::Pointer {
                 is_const: general_const,
                 elem: general_elem,
             }) => matches!(
-                self.input.body_check.interner.get(specific),
+                self.ty_kind(specific),
                 Some(TyKind::Pointer {
                     is_const: specific_const,
                     elem: specific_elem,
@@ -869,7 +867,7 @@ impl<'a> ModuleLowerer<'a> {
                 is_const: general_const,
                 elem: general_elem,
             }) => matches!(
-                self.input.body_check.interner.get(specific),
+                self.ty_kind(specific),
                 Some(TyKind::Slice {
                     is_const: specific_const,
                     elem: specific_elem,
@@ -879,7 +877,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Array {
                 len: general_len,
                 elem: general_elem,
-            }) => match self.input.body_check.interner.get(specific) {
+            }) => match self.ty_kind(specific) {
                 Some(TyKind::Array {
                     len: specific_len,
                     elem: specific_elem,
@@ -892,7 +890,7 @@ impl<'a> ModuleLowerer<'a> {
                 params: general_params,
                 return_type: general_return,
                 is_variadic: general_variadic,
-            }) => match self.input.body_check.interner.get(specific) {
+            }) => match self.ty_kind(specific) {
                 Some(TyKind::FunctionPointer {
                     params: specific_params,
                     return_type: specific_return,
@@ -917,7 +915,7 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Nominal {
                 def_id: general_def,
                 args: general_args,
-            }) => match self.input.body_check.interner.get(specific) {
+            }) => match self.ty_kind(specific) {
                 Some(TyKind::Nominal {
                     def_id: specific_def,
                     args: specific_args,
@@ -940,10 +938,30 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn types_match(&self, expected: TyId, actual: TyId) -> bool {
-        let expected = self.input.type_normalization.normalize(expected);
-        let actual = self.input.type_normalization.normalize(actual);
+        let expected = self.normalize_ty(expected);
+        let actual = self.normalize_ty(actual);
         let never = self.input.body_check.interner.primitive(PrimitiveTy::Never);
         expected == actual || never == actual
+    }
+
+    fn normalize_ty(&self, ty: TyId) -> TyId {
+        if ty.module_id == self.input.type_normalization.interner.module_id() {
+            self.input.type_normalization.normalize(ty)
+        } else {
+            ty
+        }
+    }
+
+    pub(crate) fn ty_kind(&self, ty: TyId) -> Option<&TyKind> {
+        if ty.module_id == self.input.body_check.interner.module_id() {
+            return self.input.body_check.interner.get(ty);
+        }
+        if let Some(extension_interner) = self.input.extension_interner
+            && ty.module_id == extension_interner.module_id()
+        {
+            return extension_interner.get(ty);
+        }
+        None
     }
 
     fn array_lens_match(&self, expected: &ArrayLenTy, actual: &ArrayLenTy) -> bool {

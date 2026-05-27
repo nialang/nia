@@ -160,8 +160,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     },
                 )
                 .map_err(Self::diagnostic_from_llvm_error)?;
-            self.function_instances
-                .insert((instance.def_id, instance.args.clone()), value);
+            self.function_instances.insert(
+                (
+                    instance.def_id,
+                    instance.arg_module_id,
+                    instance.args.clone(),
+                ),
+                value,
+            );
         }
         Ok(())
     }

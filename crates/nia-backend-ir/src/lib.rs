@@ -236,6 +236,7 @@ pub struct BackendFunction {
 pub struct BackendFunctionInstance {
     pub def_id: GlobalDefId,
     pub name: String,
+    pub arg_module_id: ModuleId,
     pub args: Vec<TyId>,
     pub symbol: String,
     pub params: Vec<BackendParam>,
@@ -249,6 +250,7 @@ pub struct BackendFunctionInstance {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendGenericInstantiation {
     pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
     pub args: Vec<TyId>,
     pub span: Span,
     pub source_def_id: Option<GlobalDefId>,
