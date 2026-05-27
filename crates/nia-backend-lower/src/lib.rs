@@ -519,7 +519,7 @@ fn generic_inst_base(expr: &Expr) -> &Expr {
     }
 }
 
-fn lowered_type_args(args: &[BracketArg], type_lowering: &TypeLowering) -> Vec<TyId> {
+pub(crate) fn lowered_type_args(args: &[BracketArg], type_lowering: &TypeLowering) -> Vec<TyId> {
     args.iter()
         .filter_map(|arg| {
             arg.ty
