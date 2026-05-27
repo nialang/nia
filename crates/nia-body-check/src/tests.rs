@@ -525,6 +525,74 @@ fn main() usize {
 }
 
 #[test]
+fn checks_integer_literal_suffixes_with_radix_and_separators() {
+    let checked = pipeline(
+        r#"
+fn take_u8(value: u8) usize { value as usize }
+fn take_usize(value: usize) usize { value }
+
+fn main() usize {
+    var hex = 0xffu8;
+    var bin = 0b1010_0000u8;
+    var oct = 0o755usize;
+    var dec = 1_000usize;
+    var too_large = 0x1_00u8;
+    take_u8(hex) + take_u8(bin) + take_usize(oct) + take_usize(dec)
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("out of range for u8")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().all(|diagnostic| !diagnostic
+            .message
+            .contains("invalid integer literal suffix")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn checks_float_literal_suffixes_with_exponents_and_separators() {
+    let checked = pipeline(
+        r#"
+fn take_f32(value: f32) usize { value as usize }
+fn take_f64(value: f64) usize { value as usize }
+
+fn main() usize {
+    var a = 1_000.5f32;
+    var b = 1.0e-3f64;
+    var c: f64 = 2.5f32;
+    var too_large = 1e100f32;
+    var bad_integer_suffix = 1.0usize;
+    take_f32(a) + take_f64(b) + take_f64(c)
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("out of range for F32")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("invalid float literal suffix `usize`")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_cast_rules_and_function_item_pointers() {
     let checked = pipeline(
         r#"
