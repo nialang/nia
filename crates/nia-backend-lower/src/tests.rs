@@ -18,7 +18,7 @@ use std::collections::HashMap;
 #[test]
 fn lowers_checked_program_shape() {
     let source = r#"
-const hello = "hello\0";
+const hello = c"hello";
 
 struct Point {
     x: i32,

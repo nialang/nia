@@ -20,7 +20,10 @@ use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
-use crate::literals::{decode_string_literal, numeric_literal_body};
+use crate::literals::{
+    decode_byte_string_literal, decode_c_string_literal, decode_char_literal,
+    decode_string_literal, numeric_literal_body,
+};
 
 mod asm;
 
@@ -264,7 +267,13 @@ impl<'a> ModuleLowerer<'a> {
             ExprKind::String(text) => {
                 TypedExprKind::String(decode_string_literal(text).unwrap_or_default())
             }
-            ExprKind::Char(text) => TypedExprKind::Char(text.clone()),
+            ExprKind::ByteString(text) => {
+                TypedExprKind::ByteString(decode_byte_string_literal(text).unwrap_or_default())
+            }
+            ExprKind::CString(text) => {
+                TypedExprKind::ByteString(decode_c_string_literal(text).unwrap_or_default())
+            }
+            ExprKind::Char(text) => TypedExprKind::Char(decode_char_literal(text).unwrap_or(0)),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
             ExprKind::Bool(value) => TypedExprKind::Bool(*value),
             ExprKind::Ident(_) => {

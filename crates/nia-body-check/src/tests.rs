@@ -251,7 +251,7 @@ fn accepts_explicit_return_without_tail_expression() {
 extern fn printf(fmt: &u8, ...);
 
 fn main() i32 {
-    var hello = "hello, world!\n\0";
+    var hello = c"hello, world!\n";
     printf(&hello[0]);
     return 0;
 }
@@ -930,7 +930,7 @@ extern fn printf(fmt: &u8, ...);
 
 fn main(flag: bool) i32 {
     _ = printf(flag, 1);
-    var s = "hello\0";
+    var s = c"hello";
     printf(&s[0], &s[..]);
     var sp = &(&s[..]);
     printf(&s[0], sp.*);
@@ -1207,19 +1207,32 @@ fn main() i32 {
 }
 
 #[test]
-fn treats_string_literals_as_u8_arrays() {
+fn checks_text_byte_and_c_string_literal_types() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    var exact: [4]u8 = "nia\0";
-    var inferred: [_]u8 = "hi\n";
-    var multiline: [11]u8 =
+    var text: [3]char = "中a\n";
+    var inferred_text: [_]char = "hi";
+    var multiline: [11]char =
         \\hello
         \\world
     ;
-    var wrong: [3]u8 = "nia\0";
+    var byte_multiline: [11]u8 =
+        b\\hello
+        \\world
+    ;
+    var c_multiline: [12]u8 =
+        c\\hello
+        \\world
+    ;
+    var bytes: [4]u8 = b"nia\0";
+    var cstr: [4]u8 = c"nia";
+    var wrong_text_len: [2]char = "中a\n";
+    var bad_bytes: [3]u8 = "nia";
     var byte: u8 = b'a';
     var ch: char = 'a';
+    var code: u32 = ch as u32;
+    var bad_char: char = code as char;
     var bad_byte: u8 = 'a';
     0
 }
@@ -1231,13 +1244,21 @@ fn main() i32 {
             .iter()
             .filter(|diagnostic| diagnostic.message.contains("binding initializer"))
             .count(),
-        2
+        3
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("cannot cast u32 to char")),
+        "{:?}",
+        checked.diagnostics
     );
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("exact"))
+            .any(|diagnostic| diagnostic.message.contains("text"))
     );
 }
 
@@ -1247,7 +1268,7 @@ fn checks_index_and_address_of_array_elements() {
         r#"
 extern fn puts(ptr: &u8) i32;
 
-const hello = "hello\0";
+const hello = c"hello";
 
 fn main(flag: bool) i32 {
     var xs: [2]u8 = [1, 2];
@@ -1301,10 +1322,10 @@ fn main() i32 {
     var rw: &[i32] = [4, 5];
     var arr: [2]i32 = [6, 7];
     var from_place: &const [i32] = arr;
-    var from_string: &const [u8] = "hi\0";
+    var from_string: &const [u8] = c"hi";
     _ = take([1, 2, 3]);
     _ = mutate([4, 5]);
-    _ = bytes("hi\0");
+    _ = bytes(c"hi");
 
     var bad_int: &i32 = &10;
     var bad_sum: &i32 = &(1 + 2);
@@ -2340,11 +2361,11 @@ fn checks_inline_asm_configuration() {
 fn main() void {
     var ret: i64 = 0;
     @asm({
-        code: "syscall",
+        code: b"syscall",
         outputs: { rax: ret },
         inputs: { rax: 39 },
-        clobbers: ["rcx", "r11", "memory"],
-        options: ["volatile"],
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
     });
 }
 "#,
@@ -2358,7 +2379,7 @@ fn main() void {
         code: 1,
         outputs: { rax: 10 },
         clobbers: [1],
-        options: ["unknown"],
+        options: [b"unknown"],
         extra: 0,
     });
 }
@@ -2405,7 +2426,7 @@ fn main() void {
 fn main() void {
     var volatile = 0;
     @asm({
-        code: "nop",
+        code: b"nop",
         options: [volatile],
     });
 }
@@ -2427,7 +2448,7 @@ struct Pair { x: i64 }
 fn main() void {
     var pair: Pair = { x: 1 };
     @asm({
-        code: "nop",
+        code: b"nop",
         inputs: { rax: pair },
         outputs: { rax: pair },
     });

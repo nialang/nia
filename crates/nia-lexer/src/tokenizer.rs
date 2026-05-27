@@ -40,9 +40,25 @@ impl<'a> Tokenizer<'a> {
         };
 
         match byte {
+            b'b' if self.peek() == Some(b'"') => {
+                self.bump();
+                self.string(start, TokenKind::ByteString)
+            }
+            b'b' if self.peek() == Some(b'\\') && self.peek_next() == Some(b'\\') => {
+                self.bump();
+                self.multiline_string(start, TokenKind::ByteString)
+            }
             b'b' if self.peek() == Some(b'\'') => {
                 self.bump();
                 self.char_lit(start, true)
+            }
+            b'c' if self.peek() == Some(b'"') => {
+                self.bump();
+                self.string(start, TokenKind::CString)
+            }
+            b'c' if self.peek() == Some(b'\\') && self.peek_next() == Some(b'\\') => {
+                self.bump();
+                self.multiline_string(start, TokenKind::CString)
             }
             b'a'..=b'z' | b'A'..=b'Z' => self.ident_or_keyword(start),
             b'_' => {
@@ -53,8 +69,8 @@ impl<'a> Tokenizer<'a> {
                 }
             }
             b'0'..=b'9' => self.number(start),
-            b'"' => self.string(start),
-            b'\\' if self.peek() == Some(b'\\') => self.multiline_string(start),
+            b'"' => self.string(start, TokenKind::String),
+            b'\\' if self.peek() == Some(b'\\') => self.multiline_string(start, TokenKind::String),
             b'\'' => self.char_lit(start, false),
             b'(' => self.token(TokenKind::LParen, start, self.pos),
             b')' => self.token(TokenKind::RParen, start, self.pos),
@@ -273,7 +289,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn string(&mut self, start: usize) -> Token {
+    fn string(&mut self, start: usize, success_kind: TokenKind) -> Token {
         let mut invalid_escape = false;
         while let Some(byte) = self.peek() {
             match byte {
@@ -282,7 +298,7 @@ impl<'a> Tokenizer<'a> {
                     let kind = if invalid_escape {
                         TokenKind::Error(LexError::InvalidStringEscape)
                     } else {
-                        TokenKind::String
+                        success_kind
                     };
                     return self.token(kind, start, self.pos);
                 }
@@ -311,7 +327,7 @@ impl<'a> Tokenizer<'a> {
         )
     }
 
-    fn multiline_string(&mut self, start: usize) -> Token {
+    fn multiline_string(&mut self, start: usize, success_kind: TokenKind) -> Token {
         self.bump();
         loop {
             while self
@@ -323,7 +339,7 @@ impl<'a> Tokenizer<'a> {
 
             let line_end = self.pos;
             let Some(newline_end) = self.consume_newline() else {
-                return self.token(TokenKind::String, start, line_end);
+                return self.token(success_kind, start, line_end);
             };
 
             let mut next_line = newline_end;
@@ -337,7 +353,7 @@ impl<'a> Tokenizer<'a> {
                 self.pos = next_line + 2;
             } else {
                 self.pos = line_end;
-                return self.token(TokenKind::String, start, line_end);
+                return self.token(success_kind, start, line_end);
             }
         }
     }
@@ -681,9 +697,11 @@ mod tests {
     #[test]
     fn tokenizes_literals_and_comments() {
         assert_eq!(
-            kinds("\"nia\\0\" b'a' '中' // comment\n@size[usize]()"),
+            kinds("\"nia\\0\" b\"nia\" c\"nia\" b'a' '中' // comment\n@size[usize]()"),
             vec![
                 TokenKind::String,
+                TokenKind::ByteString,
+                TokenKind::CString,
                 TokenKind::ByteChar,
                 TokenKind::Char,
                 TokenKind::At,
@@ -701,9 +719,11 @@ mod tests {
     #[test]
     fn tokenizes_multiline_string_literals() {
         assert_eq!(
-            kinds("\\\\mov rax, 60\n    \\\\syscall\nvar x = 1;"),
+            kinds("\\\\text\nb\\\\bytes\nc\\\\cstr\nvar x = 1;"),
             vec![
                 TokenKind::String,
+                TokenKind::ByteString,
+                TokenKind::CString,
                 TokenKind::Var,
                 TokenKind::Ident,
                 TokenKind::Eq,
@@ -751,9 +771,11 @@ mod tests {
     #[test]
     fn validates_string_and_char_escapes() {
         assert_eq!(
-            kinds(r#""\n\x41\u{4e2d}" '\u{4e2d}' b'\xff'"#),
+            kinds(r#""\n\x41\u{4e2d}" b"\xff" c"ok" '\u{4e2d}' b'\xff'"#),
             vec![
                 TokenKind::String,
+                TokenKind::ByteString,
+                TokenKind::CString,
                 TokenKind::Char,
                 TokenKind::ByteChar,
                 TokenKind::Eof,
