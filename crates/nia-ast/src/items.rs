@@ -171,5 +171,6 @@ pub struct BindingItem {
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
     pub is_const: bool,
+    pub is_comptime: bool,
     pub is_extern: bool,
 }

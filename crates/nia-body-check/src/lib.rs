@@ -14,12 +14,13 @@ pub use calls::import_type_into;
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, ForInit, FunctionItem, ItemKind, Module, Stmt, StmtKind,
 };
+use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, LocalId, TyId};
 use nia_item_signatures::{
-    EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures, StructSignature,
-    UnionSignature,
+    ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
+    StructSignature, UnionSignature,
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
@@ -74,6 +75,12 @@ pub struct ProgramGlobalSignature {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ProgramComptimeSignature {
+    pub signature: ComptimeSignature,
+    pub interner: TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProgramStructSignature {
     pub signature: StructSignature,
     pub interner: TyInterner,
@@ -95,6 +102,7 @@ pub struct ProgramEnumSignature {
 pub struct ProgramSignatureMaps<'a> {
     pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
     pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
@@ -110,6 +118,7 @@ pub struct BodyCheckInput<'a> {
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
+    pub comptime: &'a ComptimeCheck,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
@@ -126,6 +135,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
+    pub comptime: &'a ComptimeCheck,
     pub extensions: &'a VisibleExtensionMethods,
     pub program_signatures: ProgramSignatureMaps<'a>,
 }
@@ -157,10 +167,12 @@ pub fn check_module_bodies(
     );
     let empty_functions = HashMap::new();
     let empty_globals = HashMap::new();
+    let empty_comptimes = HashMap::new();
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
     let empty_extensions = VisibleExtensionMethods::default();
+    let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         module,
         defs,
@@ -170,12 +182,14 @@ pub fn check_module_bodies(
         lowered,
         signatures,
         normalization: &empty_normalization,
+        comptime: &empty_comptime,
         layouts: &layouts,
         extensions: &empty_extensions,
         extension_interner: None,
         program_signatures: ProgramSignatureMaps {
             functions: &empty_functions,
             globals: &empty_globals,
+            comptimes: &empty_comptimes,
             structs: &empty_structs,
             unions: &empty_unions,
             enums: &empty_enums,
@@ -197,6 +211,7 @@ pub fn check_module_bodies_with_program_signatures(
         &input.normalization.interner,
         input.signatures,
         &input.normalization.normalized,
+        input.comptime,
         nia_layout::TargetDataLayout::LP64,
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -208,6 +223,7 @@ pub fn check_module_bodies_with_program_signatures(
         lowered: input.lowered,
         signatures: input.signatures,
         normalization: input.normalization,
+        comptime: input.comptime,
         layouts: &layouts,
         extensions: input.extensions,
         extension_interner: None,
@@ -232,10 +248,12 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         type_uses: &input.lowered.type_uses,
         signatures: input.signatures,
         normalization: input.normalization,
+        comptime: input.comptime,
         layouts: input.layouts,
         extensions: input.extensions,
         program_functions: input.program_signatures.functions,
         program_globals: input.program_signatures.globals,
+        program_comptimes: input.program_signatures.comptimes,
         program_structs: input.program_signatures.structs,
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
@@ -245,6 +263,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         generic_instantiations: Vec::new(),
         local_types: HashMap::new(),
         global_types: HashMap::new(),
+        comptime_types: HashMap::new(),
         diagnostics: Vec::new(),
         current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
         current_def_id: None,
@@ -271,10 +290,12 @@ struct BodyChecker<'a> {
     type_uses: &'a HashMap<Span, TyId>,
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
+    comptime: &'a ComptimeCheck,
     layouts: &'a Layouts,
     extensions: &'a VisibleExtensionMethods,
     program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
     program_globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
+    program_comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
@@ -284,6 +305,7 @@ struct BodyChecker<'a> {
     generic_instantiations: Vec<GenericInstantiation>,
     local_types: HashMap<LocalId, TyId>,
     global_types: HashMap<DefId, TyId>,
+    comptime_types: HashMap<DefId, TyId>,
     diagnostics: Vec<Diagnostic>,
     current_return: TyId,
     current_def_id: Option<GlobalDefId>,
@@ -316,7 +338,11 @@ impl<'a> BodyChecker<'a> {
     fn check_module(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Binding(binding) = &item.kind {
-                self.check_global_binding(item.span, binding);
+                if binding.is_comptime {
+                    self.check_comptime_binding(item.span, binding);
+                } else {
+                    self.check_global_binding(item.span, binding);
+                }
             }
         }
         for item in &module.items {
@@ -339,6 +365,41 @@ impl<'a> BodyChecker<'a> {
                 self.global_types.insert(*def_id, ty);
             }
         }
+        for (def_id, signature) in &self.signatures.comptimes {
+            if let Some(ty) = signature.explicit_type {
+                self.comptime_types.insert(*def_id, ty);
+            }
+        }
+    }
+
+    fn check_comptime_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
+        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Comptime) else {
+            return;
+        };
+        let Some(value) = &binding.value else {
+            self.diagnostics.push(Diagnostic::error(
+                item_span,
+                "comptime binding requires an initializer",
+            ));
+            return;
+        };
+        let comptime_ty = match binding.ty.as_ref() {
+            Some(ty) => {
+                let explicit = self.ty_for_span(ty.span);
+                let value_ty = self.check_expr_with_expected(value, Some(explicit));
+                self.expect_expr_type(value, explicit, value_ty, "comptime initializer");
+                self.materialize_inferred_array_type(explicit, value_ty)
+                    .unwrap_or(explicit)
+            }
+            None => {
+                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                    self.infer_array_literal_expr(value)
+                } else {
+                    self.check_expr(value)
+                }
+            }
+        };
+        self.comptime_types.insert(def_id, comptime_ty);
     }
 
     fn check_global_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
@@ -552,6 +613,12 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_local_binding(&mut self, span: Span, binding: &BindingStmt) {
+        if binding.is_comptime && binding.value.is_none() {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "comptime binding requires an initializer",
+            ));
+        }
         let binding_ty = match (&binding.ty, &binding.value) {
             (Some(ty), Some(value)) => {
                 let explicit = self.ty_for_span(ty.span);

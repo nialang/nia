@@ -212,9 +212,12 @@ impl<'a> TypeNormalizer<'a> {
 
 fn normalize_array_len(len: ArrayLenTy) -> ArrayLenTy {
     match len {
-        ArrayLenTy::ConstExpr(text) => nia_const_eval::eval_array_len_text(&text)
-            .map(|value| ArrayLenTy::ConstExpr(value.to_string()))
-            .unwrap_or(ArrayLenTy::ConstExpr(text)),
+        ArrayLenTy::ConstExpr { text, span } => nia_comptime_engine::eval_array_len_text(&text)
+            .map(|value| ArrayLenTy::ConstExpr {
+                text: value.to_string(),
+                span,
+            })
+            .unwrap_or(ArrayLenTy::ConstExpr { text, span }),
         ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => len,
     }
 }
@@ -333,7 +336,10 @@ fn take(xs: [2 + 3]u8) void {}
         assert!(normalization.interner.iter().any(|(_, ty)| matches!(
             ty,
             TyKind::Array {
-                len: ArrayLenTy::ConstExpr(len),
+                len: ArrayLenTy::ConstExpr {
+                    text: len,
+                    span: _,
+                },
                 elem: _,
             } if len == "5"
         )));

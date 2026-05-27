@@ -20,6 +20,7 @@ pub struct ItemSignatures {
     pub enums: HashMap<DefId, EnumSignature>,
     pub type_aliases: HashMap<DefId, TypeAliasSignature>,
     pub globals: HashMap<DefId, GlobalSignature>,
+    pub comptimes: HashMap<DefId, ComptimeSignature>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -107,6 +108,12 @@ pub struct GlobalSignature {
     pub span: Span,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeSignature {
+    pub explicit_type: Option<TyId>,
+    pub span: Span,
+}
+
 pub fn collect_item_signatures(
     module: &Module,
     defs: &DefCollection,
@@ -124,6 +131,7 @@ pub fn collect_item_signatures(
         enums: HashMap::new(),
         type_aliases: HashMap::new(),
         globals: HashMap::new(),
+        comptimes: HashMap::new(),
         diagnostics: Vec::new(),
     };
     for item in &module.items {
@@ -162,7 +170,11 @@ impl<'a> SignatureCollector<'a> {
                 self.collect_function(signatures, item.span, function);
             }
             ItemKind::Binding(binding) => {
-                self.collect_global(signatures, item.span, binding);
+                if binding.is_comptime {
+                    self.collect_comptime(signatures, item.span, binding);
+                } else {
+                    self.collect_global(signatures, item.span, binding);
+                }
             }
         }
     }
@@ -329,6 +341,24 @@ impl<'a> SignatureCollector<'a> {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_span(ty.span)),
                 is_const: binding.is_const,
                 is_extern: binding.is_extern,
+                span: item_span,
+            },
+        );
+    }
+
+    fn collect_comptime(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        item_span: Span,
+        binding: &BindingItem,
+    ) {
+        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Comptime) else {
+            return;
+        };
+        signatures.comptimes.insert(
+            def_id,
+            ComptimeSignature {
+                explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_span(ty.span)),
                 span: item_span,
             },
         );

@@ -614,6 +614,17 @@ impl<'a> BodyChecker<'a> {
                 ));
                 self.error()
             }),
+            DefKind::Comptime => self
+                .comptime_types
+                .get(&def_id)
+                .copied()
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "comptime type is not available during body check",
+                    ));
+                    self.error()
+                }),
             _ => self.error(),
         }
     }

@@ -57,6 +57,24 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
             }
+            ExprKind::Ident(_) => {
+                if let Some(def_id) = self.comptime_global_id_for_expr(expr)
+                    && let Some(binding) = self.comptime_binding_for(def_id)
+                    && let Some(value) = &binding.value
+                {
+                    if self.comptime_global_stack.contains(&def_id) {
+                        return StaticInit::Zero;
+                    }
+                    self.comptime_global_stack.push(def_id);
+                    let init = self.lower_static_init(value);
+                    self.comptime_global_stack.pop();
+                    return init;
+                }
+                if let Some(value) = self.local_comptime_value(expr).cloned() {
+                    return self.lower_static_init(&value);
+                }
+                StaticInit::Zero
+            }
             ExprKind::ArrayLiteral { elems } => match elems {
                 ArrayElements::List(elems) => StaticInit::Array(
                     elems
@@ -66,13 +84,15 @@ impl<'a> ModuleLowerer<'a> {
                 ),
                 ArrayElements::Repeat { value, count } => StaticInit::Repeat {
                     value: Box::new(self.lower_static_init(value)),
-                    count: nia_const_eval::eval_array_len_text(&count.text).unwrap_or_else(|err| {
-                        self.diagnostics.push(Diagnostic::error(
-                            count.span,
-                            format!("invalid repeat count: {}", err.message),
-                        ));
-                        0
-                    }),
+                    count: nia_comptime_engine::eval_array_len_text(&count.text).unwrap_or_else(
+                        |err| {
+                            self.diagnostics.push(Diagnostic::error(
+                                count.span,
+                                format!("invalid repeat count: {err}"),
+                            ));
+                            0
+                        },
+                    ),
                 },
             },
             ExprKind::StructLiteral { fields } => {
@@ -96,18 +116,21 @@ impl<'a> ModuleLowerer<'a> {
                 op: nia_ast::UnaryOp::Neg,
                 ..
             }
-            | ExprKind::Binary { .. } => nia_const_eval::eval_int_expr(expr)
-                .map(StaticInit::Int)
-                .unwrap_or_else(|err| {
-                    self.diagnostics.push(Diagnostic::error(
-                        expr.span,
-                        format!(
-                            "invalid integer constant in static initializer: {}",
-                            err.message
-                        ),
-                    ));
-                    StaticInit::Zero
-                }),
+            | ExprKind::Binary { .. } => {
+                let mut env = nia_comptime_engine::EmptyEnv;
+                nia_comptime_engine::eval_int_expr(expr, &mut env)
+                    .map(StaticInit::Int)
+                    .unwrap_or_else(|err| {
+                        self.diagnostics.push(Diagnostic::error(
+                            expr.span,
+                            format!(
+                                "invalid integer constant in static initializer: {}",
+                                err.message
+                            ),
+                        ));
+                        StaticInit::Zero
+                    })
+            }
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefConst,
                 expr,

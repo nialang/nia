@@ -44,7 +44,9 @@ impl StaticChecker<'_> {
     fn check_module(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Binding(binding) = &item.kind {
-                self.check_global_binding(item.span, binding);
+                if !binding.is_comptime {
+                    self.check_global_binding(item.span, binding);
+                }
             }
         }
     }
@@ -99,6 +101,7 @@ impl StaticChecker<'_> {
             ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
                 Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(*def_id) => None,
+                    Some(ValueNameResolution::Def(def_id)) if self.is_comptime(*def_id) => None,
                     _ => Some("bare global value is not static data; take its address explicitly"),
                 },
                 Some(LocalUse::Unresolved) | None => None,
@@ -175,7 +178,7 @@ impl StaticChecker<'_> {
             ExprKind::Index { lhs, index } => {
                 self.static_address_path_reject_reason(lhs)
                     .or_else(|| match index {
-                        IndexArg::Expr(index) => match nia_const_eval::eval_array_len_expr(index) {
+                        IndexArg::Expr(index) => match self.eval_static_array_index(index) {
                             Ok(_) => None,
                             Err(_) => Some("array index is not a static integer constant"),
                         },
@@ -185,7 +188,7 @@ impl StaticChecker<'_> {
             ExprKind::BracketSuffix { callee, args } => {
                 if let Some(index) = Self::bracket_index_arg(args) {
                     return self.static_address_path_reject_reason(callee).or_else(|| {
-                        match nia_const_eval::eval_array_len_expr(index) {
+                        match self.eval_static_array_index(index) {
                             Ok(_) => None,
                             Err(_) => Some("array index is not a static integer constant"),
                         }
@@ -205,10 +208,25 @@ impl StaticChecker<'_> {
         }
     }
 
+    fn eval_static_array_index(
+        &self,
+        expr: &Expr,
+    ) -> Result<u64, nia_comptime_engine::ComptimeError> {
+        let mut env = nia_comptime_engine::EmptyEnv;
+        nia_comptime_engine::eval_array_len_expr(expr, &mut env)
+    }
+
     fn is_global(&self, def_id: DefId) -> bool {
         matches!(
             self.defs.defs.get(def_id).map(|def| def.kind),
             Some(DefKind::Global)
+        )
+    }
+
+    fn is_comptime(&self, def_id: DefId) -> bool {
+        matches!(
+            self.defs.defs.get(def_id).map(|def| def.kind),
+            Some(DefKind::Comptime)
         )
     }
 

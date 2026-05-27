@@ -99,6 +99,9 @@ impl<'a> BodyChecker<'a> {
         match self.locals.uses.get(&span) {
             Some(LocalUse::Local(local_id)) => match self.locals.locals.get(*local_id) {
                 Some(local) if local.kind == LocalKind::ConstBinding => Some("local is const"),
+                Some(local) if local.kind == LocalKind::ComptimeBinding => {
+                    Some("comptime binding has no storage")
+                }
                 Some(_) => None,
                 None => Some("local definition is missing"),
             },
@@ -129,6 +132,7 @@ impl<'a> BodyChecker<'a> {
                 Some(_) => None,
                 None => Some("global signature is missing"),
             },
+            DefKind::Comptime => Some("comptime binding has no storage"),
             DefKind::Function | DefKind::Method => Some("function item is not assignable"),
             _ => Some("definition is not a value place"),
         }

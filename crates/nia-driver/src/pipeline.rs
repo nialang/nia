@@ -5,9 +5,9 @@ use crate::{
     module_check::{CheckLoadedModuleInput, check_loaded_module},
     module_diagnostics,
     program_signatures::{
-        collect_extension_methods, collect_program_enums, collect_program_functions,
-        collect_program_globals, collect_program_structs, collect_program_unions,
-        visible_extensions_for_module,
+        collect_extension_methods, collect_program_comptimes, collect_program_enums,
+        collect_program_functions, collect_program_globals, collect_program_structs,
+        collect_program_unions, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -48,6 +48,10 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
             }
             loaded_module.parse_errors.is_empty()
         })
+        .collect();
+    let all_modules: Vec<nia_ast::Module> = parse_ok_modules
+        .iter()
+        .map(|module| module.module.clone())
         .collect();
     let defs_by_module: Vec<DefCollection> = parse_ok_modules
         .iter()
@@ -122,6 +126,11 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
         &type_lowerings,
         &item_signatures_by_module,
     );
+    let program_comptimes = collect_program_comptimes(
+        &parse_ok_modules,
+        &type_lowerings,
+        &item_signatures_by_module,
+    );
     let program_structs = collect_program_structs(
         &parse_ok_modules,
         &type_lowerings,
@@ -186,6 +195,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
             loaded_module,
             defs: defs.clone(),
             imports: &loaded.imports,
+            all_modules: &all_modules,
             all_defs: &defs_by_module,
             extensions: visible_extensions.clone(),
             type_resolution,
@@ -197,6 +207,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
             program_signatures: nia_body_check::ProgramSignatureMaps {
                 functions: &program_functions,
                 globals: &program_globals,
+                comptimes: &program_comptimes,
                 structs: &program_structs,
                 unions: &program_unions,
                 enums: &program_enums,
@@ -232,7 +243,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
         ));
         diagnostics.extend(module_diagnostics(
             &loaded_module.path,
-            &checked.const_eval.diagnostics,
+            &checked.comptime.diagnostics,
         ));
         diagnostics.extend(module_diagnostics(
             &loaded_module.path,
@@ -290,6 +301,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                     module_id: checked_module.id,
                     module_name: checked_module.path.as_str().to_string(),
                     module: &loaded_module.module,
+                    all_modules: &all_modules,
                     defs: &checked_module.defs,
                     all_defs: &defs_by_module,
                     extensions: &visible_extensions.methods,
@@ -299,7 +311,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                     signatures: &checked_module.item_signatures,
                     type_normalization: &checked_module.type_normalization,
                     body_check: &checked_module.body_check,
-                    const_eval: &checked_module.const_eval,
+                    comptime: &checked_module.comptime,
                     layouts: &checked_module.layouts,
                     extension_interner: Some(&visible_extensions.interner),
                 })

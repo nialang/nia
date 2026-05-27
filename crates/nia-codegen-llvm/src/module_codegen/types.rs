@@ -335,8 +335,19 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         layouts: &BackendLayouts,
     ) -> Result<u64, Diagnostic> {
         match len {
-            ArrayLenTy::ConstExpr(text) => nia_const_eval::eval_array_len_text(text)
-                .map_err(|err| self.error(span, format!("invalid array length: {}", err.message))),
+            ArrayLenTy::ConstExpr { text, span } => self
+                .source
+                .comptime
+                .array_lengths
+                .get(span)
+                .copied()
+                .or_else(|| nia_comptime_engine::eval_array_len_text(text).ok())
+                .ok_or_else(|| {
+                    self.error(
+                        *span,
+                        format!("array length `{text}` was not evaluated by comptime"),
+                    )
+                }),
             ArrayLenTy::Builtin { name, ty } => {
                 let Some(layout) = layouts
                     .types
@@ -768,7 +779,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
         match (left, right) {
             (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
-            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => left == right,
+            (
+                ArrayLenTy::ConstExpr { text: left, .. },
+                ArrayLenTy::ConstExpr { text: right, .. },
+            ) => left == right,
             (
                 ArrayLenTy::Builtin {
                     name: left_name,
