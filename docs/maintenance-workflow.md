@@ -178,7 +178,7 @@ Use `Closes #N` when merging the pull request should close the issue. Use
 
 ## 9. Review and Merge
 
-Review the pull request on Codeberg before merging:
+Review the pull request on GitHub before merging:
 
 - read the diff;
 - check the issue link and pull request description;
@@ -189,8 +189,8 @@ Review the pull request on Codeberg before merging:
 For one-feature branches, prefer squash merge to keep `main` readable. If the
 branch has multiple meaningful commits, a normal merge is acceptable.
 
-Delete the remote feature branch after merge. Codeberg can do this as part of
-the merge operation.
+Delete the remote feature branch after merge. GitHub can do this as part of the
+merge operation.
 
 ## 10. Sync Local Main
 
@@ -252,7 +252,7 @@ Issue
 -> fmt/check/test
 -> clippy without allows
 -> commit and push
--> Codeberg pull request with Closes/Refs issue link
+-> GitHub pull request with Closes/Refs issue link
 -> review
 -> merge into main and delete remote branch
 -> local main pull
