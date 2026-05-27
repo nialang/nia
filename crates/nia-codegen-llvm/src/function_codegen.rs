@@ -253,8 +253,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match &expr.kind {
             TypedExprKind::Integer(text) => self.emit_integer_literal(expr.ty, expr.span, text),
             TypedExprKind::Float(text) => self.emit_float_literal(expr.ty, expr.span, text),
-            TypedExprKind::String(bytes) => self.emit_string_literal(expr.ty, expr.span, bytes),
-            TypedExprKind::Char(text) => self.emit_char_literal(expr.ty, expr.span, text),
+            TypedExprKind::String(scalars) => self.emit_string_literal(expr.ty, expr.span, scalars),
+            TypedExprKind::ByteString(bytes) => {
+                self.emit_byte_string_literal(expr.ty, expr.span, bytes)
+            }
+            TypedExprKind::Char(value) => self.emit_char_literal(expr.ty, expr.span, *value),
             TypedExprKind::ByteChar(text) => self.emit_byte_char_literal(expr.ty, expr.span, text),
             TypedExprKind::Bool(value) => Ok(self
                 .module

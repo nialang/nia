@@ -22,6 +22,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Integer(_) => self.integer_literal_type(expr),
             ExprKind::Float(_) => self.float_literal_type(expr),
             ExprKind::String(text) => self.string_literal_type(text),
+            ExprKind::ByteString(text) => self.byte_string_literal_type(text),
+            ExprKind::CString(text) => self.c_string_literal_type(text),
             ExprKind::Char(_) => self.primitive(PrimitiveTy::Char),
             ExprKind::ByteChar(_) => self.primitive(PrimitiveTy::U8),
             ExprKind::Bool(_) => self.bool(),
@@ -503,6 +505,9 @@ impl<'a> BodyChecker<'a> {
             return true;
         }
         if self.is_numeric(source) && self.is_numeric(target) {
+            return true;
+        }
+        if self.is_char(source) && self.is_u32(target) {
             return true;
         }
         if self.is_enum(source) && self.is_integer(target) {

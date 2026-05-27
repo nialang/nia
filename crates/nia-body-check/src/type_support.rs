@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::literals::{
-    float_literal_text, has_numeric_literal_suffix, integer_literal_value, integer_range,
-    numeric_literal_suffix, parse_float_literal, string_literal_byte_len,
+    byte_string_literal_len, c_string_literal_len, float_literal_text, has_numeric_literal_suffix,
+    integer_literal_value, integer_range, numeric_literal_suffix, parse_float_literal,
+    string_literal_char_len,
 };
 use crate::{ArrayToSliceCoercion, BodyChecker};
 use nia_ast::{Expr, ExprKind, UnaryOp};
@@ -430,7 +431,29 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn string_literal_type(&mut self, text: &str) -> TyId {
-        let len = string_literal_byte_len(text).unwrap_or(0);
+        let len = string_literal_char_len(text).unwrap_or(0);
+        self.interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr {
+                text: len.to_string(),
+                span: Span::default(),
+            },
+            elem: self.primitive(PrimitiveTy::Char),
+        })
+    }
+
+    pub(crate) fn byte_string_literal_type(&mut self, text: &str) -> TyId {
+        let len = byte_string_literal_len(text).unwrap_or(0);
+        self.interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr {
+                text: len.to_string(),
+                span: Span::default(),
+            },
+            elem: self.primitive(PrimitiveTy::U8),
+        })
+    }
+
+    pub(crate) fn c_string_literal_type(&mut self, text: &str) -> TyId {
+        let len = c_string_literal_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr {
                 text: len.to_string(),
@@ -477,6 +500,20 @@ impl<'a> BodyChecker<'a> {
                     | PrimitiveTy::U128
                     | PrimitiveTy::Usize
             ))
+        )
+    }
+
+    pub(crate) fn is_char(&self, ty: TyId) -> bool {
+        matches!(
+            self.interner.get(ty),
+            Some(TyKind::Primitive(PrimitiveTy::Char))
+        )
+    }
+
+    pub(crate) fn is_u32(&self, ty: TyId) -> bool {
+        matches!(
+            self.interner.get(ty),
+            Some(TyKind::Primitive(PrimitiveTy::U32))
         )
     }
 
