@@ -92,6 +92,7 @@ pub enum DefKind {
     Import,
     Function,
     Global,
+    Comptime,
     Struct,
     StructField,
     Union,
@@ -264,7 +265,11 @@ impl Collector {
             ItemKind::Binding(binding) => {
                 self.add_value_def(
                     binding.name.clone(),
-                    DefKind::Global,
+                    if binding.is_comptime {
+                        DefKind::Comptime
+                    } else {
+                        DefKind::Global
+                    },
                     item.vis,
                     item.span,
                     Vec::new(),

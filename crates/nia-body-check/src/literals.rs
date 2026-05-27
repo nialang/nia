@@ -5,14 +5,16 @@ use nia_ty::PrimitiveTy;
 pub(super) fn integer_literal_value(expr: &Expr) -> Option<i128> {
     match &expr.kind {
         ExprKind::Integer(text) => {
-            nia_const_eval::eval_int_literal(numeric_literal_body(text)).ok()
+            nia_comptime_engine::eval_int_literal(numeric_literal_body(text)).ok()
         }
         ExprKind::Unary {
             op: UnaryOp::Neg,
             expr,
-        } => nia_const_eval::eval_int_literal(numeric_literal_body(integer_literal_text(expr)?))
-            .ok()?
-            .checked_neg(),
+        } => {
+            nia_comptime_engine::eval_int_literal(numeric_literal_body(integer_literal_text(expr)?))
+                .ok()?
+                .checked_neg()
+        }
         _ => None,
     }
 }

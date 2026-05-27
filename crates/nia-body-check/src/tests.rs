@@ -32,6 +32,21 @@ fn pipeline(source: &str) -> BodyCheck {
         "{:?}",
         signatures.diagnostics
     );
+    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+        module: &module,
+        all_modules: std::slice::from_ref(&module),
+        defs: &defs,
+        all_defs: std::slice::from_ref(&defs),
+        values: &values,
+        locals: &locals,
+        signatures: &signatures,
+        interner: &lowered.interner,
+    });
+    assert!(
+        comptime.diagnostics.is_empty(),
+        "{:?}",
+        comptime.diagnostics
+    );
     let normalization = TypeNormalization {
         interner: lowered.interner.clone(),
         normalized: HashMap::new(),
@@ -83,12 +98,14 @@ fn pipeline(source: &str) -> BodyCheck {
         lowered: &lowered,
         signatures: &signatures,
         normalization: &normalization,
+        comptime: &comptime,
         layouts: &layouts,
         extensions: &extensions,
         extension_interner: None,
         program_signatures: ProgramSignatureMaps {
             functions: &HashMap::new(),
             globals: &HashMap::new(),
+            comptimes: &HashMap::new(),
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),

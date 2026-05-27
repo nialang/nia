@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::LoadedModule;
 use nia_body_check::{
-    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
-    ProgramUnionSignature, import_type_into,
+    ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
+    ProgramGlobalSignature, ProgramStructSignature, ProgramUnionSignature, import_type_into,
 };
 use nia_defs::{
     DefCollection, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
@@ -67,6 +67,29 @@ pub(crate) fn collect_program_globals(
         }
     }
     globals
+}
+
+pub(crate) fn collect_program_comptimes(
+    modules: &[LoadedModule],
+    lowerings: &[TypeLowering],
+    signatures: &[ItemSignatures],
+) -> HashMap<GlobalDefId, ProgramComptimeSignature> {
+    let mut comptimes = HashMap::new();
+    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
+        for (def_id, signature) in &signatures.comptimes {
+            comptimes.insert(
+                GlobalDefId {
+                    module_id: module.id,
+                    def_id: *def_id,
+                },
+                ProgramComptimeSignature {
+                    signature: signature.clone(),
+                    interner: lowering.interner.clone(),
+                },
+            );
+        }
+    }
+    comptimes
 }
 
 pub(crate) fn collect_program_structs(

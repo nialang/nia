@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
+use nia_comptime_check::ComptimeCheck;
 use nia_ids::{GlobalDefId, LocalId, ModuleId, TyId};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
@@ -15,6 +16,7 @@ pub struct BackendModule {
     pub id: ModuleId,
     pub name: String,
     pub interner: TyInterner,
+    pub comptime: ComptimeCheck,
     pub layouts: BackendLayouts,
     pub structs: Vec<BackendStruct>,
     pub unions: Vec<BackendUnion>,

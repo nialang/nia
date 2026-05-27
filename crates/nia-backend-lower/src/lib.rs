@@ -6,7 +6,7 @@ mod literals;
 mod static_init;
 mod struct_instances;
 
-use nia_ast::{BracketArg, Expr, ExprKind, ItemKind, Module};
+use nia_ast::{BindingItem, BracketArg, Expr, ExprKind, ItemKind, Module};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
     BackendStructInstanceKey,
@@ -36,6 +36,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
     pub module_name: String,
     pub module: &'a Module,
+    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
     pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
@@ -45,7 +46,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub type_normalization: &'a TypeNormalization,
     pub body_check: &'a BodyCheck,
     pub extensions: &'a VisibleExtensionMethods,
-    pub const_eval: &'a nia_const_eval::ConstEval,
+    pub comptime: &'a nia_comptime_check::ComptimeCheck,
     pub layouts: &'a Layouts,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
 }
@@ -78,6 +79,8 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) current_param_locals: Vec<LocalId>,
+    pub(crate) comptime_global_stack: Vec<GlobalDefId>,
+    pub(crate) comptime_local_stack: Vec<LocalId>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -88,7 +91,44 @@ impl<'a> ModuleLowerer<'a> {
             interner: input.body_check.interner.clone(),
             diagnostics: Vec::new(),
             current_param_locals: Vec::new(),
+            comptime_global_stack: Vec::new(),
+            comptime_local_stack: Vec::new(),
         }
+    }
+
+    fn comptime_binding_for(&self, global_id: GlobalDefId) -> Option<&'a BindingItem> {
+        let (module_index, defs) = self
+            .input
+            .all_defs
+            .iter()
+            .enumerate()
+            .find(|(_, defs)| defs.module_id == global_id.module_id)?;
+        let module = self.input.all_modules.get(module_index)?;
+        module.items.iter().find_map(|item| {
+            let ItemKind::Binding(binding) = &item.kind else {
+                return None;
+            };
+            if !binding.is_comptime {
+                return None;
+            }
+            let def_id = defs.def_spans.get(item.span)?;
+            (def_id == global_id.def_id).then_some(binding)
+        })
+    }
+
+    pub(crate) fn comptime_global_id_for_expr(&self, expr: &Expr) -> Option<GlobalDefId> {
+        if let Some(global_id) = self.input.values.qualified_values.get(&expr.span).copied()
+            && self.def_kind_of(global_id) == Some(DefKind::Comptime)
+        {
+            return Some(global_id);
+        }
+        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
+            self.input.values.names.get(&expr.span)
+        else {
+            return None;
+        };
+        (self.input.defs.defs.get(*def_id)?.kind == DefKind::Comptime)
+            .then_some(self.global_def_id(*def_id))
     }
 
     fn lower_module(&mut self) -> BackendModule {
@@ -146,6 +186,9 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 ItemKind::Binding(binding) => {
+                    if binding.is_comptime {
+                        continue;
+                    }
                     if let Some(global) = self.lower_global(item.span, binding) {
                         globals.push(global);
                     }
@@ -170,6 +213,7 @@ impl<'a> ModuleLowerer<'a> {
             id: self.input.module_id,
             name: self.input.module_name.clone(),
             interner: self.interner.clone(),
+            comptime: self.input.comptime.clone(),
             layouts: backend_layouts,
             structs,
             unions,
@@ -201,6 +245,7 @@ impl<'a> ModuleLowerer<'a> {
             &self.interner,
             self.input.signatures,
             &self.input.type_normalization.normalized,
+            self.input.comptime,
             self.input.layouts.target,
         );
         for (key, layout) in computed.struct_instances {
@@ -455,6 +500,15 @@ impl<'a> ModuleLowerer<'a> {
             module_id: enum_id.module_id,
             def_id: variant_id,
         })
+    }
+
+    pub(crate) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
+        self.input
+            .all_defs
+            .iter()
+            .find(|defs| defs.module_id == global_id.module_id)
+            .and_then(|defs| defs.defs.get(global_id.def_id))
+            .map(|def| def.kind)
     }
 }
 

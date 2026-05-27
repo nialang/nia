@@ -46,7 +46,10 @@ impl<'a> Parser<'a> {
             ItemKind::TypeAlias(self.parse_type_alias()?)
         } else if self.at(TokenKind::Fn) {
             ItemKind::Function(self.parse_function(false)?)
-        } else if self.at(TokenKind::Const) || self.at(TokenKind::Var) {
+        } else if self.at(TokenKind::Comptime)
+            || self.at(TokenKind::Const)
+            || self.at(TokenKind::Var)
+        {
             ItemKind::Binding(self.parse_binding(false)?)
         } else {
             self.error_here("expected item");
@@ -445,12 +448,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {
-        let is_const = if self.eat(TokenKind::Const).is_some() {
-            true
+        let (is_const, is_comptime) = if self.eat(TokenKind::Comptime).is_some() {
+            if is_extern {
+                self.error_here("extern binding cannot be `comptime`");
+                return None;
+            }
+            (true, true)
+        } else if self.eat(TokenKind::Const).is_some() {
+            (true, false)
         } else if self.eat(TokenKind::Var).is_some() {
-            false
+            (false, false)
         } else {
-            self.error_here("expected `var` or `const`");
+            self.error_here("expected `var`, `const`, or `comptime`");
             return None;
         };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
@@ -468,6 +477,10 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        if is_comptime && value.is_none() {
+            self.error_here("comptime binding requires an initializer");
+            return None;
+        }
         if !is_extern && value.is_none() && ty.is_none() {
             self.error_here("binding declaration requires an explicit type");
             return None;
@@ -487,6 +500,7 @@ impl<'a> Parser<'a> {
             ty,
             value,
             is_const,
+            is_comptime,
             is_extern,
         })
     }

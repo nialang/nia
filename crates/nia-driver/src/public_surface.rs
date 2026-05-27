@@ -189,7 +189,7 @@ pub(crate) fn compute_public_surfaces(
 
 fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
     match kind {
-        DefKind::Function | DefKind::Global => Some(PublicNamespace::Value),
+        DefKind::Function | DefKind::Global | DefKind::Comptime => Some(PublicNamespace::Value),
         DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias => {
             Some(PublicNamespace::Type)
         }

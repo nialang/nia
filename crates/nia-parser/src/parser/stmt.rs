@@ -22,7 +22,7 @@ impl<'a> Parser<'a> {
                 kind: StmtKind::Using(using),
             });
         }
-        if self.at(TokenKind::Var) || self.at(TokenKind::Const) {
+        if self.at(TokenKind::Comptime) || self.at(TokenKind::Var) || self.at(TokenKind::Const) {
             let binding = self.parse_binding_stmt()?;
             return Some(Stmt {
                 span: Span::new(start, self.previous_end()),
@@ -81,11 +81,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_binding_stmt(&mut self) -> Option<BindingStmt> {
-        let is_const = if self.eat(TokenKind::Const).is_some() {
-            true
+        let (is_const, is_comptime) = if self.eat(TokenKind::Comptime).is_some() {
+            (true, true)
+        } else if self.eat(TokenKind::Const).is_some() {
+            (true, false)
         } else {
             self.eat(TokenKind::Var);
-            false
+            (false, false)
         };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
         let ty = if self.eat(TokenKind::Colon).is_some() {
@@ -98,6 +100,10 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        if is_comptime && value.is_none() {
+            self.error_here("comptime binding requires an initializer");
+            return None;
+        }
         let anchor = value
             .as_ref()
             .map(|value| value.span)
@@ -109,6 +115,7 @@ impl<'a> Parser<'a> {
             ty,
             value,
             is_const,
+            is_comptime,
         })
     }
 
@@ -121,7 +128,10 @@ impl<'a> Parser<'a> {
             if self.has_top_level_semicolon_before_lbrace() {
                 let init = if self.at(TokenKind::Semicolon) {
                     None
-                } else if self.at(TokenKind::Var) || self.at(TokenKind::Const) {
+                } else if self.at(TokenKind::Comptime)
+                    || self.at(TokenKind::Var)
+                    || self.at(TokenKind::Const)
+                {
                     let init_start = self.peek().span.start;
                     let binding = self.parse_binding_stmt()?;
                     Some(ForInit::Binding {
@@ -254,6 +264,7 @@ impl<'a> Parser<'a> {
         matches!(
             self.peek().kind,
             TokenKind::Const
+                | TokenKind::Comptime
                 | TokenKind::Var
                 | TokenKind::Return
                 | TokenKind::Break

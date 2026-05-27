@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
+use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
@@ -65,7 +66,15 @@ pub fn compute_layouts(
     target: TargetDataLayout,
 ) -> Layouts {
     let normalized = HashMap::new();
-    compute_layouts_with_normalized_types(defs, interner, signatures, &normalized, target)
+    let empty_comptime = ComptimeCheck::default();
+    compute_layouts_with_normalized_types(
+        defs,
+        interner,
+        signatures,
+        &normalized,
+        &empty_comptime,
+        target,
+    )
 }
 
 pub fn compute_layouts_with_normalized_types(
@@ -73,6 +82,7 @@ pub fn compute_layouts_with_normalized_types(
     interner: &TyInterner,
     signatures: &ItemSignatures,
     normalized: &HashMap<TyId, TyId>,
+    comptime: &ComptimeCheck,
     target: TargetDataLayout,
 ) -> Layouts {
     LayoutComputer {
@@ -80,6 +90,7 @@ pub fn compute_layouts_with_normalized_types(
         interner: interner.clone(),
         signatures,
         normalized,
+        comptime,
         target,
         types: HashMap::new(),
         structs: HashMap::new(),
@@ -99,6 +110,7 @@ struct LayoutComputer<'a> {
     interner: TyInterner,
     signatures: &'a ItemSignatures,
     normalized: &'a HashMap<TyId, TyId>,
+    comptime: &'a ComptimeCheck,
     target: TargetDataLayout,
     types: HashMap<TyId, TypeLayout>,
     structs: HashMap<DefId, StructLayout>,
@@ -229,19 +241,24 @@ impl<'a> LayoutComputer<'a> {
                 ));
                 return None;
             }
-            ArrayLenTy::ConstExpr(text) => match nia_const_eval::eval_array_len_text(&text) {
-                Ok(value) => value,
-                Err(err) => {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        format!(
-                            "array length is not a valid layout constant: {}",
-                            err.message
-                        ),
-                    ));
-                    return None;
+            ArrayLenTy::ConstExpr { text, span } => {
+                match self
+                    .comptime
+                    .array_lengths
+                    .get(&span)
+                    .copied()
+                    .or_else(|| nia_comptime_engine::eval_array_len_text(&text).ok())
+                {
+                    Some(value) => value,
+                    None => {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            format!("array length `{text}` was not evaluated by comptime"),
+                        ));
+                        return None;
+                    }
                 }
-            },
+            }
             ArrayLenTy::Builtin { name, ty } => {
                 let Some(layout) = self.layout_ty(ty, span) else {
                     self.diagnostics.push(Diagnostic::error(
@@ -578,7 +595,7 @@ fn substitute_array_len_generics(
             name,
             ty: substitute_generics(interner, ty, substitutions),
         },
-        ArrayLenTy::Infer | ArrayLenTy::ConstExpr(_) => len,
+        ArrayLenTy::Infer | ArrayLenTy::ConstExpr { .. } => len,
     }
 }
 

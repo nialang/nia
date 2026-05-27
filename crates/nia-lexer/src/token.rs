@@ -20,6 +20,7 @@ pub enum TokenKind {
     As,
     Bool,
     Break,
+    Comptime,
     Const,
     Continue,
     Defer,

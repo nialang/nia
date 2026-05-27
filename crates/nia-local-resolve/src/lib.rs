@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, FunctionItem, IndexArg, ItemKind,
-    Module, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
+    ArrayLen, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, FunctionItem, IndexArg,
+    ItemKind, Module, Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
@@ -63,6 +63,7 @@ pub enum LocalKind {
     Param,
     Binding,
     ConstBinding,
+    ComptimeBinding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +132,9 @@ impl<'a> LocalResolver<'a> {
                     }
                 }
                 ItemKind::Binding(binding) => {
+                    if let Some(ty) = &binding.ty {
+                        self.resolve_type(ty);
+                    }
                     if let Some(value) = &binding.value {
                         self.resolve_expr(value);
                     }
@@ -147,6 +151,9 @@ impl<'a> LocalResolver<'a> {
     fn resolve_function(&mut self, function: &FunctionItem) {
         self.push_scope();
         for param in &function.params {
+            if let Some(ty) = &param.ty {
+                self.resolve_type(ty);
+            }
             if let Some(name) = &param.name {
                 self.define(
                     name,
@@ -155,6 +162,9 @@ impl<'a> LocalResolver<'a> {
                     "duplicate parameter name",
                 );
             }
+        }
+        if let Some(return_type) = &function.return_type {
+            self.resolve_type(return_type);
         }
         if let Some(body) = &function.body {
             self.resolve_block(body);
@@ -232,12 +242,17 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn resolve_binding(&mut self, span: Span, binding: &BindingStmt) {
+        if let Some(ty) = &binding.ty {
+            self.resolve_type(ty);
+        }
         if let Some(value) = &binding.value {
             self.resolve_expr(value);
         }
         self.define(
             &binding.name,
-            if binding.is_const {
+            if binding.is_comptime {
+                LocalKind::ComptimeBinding
+            } else if binding.is_const {
                 LocalKind::ConstBinding
             } else {
                 LocalKind::Binding
@@ -245,6 +260,42 @@ impl<'a> LocalResolver<'a> {
             span,
             "duplicate local binding",
         );
+    }
+
+    fn resolve_type(&mut self, ty: &TypeRef) {
+        match &ty.kind {
+            TypeKind::Error | TypeKind::Void | TypeKind::Never | TypeKind::Infer => {}
+            TypeKind::Path { segments } => {
+                for segment in segments {
+                    for arg in &segment.args {
+                        if let TypeArg::Type(ty) = arg {
+                            self.resolve_type(ty);
+                        }
+                    }
+                }
+            }
+            TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
+                self.resolve_type(elem);
+            }
+            TypeKind::Array { len, elem } => {
+                if let ArrayLen::Expr(expr) = len {
+                    self.resolve_expr(expr);
+                }
+                self.resolve_type(elem);
+            }
+            TypeKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            } => {
+                for param in params {
+                    self.resolve_type(param);
+                }
+                if let Some(return_type) = return_type {
+                    self.resolve_type(return_type);
+                }
+            }
+        }
     }
 
     fn resolve_expr(&mut self, expr: &Expr) {

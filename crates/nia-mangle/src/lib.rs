@@ -129,7 +129,7 @@ where
 {
     match len {
         ArrayLenTy::Infer => "infer".to_string(),
-        ArrayLenTy::ConstExpr(text) => format!("len__{}", sanitize_symbol_part(text)),
+        ArrayLenTy::ConstExpr { text, .. } => format!("len__{}", sanitize_symbol_part(text)),
         ArrayLenTy::Builtin { name, ty } => format!(
             "builtin__{}__{}",
             sanitize_symbol_part(name),

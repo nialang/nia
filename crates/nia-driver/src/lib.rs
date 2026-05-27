@@ -9,7 +9,7 @@ use nia_abi_check::AbiCheck;
 use nia_ast::Module;
 use nia_backend_lower::BackendLowering;
 use nia_body_check::BodyCheck;
-use nia_const_eval::ConstEval;
+use nia_comptime_check::ComptimeCheck;
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_flow_check::FlowCheck;
@@ -73,7 +73,7 @@ pub struct CheckedModule {
     pub local_resolution: LocalResolution,
     pub item_signatures: ItemSignatures,
     pub type_normalization: TypeNormalization,
-    pub const_eval: ConstEval,
+    pub comptime: ComptimeCheck,
     pub static_check: StaticCheck,
     pub layouts: Layouts,
     pub abi_check: AbiCheck,

@@ -91,7 +91,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let actual_elem = *actual_elem;
-        if expected_elem != actual_elem {
+        if !self.types_match(expected_elem, actual_elem) {
             return None;
         }
         if self.is_place_expr(expr) {
@@ -268,7 +268,7 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Array {
                     elem: actual_elem, ..
                 }),
-            ) if expected_elem == actual_elem => true,
+            ) if self.types_match(*expected_elem, *actual_elem) => true,
             (
                 Some(TyKind::Array {
                     len: expected_len,
@@ -278,7 +278,7 @@ impl<'a> BodyChecker<'a> {
                     len: actual_len,
                     elem: actual_elem,
                 }),
-            ) if expected_elem == actual_elem => {
+            ) if self.types_match(*expected_elem, *actual_elem) => {
                 let Ok(expected_len) = self.array_len_value(Span::default(), expected_len) else {
                     return false;
                 };
@@ -305,7 +305,7 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Array {
                     elem: actual_elem, ..
                 }),
-            ) if expected_elem == actual_elem => Some(actual),
+            ) if self.types_match(*expected_elem, *actual_elem) => Some(actual),
             _ => None,
         }
     }
@@ -332,32 +332,28 @@ impl<'a> BodyChecker<'a> {
         self.layouts.types.get(&ty).cloned()
     }
 
-    pub(crate) fn array_len_value(
-        &self,
-        span: Span,
-        len: &ArrayLenTy,
-    ) -> Result<u64, nia_const_eval::ConstEvalError> {
+    pub(crate) fn array_len_value(&self, span: Span, len: &ArrayLenTy) -> Result<u64, String> {
         match len {
-            ArrayLenTy::ConstExpr(text) => nia_const_eval::eval_array_len_text(text),
+            ArrayLenTy::ConstExpr { text, span } => self
+                .comptime
+                .array_lengths
+                .get(span)
+                .copied()
+                .or_else(|| nia_comptime_engine::eval_array_len_text(text).ok())
+                .ok_or_else(|| format!("array length `{text}` was not evaluated by comptime")),
             ArrayLenTy::Builtin { name, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
-                    return Err(nia_const_eval::ConstEvalError {
-                        message: format!(
-                            "cannot compute layout for array length builtin `@{name}`"
-                        ),
-                    });
+                    return Err(format!(
+                        "cannot compute layout for array length builtin `@{name}`"
+                    ));
                 };
                 match name.as_str() {
                     "size" => Ok(layout.size),
                     "align" => Ok(layout.align),
-                    _ => Err(nia_const_eval::ConstEvalError {
-                        message: format!("unsupported array length builtin `@{name}`"),
-                    }),
+                    _ => Err(format!("unsupported array length builtin `@{name}`")),
                 }
             }
-            ArrayLenTy::Infer => Err(nia_const_eval::ConstEvalError {
-                message: format!("array length at {span:?} is not concrete"),
-            }),
+            ArrayLenTy::Infer => Err(format!("array length at {span:?} is not concrete")),
         }
     }
 
@@ -404,7 +400,7 @@ impl<'a> BodyChecker<'a> {
     fn array_len_name(&self, len: &ArrayLenTy) -> String {
         match len {
             ArrayLenTy::Infer => "_".to_string(),
-            ArrayLenTy::ConstExpr(text) => text.clone(),
+            ArrayLenTy::ConstExpr { text, .. } => text.clone(),
             ArrayLenTy::Builtin { name, ty } => format!("@{name}[{}]()", self.ty_name(*ty)),
         }
     }
@@ -436,7 +432,10 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn string_literal_type(&mut self, text: &str) -> TyId {
         let len = string_literal_byte_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr(len.to_string()),
+            len: ArrayLenTy::ConstExpr {
+                text: len.to_string(),
+                span: Span::default(),
+            },
             elem: self.primitive(PrimitiveTy::U8),
         })
     }

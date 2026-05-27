@@ -272,7 +272,10 @@ impl<'a> ValueResolver<'a> {
             ));
             return;
         }
-        if matches!(def.kind, DefKind::Function | DefKind::Global) {
+        if matches!(
+            def.kind,
+            DefKind::Function | DefKind::Global | DefKind::Comptime
+        ) {
             self.qualified_values.insert(
                 expr.span,
                 GlobalDefId {
@@ -288,7 +291,10 @@ impl<'a> ValueResolver<'a> {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return ValueNameResolution::Error;
             };
-            if matches!(def.kind, DefKind::Function | DefKind::Global) {
+            if matches!(
+                def.kind,
+                DefKind::Function | DefKind::Global | DefKind::Comptime
+            ) {
                 return ValueNameResolution::Def(def_id);
             }
         }

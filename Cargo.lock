@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "nia-abi-check"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-defs",
  "nia-diagnostic",
@@ -67,23 +67,24 @@ dependencies = [
 
 [[package]]
 name = "nia-ast"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-span",
 ]
 
 [[package]]
 name = "nia-ast-walk"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
 ]
 
 [[package]]
 name = "nia-backend-ir"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
+ "nia-comptime-check",
  "nia-ids",
  "nia-layout",
  "nia-span",
@@ -92,13 +93,14 @@ dependencies = [
 
 [[package]]
 name = "nia-backend-lower"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-abi-check",
  "nia-ast",
  "nia-backend-ir",
  "nia-body-check",
- "nia-const-eval",
+ "nia-comptime-check",
+ "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-flow-check",
@@ -119,10 +121,11 @@ dependencies = [
 
 [[package]]
 name = "nia-body-check"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
- "nia-const-eval",
+ "nia-comptime-check",
+ "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
@@ -140,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "nia-cli"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-codegen-llvm",
  "nia-diagnostic",
@@ -154,11 +157,12 @@ dependencies = [
 
 [[package]]
 name = "nia-codegen-llvm"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-backend-ir",
- "nia-const-eval",
+ "nia-comptime-check",
+ "nia-comptime-engine",
  "nia-diagnostic",
  "nia-driver",
  "nia-ice",
@@ -171,25 +175,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "nia-const-eval"
-version = "0.1.10"
+name = "nia-comptime-check"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
- "nia-ast-walk",
+ "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
  "nia-item-signatures",
+ "nia-local-resolve",
  "nia-parser",
  "nia-span",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
+ "nia-value-resolve",
+]
+
+[[package]]
+name = "nia-comptime-engine"
+version = "0.1.11"
+dependencies = [
+ "nia-ast",
+ "nia-diagnostic",
+ "nia-parser",
+ "nia-span",
 ]
 
 [[package]]
 name = "nia-defs"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-diagnostic",
@@ -200,20 +216,20 @@ dependencies = [
 
 [[package]]
 name = "nia-diagnostic"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-span",
 ]
 
 [[package]]
 name = "nia-driver"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-abi-check",
  "nia-ast",
  "nia-backend-lower",
  "nia-body-check",
- "nia-const-eval",
+ "nia-comptime-check",
  "nia-defs",
  "nia-diagnostic",
  "nia-flow-check",
@@ -235,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "nia-flow-check"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-defs",
@@ -251,7 +267,7 @@ dependencies = [
 
 [[package]]
 name = "nia-ice"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-diagnostic",
  "nia-span",
@@ -259,11 +275,11 @@ dependencies = [
 
 [[package]]
 name = "nia-ids"
-version = "0.1.10"
+version = "0.1.11"
 
 [[package]]
 name = "nia-imports"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-diagnostic",
@@ -274,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "nia-item-signatures"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-defs",
@@ -289,9 +305,10 @@ dependencies = [
 
 [[package]]
 name = "nia-layout"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
- "nia-const-eval",
+ "nia-comptime-check",
+ "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
@@ -305,14 +322,14 @@ dependencies = [
 
 [[package]]
 name = "nia-lexer"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-span",
 ]
 
 [[package]]
 name = "nia-llvm"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "llvm-sys",
  "nia-diagnostic",
@@ -322,7 +339,7 @@ dependencies = [
 
 [[package]]
 name = "nia-local-resolve"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-defs",
@@ -335,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "nia-mangle"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ids",
  "nia-ty",
@@ -343,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "nia-monomorphize"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-body-check",
  "nia-defs",
@@ -357,7 +374,7 @@ dependencies = [
 
 [[package]]
 name = "nia-parser"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-lexer",
@@ -366,14 +383,14 @@ dependencies = [
 
 [[package]]
 name = "nia-span"
-version = "0.1.10"
+version = "0.1.11"
 
 [[package]]
 name = "nia-static-check"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
- "nia-const-eval",
+ "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-item-signatures",
@@ -387,14 +404,15 @@ dependencies = [
 
 [[package]]
 name = "nia-ty"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ids",
+ "nia-span",
 ]
 
 [[package]]
 name = "nia-type-lower"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-ast-walk",
@@ -409,9 +427,9 @@ dependencies = [
 
 [[package]]
 name = "nia-type-normalize"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
- "nia-const-eval",
+ "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
@@ -425,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "nia-type-resolve"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-ast-walk",
@@ -439,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "nia-value-resolve"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "nia-ast",
  "nia-ast-walk",

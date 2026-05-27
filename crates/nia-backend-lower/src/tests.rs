@@ -45,13 +45,22 @@ fn main() i32 {
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
-    let const_eval =
-        nia_const_eval::eval_module_consts(&module, &defs, &type_lowering, &signatures);
+    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+        module: &module,
+        all_modules: std::slice::from_ref(&module),
+        defs: &defs,
+        all_defs: std::slice::from_ref(&defs),
+        values: &values,
+        locals: &locals,
+        signatures: &signatures,
+        interner: &normalization.interner,
+    });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
         &normalization.interner,
         &signatures,
         &normalization.normalized,
+        &comptime,
         nia_layout::TargetDataLayout::LP64,
     );
     let _abi = check_module_abi(&defs, &type_lowering.interner, &signatures);
@@ -98,12 +107,14 @@ fn main() i32 {
         lowered: &type_lowering,
         signatures: &signatures,
         normalization: &normalization,
+        comptime: &comptime,
         layouts: &layouts,
         extensions: &extensions,
         extension_interner: None,
         program_signatures: ProgramSignatureMaps {
             functions: &HashMap::new(),
             globals: &HashMap::new(),
+            comptimes: &HashMap::new(),
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
@@ -119,6 +130,7 @@ fn main() i32 {
         module_id: ModuleId(0),
         module_name: "main".to_string(),
         module: &module,
+        all_modules: std::slice::from_ref(&module),
         defs: &defs,
         all_defs: std::slice::from_ref(&defs),
         values: &values,
@@ -128,7 +140,7 @@ fn main() i32 {
         type_normalization: &normalization,
         body_check: &body_check,
         extensions: &extensions,
-        const_eval: &const_eval,
+        comptime: &comptime,
         layouts: &layouts,
         extension_interner: None,
     };
@@ -147,4 +159,117 @@ fn main() i32 {
     assert_eq!(lowering.program.modules.len(), 1);
     assert_eq!(lowering.program.modules[0].globals.len(), 1);
     assert_eq!(lowering.program.modules[0].functions.len(), 2);
+}
+
+#[test]
+fn comptime_bindings_do_not_lower_to_storage() {
+    let source = r#"
+comptime answer: i32 = 40 + 2;
+
+fn main() i32 {
+    comptime local: i32 = answer;
+    local
+}
+"#;
+    let (module, errors) = parse_module(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let defs = collect_module_defs(ModuleId(0), &module);
+    let type_resolved = resolve_module_types(&module, &defs);
+    let type_lowering = lower_module_types_with_id(ModuleId(0), &module, &type_resolved);
+    let signatures = collect_item_signatures(&module, &defs, &type_lowering);
+    let values = resolve_module_values(&module, &defs);
+    let locals = resolve_module_locals(&module, &defs, &values);
+    let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
+    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+        module: &module,
+        all_modules: std::slice::from_ref(&module),
+        defs: &defs,
+        all_defs: std::slice::from_ref(&defs),
+        values: &values,
+        locals: &locals,
+        signatures: &signatures,
+        interner: &normalization.interner,
+    });
+    let layouts = nia_layout::compute_layouts_with_normalized_types(
+        &defs,
+        &normalization.interner,
+        &signatures,
+        &normalization.normalized,
+        &comptime,
+        nia_layout::TargetDataLayout::LP64,
+    );
+    let extensions = VisibleExtensionMethods::default();
+    let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
+        module: &module,
+        defs: &defs,
+        all_defs: std::slice::from_ref(&defs),
+        values: &values,
+        locals: &locals,
+        lowered: &type_lowering,
+        signatures: &signatures,
+        normalization: &normalization,
+        comptime: &comptime,
+        layouts: &layouts,
+        extensions: &extensions,
+        extension_interner: None,
+        program_signatures: ProgramSignatureMaps {
+            functions: &HashMap::new(),
+            globals: &HashMap::new(),
+            comptimes: &HashMap::new(),
+            structs: &HashMap::new(),
+            unions: &HashMap::new(),
+            enums: &HashMap::new(),
+        },
+    });
+    assert!(
+        body_check.diagnostics.is_empty(),
+        "{:?}",
+        body_check.diagnostics
+    );
+
+    let input = BackendLowerModuleInput {
+        module_id: ModuleId(0),
+        module_name: "main".to_string(),
+        module: &module,
+        all_modules: std::slice::from_ref(&module),
+        defs: &defs,
+        all_defs: std::slice::from_ref(&defs),
+        values: &values,
+        locals: &locals,
+        type_lowering: &type_lowering,
+        signatures: &signatures,
+        type_normalization: &normalization,
+        body_check: &body_check,
+        extensions: &extensions,
+        comptime: &comptime,
+        layouts: &layouts,
+        extension_interner: None,
+    };
+    let lowering = lower_backend_program(
+        &[input],
+        &Monomorphization {
+            instances: Vec::new(),
+            diagnostics: Vec::new(),
+        },
+    );
+    assert!(
+        lowering.diagnostics.is_empty(),
+        "{:?}",
+        lowering.diagnostics
+    );
+    let module = &lowering.program.modules[0];
+    assert!(module.globals.is_empty());
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    assert!(
+        main.body
+            .as_ref()
+            .expect("main body")
+            .locals
+            .iter()
+            .all(|local| local.name != "local")
+    );
 }

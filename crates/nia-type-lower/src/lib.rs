@@ -356,14 +356,20 @@ impl<'a> TypeLowerer<'a> {
                     type_arg: Some(type_arg),
                 } = &callee.kind
                 else {
-                    return ArrayLenTy::ConstExpr(expr_text(expr));
+                    return ArrayLenTy::ConstExpr {
+                        text: expr_text(expr),
+                        span: expr.span,
+                    };
                 };
                 ArrayLenTy::Builtin {
                     name: name.clone(),
                     ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
                 }
             }
-            _ => ArrayLenTy::ConstExpr(expr_text(expr)),
+            _ => ArrayLenTy::ConstExpr {
+                text: expr_text(expr),
+                span: expr.span,
+            },
         }
     }
 

@@ -41,6 +41,7 @@ pub struct BindingStmt {
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
     pub is_const: bool,
+    pub is_comptime: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use crate::{ModuleLowerer, generic_inst_base};
 use nia_ast::{
-    ArrayElements, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg, SliceRange,
-    Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
+    ArrayElements, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg, ItemKind,
+    SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_backend_ir::{
     BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody, TypedCallee,
@@ -35,7 +35,16 @@ impl<'a> ModuleLowerer<'a> {
         let stmts = block
             .stmts
             .iter()
-            .filter(|stmt| !matches!(stmt.kind, StmtKind::Using(_)))
+            .filter(|stmt| {
+                !matches!(
+                    stmt.kind,
+                    StmtKind::Using(_)
+                        | StmtKind::Binding(BindingStmt {
+                            is_comptime: true,
+                            ..
+                        })
+                )
+            })
             .map(|stmt| self.lower_stmt(stmt))
             .collect();
         let tail = block
@@ -61,8 +70,9 @@ impl<'a> ModuleLowerer<'a> {
             .locals
             .iter()
             .filter(|(id, local)| {
-                self.current_param_locals.contains(id)
-                    || (body_span.start <= local.span.start && local.span.end <= body_span.end)
+                local.kind != LocalKind::ComptimeBinding
+                    && (self.current_param_locals.contains(id)
+                        || (body_span.start <= local.span.start && local.span.end <= body_span.end))
             })
             .map(|(id, local)| TypedLocal {
                 id,
@@ -71,6 +81,7 @@ impl<'a> ModuleLowerer<'a> {
                     LocalKind::Param => TypedLocalKind::Param,
                     LocalKind::Binding => TypedLocalKind::Binding,
                     LocalKind::ConstBinding => TypedLocalKind::ConstBinding,
+                    LocalKind::ComptimeBinding => unreachable!("comptime locals are not lowered"),
                 },
                 ty: self.local_ty(id).unwrap_or_else(|| self.error_ty()),
                 span: local.span,
@@ -164,7 +175,15 @@ impl<'a> ModuleLowerer<'a> {
                 init: init.as_ref().map(|init| {
                     Box::new(match &**init {
                         ForInit::Binding { span, binding } => {
-                            TypedForInit::Binding(self.lower_binding_stmt(*span, binding))
+                            if binding.is_comptime {
+                                TypedForInit::Expr(TypedExpr {
+                                    span: *span,
+                                    ty: self.void_ty(),
+                                    kind: TypedExprKind::Error,
+                                })
+                            } else {
+                                TypedForInit::Binding(self.lower_binding_stmt(*span, binding))
+                            }
                         }
                         ForInit::Expr(expr) => TypedForInit::Expr(self.lower_expr(expr)),
                     })
@@ -205,6 +224,25 @@ impl<'a> ModuleLowerer<'a> {
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error_ty());
+        if let Some(def_id) = self.comptime_global_id_for_expr(expr) {
+            if self.comptime_global_stack.contains(&def_id) {
+                return TypedExpr {
+                    span: expr.span,
+                    ty,
+                    kind: TypedExprKind::Error,
+                };
+            }
+            if let Some(binding) = self.comptime_binding_for(def_id)
+                && let Some(value) = &binding.value
+            {
+                self.comptime_global_stack.push(def_id);
+                let mut lowered = self.lower_expr(value);
+                self.comptime_global_stack.pop();
+                lowered.span = expr.span;
+                lowered.ty = ty;
+                return lowered;
+            }
+        }
         if let Some(def_id) = self.input.values.qualified_values.get(&expr.span).copied() {
             let kind = if self.input.signatures.functions.contains_key(&def_id.def_id) {
                 TypedExprKind::Function(def_id)
@@ -229,7 +267,31 @@ impl<'a> ModuleLowerer<'a> {
             ExprKind::Char(text) => TypedExprKind::Char(text.clone()),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
             ExprKind::Bool(value) => TypedExprKind::Bool(*value),
-            ExprKind::Ident(_) => self.lower_ident_expr(expr),
+            ExprKind::Ident(_) => {
+                if let Some(local_id) = self.local_comptime_id(expr) {
+                    if self.comptime_local_stack.contains(&local_id) {
+                        return TypedExpr {
+                            span: expr.span,
+                            ty,
+                            kind: TypedExprKind::Error,
+                        };
+                    }
+                    let Some(value) = self.local_comptime_value(expr).cloned() else {
+                        return TypedExpr {
+                            span: expr.span,
+                            ty,
+                            kind: TypedExprKind::Error,
+                        };
+                    };
+                    self.comptime_local_stack.push(local_id);
+                    let mut lowered = self.lower_expr(&value);
+                    self.comptime_local_stack.pop();
+                    lowered.span = expr.span;
+                    lowered.ty = ty;
+                    return lowered;
+                }
+                self.lower_ident_expr(expr)
+            }
             ExprKind::Builtin { .. } => {
                 match self.input.body_check.builtin_values.get(&expr.span) {
                     Some(BuiltinValue::Usize(value)) => {
@@ -440,7 +502,18 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_ident_expr(&self, expr: &Expr) -> TypedExprKind {
         match self.input.locals.uses.get(&expr.span) {
-            Some(LocalUse::Local(local)) => TypedExprKind::Local(*local),
+            Some(LocalUse::Local(local)) => {
+                if self
+                    .input
+                    .locals
+                    .locals
+                    .get(*local)
+                    .is_some_and(|local| local.kind == LocalKind::ComptimeBinding)
+                {
+                    return TypedExprKind::Error;
+                }
+                TypedExprKind::Local(*local)
+            }
             Some(LocalUse::ModuleValue) => {
                 if let Some(variant_id) =
                     self.input.values.qualified_values.get(&expr.span).copied()
@@ -455,6 +528,7 @@ impl<'a> ModuleLowerer<'a> {
                             return TypedExprKind::Function(global_id);
                         }
                         Some(DefKind::Global) => return TypedExprKind::Global(global_id),
+                        Some(DefKind::Comptime) => return TypedExprKind::Error,
                         _ => return TypedExprKind::Error,
                     }
                 }
@@ -467,6 +541,7 @@ impl<'a> ModuleLowerer<'a> {
                             Some(DefKind::Global) => {
                                 TypedExprKind::Global(self.global_def_id(*def_id))
                             }
+                            Some(DefKind::Comptime) => TypedExprKind::Error,
                             _ => TypedExprKind::Error,
                         }
                     }
@@ -475,15 +550,6 @@ impl<'a> ModuleLowerer<'a> {
             }
             _ => TypedExprKind::Error,
         }
-    }
-
-    fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
-        self.input
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == global_id.module_id)
-            .and_then(|defs| defs.defs.get(global_id.def_id))
-            .map(|def| def.kind)
     }
 
     fn lower_slice_range(&mut self, range: &SliceRange) -> TypedSliceRange {
@@ -504,7 +570,7 @@ impl<'a> ModuleLowerer<'a> {
             }
             ArrayElements::Repeat { value, count } => TypedArrayElements::Repeat {
                 value: Box::new(self.lower_expr(value)),
-                count: nia_const_eval::eval_array_len_text(&count.text).unwrap_or(0),
+                count: nia_comptime_engine::eval_array_len_text(&count.text).unwrap_or(0),
             },
         }
     }
@@ -973,29 +1039,139 @@ impl<'a> ModuleLowerer<'a> {
         expected.is_some() && expected == actual
     }
 
-    fn array_len_value(&self, len: &ArrayLenTy) -> Result<u64, nia_const_eval::ConstEvalError> {
+    fn array_len_value(&self, len: &ArrayLenTy) -> Result<u64, String> {
         match len {
-            ArrayLenTy::ConstExpr(text) => nia_const_eval::eval_array_len_text(text),
+            ArrayLenTy::ConstExpr { text, span } => self
+                .input
+                .comptime
+                .array_lengths
+                .get(span)
+                .copied()
+                .or_else(|| nia_comptime_engine::eval_array_len_text(text).ok())
+                .ok_or_else(|| format!("array length `{text}` was not evaluated by comptime")),
             ArrayLenTy::Builtin { name, ty } => {
                 let ty = self.input.type_normalization.normalize(*ty);
                 let Some(layout) = self.input.layouts.types.get(&ty) else {
-                    return Err(nia_const_eval::ConstEvalError {
-                        message: format!(
-                            "cannot compute layout for array length builtin `@{name}`"
-                        ),
-                    });
+                    return Err(format!(
+                        "cannot compute layout for array length builtin `@{name}`"
+                    ));
                 };
                 match name.as_str() {
                     "size" => Ok(layout.size),
                     "align" => Ok(layout.align),
-                    _ => Err(nia_const_eval::ConstEvalError {
-                        message: format!("unsupported array length builtin `@{name}`"),
-                    }),
+                    _ => Err(format!("unsupported array length builtin `@{name}`")),
                 }
             }
-            ArrayLenTy::Infer => Err(nia_const_eval::ConstEvalError {
-                message: "array length is not concrete".to_string(),
+            ArrayLenTy::Infer => Err("array length is not concrete".to_string()),
+        }
+    }
+
+    pub(crate) fn local_comptime_value(&self, expr: &Expr) -> Option<&Expr> {
+        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&expr.span) else {
+            return None;
+        };
+        let local = self.input.locals.locals.get(*local_id)?;
+        if local.kind != LocalKind::ComptimeBinding {
+            return None;
+        }
+        self.local_comptime_binding_value(*local_id, self.input.module)
+    }
+
+    fn local_comptime_id(&self, expr: &Expr) -> Option<LocalId> {
+        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&expr.span) else {
+            return None;
+        };
+        let local = self.input.locals.locals.get(*local_id)?;
+        (local.kind == LocalKind::ComptimeBinding).then_some(*local_id)
+    }
+
+    fn local_comptime_binding_value<'b>(
+        &self,
+        local_id: LocalId,
+        module: &'b nia_ast::Module,
+    ) -> Option<&'b Expr> {
+        module.items.iter().find_map(|item| match &item.kind {
+            ItemKind::Function(function) => function
+                .body
+                .as_ref()
+                .and_then(|body| self.local_comptime_value_in_block(local_id, body)),
+            ItemKind::Extend(extend) => extend.methods.iter().find_map(|method| {
+                method
+                    .function
+                    .body
+                    .as_ref()
+                    .and_then(|body| self.local_comptime_value_in_block(local_id, body))
             }),
+            _ => None,
+        })
+    }
+
+    fn local_comptime_value_in_block<'b>(
+        &self,
+        local_id: LocalId,
+        block: &'b Block,
+    ) -> Option<&'b Expr> {
+        for stmt in &block.stmts {
+            match &stmt.kind {
+                StmtKind::Binding(binding)
+                    if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
+                {
+                    return binding.value.as_ref();
+                }
+                StmtKind::For(for_stmt) => {
+                    if let ForHeader::CStyle { init, .. } = &for_stmt.header
+                        && let Some(init) = init
+                        && let ForInit::Binding { span, binding } = &**init
+                        && self.input.locals.local_defs.get(span).copied() == Some(local_id)
+                    {
+                        return binding.value.as_ref();
+                    }
+                    if let Some(value) =
+                        self.local_comptime_value_in_block(local_id, &for_stmt.body)
+                    {
+                        return Some(value);
+                    }
+                }
+                StmtKind::Switch(switch) => {
+                    for arm in &switch.arms {
+                        let value = match &arm.body {
+                            SwitchArmBody::Block(block) => {
+                                self.local_comptime_value_in_block(local_id, block)
+                            }
+                            SwitchArmBody::Stmt(stmt) => {
+                                self.local_comptime_value_in_stmt(local_id, stmt)
+                            }
+                            SwitchArmBody::Expr(_) => None,
+                        };
+                        if value.is_some() {
+                            return value;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn local_comptime_value_in_stmt<'b>(
+        &self,
+        local_id: LocalId,
+        stmt: &'b Stmt,
+    ) -> Option<&'b Expr> {
+        match &stmt.kind {
+            StmtKind::Binding(binding)
+                if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
+            {
+                binding.value.as_ref()
+            }
+            StmtKind::For(for_stmt) => self.local_comptime_value_in_block(local_id, &for_stmt.body),
+            StmtKind::Switch(switch) => switch.arms.iter().find_map(|arm| match &arm.body {
+                SwitchArmBody::Block(block) => self.local_comptime_value_in_block(local_id, block),
+                SwitchArmBody::Stmt(stmt) => self.local_comptime_value_in_stmt(local_id, stmt),
+                SwitchArmBody::Expr(_) => None,
+            }),
+            _ => None,
         }
     }
 

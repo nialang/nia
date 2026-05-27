@@ -12,6 +12,7 @@ pub(crate) struct CheckLoadedModuleInput<'a> {
     pub(crate) loaded_module: &'a LoadedModule,
     pub(crate) defs: DefCollection,
     pub(crate) imports: &'a ImportAliasMap,
+    pub(crate) all_modules: &'a [nia_ast::Module],
     pub(crate) all_defs: &'a [DefCollection],
     pub(crate) extensions: VisibleExtensionsForModule,
     pub(crate) type_resolution: TypeResolution,
@@ -28,6 +29,7 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
         loaded_module,
         defs,
         imports,
+        all_modules,
         all_defs,
         extensions,
         type_resolution,
@@ -48,17 +50,22 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
     );
     let local_resolution =
         nia_local_resolve::resolve_module_locals(&loaded_module.module, &defs, &value_resolution);
-    let const_eval = nia_const_eval::eval_module_consts(
-        &loaded_module.module,
-        &defs,
-        &type_lowering,
-        &item_signatures,
-    );
+    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+        module: &loaded_module.module,
+        all_modules,
+        defs: &defs,
+        all_defs,
+        values: &value_resolution,
+        locals: &local_resolution,
+        signatures: &item_signatures,
+        interner: &type_normalization.interner,
+    });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
         &type_normalization.interner,
         &item_signatures,
         &type_normalization.normalized,
+        &comptime,
         nia_layout::TargetDataLayout::LP64,
     );
     let program_structs = program_signatures
@@ -108,6 +115,7 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
             lowered: &type_lowering,
             signatures: &item_signatures,
             normalization: &type_normalization,
+            comptime: &comptime,
             layouts: &layouts,
             extensions: &extensions.methods,
             extension_interner: Some(&extensions.interner),
@@ -125,7 +133,7 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
         local_resolution,
         item_signatures,
         type_normalization,
-        const_eval,
+        comptime,
         static_check,
         layouts,
         abi_check,

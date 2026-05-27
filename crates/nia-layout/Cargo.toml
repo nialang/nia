@@ -6,7 +6,8 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-const-eval.workspace = true
+nia-comptime-check.workspace = true
+nia-comptime-engine.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true

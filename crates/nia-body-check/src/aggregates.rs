@@ -108,15 +108,12 @@ impl<'a> BodyChecker<'a> {
                 let inferred = match elems {
                     nia_ast::ArrayElements::List(elems) => elems.len().to_string(),
                     nia_ast::ArrayElements::Repeat { count, .. } => {
-                        match nia_const_eval::eval_array_len_text(&count.text) {
+                        match nia_comptime_engine::eval_array_len_text(&count.text) {
                             Ok(value) => value.to_string(),
                             Err(err) => {
                                 self.diagnostics.push(Diagnostic::error(
                                     count.span,
-                                    format!(
-                                        "array repeat count is not a valid constant: {}",
-                                        err.message
-                                    ),
+                                    format!("array repeat count is not a valid constant: {err}"),
                                 ));
                                 count.text.clone()
                             }
@@ -124,11 +121,14 @@ impl<'a> BodyChecker<'a> {
                     }
                 };
                 self.interner.intern(TyKind::Array {
-                    len: ArrayLenTy::ConstExpr(inferred),
+                    len: ArrayLenTy::ConstExpr {
+                        text: inferred,
+                        span,
+                    },
                     elem: elem_ty,
                 })
             }
-            expected @ (ArrayLenTy::ConstExpr(_) | ArrayLenTy::Builtin { .. }) => {
+            expected @ (ArrayLenTy::ConstExpr { .. } | ArrayLenTy::Builtin { .. }) => {
                 match explicit_array_literal_len(elems) {
                     Ok(Some(actual)) => match self.array_len_value(span, &expected) {
                         Ok(expected) => {
@@ -143,17 +143,14 @@ impl<'a> BodyChecker<'a> {
                         }
                         Err(err) => self.diagnostics.push(Diagnostic::error(
                             span,
-                            format!("array length is not a valid constant: {}", err.message),
+                            format!("array length is not a valid constant: {err}"),
                         )),
                     },
                     Ok(None) => {}
                     Err(err) => {
                         self.diagnostics.push(Diagnostic::error(
                             span,
-                            format!(
-                                "array repeat count is not a valid constant: {}",
-                                err.message
-                            ),
+                            format!("array repeat count is not a valid constant: {err}"),
                         ));
                     }
                 }
@@ -357,7 +354,18 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn qualified_global_type(&mut self, span: Span) -> Option<TyId> {
         let def_id = self.values.qualified_values.get(&span).copied()?;
         if def_id.module_id == self.defs.module_id {
-            return self.global_types.get(&def_id.def_id).copied();
+            return self
+                .global_types
+                .get(&def_id.def_id)
+                .or_else(|| self.comptime_types.get(&def_id.def_id))
+                .copied();
+        }
+        if let Some(program_signature) = self.program_comptimes.get(&def_id).cloned() {
+            let ty = program_signature
+                .signature
+                .explicit_type
+                .unwrap_or_else(|| self.error());
+            return Some(self.import_type_from(&program_signature.interner, ty));
         }
         let program_signature = self.program_globals.get(&def_id)?.clone();
         let ty = program_signature
@@ -593,13 +601,11 @@ fn array_literal_values(elems: &nia_ast::ArrayElements) -> Vec<&Expr> {
     }
 }
 
-fn explicit_array_literal_len(
-    elems: &nia_ast::ArrayElements,
-) -> Result<Option<u64>, nia_const_eval::ConstEvalError> {
+fn explicit_array_literal_len(elems: &nia_ast::ArrayElements) -> Result<Option<u64>, String> {
     Ok(match elems {
         nia_ast::ArrayElements::List(elems) => Some(elems.len() as u64),
         nia_ast::ArrayElements::Repeat { count, .. } => {
-            Some(nia_const_eval::eval_array_len_text(&count.text)?)
+            Some(nia_comptime_engine::eval_array_len_text(&count.text)?)
         }
     })
 }

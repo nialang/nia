@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendGlobal, BackendParam,
     BackendStruct, BackendUnion,
 };
-use nia_const_eval::ConstValue;
+use nia_comptime_check::ComptimeValue;
 use nia_defs::DefKind;
 use nia_span::Span;
 
@@ -81,11 +81,11 @@ impl<'a> ModuleLowerer<'a> {
                     name: variant.name.clone(),
                     value: self
                         .input
-                        .const_eval
+                        .comptime
                         .enum_values
                         .get(&variant.def_id)
                         .map(|value| match value {
-                            ConstValue::Int(value) => *value,
+                            ComptimeValue::Int(value) => *value,
                         }),
                     span: variant.span,
                 })

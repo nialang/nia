@@ -226,6 +226,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
             id: ModuleId(0),
             name: "main".to_string(),
             interner,
+            comptime: nia_comptime_check::ComptimeCheck::default(),
             layouts: BackendLayouts {
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: vec![
@@ -1504,6 +1505,67 @@ fn main() i32 {
     assert!(ir.contains("%nia__m0__d0__Bits"));
     assert!(ir.contains("store i32 42"));
     assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_comptime_values_without_runtime_storage() {
+    let root = temp_dir("emits_comptime_values_without_runtime_storage");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+comptime answer: i32 = 40 + 2;
+const saved: i32 = answer;
+
+fn main() i32 {
+    comptime local: i32 = answer;
+    local
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("ret i32 42"), "{ir}");
+    assert!(ir.contains("@nia__m0__d"));
+    assert!(!ir.contains("answer"), "{ir}");
+    assert!(!ir.contains("local"), "{ir}");
+}
+
+#[test]
+fn emits_arrays_sized_by_imported_comptime_values() {
+    let root = temp_dir("emits_arrays_sized_by_imported_comptime_values");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .config;
+
+fn main() i32 {
+    var values: [config::width]i32 = [1, 2, 3, 4];
+    values[3]
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("config.nia"),
+        r#"
+pub comptime width: usize = 4;
+"#,
+    )
+    .expect("write config source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.modules[0].ir.contains("[4 x i32]"));
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
