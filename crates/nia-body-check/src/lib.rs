@@ -112,6 +112,7 @@ pub struct BodyCheckInput<'a> {
     pub normalization: &'a TypeNormalization,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
+    pub extension_interner: Option<&'a TyInterner>,
     pub program_signatures: ProgramSignatureMaps<'a>,
 }
 
@@ -171,6 +172,7 @@ pub fn check_module_bodies(
         normalization: &empty_normalization,
         layouts: &layouts,
         extensions: &empty_extensions,
+        extension_interner: None,
         program_signatures: ProgramSignatureMaps {
             functions: &empty_functions,
             globals: &empty_globals,
@@ -208,6 +210,7 @@ pub fn check_module_bodies_with_program_signatures(
         normalization: input.normalization,
         layouts: &layouts,
         extensions: input.extensions,
+        extension_interner: None,
         program_signatures: input.program_signatures,
     });
     checked.diagnostics.extend(layouts.diagnostics);
@@ -222,7 +225,10 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         all_defs: input.all_defs,
         values: input.values,
         locals: input.locals,
-        interner: input.normalization.interner.clone(),
+        interner: input
+            .extension_interner
+            .cloned()
+            .unwrap_or_else(|| input.normalization.interner.clone()),
         type_uses: &input.lowered.type_uses,
         signatures: input.signatures,
         normalization: input.normalization,

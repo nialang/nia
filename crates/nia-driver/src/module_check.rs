@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{CheckedModule, LoadedModule};
+use crate::{CheckedModule, LoadedModule, program_signatures::VisibleExtensionsForModule};
 use nia_body_check::ProgramSignatureMaps;
-use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces, VisibleExtensionMethods};
+use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_imports::ImportAliasMap;
 use nia_item_signatures::ItemSignatures;
 use nia_type_lower::TypeLowering;
@@ -13,7 +13,7 @@ pub(crate) struct CheckLoadedModuleInput<'a> {
     pub(crate) defs: DefCollection,
     pub(crate) imports: &'a ImportAliasMap,
     pub(crate) all_defs: &'a [DefCollection],
-    pub(crate) extensions: VisibleExtensionMethods,
+    pub(crate) extensions: VisibleExtensionsForModule,
     pub(crate) type_resolution: TypeResolution,
     pub(crate) type_lowering: TypeLowering,
     pub(crate) item_signatures: ItemSignatures,
@@ -109,7 +109,8 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
             signatures: &item_signatures,
             normalization: &type_normalization,
             layouts: &layouts,
-            extensions: &extensions,
+            extensions: &extensions.methods,
+            extension_interner: Some(&extensions.interner),
             program_signatures,
         },
     );
