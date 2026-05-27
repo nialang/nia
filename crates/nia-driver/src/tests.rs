@@ -76,19 +76,209 @@ fn checks_each_loaded_module() {
 }
 
 #[test]
-fn reports_import_cycles() {
-    let root = temp_dir("reports_import_cycles");
+fn loads_cyclic_imports_without_cycle_diagnostic() {
+    let root = temp_dir("loads_cyclic_imports_without_cycle_diagnostic");
     write(&root.join("main.nia"), r#"import .a; fn main() {}"#);
     write(&root.join("a.nia"), r#"import .b;"#);
     write(&root.join("b.nia"), r#"import .a;"#);
 
     let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(program.modules.len(), 3);
+}
+
+#[test]
+fn resolves_public_items_inside_cyclic_imports() {
+    let root = temp_dir("resolves_public_items_inside_cyclic_imports");
+    write(
+        &root.join("main.nia"),
+        r#"import .a; fn main() i32 { a::from_b() }"#,
+    );
+    write(
+        &root.join("a.nia"),
+        r#"
+import .b;
+
+pub fn from_b() i32 {
+    b::value()
+}
+"#,
+    );
+    write(
+        &root.join("b.nia"),
+        r#"
+import .a;
+
+pub fn value() i32 {
+    42
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn rejects_private_items_inside_cyclic_imports() {
+    let root = temp_dir("rejects_private_items_inside_cyclic_imports");
+    write(
+        &root.join("main.nia"),
+        r#"import .a; fn main() i32 { a::from_b() }"#,
+    );
+    write(
+        &root.join("a.nia"),
+        r#"
+import .b;
+
+pub fn from_b() i32 {
+    b::value()
+}
+"#,
+    );
+    write(
+        &root.join("b.nia"),
+        r#"
+import .a;
+
+fn value() i32 {
+    42
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
             .message
-            .contains("import cycle detected")
+            .contains("value `b::value` is private")
     }));
+}
+
+#[test]
+fn resolves_public_extension_methods_inside_cyclic_imports() {
+    let root = temp_dir("resolves_public_extension_methods_inside_cyclic_imports");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .a;
+
+fn main(p: a::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("a.nia"),
+        r#"
+import .b;
+
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+"#,
+    );
+    write(
+        &root.join("b.nia"),
+        r#"
+import .a;
+
+extend a::Point {
+    pub fn len2(&const self) i32 {
+        4
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn resolves_items_and_extensions_through_complex_cyclic_import_graph() {
+    let root = temp_dir("resolves_items_and_extensions_through_complex_cyclic_import_graph");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .core;
+import .entry;
+
+fn main(p: core::Point) i32 {
+    entry::score(p)
+}
+"#,
+    );
+    write(
+        &root.join("core.nia"),
+        r#"
+import .ops;
+
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+
+pub fn base() i32 {
+    10
+}
+"#,
+    );
+    write(
+        &root.join("entry.nia"),
+        r#"
+import .core;
+import .math;
+import .ops;
+
+pub fn score(p: core::Point) i32 {
+    p.len2() + math::via_helpers() + ops::from_cycle()
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+import .helpers;
+
+pub fn via_helpers() i32 {
+    helpers::call_core()
+}
+"#,
+    );
+    write(
+        &root.join("helpers.nia"),
+        r#"
+import .core;
+import .ops;
+
+pub fn call_core() i32 {
+    core::base() + ops::from_cycle()
+}
+"#,
+    );
+    write(
+        &root.join("ops.nia"),
+        r#"
+import .core;
+import .helpers;
+
+extend core::Point {
+    pub fn len2(&const self) i32 {
+        helpers::call_core()
+    }
+}
+
+pub fn from_cycle() i32 {
+    core::base()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
