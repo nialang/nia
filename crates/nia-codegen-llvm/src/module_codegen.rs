@@ -12,7 +12,7 @@ use crate::output::LlvmCodegenOptions;
 use crate::program_index::ProgramIndex;
 use nia_backend_ir::{BackendFunction, BackendModule};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, ModuleId, TyId};
 use nia_layout::TypeLayout;
 use nia_llvm::{
     Context, LlvmError,
@@ -35,7 +35,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) struct_instances: HashMap<(GlobalDefId, Vec<TyId>), StructType<'ctx>>,
     pub(super) union_instances: HashMap<(GlobalDefId, Vec<TyId>), StructType<'ctx>>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
-    pub(super) function_instances: HashMap<(GlobalDefId, Vec<TyId>), FunctionValue<'ctx>>,
+    pub(super) function_instances: HashMap<(GlobalDefId, ModuleId, Vec<TyId>), FunctionValue<'ctx>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
 }
 
@@ -137,14 +137,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(TyKind::Pointer {
             is_const: true,
             elem: argv_elem,
-        }) = self.source.interner.get(ty)
+        }) = self.ty_kind(ty)
         else {
             return false;
         };
         let Some(TyKind::Pointer {
             is_const: true,
             elem: byte_elem,
-        }) = self.source.interner.get(*argv_elem)
+        }) = self.ty_kind(*argv_elem)
         else {
             return false;
         };

@@ -24,7 +24,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .llvm_basic_type_in(ty, span, interner, layouts)?
                 .const_zero()?),
             StaticInit::Int(value) => {
-                let Some(TyKind::Primitive(primitive)) = interner.get(ty) else {
+                let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
                     return Err(
                         self.error(span, "integer static initializer target is not primitive")
                     );
@@ -160,7 +160,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = parse_float_literal(text)
             .ok_or_else(|| self.error(span, format!("invalid float literal `{text}`")))?;
-        match self.interner().get(ty) {
+        match self.ty_kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::F32)) => {
                 Ok(self.context.f32_type().const_float(value).into())
             }
@@ -173,14 +173,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn static_char_init_value_in(
         &self,
-        interner: &TyInterner,
+        _interner: &TyInterner,
         ty: TyId,
         text: &str,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = decode_char_literal(text)
             .ok_or_else(|| self.error(span, format!("invalid char literal `{text}`")))?;
-        let Some(TyKind::Primitive(primitive)) = interner.get(ty) else {
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
             return Err(self.error(span, "char static initializer target is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
@@ -195,7 +195,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         elems: &[StaticInit],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(TyKind::Array { elem, .. }) = interner.get(ty) else {
+        let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty) else {
             return Err(self.error(span, "array static initializer target is not array"));
         };
         let values = elems
@@ -214,7 +214,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         count: u64,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(TyKind::Array { elem, .. }) = interner.get(ty) else {
+        let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty) else {
             return Err(self.error(span, "repeat static initializer target is not array"));
         };
         let value = self.static_init_value_in(*elem, value, span, interner, layouts)?;
@@ -233,7 +233,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let struct_ty = self
             .llvm_basic_type_in(ty, span, interner, layouts)?
             .into_struct_type()?;
-        let Some(TyKind::Nominal { def_id, args }) = interner.get(ty) else {
+        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
             return Err(self.error(span, "struct static initializer target is not nominal"));
         };
         if self.is_union_def(*def_id) {

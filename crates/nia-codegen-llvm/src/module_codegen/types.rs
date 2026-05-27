@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendStructInstanceKey, BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, ModuleId, TyId};
 use nia_llvm::{
     types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType},
     values::FunctionValue,
@@ -29,6 +29,16 @@ pub(crate) enum AbiReturn {
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
+    fn module_interner(&self, module_id: ModuleId) -> Option<&'a TyInterner> {
+        self.program
+            .module(module_id)
+            .map(|module| &module.interner)
+    }
+
+    pub(crate) fn ty_kind(&self, ty: TyId) -> Option<&'a TyKind> {
+        self.module_interner(ty.module_id)?.get(ty)
+    }
+
     pub(super) fn function_type_in(
         &self,
         function: &BackendFunction,
@@ -80,7 +90,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         for param in &function.params {
             params.push(self.llvm_basic_type_in(param.ty, param.span, interner, layouts)?);
         }
-        match interner.get(function.return_type) {
+        match self.ty_kind(function.return_type) {
             Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => Ok(self
                 .context
                 .void_type()
@@ -153,7 +163,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn classify_param_in(
         &self,
         ty: TyId,
-        interner: &TyInterner,
+        _interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> AbiParam {
         if self
@@ -162,7 +172,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return AbiParam::Omit;
         }
-        match interner.get(ty) {
+        match self.ty_kind(ty) {
             Some(
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }
@@ -180,10 +190,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn classify_return_in(
         &self,
         ty: TyId,
-        interner: &TyInterner,
+        _interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> AbiReturn {
-        match interner.get(ty) {
+        match self.ty_kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
             Some(TyKind::Primitive(PrimitiveTy::Void)) => return AbiReturn::Void,
             _ => {}
@@ -194,7 +204,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         {
             return AbiReturn::Void;
         }
-        match interner.get(ty) {
+        match self.ty_kind(ty) {
             Some(
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }
@@ -241,27 +251,27 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         ty: TyId,
         span: Span,
-        interner: &TyInterner,
+        _interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         if self
             .layout_of_in(ty, layouts)
             .is_some_and(|layout| layout.size == 0)
             && !matches!(
-                interner.get(ty),
+                self.ty_kind(ty),
                 Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
             )
         {
             return Ok(self.context.struct_type(&[], false).into());
         }
-        match interner.get(ty) {
+        match self.ty_kind(ty) {
             Some(TyKind::Primitive(primitive)) => self.primitive_type(*primitive, span),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => {
                 Ok(self.context.ptr_type(Default::default()).into())
             }
             Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
             Some(TyKind::Array { len, elem }) => {
-                let elem = self.llvm_basic_type_in(*elem, span, interner, layouts)?;
+                let elem = self.llvm_basic_type_in(*elem, span, self.interner(), layouts)?;
                 let len = self.array_len_in(len, span, layouts)?;
                 if len > u32::MAX as u64 {
                     return Err(
@@ -284,12 +294,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return Ok(union_ty.into());
                 }
                 if let Some(item) = self.program.enums.get(def_id).copied() {
-                    return self.llvm_basic_type_in(
-                        item.backing_type,
-                        item.span,
-                        interner,
-                        layouts,
-                    );
+                    return self.llvm_basic_type(item.backing_type, item.span);
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
             }
@@ -432,7 +437,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn field_base_type(&self, ty: TyId) -> Option<(GlobalDefId, Vec<TyId>)> {
-        match self.interner().get(ty) {
+        match self.ty_kind(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.field_base_type(*elem),
             _ => None,
@@ -662,7 +667,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         args: &[TyId],
     ) -> Option<&'a BackendFunctionInstance> {
         self.program.function_instances.iter().find_map(
-            |((candidate_def, candidate_args), item)| {
+            |((candidate_def, _, candidate_args), item)| {
                 (*candidate_def == def_id && self.same_type_args(args, candidate_args))
                     .then_some(*item)
             },
@@ -676,7 +681,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Option<FunctionValue<'ctx>> {
         self.function_instances
             .iter()
-            .find_map(|((candidate_def, candidate_args), value)| {
+            .find_map(|((candidate_def, _, candidate_args), value)| {
                 (*candidate_def == def_id && self.same_type_args(args, candidate_args))
                     .then_some(*value)
             })
@@ -694,11 +699,92 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if left == right {
             return true;
         }
-        self.interner().get(left) == self.interner().get(right)
+        match (self.ty_kind(left), self.ty_kind(right)) {
+            (Some(TyKind::Error), Some(TyKind::Error)) => true,
+            (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
+            (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
+            (
+                Some(TyKind::Pointer {
+                    is_const: left_const,
+                    elem: left_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_const: right_const,
+                    elem: right_elem,
+                }),
+            )
+            | (
+                Some(TyKind::Slice {
+                    is_const: left_const,
+                    elem: left_elem,
+                }),
+                Some(TyKind::Slice {
+                    is_const: right_const,
+                    elem: right_elem,
+                }),
+            ) => left_const == right_const && self.same_type(*left_elem, *right_elem),
+            (
+                Some(TyKind::Array {
+                    len: left_len,
+                    elem: left_elem,
+                }),
+                Some(TyKind::Array {
+                    len: right_len,
+                    elem: right_elem,
+                }),
+            ) => {
+                self.same_array_len(left_len, right_len) && self.same_type(*left_elem, *right_elem)
+            }
+            (
+                Some(TyKind::FunctionPointer {
+                    params: left_params,
+                    return_type: left_return,
+                    is_variadic: left_variadic,
+                }),
+                Some(TyKind::FunctionPointer {
+                    params: right_params,
+                    return_type: right_return,
+                    is_variadic: right_variadic,
+                }),
+            ) => {
+                left_variadic == right_variadic
+                    && self.same_type_args(left_params, right_params)
+                    && self.same_type(*left_return, *right_return)
+            }
+            (
+                Some(TyKind::Nominal {
+                    def_id: left_def,
+                    args: left_args,
+                }),
+                Some(TyKind::Nominal {
+                    def_id: right_def,
+                    args: right_args,
+                }),
+            ) => left_def == right_def && self.same_type_args(left_args, right_args),
+            _ => false,
+        }
+    }
+
+    fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
+        match (left, right) {
+            (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
+            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => left == right,
+            (
+                ArrayLenTy::Builtin {
+                    name: left_name,
+                    ty: left_ty,
+                },
+                ArrayLenTy::Builtin {
+                    name: right_name,
+                    ty: right_ty,
+                },
+            ) => left_name == right_name && self.same_type(*left_ty, *right_ty),
+            _ => false,
+        }
     }
 
     pub(crate) fn array_elem_ty(&self, ty: TyId, span: Span) -> Result<TyId, Diagnostic> {
-        match self.interner().get(ty) {
+        match self.ty_kind(ty) {
             Some(TyKind::Array { elem, .. })
             | Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::Slice { elem, .. }) => Ok(*elem),

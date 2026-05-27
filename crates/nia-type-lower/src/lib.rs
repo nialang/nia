@@ -42,7 +42,7 @@ pub fn lower_module_types_with_defs(
         module_id,
         resolved,
         all_defs,
-        interner: TyInterner::new(),
+        interner: TyInterner::new(module_id),
         type_uses: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
@@ -507,13 +507,13 @@ fn make(ptr: &const u8, cb: &const fn(i32) void) [4]Box[i32] {
         assert!(
             lowered
                 .interner
-                .get(TyId(0))
+                .get(lowered.interner.error())
                 .is_some_and(|ty| matches!(ty, TyKind::Error))
         );
         assert!(
             lowered
                 .interner
-                .get(TyId(1))
+                .get(lowered.interner.primitive(PrimitiveTy::I8))
                 .is_some_and(|_| lowered.interner.len() > 1)
         );
         assert!(

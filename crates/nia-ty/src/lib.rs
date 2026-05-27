@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, LocalTyId, ModuleId, TyId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyKind {
@@ -62,56 +62,84 @@ pub enum ArrayLenTy {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TyInterner {
+    module_id: ModuleId,
     tys: Vec<TyKind>,
-    map: HashMap<TyKind, TyId>,
+    map: HashMap<TyKind, LocalTyId>,
+    error_ty: LocalTyId,
+    primitive_tys: HashMap<PrimitiveTy, LocalTyId>,
 }
 
 impl Default for TyInterner {
     fn default() -> Self {
-        let mut interner = Self {
-            tys: Vec::new(),
-            map: HashMap::new(),
-        };
-        interner.intern(TyKind::Error);
-        for primitive in PrimitiveTy::ALL {
-            interner.intern(TyKind::Primitive(primitive));
-        }
-        interner
+        Self::new(ModuleId(0))
     }
 }
 
 impl TyInterner {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(module_id: ModuleId) -> Self {
+        let mut interner = Self {
+            module_id,
+            tys: Vec::new(),
+            map: HashMap::new(),
+            error_ty: LocalTyId::from_interner_index(0),
+            primitive_tys: HashMap::new(),
+        };
+        let error_ty = interner.intern_local(TyKind::Error);
+        interner.error_ty = error_ty;
+        for primitive in PrimitiveTy::ALL {
+            let ty = interner.intern_local(TyKind::Primitive(primitive));
+            interner.primitive_tys.insert(primitive, ty);
+        }
+        interner
+    }
+
+    pub fn module_id(&self) -> ModuleId {
+        self.module_id
     }
 
     pub fn intern(&mut self, kind: TyKind) -> TyId {
-        if let Some(id) = self.map.get(&kind) {
-            return *id;
+        TyId::new(self.module_id, self.intern_local(kind))
+    }
+
+    fn intern_local(&mut self, kind: TyKind) -> LocalTyId {
+        if let Some(local_id) = self.map.get(&kind) {
+            return *local_id;
         }
-        let id = TyId(self.tys.len() as u32);
+        let local_id = LocalTyId::from_interner_index(self.tys.len() as u32);
         self.tys.push(kind.clone());
-        self.map.insert(kind, id);
-        id
+        self.map.insert(kind, local_id);
+        local_id
     }
 
     pub fn get(&self, id: TyId) -> Option<&TyKind> {
-        self.tys.get(id.0 as usize)
+        if id.module_id != self.module_id {
+            return None;
+        }
+        self.tys.get(id.local_id.index() as usize)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (TyId, &TyKind)> {
-        self.tys
-            .iter()
-            .enumerate()
-            .map(|(index, ty)| (TyId(index as u32), ty))
+        let module_id = self.module_id;
+        self.tys.iter().enumerate().map(move |(index, ty)| {
+            (
+                TyId::new(module_id, LocalTyId::from_interner_index(index as u32)),
+                ty,
+            )
+        })
     }
 
     pub fn error(&self) -> TyId {
-        TyId(0)
+        TyId::new(self.module_id, self.error_ty)
     }
 
     pub fn primitive(&self, primitive: PrimitiveTy) -> TyId {
-        TyId(primitive.index() + 1)
+        TyId::new(
+            self.module_id,
+            *self
+                .primitive_tys
+                .get(&primitive)
+                .expect("primitive type must be preinterned"),
+        )
     }
 
     pub fn len(&self) -> usize {
@@ -144,29 +172,6 @@ impl PrimitiveTy {
         Self::Void,
         Self::Never,
     ];
-
-    const fn index(self) -> u32 {
-        match self {
-            Self::I8 => 0,
-            Self::I16 => 1,
-            Self::I32 => 2,
-            Self::I64 => 3,
-            Self::I128 => 4,
-            Self::Isize => 5,
-            Self::U8 => 6,
-            Self::U16 => 7,
-            Self::U32 => 8,
-            Self::U64 => 9,
-            Self::U128 => 10,
-            Self::Usize => 11,
-            Self::F32 => 12,
-            Self::F64 => 13,
-            Self::Bool => 14,
-            Self::Char => 15,
-            Self::Void => 16,
-            Self::Never => 17,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -175,7 +180,7 @@ mod tests {
 
     #[test]
     fn interns_identical_types_once() {
-        let mut interner = TyInterner::new();
+        let mut interner = TyInterner::new(ModuleId(0));
         let a = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         let b = interner.intern(TyKind::Primitive(PrimitiveTy::I32));
         assert_eq!(a, b);
@@ -184,7 +189,7 @@ mod tests {
 
     #[test]
     fn primitive_ids_match_preinterned_layout() {
-        let interner = TyInterner::new();
+        let interner = TyInterner::new(ModuleId(0));
         for primitive in PrimitiveTy::ALL {
             let id = interner.primitive(primitive);
             assert_eq!(interner.get(id), Some(&TyKind::Primitive(primitive)));

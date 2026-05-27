@@ -301,6 +301,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                     body_check: &checked_module.body_check,
                     const_eval: &checked_module.const_eval,
                     layouts: &checked_module.layouts,
+                    extension_interner: Some(&visible_extensions.interner),
                 })
             })
             .collect::<Vec<_>>(),

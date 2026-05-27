@@ -47,6 +47,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub extensions: &'a VisibleExtensionMethods,
     pub const_eval: &'a nia_const_eval::ConstEval,
     pub layouts: &'a Layouts,
+    pub extension_interner: Option<&'a nia_ty::TyInterner>,
 }
 
 pub fn lower_backend_program(
@@ -185,6 +186,7 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .map(|inst| nia_backend_ir::BackendGenericInstantiation {
                     def_id: inst.def_id,
+                    arg_module_id: self.input.module_id,
                     args: inst.args.clone(),
                     span: inst.span,
                     source_def_id: inst.source_def_id,
@@ -242,6 +244,7 @@ impl<'a> ModuleLowerer<'a> {
             instances.push(BackendFunctionInstance {
                 def_id: instance.def_id,
                 name: base.name.clone(),
+                arg_module_id: instance.arg_module_id,
                 args: instance.args.clone(),
                 symbol: instance.symbol.clone(),
                 params: self.instantiate_params(base, &substitutions),
