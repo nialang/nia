@@ -1373,10 +1373,10 @@ import ..lib;          // src/lib.nia
 
 A bare import such as `import math;` is not relative. It is resolved through an
 external module map. The CLI registers map entries with `-M name=path` or
-`--module name=path`:
+`--module name=path`. Module map options may appear before or after the command:
 
 ```bash
-niac -M std=/usr/share/nia/std.nia check src/main.nia
+niac check src/main.nia -M std=/usr/share/nia/std.nia
 ```
 
 ```nia
