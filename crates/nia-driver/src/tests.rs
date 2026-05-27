@@ -198,6 +198,43 @@ extend a::Point {
 }
 
 #[test]
+fn resolves_imported_extension_method_function_pointers() {
+    let root = temp_dir("resolves_imported_extension_method_function_pointers");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+
+fn call(p: &const math::Point, f: &const fn(&const math::Point) i32) i32 {
+    f(p)
+}
+
+fn main(p: math::Point) i32 {
+    call(&const p, &const math::Point::len2)
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point {
+    pub fn len2(&const self) i32 {
+        self.x * self.x + self.y * self.y
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn resolves_items_and_extensions_through_complex_cyclic_import_graph() {
     let root = temp_dir("resolves_items_and_extensions_through_complex_cyclic_import_graph");
     write(

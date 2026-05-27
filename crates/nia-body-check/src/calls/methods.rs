@@ -29,9 +29,9 @@ struct MethodGenericContext<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct MethodCandidate {
-    target_ty: TyId,
-    method_id: GlobalDefId,
+pub(super) struct MethodCandidate {
+    pub(super) target_ty: TyId,
+    pub(super) method_id: GlobalDefId,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -202,7 +202,7 @@ impl<'a> BodyChecker<'a> {
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
 
-    fn receiver_ty_for_struct(
+    pub(super) fn receiver_ty_for_struct(
         &mut self,
         def_id: GlobalDefId,
         args: &[TyId],
@@ -278,13 +278,13 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn type_prefix_has_no_generics(&mut self, def_id: GlobalDefId) -> bool {
+    pub(super) fn type_prefix_has_no_generics(&mut self, def_id: GlobalDefId) -> bool {
         self.resolved_struct_signature(def_id)
             .map(|resolved| resolved.signature.generics.is_empty())
             .unwrap_or(false)
     }
 
-    fn check_type_prefix_arg_count(
+    pub(super) fn check_type_prefix_arg_count(
         &mut self,
         span: Span,
         def_id: GlobalDefId,
@@ -484,7 +484,7 @@ impl<'a> BodyChecker<'a> {
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
 
-    fn method_candidates_for_struct(
+    pub(super) fn method_candidates_for_struct(
         &mut self,
         struct_id: GlobalDefId,
         name: &str,
@@ -538,7 +538,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn single_method_candidate(
+    pub(super) fn single_method_candidate(
         &mut self,
         span: Span,
         name: &str,
@@ -782,7 +782,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn match_type_pattern(
+    pub(super) fn match_type_pattern(
         &self,
         pattern: TyId,
         actual: TyId,

@@ -1427,6 +1427,15 @@ passing the receiver explicitly:
 var n = Vec2::len2(&const v);
 ```
 
+The same associated path can be used as an unbound function item when forming a
+function pointer. This does not capture a receiver; the receiver remains the
+first explicit function parameter:
+
+```nia
+var f: &const fn(&const Vec2) i32 = &const Vec2::len2;
+var n = f(&v);
+```
+
 Generic structs may have methods:
 
 ```nia
@@ -1453,6 +1462,15 @@ extend[T] Box[T] {
 
 var box: Box[i32] = { value: 1 };
 var x = box.replace[bool](true);
+```
+
+Associated paths use the same brackets for generic type and method arguments:
+
+```nia
+var make: &const fn(i32) Box[i32] = &const Box[i32]::make;
+var replace: &const fn(&const Box[i32], bool) bool =
+    &const Box[i32]::replace[bool];
+var y = Box[i32]::replace[bool](&const box, true);
 ```
 
 ## 11. Modules

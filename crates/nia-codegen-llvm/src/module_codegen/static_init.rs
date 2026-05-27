@@ -67,8 +67,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             StaticInit::AddrOfGlobal { global, path } => {
                 self.static_addr_of_global_value(ty, *global, path, span, interner, layouts)
             }
-            StaticInit::AddrOfFunction(function) => {
-                self.static_addr_of_function_value(ty, *function, span, interner, layouts)
+            StaticInit::AddrOfFunction { function, args } => {
+                self.static_addr_of_function_value(ty, *function, args, span, interner, layouts)
             }
         }
     }
@@ -138,13 +138,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         ty: TyId,
         function: GlobalDefId,
+        args: &[TyId],
         span: Span,
         target_interner: &TyInterner,
         target_layouts: &BackendLayouts,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let function = self
-            .function(function)
-            .ok_or_else(|| self.error(span, "missing function for static address initializer"))?;
+        let function = if args.is_empty() {
+            self.function(function)
+        } else {
+            self.function_instance_value(function, args)
+        }
+        .ok_or_else(|| self.error(span, "missing function for static address initializer"))?;
         let target_ptr_ty = self
             .llvm_basic_type_in(ty, span, target_interner, target_layouts)?
             .into_pointer_type()?;

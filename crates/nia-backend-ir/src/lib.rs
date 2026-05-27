@@ -213,7 +213,10 @@ pub enum StaticInit {
         global: GlobalDefId,
         path: Vec<PlaceElem>,
     },
-    AddrOfFunction(GlobalDefId),
+    AddrOfFunction {
+        function: GlobalDefId,
+        args: Vec<TyId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

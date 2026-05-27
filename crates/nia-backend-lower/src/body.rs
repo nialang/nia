@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::{ModuleLowerer, generic_inst_base};
+use crate::{ModuleLowerer, generic_inst_base, lowered_type_args};
 use nia_ast::{
     ArrayElements, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg, ItemKind,
     SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
@@ -401,6 +401,17 @@ impl<'a> ModuleLowerer<'a> {
                         range: self.lower_slice_range(range),
                         is_const: matches!(op, UnaryOp::RefConst),
                     }
+                } else if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                    && let Some(function_item) = self.lower_function_item_ref(inner)
+                {
+                    TypedExprKind::Unary {
+                        op: *op,
+                        expr: Box::new(TypedExpr {
+                            span: inner.span,
+                            ty: self.expr_ty(inner).unwrap_or_else(|| self.error_ty()),
+                            kind: function_item,
+                        }),
+                    }
                 } else {
                     TypedExprKind::Unary {
                         op: *op,
@@ -561,6 +572,64 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn lower_function_item_ref(&mut self, expr: &Expr) -> Option<TypedExprKind> {
+        match &expr.kind {
+            ExprKind::BracketSuffix { callee, args } => {
+                let mut kind = self.lower_function_item_ref(callee)?;
+                let type_args = lowered_type_args(args, self.input.type_lowering);
+                match &mut kind {
+                    TypedExprKind::FunctionInstance { args, .. } => args.extend(type_args),
+                    TypedExprKind::Function(def_id) => {
+                        kind = TypedExprKind::FunctionInstance {
+                            def_id: *def_id,
+                            args: type_args,
+                        };
+                    }
+                    _ => {}
+                }
+                Some(kind)
+            }
+            ExprKind::Qualified { lhs, name } => {
+                if let Some((struct_id, struct_args)) = self.type_prefix_instance(lhs)
+                    && let Some((method_id, mut args)) =
+                        self.single_method_for_target(struct_id, &struct_args, name)
+                {
+                    if args.is_empty() {
+                        return Some(TypedExprKind::Function(method_id));
+                    }
+                    return Some(TypedExprKind::FunctionInstance {
+                        def_id: method_id,
+                        args: std::mem::take(&mut args),
+                    });
+                }
+                self.input
+                    .values
+                    .qualified_values
+                    .get(&expr.span)
+                    .copied()
+                    .map(TypedExprKind::Function)
+            }
+            ExprKind::Ident(_) => {
+                if let Some(global_id) = self.input.values.qualified_values.get(&expr.span).copied()
+                    && matches!(
+                        self.def_kind_of(global_id),
+                        Some(DefKind::Function | DefKind::Method)
+                    )
+                {
+                    return Some(TypedExprKind::Function(global_id));
+                }
+                if let Some(ValueNameResolution::Def(def_id)) =
+                    self.input.values.names.get(&expr.span)
+                    && self.input.signatures.functions.contains_key(def_id)
+                {
+                    return Some(TypedExprKind::Function(self.global_def_id(*def_id)));
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
     fn lower_slice_range(&mut self, range: &SliceRange) -> TypedSliceRange {
         TypedSliceRange {
             start: range
@@ -667,16 +736,28 @@ impl<'a> ModuleLowerer<'a> {
         struct_args: &[TyId],
         name: &str,
     ) -> Option<GlobalDefId> {
+        self.single_method_for_target(struct_id, struct_args, name)
+            .map(|(method_id, _)| method_id)
+    }
+
+    pub(crate) fn single_method_for_target(
+        &self,
+        struct_id: GlobalDefId,
+        struct_args: &[TyId],
+        name: &str,
+    ) -> Option<(GlobalDefId, Vec<TyId>)> {
         let mut candidates = self.methods_for_nominal_target(struct_id, name);
+        let mut selected_args = Vec::new();
         if !struct_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
             let target_ty = self.nominal_ty(struct_id, struct_args)?;
             candidates.retain(|candidate| {
                 self.match_type_pattern(candidate.target_ty, target_ty, &mut HashMap::new())
             });
+            selected_args = struct_args.to_vec();
         }
         let candidates = self.most_specific_candidates(&candidates);
         match candidates.as_slice() {
-            [method] => Some(method.method_id),
+            [method] => Some((method.method_id, selected_args)),
             _ => None,
         }
     }
