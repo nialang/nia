@@ -17,6 +17,12 @@ use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct VisibleExtensionsForModule {
+    pub(crate) methods: VisibleExtensionMethods,
+    pub(crate) interner: TyInterner,
+}
+
 pub(crate) fn collect_program_functions(
     modules: &[LoadedModule],
     lowerings: &[TypeLowering],
@@ -223,20 +229,22 @@ pub(crate) fn visible_extensions_for_module(
     module_id: nia_ids::ModuleId,
     imports: &nia_imports::ImportAliasMap,
     defs_by_module: &[DefCollection],
-    lowerings: &[TypeLowering],
     normalizations: &[TypeNormalization],
     extensions: &ExtensionMethods,
-) -> VisibleExtensionMethods {
+) -> VisibleExtensionsForModule {
     let imported_modules = transitive_import_closure(module_id, imports);
-    let Some(current_lowering) = lowerings
+    let Some(current_normalization) = normalizations
         .iter()
         .zip(defs_by_module)
         .find(|(_, defs)| defs.module_id == module_id)
-        .map(|(lowering, _)| lowering)
+        .map(|(normalization, _)| normalization)
     else {
-        return VisibleExtensionMethods::default();
+        return VisibleExtensionsForModule {
+            methods: VisibleExtensionMethods::default(),
+            interner: TyInterner::default(),
+        };
     };
-    let mut target_interner = current_lowering.interner.clone();
+    let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
     for method in extensions.visible_methods(module_id, imported_modules) {
         let Some(method_defs) = defs_by_module
@@ -257,7 +265,7 @@ pub(crate) fn visible_extensions_for_module(
         let target_ty = normalizations[method_module_index].normalize(method.target_ty);
         let target_ty = import_type_into(
             &mut target_interner,
-            &lowerings[method_module_index].interner,
+            &normalizations[method_module_index].interner,
             target_ty,
         );
         visible.insert(
@@ -268,7 +276,10 @@ pub(crate) fn visible_extensions_for_module(
             },
         );
     }
-    visible
+    VisibleExtensionsForModule {
+        methods: visible,
+        interner: target_interner,
+    }
 }
 
 fn transitive_import_closure(

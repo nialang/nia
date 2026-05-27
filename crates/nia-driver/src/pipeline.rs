@@ -150,7 +150,6 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                 module.id,
                 &loaded.imports,
                 &defs_by_module,
-                &type_lowerings,
                 &type_normalizations,
                 &extension_methods,
             )
@@ -293,7 +292,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                     module: &loaded_module.module,
                     defs: &checked_module.defs,
                     all_defs: &defs_by_module,
-                    extensions: visible_extensions,
+                    extensions: &visible_extensions.methods,
                     values: &checked_module.value_resolution,
                     locals: &checked_module.local_resolution,
                     type_lowering: &checked_module.type_lowering,

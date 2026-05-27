@@ -85,6 +85,7 @@ fn pipeline(source: &str) -> BodyCheck {
         normalization: &normalization,
         layouts: &layouts,
         extensions: &extensions,
+        extension_interner: None,
         program_signatures: ProgramSignatureMaps {
             functions: &HashMap::new(),
             globals: &HashMap::new(),

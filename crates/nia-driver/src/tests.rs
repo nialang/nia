@@ -451,6 +451,126 @@ extend math::Point {
 }
 
 #[test]
+fn imports_generic_structural_extension_methods() {
+    let root = temp_dir("imports_generic_structural_extension_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .ptr;
+
+extern fn read_const() &const u8;
+
+fn main(mut_ptr: &u8) i32 {
+    var const_ptr = read_const();
+    if mut_ptr.null() {
+        return 1;
+    }
+    if const_ptr.null() {
+        return 2;
+    }
+    0
+}
+"#,
+    );
+    write(
+        &root.join("ptr.nia"),
+        r#"
+extend[T] &const T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+extend[T] &T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imports_generic_structural_extension_methods_through_import_closure() {
+    let root = temp_dir("imports_generic_structural_extension_methods_through_import_closure");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .share;
+
+extern fn read_const() &const u8;
+
+fn main(mut_ptr: &u8) i32 {
+    var const_ptr = read_const();
+    if mut_ptr.null() {
+        return 1;
+    }
+    if const_ptr.null() {
+        return 2;
+    }
+    0
+}
+"#,
+    );
+    write(&root.join("share.nia"), r#"import .ptr;"#);
+    write(
+        &root.join("ptr.nia"),
+        r#"
+extend[T] &const T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+extend[T] &T {
+    pub fn null(self) bool {
+        self as usize == 0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imports_generic_structural_extension_methods_with_alias_targets() {
+    let root = temp_dir("imports_generic_structural_extension_methods_with_alias_targets");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .ptr;
+
+fn main(ptr: &u8) i32 {
+    if ptr.alias_null() {
+        return 1;
+    }
+    0
+}
+"#,
+    );
+    write(
+        &root.join("ptr.nia"),
+        r#"
+type Ptr[T] = &T;
+
+extend[T] Ptr[T] {
+    pub fn alias_null(self) bool {
+        self as usize == 0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn does_not_import_private_extension_methods_through_import_closure() {
     let root = temp_dir("does_not_import_private_extension_methods_through_import_closure");
     write(
