@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     fs,
 };
 
 use crate::{LoadedModule, LoadedProgram, ProgramDiagnostic, module_diagnostics};
 use nia_diagnostic::Diagnostic;
-use nia_ids::ModuleId;
 use nia_imports::{
     ModuleGraph, ModuleMap, SourcePath, collect_import_aliases, collect_module_imports,
 };
@@ -27,9 +26,6 @@ pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap
         module_map,
     };
     loader.load_all();
-    loader
-        .diagnostics
-        .extend(detect_import_cycles(&loader.graph));
     let imports = collect_import_aliases(&loader.graph);
     LoadedProgram {
         graph: loader.graph,
@@ -37,54 +33,6 @@ pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap
         modules: loader.modules,
         diagnostics: loader.diagnostics,
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum VisitState {
-    Visiting,
-    Done,
-}
-
-fn detect_import_cycles(graph: &ModuleGraph) -> Vec<ProgramDiagnostic> {
-    let mut states = HashMap::new();
-    let mut diagnostics = Vec::new();
-    for module in graph.modules() {
-        if !states.contains_key(&module.id) {
-            detect_import_cycles_from(module.id, graph, &mut states, &mut diagnostics);
-        }
-    }
-    diagnostics
-}
-
-fn detect_import_cycles_from(
-    module_id: ModuleId,
-    graph: &ModuleGraph,
-    states: &mut HashMap<ModuleId, VisitState>,
-    diagnostics: &mut Vec<ProgramDiagnostic>,
-) {
-    states.insert(module_id, VisitState::Visiting);
-    let Some(module) = graph.get(module_id) else {
-        states.insert(module_id, VisitState::Done);
-        return;
-    };
-    for import in &module.imports {
-        match states.get(&import.target).copied() {
-            Some(VisitState::Visiting) => diagnostics.push(ProgramDiagnostic {
-                path: module.path.clone(),
-                diagnostic: Diagnostic::error(
-                    import.span,
-                    format!(
-                        "import cycle detected: `{}` imports `{}`",
-                        module.path.as_str(),
-                        import.path.as_str()
-                    ),
-                ),
-            }),
-            Some(VisitState::Done) => {}
-            None => detect_import_cycles_from(import.target, graph, states, diagnostics),
-        }
-    }
-    states.insert(module_id, VisitState::Done);
 }
 
 struct ProgramLoader {

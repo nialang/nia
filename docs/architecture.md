@@ -148,9 +148,10 @@ It does not perform semantic checking of imported items.
 
 ### 5.3 `nia-driver`
 
-Loads source files, builds the import graph, detects import cycles, computes
-public surfaces, and schedules whole-program checking and codegen. It owns the
-cross-module pipeline.
+Loads source files, builds the import graph, computes public surfaces, and
+schedules whole-program checking and codegen. It owns the cross-module pipeline.
+The import graph may contain cycles; concrete semantic cycles are diagnosed by
+the phase that owns the affected construct.
 
 The driver should remain an orchestrator. It should not become a semantic
 analysis crate.
@@ -380,6 +381,12 @@ language-level package manager or module declaration syntax.
 Cross-module references should go through import aliases, public surfaces,
 qualified paths, and stable `GlobalDefId`s. Phases should avoid storing direct
 filesystem paths as semantic identity.
+
+Import cycles are not errors by themselves. Modules in a cycle keep separate
+`ModuleId`s and source paths, and references still go through explicit import
+aliases and normal visibility checks. Recursive aliases, constants, layouts,
+generic expansion, or re-export chains remain concrete semantic errors for their
+owning phases.
 
 ## 16. Evolution Rules
 

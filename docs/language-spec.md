@@ -1400,6 +1400,22 @@ Imported declarations are accessed through the alias:
 var x = math::add(1, 2);
 ```
 
+The import graph may contain cycles. A cycle is not an error by itself:
+
+```nia
+// a.nia
+import .b;
+
+// b.nia
+import .a;
+```
+
+Modules in a cycle remain separate modules. Cross-module references still use
+explicit import aliases, and `pub` still controls item visibility. If a cycle
+causes a concrete semantic problem, such as a recursive type alias, recursive
+layout, invalid re-export chain, or recursive generic expansion, that problem is
+diagnosed by the relevant compiler phase.
+
 `pub` cannot be applied to `import`. Import aliases are local to the current
 file. Re-export imported items with `pub using`.
 
