@@ -838,6 +838,42 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn disambiguates_bracket_suffix_between_index_and_generic_instantiation() {
+    let checked = pipeline(
+        r#"
+fn id[T](value: T) T { value }
+
+fn main() i32 {
+    var xs: [3]i32 = [10, 20, 30];
+    var i32: usize = 1;
+    var indexed = xs[i32];
+    var called: i32 = id[i32](indexed);
+    var ptr = &const id[i32];
+    var bad_value = id[i32];
+    indexed + ptr(1) + called
+}
+"#,
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("index")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("function values are not supported")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn infers_generic_function_type_arguments_from_call_arguments() {
     let checked = pipeline(
         r#"
