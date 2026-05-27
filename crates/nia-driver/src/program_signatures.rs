@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::LoadedModule;
 use nia_body_check::{
@@ -227,12 +227,7 @@ pub(crate) fn visible_extensions_for_module(
     normalizations: &[TypeNormalization],
     extensions: &ExtensionMethods,
 ) -> VisibleExtensionMethods {
-    let imported_modules = imports
-        .module_aliases(module_id)
-        .into_iter()
-        .flat_map(|aliases| aliases.values())
-        .map(|alias| alias.target)
-        .collect::<Vec<_>>();
+    let imported_modules = transitive_import_closure(module_id, imports);
     let Some(current_lowering) = lowerings
         .iter()
         .zip(defs_by_module)
@@ -274,4 +269,32 @@ pub(crate) fn visible_extensions_for_module(
         );
     }
     visible
+}
+
+fn transitive_import_closure(
+    module_id: nia_ids::ModuleId,
+    imports: &nia_imports::ImportAliasMap,
+) -> Vec<nia_ids::ModuleId> {
+    let mut seen = HashSet::new();
+    let mut queue = VecDeque::new();
+    if let Some(aliases) = imports.module_aliases(module_id) {
+        for alias in aliases.values() {
+            queue.push_back(alias.target);
+        }
+    }
+
+    while let Some(imported) = queue.pop_front() {
+        if imported == module_id || !seen.insert(imported) {
+            continue;
+        }
+        if let Some(aliases) = imports.module_aliases(imported) {
+            for alias in aliases.values() {
+                queue.push_back(alias.target);
+            }
+        }
+    }
+
+    let mut modules = seen.into_iter().collect::<Vec<_>>();
+    modules.sort();
+    modules
 }

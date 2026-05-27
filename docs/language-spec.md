@@ -1309,10 +1309,12 @@ extend Point {
 }
 ```
 
-Public extension methods from imported modules participate in method lookup.
-Private extension methods are visible only in their defining module. If multiple
-visible extension methods provide the same method name for the same receiver
-type, the call is ambiguous.
+Public extension methods from transitively imported modules participate in
+method lookup. `import` controls this module capability propagation; `using`
+only introduces shorter names for items that are already visible. Private
+extension methods are visible only in their defining module. If multiple visible
+extension methods provide the same method name for the same receiver type, the
+call is ambiguous.
 
 Generic structs may have methods:
 
