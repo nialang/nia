@@ -14,7 +14,31 @@ fn help_and_version_use_niac_command_name() {
     );
     let help_stdout = String::from_utf8_lossy(&help.stdout);
     assert!(help_stdout.contains("Usage:\n  niac"), "{help_stdout}");
-    assert!(help_stdout.contains("emit obj <file.nia>"), "{help_stdout}");
+    assert!(
+        help_stdout.contains("emit <target> <file.nia>"),
+        "{help_stdout}"
+    );
+
+    let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("help")
+        .arg("emit")
+        .arg("obj")
+        .output()
+        .expect("run niac help emit obj");
+    assert!(
+        emit_obj_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit_obj_help.stderr)
+    );
+    let emit_obj_stdout = String::from_utf8_lossy(&emit_obj_help.stdout);
+    assert!(
+        emit_obj_stdout.contains("niac emit obj <file.nia>"),
+        "{emit_obj_stdout}"
+    );
+    assert!(
+        emit_obj_stdout.contains("--out-dir <dir>"),
+        "{emit_obj_stdout}"
+    );
 
     let version = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("--version")
@@ -27,6 +51,45 @@ fn help_and_version_use_niac_command_name() {
     );
     let version_stdout = String::from_utf8_lossy(&version.stdout);
     assert!(version_stdout.starts_with("niac "), "{version_stdout}");
+}
+
+#[test]
+fn module_map_option_can_follow_command_arguments() {
+    let root = temp_dir("module_map_option_can_follow_command_arguments");
+    let main = root.join("main.nia");
+    let mapped = root.join("share.nia");
+    std::fs::write(
+        &main,
+        r#"
+import share;
+
+fn main() i32 {
+    share::answer
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        &mapped,
+        r#"
+pub comptime answer: i32 = 42;
+"#,
+    )
+    .expect("write mapped source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("check")
+        .arg(&main)
+        .arg("-M")
+        .arg(format!("share={}", mapped.display()))
+        .output()
+        .expect("run niac check with trailing -M");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]

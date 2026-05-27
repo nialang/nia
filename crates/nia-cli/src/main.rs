@@ -12,7 +12,7 @@ use nia_parser::ParseError;
 
 mod help;
 
-use help::help_text;
+use help::{HelpStyle, help_text};
 
 fn main() -> ExitCode {
     nia_ice::install_panic_hook();
@@ -35,7 +35,7 @@ fn run_with_ice_boundary(
 fn run_main() -> ExitCode {
     match parse_cli(env::args().skip(1).collect()) {
         Ok(CliAction::Help(topic)) => {
-            print!("{}", help_text(topic));
+            print!("{}", help_text(topic, HelpStyle::for_stdout()));
             ExitCode::SUCCESS
         }
         Ok(CliAction::Version) => {
@@ -45,12 +45,12 @@ fn run_main() -> ExitCode {
         Ok(CliAction::Run(cli)) => run_cli(cli),
         Err(error) => {
             if error.is_help {
-                print!("{}", help_text(error.help));
+                print!("{}", help_text(error.help, HelpStyle::for_stdout()));
                 return ExitCode::SUCCESS;
             }
             eprintln!("error: {}", error.message);
             eprintln!();
-            eprint!("{}", help_text(error.help));
+            eprint!("{}", help_text(error.help, HelpStyle::for_stderr()));
             ExitCode::FAILURE
         }
     }
@@ -156,57 +156,17 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
         return Ok(CliAction::Help(HelpTopic::Main));
     }
 
-    let mut args = args.into_iter().peekable();
-    let mut map = ModuleMap::new();
-
-    while let Some(arg) = args.peek().cloned() {
-        if arg == "-h" || arg == "--help" {
-            return Ok(CliAction::Help(HelpTopic::Main));
-        }
-        if arg == "-V" || arg == "--version" {
-            return Ok(CliAction::Version);
-        }
-        if let Some(pair) = arg.strip_prefix("-M") {
-            let _ = args.next();
-            let payload = if pair.is_empty() {
-                args.next()
-                    .ok_or_else(|| CliError::new("missing argument after `-M`", HelpTopic::Main))?
-            } else if let Some(rest) = pair.strip_prefix('=') {
-                rest.to_string()
-            } else {
-                pair.to_string()
-            };
-            insert_module_map_entry(&mut map, &payload)
-                .map_err(|message| CliError::new(message, HelpTopic::Main))?;
-            continue;
-        }
-        if arg == "--module" {
-            let Some(option) = args.next() else {
-                return Err(CliError::new(
-                    "missing argument after `--module`",
-                    HelpTopic::Main,
-                ));
-            };
-            let payload = args.next().ok_or_else(|| {
-                CliError::new(
-                    format!("missing argument after `{option}`"),
-                    HelpTopic::Main,
-                )
-            })?;
-            insert_module_map_entry(&mut map, &payload)
-                .map_err(|message| CliError::new(message, HelpTopic::Main))?;
-            continue;
-        }
-        if let Some(payload) = arg.strip_prefix("--module=") {
-            let _ = args.next();
-            insert_module_map_entry(&mut map, payload)
-                .map_err(|message| CliError::new(message, HelpTopic::Main))?;
-            continue;
-        }
-        break;
+    let (remaining, map) = extract_global_options(args, HelpTopic::Main)?;
+    if remaining.is_empty() {
+        return Ok(CliAction::Help(HelpTopic::Main));
     }
-
-    let remaining = args.collect::<Vec<_>>();
+    if remaining.len() == 1 {
+        match remaining[0].as_str() {
+            "-h" | "--help" => return Ok(CliAction::Help(HelpTopic::Main)),
+            "-V" | "--version" => return Ok(CliAction::Version),
+            _ => {}
+        }
+    }
     match parse_command(remaining)? {
         ParsedCommand::Help(topic) => Ok(CliAction::Help(topic)),
         ParsedCommand::Run(command) => Ok(CliAction::Run(Cli {
@@ -214,6 +174,57 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
             command,
         })),
     }
+}
+
+fn extract_global_options(
+    args: Vec<String>,
+    help: HelpTopic,
+) -> Result<(Vec<String>, ModuleMap), CliError> {
+    let mut map = ModuleMap::new();
+    let mut remaining = Vec::new();
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        if let Some(payload) = module_payload_from_short(&arg) {
+            let payload = match payload {
+                Some(payload) => payload,
+                None => iter
+                    .next()
+                    .ok_or_else(|| CliError::new("missing argument after `-M`", help))?,
+            };
+            insert_module_map_entry(&mut map, &payload)
+                .map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
+        if arg == "--module" {
+            let payload = iter
+                .next()
+                .ok_or_else(|| CliError::new("missing argument after `--module`", help))?;
+            insert_module_map_entry(&mut map, &payload)
+                .map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
+        if let Some(payload) = arg.strip_prefix("--module=") {
+            insert_module_map_entry(&mut map, payload)
+                .map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
+        remaining.push(arg);
+    }
+    Ok((remaining, map))
+}
+
+fn module_payload_from_short(arg: &str) -> Option<Option<String>> {
+    if arg == "-M" {
+        return Some(None);
+    }
+    let payload = arg.strip_prefix("-M")?;
+    if payload.is_empty() {
+        return Some(None);
+    }
+    if let Some(rest) = payload.strip_prefix('=') {
+        return Some(Some(rest.to_string()));
+    }
+    Some(Some(payload.to_string()))
 }
 
 enum ParsedCommand {
