@@ -225,6 +225,83 @@ extend math::Point {
 }
 
 #[test]
+fn imports_public_extension_methods_through_import_closure() {
+    let root = temp_dir("imports_public_extension_methods_through_import_closure");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+import .facade;
+
+fn main(p: math::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+    write(&root.join("facade.nia"), r#"import .point_ext;"#);
+    write(
+        &root.join("point_ext.nia"),
+        r#"
+import .math;
+
+extend math::Point {
+    pub fn len2(&const self) i32 {
+        4
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn does_not_import_private_extension_methods_through_import_closure() {
+    let root = temp_dir("does_not_import_private_extension_methods_through_import_closure");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+import .facade;
+
+fn main(p: math::Point) i32 {
+    p.len2()
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub struct Point { x: i32, y: i32 }"#,
+    );
+    write(&root.join("facade.nia"), r#"import .point_ext;"#);
+    write(
+        &root.join("point_ext.nia"),
+        r#"
+import .math;
+
+extend math::Point {
+    fn len2(&const self) i32 {
+        4
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .diagnostic
+            .message
+            .contains("unknown struct field `len2`")
+    }));
+}
+
+#[test]
 fn rejects_private_cross_module_items() {
     let root = temp_dir("rejects_private_cross_module_items");
     write(
