@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::ModuleLowerer;
 use crate::literals::{
-    decode_byte_char, decode_string_literal, numeric_literal_body, parse_int_literal,
+    decode_byte_char, decode_byte_string_literal, decode_c_string_literal, decode_char_literal,
+    decode_string_literal, numeric_literal_body, parse_int_literal,
 };
 use nia_ast::{ArrayElements, Expr, ExprKind};
 use nia_backend_ir::{PlaceBase, StaticFieldInit, StaticInit};
@@ -27,15 +28,41 @@ impl<'a> ModuleLowerer<'a> {
             ExprKind::Float(text) => StaticInit::Float(numeric_literal_body(text).to_string()),
             ExprKind::Bool(value) => StaticInit::Bool(*value),
             ExprKind::String(text) => decode_string_literal(text)
-                .map(StaticInit::Bytes)
+                .map(StaticInit::Chars)
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
                         format!("invalid string literal `{text}` in static initializer"),
                     ));
+                    StaticInit::Chars(Vec::new())
+                }),
+            ExprKind::ByteString(text) => decode_byte_string_literal(text)
+                .map(StaticInit::Bytes)
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        format!("invalid byte string literal `{text}` in static initializer"),
+                    ));
                     StaticInit::Bytes(Vec::new())
                 }),
-            ExprKind::Char(text) => StaticInit::Char(text.clone()),
+            ExprKind::CString(text) => decode_c_string_literal(text)
+                .map(StaticInit::Bytes)
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        format!("invalid C string literal `{text}` in static initializer"),
+                    ));
+                    StaticInit::Bytes(Vec::new())
+                }),
+            ExprKind::Char(text) => decode_char_literal(text)
+                .map(StaticInit::Char)
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        format!("invalid char literal `{text}` in static initializer"),
+                    ));
+                    StaticInit::Char(0)
+                }),
             ExprKind::ByteChar(text) => decode_byte_char(text)
                 .map(StaticInit::Byte)
                 .unwrap_or_else(|| {

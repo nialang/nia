@@ -211,6 +211,8 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         | ExprKind::Integer(_)
         | ExprKind::Float(_)
         | ExprKind::String(_)
+        | ExprKind::ByteString(_)
+        | ExprKind::CString(_)
         | ExprKind::Char(_)
         | ExprKind::ByteChar(_)
         | ExprKind::Raw(_)

@@ -38,10 +38,10 @@ impl<'a> BodyChecker<'a> {
             match field.name.as_str() {
                 "code" => {
                     has_code = true;
-                    if !matches!(field.value.kind, ExprKind::String(_)) {
+                    if !matches!(field.value.kind, ExprKind::ByteString(_)) {
                         self.diagnostics.push(Diagnostic::error(
                             field.value.span,
-                            "`@asm` field `code` must be a string literal",
+                            "`@asm` field `code` must be a byte string literal",
                         ));
                     }
                 }
@@ -61,7 +61,7 @@ impl<'a> BodyChecker<'a> {
         if !has_code {
             self.diagnostics.push(Diagnostic::error(
                 builtin_span,
-                "builtin `@asm` requires a `code` string literal",
+                "builtin `@asm` requires a `code` byte string literal",
             ));
         }
         self.void()
@@ -136,16 +136,16 @@ impl<'a> BodyChecker<'a> {
         else {
             self.diagnostics.push(Diagnostic::error(
                 expr.span,
-                "`@asm` field `clobbers` must be an array literal of strings",
+                "`@asm` field `clobbers` must be an array literal of byte strings",
             ));
             self.check_expr(expr);
             return;
         };
         for elem in elems {
-            if !matches!(elem.kind, ExprKind::String(_)) {
+            if !matches!(elem.kind, ExprKind::ByteString(_)) {
                 self.diagnostics.push(Diagnostic::error(
                     elem.span,
-                    "`@asm` clobbers must be string literals",
+                    "`@asm` clobbers must be byte string literals",
                 ));
             }
         }
@@ -153,17 +153,17 @@ impl<'a> BodyChecker<'a> {
 
     fn check_asm_options(&mut self, expr: &Expr) {
         match &expr.kind {
-            ExprKind::String(text) => self.check_asm_option_name(expr.span, text),
+            ExprKind::ByteString(text) => self.check_asm_option_name(expr.span, text),
             ExprKind::ArrayLiteral {
                 elems: ArrayElements::List(elems),
             } => {
                 for elem in elems {
-                    if let ExprKind::String(text) = &elem.kind {
+                    if let ExprKind::ByteString(text) = &elem.kind {
                         self.check_asm_option_name(elem.span, text);
                     } else {
                         self.diagnostics.push(Diagnostic::error(
                             elem.span,
-                            "`@asm` options must be string literals",
+                            "`@asm` options must be byte string literals",
                         ));
                         self.check_expr(elem);
                     }
@@ -172,14 +172,14 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ArrayLiteral { .. } => {
                 self.diagnostics.push(Diagnostic::error(
                     expr.span,
-                    "`@asm` options must be a list of string literals",
+                    "`@asm` options must be a list of byte string literals",
                 ));
                 self.check_expr(expr);
             }
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     expr.span,
-                    "`@asm` field `options` must be a string literal or array literal",
+                    "`@asm` field `options` must be a byte string literal or array literal",
                 ));
                 self.check_expr(expr);
             }
@@ -195,14 +195,14 @@ impl<'a> BodyChecker<'a> {
             )),
             None => self.diagnostics.push(Diagnostic::error(
                 span,
-                "invalid `@asm` option string literal",
+                "invalid `@asm` option byte string literal",
             )),
         }
     }
 }
 
 fn decode_asm_string(text: &str) -> Option<String> {
-    let inner = text.strip_prefix('"')?.strip_suffix('"')?;
+    let inner = text.strip_prefix("b\"")?.strip_suffix('"')?;
     let mut out = String::new();
     let mut chars = inner.chars();
     while let Some(ch) = chars.next() {

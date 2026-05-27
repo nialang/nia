@@ -233,17 +233,44 @@ String literals:
 
 ```nia
 "nia"
-"nia\0"
+"中a"
 "hello\n"
 ```
 
 String literals are not `String`, pointers, or slices. A string literal is fixed
-length byte-array syntax, with type `[N]u8`.
+length Unicode scalar array syntax, with type `[N]char`.
 
-Multiline string literals use consecutive lines beginning with `\\`:
+Byte string literals:
+
+```nia
+b"nia"
+b"nia\0"
+```
+
+Byte string literals are fixed length byte-array syntax, with type `[N]u8`.
+
+C string literals:
+
+```nia
+c"nia"
+```
+
+C string literals are byte string literals with one trailing NUL byte appended.
+`c"nia"` has type `[4]u8` and is equivalent to `b"nia\0"`. Interior NUL bytes
+are allowed; the syntax only appends one trailing NUL.
+
+Multiline string literals use consecutive lines beginning with `\\`. Byte and C
+multiline string literals use `b\\` or `c\\` on the first line; continuation
+lines still use `\\`:
 
 ```nia
 \\mov rax, 60
+\\syscall
+
+b\\mov rax, 60
+\\syscall
+
+c\\mov rax, 60
 \\syscall
 ```
 
@@ -251,6 +278,8 @@ For multiline strings, indentation before the delimiter is ignored, the delimite
 itself is not part of the string, and the text after the delimiter is copied as
 is. Adjacent lines are joined with `\n`; no extra newline is appended after the
 last line. Escape sequences are not interpreted inside multiline string lines.
+The prefix selects the same type family as the quoted form: `[N]char`, `[N]u8`,
+or NUL-terminated `[N + 1]u8`.
 
 The literal:
 
@@ -261,13 +290,13 @@ The literal:
 is equivalent to:
 
 ```nia
-[b'n', b'i', b'a']
+['n', 'i', 'a']
 ```
 
 The literal:
 
 ```nia
-"nia\0"
+b"nia\0"
 ```
 
 is equivalent to:
@@ -275,9 +304,6 @@ is equivalent to:
 ```nia
 [b'n', b'i', b'a', b'\0']
 ```
-
-String literals do not append an implicit trailing NUL byte. There is currently
-no C-string literal form; write the trailing NUL explicitly when calling C APIs.
 
 ## 4. Types
 
@@ -357,7 +383,7 @@ when a stable address is needed:
 var point: Point = { x: 10, y: 20 };
 var p: &Point = &point;
 
-const hello = "hello\0";
+const hello = c"hello";
 _ = &const hello[0];
 ```
 
@@ -374,7 +400,7 @@ an array literal provides the element count:
 
 ```nia
 var xs: [_]i32 = [1, 2, 3];
-var name: [_]u8 = "nia\0";
+var name: [_]u8 = c"nia";
 ```
 
 `[_]T` is only valid in contexts initialized by an array literal or string
@@ -448,12 +474,12 @@ Slices may be constructed by combining range indexing with address-of:
 
 ```nia
 var hello = "hello";
-var s = &const hello[..];       // &const [u8]
-var t = &const hello[0..2];     // &const [u8]
-var u = &const hello[0..=1];    // &const [u8]
-var v = &const hello[1..];      // &const [u8]
-var w = &const hello[..3];      // &const [u8]
-var x = &const hello[..=3];     // &const [u8]
+var s = &const hello[..];       // &const [char]
+var t = &const hello[0..2];     // &const [char]
+var u = &const hello[0..=1];    // &const [char]
+var v = &const hello[1..];      // &const [char]
+var w = &const hello[..3];      // &const [char]
+var x = &const hello[..=3];     // &const [char]
 ```
 
 Writable slices use `&` and require a writable base place:
@@ -583,7 +609,7 @@ fn add(a: i32, b: i32) i32 {
 If the return type is omitted, it is `void`:
 
 ```nia
-const log_fmt = "value=%d\n\0";
+const log_fmt = c"value=%d\n";
 
 fn log(value: i32) {
     printf(&const log_fmt[0], value);
@@ -840,7 +866,7 @@ Top-level `const` creates immutable global static storage. Implementations shoul
 place it in read-only data where possible:
 
 ```nia
-const hello = "hello\n\0";
+const hello = c"hello\n";
 ```
 
 Top-level `const` initializers must be expressible as static initialization data.
@@ -848,7 +874,7 @@ They do not execute arbitrary compile-time programs:
 
 ```nia
 const a = 1 + 2;           // allowed: integer static expression
-const hello = "hi\0";      // allowed: byte-array static data
+const hello = c"hi";       // allowed: byte-array static data
 const p = &const hello[0]; // allowed: global static address
 const bad = { 1 + 2 };     // error: block execution is not static data
 ```
@@ -907,7 +933,7 @@ fn main() i32 {
 Top-level bindings may infer their type or write it explicitly:
 
 ```nia
-var hello = "hello\n\0";
+var hello = "hello\n";
 var counter: i32 = 0;
 const banner = "nia\0";
 ```
@@ -941,7 +967,7 @@ Explicit type declaration:
 
 ```nia
 var x: i32 = 1;
-var name: [4]u8 = "nia\0";
+var name: [4]u8 = c"nia";
 ```
 
 Assignment to an existing place:
@@ -973,7 +999,7 @@ Nia uses semicolons for statement boundaries.
 Statements requiring semicolons:
 
 ```nia
-const int_fmt = "%d\n\0";
+const int_fmt = c"%d\n";
 
 var x = 1;
 x = x + 1;
@@ -1133,6 +1159,10 @@ Casts:
 value as Type
 ```
 
+Numeric casts are explicit. `char as u32` is allowed and returns the Unicode
+scalar value. Integer-to-`char` casts are not allowed because they would require
+a runtime Unicode scalar validity check.
+
 Operator precedence follows the Rust-style shape: assignment is lower than
 logical operators; calls, indexing, and field access are higher than unary
 operators.
@@ -1226,27 +1256,27 @@ fn syscall1(sys_num: usize, arg1: usize) isize {
     var ret: isize = 0;
     @asm({
         code:
-            \\syscall
+            b\\syscall
         ,
         outputs: { rax: ret },
         inputs: {
             rax: sys_num,
             rdi: arg1,
         },
-        clobbers: ["rcx", "r11", "memory"],
-        options: ["volatile"],
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
     });
     ret
 }
 ```
 
-`code` must be a string literal. `inputs` and `outputs` are struct literals that
-map register classes or fixed registers to expressions or places. `reg` means a
-general register class. `freg` means a floating-point register class. Other
-field names are fixed registers such as `rax` and `rdi`. Output values must be
-assignable places. `clobbers` is an array of string literals. `options` is a
-string literal or an array of string literals; currently only `"volatile"` is
-defined.
+`code` must be a byte string literal. `inputs` and `outputs` are struct literals
+that map register classes or fixed registers to expressions or places. `reg`
+means a general register class. `freg` means a floating-point register class.
+Other field names are fixed registers such as `rax` and `rdi`. Output values
+must be assignable places. `clobbers` is an array of byte string literals.
+`options` is a byte string literal or an array of byte string literals;
+currently only `b"volatile"` is defined.
 
 Inline assembly is target-specific. The compiler communicates with the optimizer
 only through explicit inputs, outputs, clobbers, and options; it does not
@@ -1607,16 +1637,17 @@ Extern interop uses the C ABI:
 extern fn printf(fmt: &const u8, ...);
 ```
 
-When calling C string APIs, write the trailing NUL explicitly:
+When calling C string APIs, use `c"..."` to produce NUL-terminated byte arrays:
 
 ```nia
-const message = "hello\n\0";
+const message = c"hello\n";
 printf(&const message[0]);
 ```
 
-String literals are array values, not places. They may be passed through
-array-to-slice conversion when a slice is expected. If a stable C string address
-is required, bind the string to top-level `const` storage.
+String, byte string, and C string literals are array values, not places. They
+may be passed through array-to-slice conversion when a slice is expected. If a
+stable C string address is required, bind the C string to top-level `const`
+storage.
 
 ### 12.1 Internal Symbol Names
 
@@ -1746,9 +1777,9 @@ future versions, but this specification does not reserve their final design:
 ```nia
 extern fn printf(fmt: &const u8, ...);
 
-const hello_fmt = "hello, %s\n\0";
-const not_answer_fmt = "not answer\n\0";
-const len2_fmt = "len2=%d\n\0";
+const hello_fmt = c"hello, %s\n";
+const not_answer_fmt = c"not answer\n";
+const len2_fmt = c"len2=%d\n";
 
 struct String {
     ptr: &const u8,
@@ -1776,7 +1807,7 @@ fn add(a: i32, b: i32) i32 {
 }
 
 fn main() i32 {
-    var name = "nia\0";
+    var name = c"nia";
     var x = add(40, 2);
 
     if x == 42 {

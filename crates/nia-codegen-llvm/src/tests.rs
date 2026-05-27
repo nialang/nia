@@ -32,7 +32,7 @@ fn emits_declarations_for_checked_program() {
         &main,
         r#"
 extern fn puts(s: &u8) i32;
-const hello = "hello\0";
+const hello = c"hello";
 
 extern struct Point {
     x: i32,
@@ -458,7 +458,7 @@ fn main() i32 {
     var xs: [3]i32 = [1, 2, 3];
     var borrow = &const xs[..];
     var literal: &const [i32] = [4, 5, 6];
-    first(borrow) + first(literal) + first([7, 8]) + first_byte("hi\0") + overwrite([6, 7])
+    first(borrow) + first(literal) + first([7, 8]) + first_byte(c"hi") + overwrite([6, 7])
 }
 "#,
     )
@@ -483,7 +483,7 @@ fn emits_global_string_pointer_call() {
         &main,
         r#"
 extern fn puts(s: &const u8) i32;
-const hello = "hello\0";
+const hello = c"hello";
 
 fn main() i32 {
     _ = puts(&const hello[0]);
@@ -736,10 +736,13 @@ fn emits_local_string_char_and_byte_char_literals() {
         r#"
 fn main() i32 {
     var text = "A\0";
+    var bytes = b"A\0";
+    var cstr = c"A";
     var ch = 'A';
     var byte = b'A';
-    _ = ch;
-    text[0] as i32 + byte as i32
+    _ = bytes;
+    _ = cstr;
+    text[0] as u32 as i32 + ch as u32 as i32 + byte as i32
 }
 "#,
     )
@@ -751,6 +754,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
+    assert!(ir.contains("[2 x i32]"));
     assert!(ir.contains("[2 x i8] c\"A\\00\"") || ir.contains("[2 x i8] [i8 65, i8 0]"));
     assert!(ir.contains("store i32 65"));
     assert!(ir.contains("store i8 65"));
@@ -1450,13 +1454,13 @@ fn main() i32 {
     var value: i64 = 0;
     @asm({
         code:
-            \\mov rax, rax
+            b\\mov rax, rax
             \\add rax, 0
         ,
         outputs: { rax: value },
         inputs: { rax: 7 },
-        clobbers: ["memory"],
-        options: ["volatile"],
+        clobbers: [b"memory"],
+        options: [b"volatile"],
     });
     value as i32
 }

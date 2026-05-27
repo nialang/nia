@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::ModuleCodegen;
-use crate::literals::{decode_char_literal, parse_float_literal, parse_int_literal};
+use crate::literals::{parse_float_literal, parse_int_literal};
 use nia_backend_ir::{
     BackendLayouts, BuiltinConst, PlaceElem, StaticFieldInit, StaticInit, TypedExpr, TypedExprKind,
 };
@@ -42,9 +42,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .i8_type()
                 .const_int(*value as u64, false)
                 .into()),
+            StaticInit::Chars(scalars) => {
+                self.static_chars_init_value_in(interner, ty, scalars, span)
+            }
             StaticInit::Bytes(bytes) => Ok(self.context.const_string(bytes, true).into()),
             StaticInit::Float(text) => self.static_float_init_value(ty, text, span),
-            StaticInit::Char(text) => self.static_char_init_value_in(interner, ty, text, span),
+            StaticInit::Char(value) => self.static_char_init_value_in(interner, ty, *value, span),
             StaticInit::Array(elems) => {
                 self.static_array_init_value_in(interner, layouts, ty, elems, span)
             }
@@ -175,16 +178,34 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         _interner: &TyInterner,
         ty: TyId,
-        text: &str,
+        value: u32,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let value = decode_char_literal(text)
-            .ok_or_else(|| self.error(span, format!("invalid char literal `{text}`")))?;
         let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
             return Err(self.error(span, "char static initializer target is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
         Ok(int_ty.const_u128(value as u128).into())
+    }
+
+    fn static_chars_init_value_in(
+        &self,
+        interner: &TyInterner,
+        ty: TyId,
+        scalars: &[u32],
+        span: Span,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Array { elem, .. }) = interner.get(ty) else {
+            return Err(self.error(
+                span,
+                "char string static initializer target is not an array",
+            ));
+        };
+        let values = scalars
+            .iter()
+            .map(|scalar| self.static_char_init_value_in(interner, *elem, *scalar, span))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.const_array_from_values_in(*elem, &values, span, interner, &self.source.layouts)
     }
 
     fn static_array_init_value_in(

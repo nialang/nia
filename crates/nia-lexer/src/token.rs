@@ -13,6 +13,8 @@ pub enum TokenKind {
     Integer,
     Float,
     String,
+    ByteString,
+    CString,
     Char,
     ByteChar,
 

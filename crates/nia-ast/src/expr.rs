@@ -115,6 +115,8 @@ pub enum ExprKind {
     Integer(String),
     Float(String),
     String(String),
+    ByteString(String),
+    CString(String),
     Char(String),
     ByteChar(String),
     Raw(String),
