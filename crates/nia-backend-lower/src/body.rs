@@ -1113,10 +1113,10 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<&'b Expr> {
         for stmt in &block.stmts {
             match &stmt.kind {
-                StmtKind::Binding(binding) => {
-                    if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) {
-                        return binding.value.as_ref();
-                    }
+                StmtKind::Binding(binding)
+                    if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
+                {
+                    return binding.value.as_ref();
                 }
                 StmtKind::For(for_stmt) => {
                     if let ForHeader::CStyle { init, .. } = &for_stmt.header

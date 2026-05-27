@@ -43,10 +43,10 @@ struct StaticChecker<'a> {
 impl StaticChecker<'_> {
     fn check_module(&mut self, module: &Module) {
         for item in &module.items {
-            if let ItemKind::Binding(binding) = &item.kind {
-                if !binding.is_comptime {
-                    self.check_global_binding(item.span, binding);
-                }
+            if let ItemKind::Binding(binding) = &item.kind
+                && !binding.is_comptime
+            {
+                self.check_global_binding(item.span, binding);
             }
         }
     }

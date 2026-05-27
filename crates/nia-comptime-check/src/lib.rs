@@ -284,10 +284,10 @@ impl Analyzer<'_> {
     ) -> Option<Expr> {
         for stmt in &block.stmts {
             match &stmt.kind {
-                nia_ast::StmtKind::Binding(binding) => {
-                    if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) {
-                        return binding.value.clone();
-                    }
+                nia_ast::StmtKind::Binding(binding)
+                    if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
+                {
+                    return binding.value.clone();
                 }
                 nia_ast::StmtKind::For(for_stmt) => {
                     if let nia_ast::ForHeader::CStyle { init, .. } = &for_stmt.header
