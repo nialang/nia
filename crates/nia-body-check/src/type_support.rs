@@ -4,7 +4,7 @@ use crate::literals::{
     integer_literal_value, integer_range, numeric_literal_suffix, parse_float_literal,
     string_literal_char_len,
 };
-use crate::{ArrayToSliceCoercion, BodyChecker};
+use crate::{ArrayToSliceCoercion, BodyChecker, CStringPointerCoercion};
 use nia_ast::{Expr, ExprKind, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -41,6 +41,10 @@ impl<'a> BodyChecker<'a> {
         actual: InternedTyId,
         context: &str,
     ) {
+        if let Some(coerced) = self.coerce_c_string_to_pointer(expr, expected, actual) {
+            self.expr_types.insert(expr.span, coerced);
+            return;
+        }
         if let Some(coerced) = self.coerce_array_to_slice(expr, expected, actual) {
             self.expr_types.insert(expr.span, coerced);
             return;
@@ -113,6 +117,48 @@ impl<'a> BodyChecker<'a> {
             ArrayToSliceCoercion {
                 array_ty: actual,
                 slice_ty: expected,
+                is_const,
+            },
+        );
+        Some(expected)
+    }
+
+    pub(crate) fn coerce_c_string_to_pointer(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        if !matches!(expr.kind, ExprKind::CString(_)) {
+            return None;
+        }
+        let expected = self.normalization.normalize(expected);
+        let actual = self.normalization.normalize(actual);
+        let Some(TyKind::Pointer {
+            is_const,
+            elem: expected_elem,
+        }) = self.interner.get(expected)
+        else {
+            return None;
+        };
+        let is_const = *is_const;
+        let expected_elem = *expected_elem;
+        let Some(TyKind::Array {
+            elem: actual_elem, ..
+        }) = self.interner.get(actual)
+        else {
+            return None;
+        };
+        if !self.types_match(expected_elem, *actual_elem)
+            || !self.types_match(expected_elem, self.primitive(PrimitiveTy::U8))
+        {
+            return None;
+        }
+        self.c_string_pointer_coercions.insert(
+            expr.span,
+            CStringPointerCoercion {
+                array_ty: actual,
+                pointer_ty: expected,
                 is_const,
             },
         );

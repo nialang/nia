@@ -283,6 +283,9 @@ impl<'a> ModuleLowerer<'a> {
             TypedExprKind::Len(inner) | TypedExprKind::Ptr(inner) => {
                 self.collect_struct_instances_expr(inner, seen, out);
             }
+            TypedExprKind::CStringPointer { array, .. } => {
+                self.collect_struct_instances_expr(array, seen, out);
+            }
             TypedExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
                     self.collect_struct_instances_expr(&input.value, seen, out);
@@ -539,6 +542,9 @@ impl<'a> ModuleLowerer<'a> {
             }
             TypedExprKind::Len(inner) | TypedExprKind::Ptr(inner) => {
                 self.collect_union_instances_expr(inner, seen, out);
+            }
+            TypedExprKind::CStringPointer { array, .. } => {
+                self.collect_union_instances_expr(array, seen, out);
             }
             TypedExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
