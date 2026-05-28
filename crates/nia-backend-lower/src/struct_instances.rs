@@ -45,6 +45,7 @@ impl<'a> ModuleLowerer<'a> {
                         &key.args,
                         &self.interner,
                         |def_id| self.def_name(def_id.def_id),
+                        |id| self.resolved_array_len(id),
                     ),
                     fields: signature
                         .fields
@@ -94,6 +95,7 @@ impl<'a> ModuleLowerer<'a> {
                         &key.args,
                         &self.interner,
                         |def_id| self.def_name(def_id.def_id),
+                        |id| self.resolved_array_len(id),
                     ),
                     fields: signature
                         .fields
@@ -402,6 +404,7 @@ impl<'a> ModuleLowerer<'a> {
                 &args,
                 &self.interner,
                 |def_id| self.def_name(def_id.def_id),
+                |id| self.resolved_array_len(id),
             ),
             fields: signature
                 .fields
@@ -665,6 +668,7 @@ impl<'a> ModuleLowerer<'a> {
                 &args,
                 &self.interner,
                 |def_id| self.def_name(def_id.def_id),
+                |id| self.resolved_array_len(id),
             ),
             fields: signature
                 .fields

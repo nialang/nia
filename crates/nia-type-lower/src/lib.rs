@@ -8,7 +8,7 @@ use nia_ast::{
 use nia_ast_walk::{Visitor, walk_module};
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
@@ -17,6 +17,7 @@ use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 pub struct TypeLowering {
     pub interner: TyInterner,
     pub type_uses: HashMap<Span, InternedTyId>,
+    pub const_exprs: HashMap<GlobalConstExprId, Expr>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -44,13 +45,16 @@ pub fn lower_module_types_with_defs(
         all_defs,
         interner: TyInterner::new(module_id),
         type_uses: HashMap::new(),
+        const_exprs: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
+        next_const_expr_id: 0,
     };
     walk_module(&mut lowerer, module);
     TypeLowering {
         interner: lowerer.interner,
         type_uses: lowerer.type_uses,
+        const_exprs: lowerer.const_exprs,
         diagnostics: lowerer.diagnostics,
     }
 }
@@ -61,8 +65,10 @@ struct TypeLowerer<'a> {
     all_defs: &'a [DefCollection],
     interner: TyInterner,
     type_uses: HashMap<Span, InternedTyId>,
+    const_exprs: HashMap<GlobalConstExprId, Expr>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
+    next_const_expr_id: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -359,21 +365,25 @@ impl<'a> TypeLowerer<'a> {
                     type_arg: Some(type_arg),
                 } = &callee.kind
                 else {
-                    return ArrayLenTy::ConstExpr {
-                        text: expr_text(expr),
-                        span: expr.span,
-                    };
+                    return self.register_const_array_len(expr);
                 };
                 ArrayLenTy::Builtin {
                     name: name.clone(),
                     ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
                 }
             }
-            _ => ArrayLenTy::ConstExpr {
-                text: expr_text(expr),
-                span: expr.span,
-            },
+            _ => self.register_const_array_len(expr),
         }
+    }
+
+    fn register_const_array_len(&mut self, expr: &Expr) -> ArrayLenTy {
+        let id = GlobalConstExprId {
+            module_id: self.module_id,
+            const_expr_id: ConstExprId(self.next_const_expr_id),
+        };
+        self.next_const_expr_id += 1;
+        self.const_exprs.insert(id, expr.clone());
+        ArrayLenTy::ConstExpr(id)
     }
 
     fn is_integer(&self, ty: InternedTyId) -> bool {
@@ -401,53 +411,6 @@ impl<'a> TypeLowerer<'a> {
             self.interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))
         )
-    }
-}
-
-fn expr_text(expr: &Expr) -> String {
-    match &expr.kind {
-        ExprKind::Integer(text) | ExprKind::Raw(text) => text.clone(),
-        ExprKind::Unary {
-            op: nia_ast::UnaryOp::Neg,
-            expr,
-        } => format!("-{}", expr_text(expr)),
-        ExprKind::Unary {
-            op: nia_ast::UnaryOp::Not,
-            expr,
-        } => format!("!{}", expr_text(expr)),
-        ExprKind::Binary { lhs, op, rhs } => {
-            format!(
-                "{} {} {}",
-                expr_text(lhs),
-                binary_op_text(*op),
-                expr_text(rhs)
-            )
-        }
-        ExprKind::Builtin { name, .. } => format!("@{name}"),
-        _ => "<const-expr>".to_string(),
-    }
-}
-
-fn binary_op_text(op: nia_ast::BinaryOp) -> &'static str {
-    match op {
-        nia_ast::BinaryOp::Mul => "*",
-        nia_ast::BinaryOp::Div => "/",
-        nia_ast::BinaryOp::Rem => "%",
-        nia_ast::BinaryOp::Add => "+",
-        nia_ast::BinaryOp::Sub => "-",
-        nia_ast::BinaryOp::Shl => "<<",
-        nia_ast::BinaryOp::Shr => ">>",
-        nia_ast::BinaryOp::Lt => "<",
-        nia_ast::BinaryOp::Le => "<=",
-        nia_ast::BinaryOp::Gt => ">",
-        nia_ast::BinaryOp::Ge => ">=",
-        nia_ast::BinaryOp::Eq => "==",
-        nia_ast::BinaryOp::Ne => "!=",
-        nia_ast::BinaryOp::BitAnd => "&",
-        nia_ast::BinaryOp::BitXor => "^",
-        nia_ast::BinaryOp::BitOr => "|",
-        nia_ast::BinaryOp::And => "and",
-        nia_ast::BinaryOp::Or => "or",
     }
 }
 
