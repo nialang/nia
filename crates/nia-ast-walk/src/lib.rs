@@ -175,19 +175,6 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             }
             visitor.visit_block(&for_stmt.body);
         }
-        StmtKind::Switch(switch) => {
-            visitor.visit_expr(&switch.target);
-            for arm in &switch.arms {
-                if let SwitchPattern::Expr(pattern) = &arm.pattern {
-                    visitor.visit_expr(pattern);
-                }
-                match &arm.body {
-                    SwitchArmBody::Expr(expr) => visitor.visit_expr(expr),
-                    SwitchArmBody::Stmt(stmt) => visitor.visit_stmt(stmt),
-                    SwitchArmBody::Block(block) => visitor.visit_block(block),
-                }
-            }
-        }
     }
 }
 
@@ -289,6 +276,19 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
             visitor.visit_block(then_branch);
             if let Some(else_branch) = else_branch {
                 visitor.visit_expr(else_branch);
+            }
+        }
+        ExprKind::Switch(switch) => {
+            visitor.visit_expr(&switch.target);
+            for arm in &switch.arms {
+                if let SwitchPattern::Expr(pattern) = &arm.pattern {
+                    visitor.visit_expr(pattern);
+                }
+                match &arm.body {
+                    SwitchArmBody::Expr(expr) => visitor.visit_expr(expr),
+                    SwitchArmBody::Stmt(stmt) => visitor.visit_stmt(stmt),
+                    SwitchArmBody::Block(block) => visitor.visit_block(block),
+                }
             }
         }
     }

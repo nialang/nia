@@ -105,33 +105,6 @@ impl<'a> ModuleLowerer<'a> {
                 header: self.lower_for_header(&for_stmt.header),
                 body: self.lower_body(&for_stmt.body),
             })),
-            StmtKind::Switch(switch) => TypedStmtKind::Switch(TypedSwitch {
-                target: self.lower_expr(&switch.target),
-                arms: switch
-                    .arms
-                    .iter()
-                    .map(|arm| TypedSwitchArm {
-                        pattern: match &arm.pattern {
-                            SwitchPattern::Default => TypedSwitchPattern::Default,
-                            SwitchPattern::Expr(expr) => {
-                                TypedSwitchPattern::Expr(self.lower_expr(expr))
-                            }
-                        },
-                        body: match &arm.body {
-                            SwitchArmBody::Expr(expr) => {
-                                TypedSwitchArmBody::Expr(self.lower_expr(expr))
-                            }
-                            SwitchArmBody::Stmt(stmt) => {
-                                TypedSwitchArmBody::Stmt(Box::new(self.lower_stmt(stmt)))
-                            }
-                            SwitchArmBody::Block(block) => {
-                                TypedSwitchArmBody::Block(Box::new(self.lower_body(block)))
-                            }
-                        },
-                        span: arm.span,
-                    })
-                    .collect(),
-            }),
         };
         TypedStmt {
             span: stmt.span,
@@ -186,6 +159,36 @@ impl<'a> ModuleLowerer<'a> {
                 cond: cond.as_ref().map(|cond| Box::new(self.lower_expr(cond))),
                 step: step.as_ref().map(|step| Box::new(self.lower_expr(step))),
             },
+        }
+    }
+
+    fn lower_switch(&mut self, switch: &nia_ast::SwitchStmt) -> TypedSwitch {
+        TypedSwitch {
+            target: self.lower_expr(&switch.target),
+            arms: switch
+                .arms
+                .iter()
+                .map(|arm| TypedSwitchArm {
+                    pattern: match &arm.pattern {
+                        SwitchPattern::Default => TypedSwitchPattern::Default,
+                        SwitchPattern::Expr(expr) => {
+                            TypedSwitchPattern::Expr(self.lower_expr(expr))
+                        }
+                    },
+                    body: match &arm.body {
+                        SwitchArmBody::Expr(expr) => {
+                            TypedSwitchArmBody::Expr(self.lower_expr(expr))
+                        }
+                        SwitchArmBody::Stmt(stmt) => {
+                            TypedSwitchArmBody::Stmt(Box::new(self.lower_stmt(stmt)))
+                        }
+                        SwitchArmBody::Block(block) => {
+                            TypedSwitchArmBody::Block(Box::new(self.lower_body(block)))
+                        }
+                    },
+                    span: arm.span,
+                })
+                .collect(),
         }
     }
 
@@ -522,6 +525,7 @@ impl<'a> ModuleLowerer<'a> {
                     .as_ref()
                     .map(|else_branch| Box::new(self.lower_expr(else_branch))),
             },
+            ExprKind::Switch(switch) => TypedExprKind::Switch(Box::new(self.lower_switch(switch))),
         };
         TypedExpr {
             span: expr.span,
@@ -737,20 +741,9 @@ impl<'a> ModuleLowerer<'a> {
                         return Some(value);
                     }
                 }
-                StmtKind::Switch(switch) => {
-                    for arm in &switch.arms {
-                        let value = match &arm.body {
-                            SwitchArmBody::Block(block) => {
-                                self.local_comptime_value_in_block(local_id, block)
-                            }
-                            SwitchArmBody::Stmt(stmt) => {
-                                self.local_comptime_value_in_stmt(local_id, stmt)
-                            }
-                            SwitchArmBody::Expr(_) => None,
-                        };
-                        if value.is_some() {
-                            return value;
-                        }
+                StmtKind::Expr(expr) => {
+                    if let Some(value) = self.local_comptime_value_in_expr(local_id, expr) {
+                        return Some(value);
                     }
                 }
                 _ => {}
@@ -771,10 +764,33 @@ impl<'a> ModuleLowerer<'a> {
                 binding.value.as_ref()
             }
             StmtKind::For(for_stmt) => self.local_comptime_value_in_block(local_id, &for_stmt.body),
-            StmtKind::Switch(switch) => switch.arms.iter().find_map(|arm| match &arm.body {
+            StmtKind::Expr(expr) => self.local_comptime_value_in_expr(local_id, expr),
+            _ => None,
+        }
+    }
+
+    fn local_comptime_value_in_expr<'b>(
+        &self,
+        local_id: LocalId,
+        expr: &'b Expr,
+    ) -> Option<&'b Expr> {
+        match &expr.kind {
+            ExprKind::Block(block) => self.local_comptime_value_in_block(local_id, block),
+            ExprKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => self
+                .local_comptime_value_in_block(local_id, then_branch)
+                .or_else(|| {
+                    else_branch.as_ref().and_then(|else_branch| {
+                        self.local_comptime_value_in_expr(local_id, else_branch)
+                    })
+                }),
+            ExprKind::Switch(switch) => switch.arms.iter().find_map(|arm| match &arm.body {
                 SwitchArmBody::Block(block) => self.local_comptime_value_in_block(local_id, block),
                 SwitchArmBody::Stmt(stmt) => self.local_comptime_value_in_stmt(local_id, stmt),
-                SwitchArmBody::Expr(_) => None,
+                SwitchArmBody::Expr(expr) => self.local_comptime_value_in_expr(local_id, expr),
             }),
             _ => None,
         }

@@ -804,17 +804,18 @@ Integers may be explicitly cast to open enums:
 var flag: Flag = 3 as Flag;
 ```
 
-`switch` may match integers and enums:
+`switch` is an expression that may match integers and enums:
 
 ```nia
-switch c {
+var value = switch c {
     Color::Black => return 0;
-    Color::White => return 1;
-    Color::Red => return 2;
-}
+    Color::White => 1,
+    Color::Red => 2,
+};
 ```
 
-`switch` has no fallthrough. `_` is the default arm:
+As with `if`, a `switch` may also be used as an expression statement. `switch`
+has no fallthrough. `_` is the default arm:
 
 ```nia
 switch code {
@@ -823,8 +824,10 @@ switch code {
 }
 ```
 
-Switches over closed enums must cover all variants or provide `_`. Switches over
-open enums must provide `_`, even if every named variant is covered.
+Switch expression arms must produce compatible value types unless an arm exits
+through `return`, `break`, or `continue`. Switches over closed enums must cover
+all variants or provide `_`. Switches over open enums must provide `_`, even if
+every named variant is covered.
 
 ### 5.5 Const And Comptime Bindings
 
@@ -1843,7 +1846,7 @@ this document:
 - trait/protocol-style constraints, associated type families, and constrained
   extension syntax;
 - payload-carrying algebraic data types beyond current enums;
-- pattern matching beyond current switch expressions and statements;
+- pattern matching beyond current switch expressions;
 - closures;
 - builtin option/result syntax;
 - package management semantics;

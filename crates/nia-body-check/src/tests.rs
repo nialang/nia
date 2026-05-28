@@ -2357,6 +2357,64 @@ fn bad(c: Color) i32 {
 }
 
 #[test]
+fn checks_switch_expressions() {
+    let checked = pipeline(
+        r#"
+enum Color {
+    Red,
+    Green,
+}
+
+fn pick(c: Color) i32 {
+    switch c {
+        Color::Red => 1,
+        Color::Green => 2,
+    }
+}
+
+fn with_default(x: u32) i32 {
+    switch x {
+        0 => 10,
+        _ => 20,
+    }
+}
+
+fn with_return_arm(x: u32) i32 {
+    switch x {
+        0 => return 1,
+        _ => 2,
+    }
+}
+
+fn bad(x: u32) i32 {
+    switch x {
+        0 => 1,
+        _ => true,
+    }
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("type mismatch in switch arms")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("non-exhaustive enum switch"))
+            .count(),
+        0,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn infers_switch_pattern_numeric_literals_from_target_type() {
     let checked = pipeline(
         r#"
