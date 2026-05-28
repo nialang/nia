@@ -258,6 +258,11 @@ C string literals are byte string literals with one trailing NUL byte appended.
 `c"nia"` has type `[4]u8` and is equivalent to `b"nia\0"`. Interior NUL bytes
 are allowed; the syntax only appends one trailing NUL.
 
+In an expected `&u8` or `&const u8` context, a C string literal may be coerced to
+a pointer to its first byte. This creates a block-scoped array temporary; it does
+not promote the literal to static storage. The coercion is specific to C string
+literals and does not apply to byte string literals or arbitrary `[N]u8` arrays.
+
 Multiline string literals use consecutive lines beginning with `\\`. Byte and C
 multiline string literals use `b\\` or `c\\` on the first line; continuation
 lines still use `\\`:
@@ -1718,14 +1723,14 @@ extern fn printf(fmt: &const u8, ...);
 When calling C string APIs, use `c"..."` to produce NUL-terminated byte arrays:
 
 ```nia
-const message = c"hello\n";
-printf(&const message[0]);
+printf(c"hello\n");
 ```
 
 String, byte string, and C string literals are array values, not places. They
-may be passed through array-to-slice conversion when a slice is expected. If a
-stable C string address is required, bind the C string to top-level `const`
-storage.
+may be passed through array-to-slice conversion when a slice is expected. C
+string literals may also be passed directly when `&u8` or `&const u8` is
+expected; this produces a pointer to a block-scoped temporary. If a stable C
+string address is required, bind the C string to top-level `const` storage.
 
 ### 12.1 Internal Symbol Names
 

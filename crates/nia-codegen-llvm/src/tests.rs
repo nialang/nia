@@ -470,7 +470,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("slicetmp"), "{ir}");
+    assert!(ir.contains("arraytmp"), "{ir}");
     assert!(ir.contains("insertvalue"), "{ir}");
     assert!(ir.contains("getelementptr"), "{ir}");
 }
@@ -503,6 +503,48 @@ fn main() i32 {
     assert!(ir.contains("c\"hello\\00\""));
     assert!(ir.contains("call i32 @puts"));
     assert!(ir.contains("@nia__m0__d"));
+}
+
+#[test]
+fn emits_c_string_literal_pointer_coercions() {
+    let root = temp_dir("emits_c_string_literal_pointer_coercions");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn puts(s: &const u8) i32;
+
+fn first(ptr: &u8) i32 {
+    ptr.* = b'J';
+    ptr.* as i32
+}
+
+fn main() i32 {
+    var direct: &const u8 = c"hello";
+    var writable: &u8 = c"mutable";
+    _ = puts(c"world");
+    _ = puts(
+        c\\multi
+        \\line
+    );
+    first(writable) + direct.* as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("declare i32 @puts"));
+    assert!(ir.contains("arraytmp"));
+    assert!(ir.contains("getelementptr"));
+    assert!(ir.contains("call i32 @puts"));
+    assert!(ir.contains("[6 x i8] c\"hello\\00\""), "{ir}");
+    assert!(ir.contains("[8 x i8] c\"mutable\\00\""), "{ir}");
 }
 
 #[test]

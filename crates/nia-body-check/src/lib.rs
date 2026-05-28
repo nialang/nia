@@ -35,6 +35,7 @@ pub struct BodyCheck {
     pub interner: TyInterner,
     pub expr_types: HashMap<Span, InternedTyId>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
+    pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
     pub local_types: HashMap<LocalId, InternedTyId>,
     pub builtin_values: HashMap<Span, BuiltinValue>,
     pub resolved_calls: HashMap<Span, ResolvedCall>,
@@ -52,6 +53,13 @@ pub enum BuiltinValue {
 pub struct ArrayToSliceCoercion {
     pub array_ty: InternedTyId,
     pub slice_ty: InternedTyId,
+    pub is_const: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CStringPointerCoercion {
+    pub array_ty: InternedTyId,
+    pub pointer_ty: InternedTyId,
     pub is_const: bool,
 }
 
@@ -281,6 +289,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_enums: input.program_signatures.enums,
         expr_types: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
+        c_string_pointer_coercions: HashMap::new(),
         builtin_values: HashMap::new(),
         resolved_calls: HashMap::new(),
         function_references: HashMap::new(),
@@ -298,6 +307,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         interner: checker.interner,
         expr_types: checker.expr_types,
         array_to_slice_coercions: checker.array_to_slice_coercions,
+        c_string_pointer_coercions: checker.c_string_pointer_coercions,
         local_types: checker.local_types,
         builtin_values: checker.builtin_values,
         resolved_calls: checker.resolved_calls,
@@ -327,6 +337,7 @@ struct BodyChecker<'a> {
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     expr_types: HashMap<Span, InternedTyId>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
+    c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
     builtin_values: HashMap<Span, BuiltinValue>,
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
