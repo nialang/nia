@@ -1829,22 +1829,24 @@ temporary objects and invokes the host C linker.
 `build` is reserved for an external build system. The current CLI does not
 provide `run`; use `emit exe` and execute the result.
 
-## 14. Current Non-Goals And Reserved Features
+## 14. Reserved Future Design Areas
 
-The following areas are reserved for future design and are outside the current
-0.1 surface:
+The following areas are intentionally outside the stable 0.1 language surface.
+They are reserved for future design and should not be treated as specified by
+this document:
 
-- protocol-style constraints and associated type families;
-- algebraic data types;
-- pattern matching;
+- trait/protocol-style constraints, associated type families, and constrained
+  extension syntax;
+- payload-carrying algebraic data types beyond current enums;
+- pattern matching beyond current switch expressions and statements;
 - closures;
-- optional/result builtin syntax;
+- builtin option/result syntax;
 - package management semantics;
 - LSP semantics;
 - large standard-library layering;
 - volatile pointer families;
 - SIMD as a language primitive;
-- arbitrary attributes and compiler intrinsics outside the compiler's needs;
+- user-defined attributes and arbitrary compiler intrinsics;
 - macros;
 - general compile-time execution beyond the current `comptime` value subset.
 
