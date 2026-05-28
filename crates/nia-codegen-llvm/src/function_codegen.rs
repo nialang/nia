@@ -356,6 +356,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 then_branch,
                 else_branch,
             } => self.emit_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
+            TypedExprKind::Switch(switch) => self.emit_switch_expr(expr.span, expr.ty, switch),
             TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. } => Err(self.error(
                 expr.span,
                 "function item cannot be emitted as a runtime value",
@@ -435,6 +436,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 then_branch,
                 else_branch,
             } => self.emit_void_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
+            TypedExprKind::Switch(switch) => self.emit_void_switch_expr(expr.span, switch),
             TypedExprKind::StructLiteral { .. } => Ok(()),
             TypedExprKind::Local(_) | TypedExprKind::Global(_) => Ok(()),
             TypedExprKind::CStringPointer { .. } => Ok(()),

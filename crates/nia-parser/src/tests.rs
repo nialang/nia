@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use nia_ast::SwitchArmBody;
+use nia_ast::{ExprKind, SwitchArmBody};
 
 #[test]
 fn parses_top_level_items() {
@@ -386,8 +386,11 @@ fn main() i32 {
     assert!(matches!(body.stmts[1].kind, StmtKind::Defer(_)));
     assert!(matches!(body.stmts[2].kind, StmtKind::Expr(_)));
     assert!(matches!(body.stmts[3].kind, StmtKind::For(_)));
-    let StmtKind::Switch(switch) = &body.stmts[4].kind else {
+    let StmtKind::Expr(expr) = &body.stmts[4].kind else {
         panic!("expected switch");
+    };
+    let ExprKind::Switch(switch) = &expr.kind else {
+        panic!("expected switch expression");
     };
     assert!(matches!(
         &switch.arms[0].body,
