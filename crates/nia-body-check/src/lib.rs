@@ -568,8 +568,26 @@ impl<'a> BodyChecker<'a> {
         }
         if let Some(tail) = &block.tail {
             self.check_expr_with_expected(tail, expected_tail)
+        } else if self.block_ends_with_never_stmt(block) {
+            self.never()
         } else {
             self.void()
+        }
+    }
+
+    fn block_ends_with_never_stmt(&self, block: &Block) -> bool {
+        let Some(stmt) = block.stmts.last() else {
+            return false;
+        };
+        match &stmt.kind {
+            StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue => true,
+            StmtKind::Expr(expr) => self
+                .expr_types
+                .get(&expr.span)
+                .is_some_and(|ty| self.is_never(*ty)),
+            StmtKind::Binding(_) | StmtKind::Using(_) | StmtKind::Defer(_) | StmtKind::For(_) => {
+                false
+            }
         }
     }
 

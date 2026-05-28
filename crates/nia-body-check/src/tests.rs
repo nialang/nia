@@ -1598,6 +1598,109 @@ fn main() i32 {
 }
 
 #[test]
+fn checks_complex_for_header_expression_types() {
+    let checked = pipeline(
+        r#"
+fn main(flag: bool) i32 {
+    var i = 0;
+    for ({
+        var a = 1;
+        _ = a;
+    }); ({
+        var d = 0;
+        _ = d;
+        flag
+    }); i += 1 {
+        if i == 3 {
+            break;
+        }
+    }
+
+    for _ = i; ({
+        var c = 1;
+        c
+    }); _ = i {
+        break;
+    }
+
+    for ; true; 1 + 2 {
+        break;
+    }
+
+    i
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("for condition"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.message.contains("non-void expression result")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn checks_defer_expression_type_edges() {
+    let checked = pipeline(
+        r#"
+fn value() i32 { 1 }
+fn cleanup() {}
+
+fn main(flag: bool) {
+    defer cleanup();
+    defer _ = value();
+    defer if flag {
+        cleanup();
+    } else {
+        cleanup();
+    };
+    defer if flag {
+        value()
+    } else {
+        2
+    };
+    defer {
+        switch value() {
+            0 => cleanup(),
+            _ => cleanup(),
+        }
+    };
+    defer {
+        switch value() {
+            0 => value(),
+            _ => value(),
+        }
+    };
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("`defer` expression must have type `void`"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_function_pointer_fields_as_void_calls() {
     let checked = pipeline(
         r#"
@@ -2434,6 +2537,70 @@ fn bad(x: u32) i32 {
             .filter(|diagnostic| diagnostic.message.contains("non-exhaustive enum switch"))
             .count(),
         0,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn checks_switch_arm_body_edge_cases() {
+    let checked = pipeline(
+        r#"
+fn value() i32 { 1 }
+fn cleanup() {}
+
+fn expr_stmt_arm(x: i32) i32 {
+    switch x {
+        0 => cleanup(),
+        _ => value(),
+    }
+}
+
+fn block_arm_void_tail(x: i32) i32 {
+    switch x {
+        0 => {
+            cleanup();
+        },
+        _ => 2,
+    }
+}
+
+fn block_arm_never_tail(x: i32) i32 {
+    switch x {
+        0 => {
+            return 10;
+        },
+        _ => 2,
+    }
+}
+
+fn statement_arm_never(x: i32) i32 {
+    switch x {
+        0 => return 1,
+        _ => 2,
+    }
+}
+
+fn main() i32 {
+    expr_stmt_arm(0) + block_arm_void_tail(0) + block_arm_never_tail(0) + statement_arm_never(0)
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("type mismatch in switch arms"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("statement_arm_never")),
         "{:?}",
         checked.diagnostics
     );
