@@ -2,21 +2,21 @@
 use std::collections::HashMap;
 
 use nia_backend_ir::{BackendFunctionInstance, BackendProgram};
-use nia_ids::{GlobalDefId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 
 pub(super) struct ProgramIndex<'a> {
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
     pub(super) structs: HashMap<GlobalDefId, &'a nia_backend_ir::BackendStruct>,
     pub(super) unions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendUnion>,
     pub(super) struct_instances:
-        HashMap<(GlobalDefId, Vec<TyId>), &'a nia_backend_ir::BackendStructInstance>,
+        HashMap<(GlobalDefId, Vec<InternedTyId>), &'a nia_backend_ir::BackendStructInstance>,
     pub(super) union_instances:
-        HashMap<(GlobalDefId, Vec<TyId>), &'a nia_backend_ir::BackendUnionInstance>,
+        HashMap<(GlobalDefId, Vec<InternedTyId>), &'a nia_backend_ir::BackendUnionInstance>,
     pub(super) enums: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnum>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
     pub(super) function_instances:
-        HashMap<(GlobalDefId, ModuleId, Vec<TyId>), &'a BackendFunctionInstance>,
+        HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), &'a BackendFunctionInstance>,
 }
 
 impl<'a> ProgramIndex<'a> {

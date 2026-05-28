@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::DefId;
 use nia_ast::Visibility;
-use nia_ids::{GlobalDefId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExtensionMethods {
@@ -13,7 +13,7 @@ pub struct ExtensionMethods {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionMethod {
     pub def_id: GlobalDefId,
-    pub target_ty: TyId,
+    pub target_ty: InternedTyId,
     pub visibility: Visibility,
 }
 
@@ -30,7 +30,7 @@ pub struct VisibleExtensionMethod {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleExtensionTarget {
-    pub target_ty: TyId,
+    pub target_ty: InternedTyId,
     pub methods: Vec<VisibleExtensionMethod>,
 }
 
@@ -72,7 +72,7 @@ impl ExtensionMethods {
 }
 
 impl VisibleExtensionMethods {
-    pub fn insert(&mut self, target_ty: TyId, method: VisibleExtensionMethod) {
+    pub fn insert(&mut self, target_ty: InternedTyId, method: VisibleExtensionMethod) {
         if let Some(existing) = self
             .targets
             .iter_mut()
@@ -87,7 +87,7 @@ impl VisibleExtensionMethods {
         });
     }
 
-    pub fn methods(&self, target_ty: TyId, name: &str) -> Vec<GlobalDefId> {
+    pub fn methods(&self, target_ty: InternedTyId, name: &str) -> Vec<GlobalDefId> {
         self.targets
             .iter()
             .filter(|item| item.target_ty == target_ty)
@@ -97,7 +97,7 @@ impl VisibleExtensionMethods {
             .collect()
     }
 
-    pub fn all_methods_named(&self, name: &str) -> Vec<(TyId, GlobalDefId)> {
+    pub fn all_methods_named(&self, name: &str) -> Vec<(InternedTyId, GlobalDefId)> {
         self.targets
             .iter()
             .flat_map(|item| {

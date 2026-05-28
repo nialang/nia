@@ -8,7 +8,7 @@ use nia_ast::{
 use nia_ast_walk::{Visitor, walk_module};
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
@@ -16,7 +16,7 @@ use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeLowering {
     pub interner: TyInterner,
-    pub type_uses: HashMap<Span, TyId>,
+    pub type_uses: HashMap<Span, InternedTyId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -60,7 +60,7 @@ struct TypeLowerer<'a> {
     resolved: &'a TypeResolution,
     all_defs: &'a [DefCollection],
     interner: TyInterner,
-    type_uses: HashMap<Span, TyId>,
+    type_uses: HashMap<Span, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
 }
@@ -169,7 +169,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
 }
 
 impl<'a> TypeLowerer<'a> {
-    fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> TyId {
+    fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         let lowered = self.lower_type(ty, context);
         self.type_uses.insert(ty.span, lowered);
         if context == TypeContext::Value && self.is_invalid_value_type(lowered) {
@@ -181,7 +181,7 @@ impl<'a> TypeLowerer<'a> {
         lowered
     }
 
-    fn lower_type(&mut self, ty: &TypeRef, _context: TypeContext) -> TyId {
+    fn lower_type(&mut self, ty: &TypeRef, _context: TypeContext) -> InternedTyId {
         match &ty.kind {
             TypeKind::Error => self.interner.error(),
             TypeKind::Infer => {
@@ -376,7 +376,7 @@ impl<'a> TypeLowerer<'a> {
         }
     }
 
-    fn is_integer(&self, ty: TyId) -> bool {
+    fn is_integer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(ty),
             Some(TyKind::Primitive(
@@ -396,7 +396,7 @@ impl<'a> TypeLowerer<'a> {
         )
     }
 
-    fn is_invalid_value_type(&self, ty: TyId) -> bool {
+    fn is_invalid_value_type(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))

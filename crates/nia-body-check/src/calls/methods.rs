@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{BodyChecker, ResolvedCall};
 use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyKind};
@@ -12,25 +12,25 @@ use nia_ty::{ArrayLenTy, TyKind};
 struct MethodCall<'a> {
     span: Span,
     receiver: &'a Expr,
-    receiver_ty: TyId,
+    receiver_ty: InternedTyId,
     name: &'a str,
     type_args: Option<&'a [BracketArg]>,
     args: &'a [Expr],
-    expected: Option<TyId>,
+    expected: Option<InternedTyId>,
 }
 
 struct MethodGenericContext<'a> {
     span: Span,
-    receiver_ty: TyId,
+    receiver_ty: InternedTyId,
     method_id: GlobalDefId,
     method_args: Option<&'a [BracketArg]>,
-    lowered_method_args: &'a [TyId],
-    expected: Option<TyId>,
+    lowered_method_args: &'a [InternedTyId],
+    expected: Option<InternedTyId>,
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct MethodCandidate {
-    pub(super) target_ty: TyId,
+    pub(super) target_ty: InternedTyId,
     pub(super) method_id: GlobalDefId,
 }
 
@@ -41,8 +41,8 @@ impl<'a> BodyChecker<'a> {
         ty_expr: &Expr,
         name: &str,
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> Option<TyId> {
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
         self.check_associated_call_inner(span, ty_expr, name, None, args, expected)
     }
 
@@ -53,8 +53,8 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         method_type_args: &[BracketArg],
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> Option<TyId> {
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
         self.check_associated_call_inner(
             span,
             ty_expr,
@@ -72,8 +72,8 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         method_type_args: Option<&[BracketArg]>,
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> Option<TyId> {
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
         let Some(method_id) = self.single_method_candidate(span, name, candidates) else {
@@ -146,7 +146,7 @@ impl<'a> BodyChecker<'a> {
             let actual = self.check_expr_with_expected(first_arg, Some(receiver_ty));
             self.expect_expr_type(first_arg, receiver_ty, actual, "receiver argument");
         }
-        let params: Vec<TyId> = signature
+        let params: Vec<InternedTyId> = signature
             .params
             .iter()
             .skip(if is_receiver_method { 1 } else { 0 })
@@ -164,7 +164,7 @@ impl<'a> BodyChecker<'a> {
                 return Some(self.error());
             }
         }
-        let params: Vec<TyId> = signature
+        let params: Vec<InternedTyId> = signature
             .params
             .iter()
             .skip(if is_receiver_method { 1 } else { 0 })
@@ -192,9 +192,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn receiver_ty_for_target(
         &mut self,
-        target_ty: TyId,
+        target_ty: InternedTyId,
         receiver: ReceiverKind,
-    ) -> TyId {
+    ) -> InternedTyId {
         match receiver {
             ReceiverKind::Value => target_ty,
             ReceiverKind::RefConst => self.interner.intern(nia_ty::TyKind::Pointer {
@@ -211,9 +211,9 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn associated_target_ty(
         &mut self,
         ty_expr: &Expr,
-        expected: Option<TyId>,
+        expected: Option<InternedTyId>,
         name: &str,
-    ) -> Option<TyId> {
+    ) -> Option<InternedTyId> {
         if let ExprKind::TypeTarget { ty } = &ty_expr.kind {
             return Some(self.ty_for_span(ty.span));
         }
@@ -244,8 +244,8 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         struct_id: GlobalDefId,
         signature: &FunctionSignature,
-        expected: TyId,
-    ) -> Option<Vec<TyId>> {
+        expected: InternedTyId,
+    ) -> Option<Vec<InternedTyId>> {
         let expected = self.normalization.normalize(expected);
         let Some(nia_ty::TyKind::Nominal {
             def_id: expected_def,
@@ -270,8 +270,8 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         struct_id: GlobalDefId,
         candidates: &[MethodCandidate],
-        expected: TyId,
-    ) -> Option<Vec<TyId>> {
+        expected: InternedTyId,
+    ) -> Option<Vec<InternedTyId>> {
         let mut inferred = Vec::new();
         for candidate in candidates {
             let Some(signature) = self
@@ -338,7 +338,10 @@ impl<'a> BodyChecker<'a> {
         self.type_prefix_instance(expr).map(|(def_id, _)| def_id)
     }
 
-    pub(crate) fn type_prefix_instance(&mut self, expr: &Expr) -> Option<(GlobalDefId, Vec<TyId>)> {
+    pub(crate) fn type_prefix_instance(
+        &mut self,
+        expr: &Expr,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
             let def_id = self.type_prefix_def_id(callee)?;
             let args = self.lower_bracket_type_args(args);
@@ -377,8 +380,8 @@ impl<'a> BodyChecker<'a> {
         receiver: &Expr,
         name: &str,
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> Option<TyId> {
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
         if candidates.is_empty() {
@@ -403,8 +406,8 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         type_args: &[BracketArg],
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> Option<TyId> {
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
         if candidates.is_empty() {
@@ -422,7 +425,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<TyId> {
+    fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<InternedTyId> {
         let candidates = self.method_candidates_for_receiver(call.receiver_ty, call.name);
         let method_id = self.single_method_candidate(call.span, call.name, candidates)?;
         let Some(signature) = self
@@ -476,7 +479,7 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         };
-        let params: Vec<TyId> = signature
+        let params: Vec<InternedTyId> = signature
             .params
             .iter()
             .skip(1)
@@ -538,7 +541,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn method_candidates_for_target(
         &mut self,
-        target_ty: TyId,
+        target_ty: InternedTyId,
         name: &str,
     ) -> Vec<MethodCandidate> {
         self.extensions
@@ -556,7 +559,7 @@ impl<'a> BodyChecker<'a> {
 
     fn method_candidates_for_receiver(
         &mut self,
-        receiver_ty: TyId,
+        receiver_ty: InternedTyId,
         name: &str,
     ) -> Vec<MethodCandidate> {
         let mut receiver_ty = self.normalization.normalize(receiver_ty);
@@ -619,19 +622,19 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    fn strictly_more_specific(&self, specific: TyId, general: TyId) -> bool {
+    fn strictly_more_specific(&self, specific: InternedTyId, general: InternedTyId) -> bool {
         self.pattern_subsumes(general, specific) && !self.pattern_subsumes(specific, general)
     }
 
-    fn pattern_subsumes(&self, general: TyId, specific: TyId) -> bool {
+    fn pattern_subsumes(&self, general: InternedTyId, specific: InternedTyId) -> bool {
         self.pattern_subsumes_inner(general, specific, &mut HashMap::new())
     }
 
     fn pattern_subsumes_inner(
         &self,
-        general: TyId,
-        specific: TyId,
-        substitutions: &mut HashMap<String, TyId>,
+        general: InternedTyId,
+        specific: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
         let general = self.normalization.normalize(general);
         let specific = self.normalization.normalize(specific);
@@ -729,11 +732,14 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn patterns_equivalent(&self, left: TyId, right: TyId) -> bool {
+    fn patterns_equivalent(&self, left: InternedTyId, right: InternedTyId) -> bool {
         self.pattern_subsumes(left, right) && self.pattern_subsumes(right, left)
     }
 
-    fn lowered_method_type_args(&mut self, type_args: Option<&[BracketArg]>) -> Option<Vec<TyId>> {
+    fn lowered_method_type_args(
+        &mut self,
+        type_args: Option<&[BracketArg]>,
+    ) -> Option<Vec<InternedTyId>> {
         type_args
             .map(|args| self.lower_bracket_type_args(args))
             .or(Some(Vec::new()))
@@ -743,7 +749,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         context: MethodGenericContext<'_>,
         signature: &FunctionSignature,
-    ) -> Option<HashMap<String, TyId>> {
+    ) -> Option<HashMap<String, InternedTyId>> {
         let mut substitutions =
             self.extension_target_substitutions(context.method_id, context.receiver_ty);
         let method_arg_count = context.lowered_method_args.len();
@@ -775,8 +781,8 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn extension_target_substitutions(
         &mut self,
         method_id: GlobalDefId,
-        receiver_ty: TyId,
-    ) -> HashMap<String, TyId> {
+        receiver_ty: InternedTyId,
+    ) -> HashMap<String, InternedTyId> {
         let Some(target_ty) = self.extension_target_ty_for_method(method_id) else {
             return HashMap::new();
         };
@@ -788,8 +794,8 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn extension_target_instance_args(
         &mut self,
         method_id: GlobalDefId,
-        substitutions: &HashMap<String, TyId>,
-    ) -> Vec<TyId> {
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Vec<InternedTyId> {
         let Some(target_ty) = self.extension_target_ty_for_method(method_id) else {
             return Vec::new();
         };
@@ -799,7 +805,7 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    fn extension_target_ty_for_method(&self, method_id: GlobalDefId) -> Option<TyId> {
+    fn extension_target_ty_for_method(&self, method_id: GlobalDefId) -> Option<InternedTyId> {
         self.extensions
             .targets()
             .iter()
@@ -814,9 +820,9 @@ impl<'a> BodyChecker<'a> {
 
     fn match_receiver_target(
         &self,
-        target_ty: TyId,
-        receiver_ty: TyId,
-        substitutions: &mut HashMap<String, TyId>,
+        target_ty: InternedTyId,
+        receiver_ty: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
         let receiver_ty = self.normalization.normalize(receiver_ty);
         if self.match_type_pattern(target_ty, receiver_ty, substitutions) {
@@ -832,9 +838,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn match_type_pattern(
         &self,
-        pattern: TyId,
-        actual: TyId,
-        substitutions: &mut HashMap<String, TyId>,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
         let pattern = self.normalization.normalize(pattern);
         let actual = self.normalization.normalize(actual);
@@ -925,8 +931,8 @@ impl<'a> BodyChecker<'a> {
     fn infer_method_generics_from_args(
         &mut self,
         args: &[Expr],
-        params: &[TyId],
-        substitutions: &mut HashMap<String, TyId>,
+        params: &[InternedTyId],
+        substitutions: &mut HashMap<String, InternedTyId>,
     ) {
         let actuals = args
             .iter()
@@ -952,7 +958,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         signature: &FunctionSignature,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> bool {
         let mut complete = true;
         for generic in &signature.generics {
@@ -970,7 +976,7 @@ impl<'a> BodyChecker<'a> {
     fn check_receiver_match(
         &mut self,
         receiver: &Expr,
-        receiver_ty: TyId,
+        receiver_ty: InternedTyId,
         receiver_kind: ReceiverKind,
     ) {
         if receiver_kind == ReceiverKind::Ref {

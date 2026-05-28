@@ -7,7 +7,7 @@ use nia_ast::{
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
@@ -28,7 +28,7 @@ pub struct ItemSignatures {
 pub struct FunctionSignature {
     pub generics: Vec<String>,
     pub params: Vec<ParamSignature>,
-    pub return_type: TyId,
+    pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
     pub has_body: bool,
@@ -39,7 +39,7 @@ pub struct FunctionSignature {
 pub struct ParamSignature {
     pub name: Option<String>,
     pub receiver: Option<ReceiverKind>,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -74,13 +74,13 @@ impl UnionSignature {
 pub struct FieldSignature {
     pub def_id: DefId,
     pub name: String,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumSignature {
-    pub backing_type: TyId,
+    pub backing_type: InternedTyId,
     pub is_open: bool,
     pub variants: Vec<EnumVariantSignature>,
     pub span: Span,
@@ -96,13 +96,13 @@ pub struct EnumVariantSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAliasSignature {
     pub generics: Vec<String>,
-    pub target: TyId,
+    pub target: InternedTyId,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalSignature {
-    pub explicit_type: Option<TyId>,
+    pub explicit_type: Option<InternedTyId>,
     pub is_const: bool,
     pub is_extern: bool,
     pub span: Span,
@@ -110,7 +110,7 @@ pub struct GlobalSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeSignature {
-    pub explicit_type: Option<TyId>,
+    pub explicit_type: Option<InternedTyId>,
     pub span: Span,
 }
 
@@ -430,7 +430,7 @@ impl<'a> SignatureCollector<'a> {
         Some(def_id)
     }
 
-    fn ty_for_span(&mut self, span: Span) -> TyId {
+    fn ty_for_span(&mut self, span: Span) -> InternedTyId {
         if let Some(ty) = self.lowered.type_uses.get(&span).copied() {
             ty
         } else {
@@ -442,11 +442,11 @@ impl<'a> SignatureCollector<'a> {
         }
     }
 
-    fn primitive(&self, primitive: PrimitiveTy) -> TyId {
+    fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
         self.lowered.interner.primitive(primitive)
     }
 
-    fn error(&self) -> TyId {
+    fn error(&self) -> InternedTyId {
         self.lowered.interner.error()
     }
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
 pub fn sanitize_symbol_part(text: &str) -> String {
@@ -31,7 +31,7 @@ pub fn mangle_base_symbol(def_id: GlobalDefId, name: &str) -> String {
 pub fn mangle_instance_symbol<F>(
     def_id: GlobalDefId,
     name: &str,
-    args: &[TyId],
+    args: &[InternedTyId],
     interner: &TyInterner,
     nominal_name: F,
 ) -> String
@@ -51,7 +51,7 @@ where
     }
 }
 
-pub fn mangle_type_with<F>(interner: &TyInterner, ty: TyId, nominal_name: F) -> String
+pub fn mangle_type_with<F>(interner: &TyInterner, ty: InternedTyId, nominal_name: F) -> String
 where
     F: FnMut(GlobalDefId) -> String,
 {
@@ -59,7 +59,7 @@ where
     mangle_type_inner(interner, ty, &mut nominal_name)
 }
 
-fn mangle_type_inner<F>(interner: &TyInterner, ty: TyId, nominal_name: &mut F) -> String
+fn mangle_type_inner<F>(interner: &TyInterner, ty: InternedTyId, nominal_name: &mut F) -> String
 where
     F: FnMut(GlobalDefId) -> String,
 {

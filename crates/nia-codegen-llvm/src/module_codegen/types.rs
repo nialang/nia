@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_llvm::{
     types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType},
     values::FunctionValue,
@@ -15,16 +15,16 @@ use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AbiParam {
-    Direct(TyId),
+    Direct(InternedTyId),
     Omit,
-    IndirectReadonly(TyId),
+    IndirectReadonly(InternedTyId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AbiReturn {
-    Direct(TyId),
+    Direct(InternedTyId),
     Void,
-    IndirectOut(TyId),
+    IndirectOut(InternedTyId),
     Never,
 }
 
@@ -35,8 +35,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map(|module| &module.interner)
     }
 
-    pub(crate) fn ty_kind(&self, ty: TyId) -> Option<&'a TyKind> {
-        self.module_interner(ty.module_id)?.get(ty)
+    pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&'a TyKind> {
+        self.module_interner(ty.interner_id)?.get(ty)
     }
 
     pub(super) fn function_type_in(
@@ -105,8 +105,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         interner: &TyInterner,
         layouts: &BackendLayouts,
-        params: &[TyId],
-        return_type: TyId,
+        params: &[InternedTyId],
+        return_type: InternedTyId,
         is_variadic: bool,
         span: Span,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
@@ -136,7 +136,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    pub(crate) fn classify_function_params(&self, params: &[TyId]) -> Vec<AbiParam> {
+    pub(crate) fn classify_function_params(&self, params: &[InternedTyId]) -> Vec<AbiParam> {
         self.classify_params_in(
             params.iter().copied(),
             self.interner(),
@@ -144,13 +144,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         )
     }
 
-    pub(crate) fn classify_function_return(&self, ty: TyId) -> AbiReturn {
+    pub(crate) fn classify_function_return(&self, ty: InternedTyId) -> AbiReturn {
         self.classify_return_in(ty, self.interner(), &self.source.layouts)
     }
 
     fn classify_params_in(
         &self,
-        params: impl IntoIterator<Item = TyId>,
+        params: impl IntoIterator<Item = InternedTyId>,
         interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Vec<AbiParam> {
@@ -162,7 +162,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn classify_param_in(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         _interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> AbiParam {
@@ -189,7 +189,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn classify_return_in(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         _interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> AbiReturn {
@@ -221,7 +221,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn pointer_abi_type(
         &self,
-        _ty: TyId,
+        _ty: InternedTyId,
         _span: Span,
         _interner: &TyInterner,
         _layouts: &BackendLayouts,
@@ -231,7 +231,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn llvm_basic_type(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
         self.llvm_basic_type_in(ty, span, self.interner(), &self.source.layouts)
@@ -249,7 +249,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn llvm_basic_type_in(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
         _interner: &TyInterner,
         layouts: &BackendLayouts,
@@ -378,7 +378,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn field_index(
         &self,
-        base_ty: TyId,
+        base_ty: InternedTyId,
         field: GlobalDefId,
         span: Span,
     ) -> Result<u32, Diagnostic> {
@@ -411,7 +411,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn backend_struct_field(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         field: GlobalDefId,
         span: Span,
     ) -> Result<&BackendField, Diagnostic> {
@@ -421,7 +421,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .ok_or_else(|| self.error(span, "missing struct field"))
     }
 
-    fn layout_of_in(&self, ty: TyId, layouts: &BackendLayouts) -> Option<nia_layout::TypeLayout> {
+    fn layout_of_in(
+        &self,
+        ty: InternedTyId,
+        layouts: &BackendLayouts,
+    ) -> Option<nia_layout::TypeLayout> {
         layouts
             .types
             .iter()
@@ -430,10 +434,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn field_ty(
         &self,
-        base_ty: TyId,
+        base_ty: InternedTyId,
         field: GlobalDefId,
         span: Span,
-    ) -> Result<TyId, Diagnostic> {
+    ) -> Result<InternedTyId, Diagnostic> {
         let Some((def_id, args)) = self.field_base_type(base_ty) else {
             return Err(self.error(span, "field base type is not nominal"));
         };
@@ -447,7 +451,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Err(self.error(span, "missing aggregate field type"))
     }
 
-    fn field_base_type(&self, ty: TyId) -> Option<(GlobalDefId, Vec<TyId>)> {
+    fn field_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         match self.ty_kind(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.field_base_type(*elem),
@@ -458,7 +462,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn struct_fields(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         span: Span,
     ) -> Result<&[BackendField], Diagnostic> {
         if let Some(instance) = self.struct_instance_item(def_id, args) {
@@ -473,7 +477,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn union_fields(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         span: Span,
     ) -> Result<&[BackendField], Diagnostic> {
         if let Some(instance) = self.union_instance_item(def_id, args) {
@@ -488,7 +492,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn aggregate_fields(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         span: Span,
     ) -> Result<&[BackendField], Diagnostic> {
         self.struct_fields(def_id, args, span)
@@ -498,7 +502,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn physical_struct_fields(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         span: Span,
     ) -> Result<Vec<&BackendField>, Diagnostic> {
         let Some(layout) = self.struct_layout(def_id, args) else {
@@ -534,7 +538,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn union_storage_fields(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         span: Span,
     ) -> Result<Vec<BasicTypeEnum<'ctx>>, Diagnostic> {
         let Some(layout) = self.union_layout(def_id, args) else {
@@ -571,7 +575,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn union_layout(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<&nia_layout::StructLayout> {
         let owner = self.program.module(def_id.module_id)?;
         if args.is_empty() {
@@ -594,7 +598,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn struct_layout(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<&nia_layout::StructLayout> {
         let owner = self.program.module(def_id.module_id)?;
         if args.is_empty() {
@@ -614,7 +618,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    fn struct_instance_type(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<StructType<'ctx>> {
+    fn struct_instance_type(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<StructType<'ctx>> {
         self.struct_instances
             .iter()
             .find_map(|((candidate_def, candidate_args), ty)| {
@@ -626,7 +634,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn struct_instance_item(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<&BackendStructInstance> {
         self.program
             .struct_instances
@@ -637,7 +645,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             })
     }
 
-    fn union_instance_type(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<StructType<'ctx>> {
+    fn union_instance_type(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<StructType<'ctx>> {
         self.union_instances
             .iter()
             .find_map(|((candidate_def, candidate_args), ty)| {
@@ -649,7 +661,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn union_instance_item(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<&BackendUnionInstance> {
         self.program
             .union_instances
@@ -671,7 +683,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(crate) fn function_instance_item(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<&'a BackendFunctionInstance> {
         self.program.function_instances.iter().find_map(
             |((candidate_def, _, candidate_args), item)| {
@@ -684,7 +696,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(crate) fn function_instance_value(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<FunctionValue<'ctx>> {
         self.function_instances
             .iter()
@@ -694,7 +706,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             })
     }
 
-    fn same_type_args(&self, left: &[TyId], right: &[TyId]) -> bool {
+    fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
         left.len() == right.len()
             && left
                 .iter()
@@ -702,7 +714,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .all(|(left, right)| self.same_type(*left, *right))
     }
 
-    fn same_type(&self, left: TyId, right: TyId) -> bool {
+    fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
         if left == right {
             return true;
         }
@@ -793,7 +805,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    pub(crate) fn array_elem_ty(&self, ty: TyId, span: Span) -> Result<TyId, Diagnostic> {
+    pub(crate) fn array_elem_ty(
+        &self,
+        ty: InternedTyId,
+        span: Span,
+    ) -> Result<InternedTyId, Diagnostic> {
         match self.ty_kind(ty) {
             Some(TyKind::Array { elem, .. })
             | Some(TyKind::Pointer { elem, .. })

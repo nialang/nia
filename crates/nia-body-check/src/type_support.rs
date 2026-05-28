@@ -8,12 +8,18 @@ use crate::{ArrayToSliceCoercion, BodyChecker};
 use nia_ast::{Expr, ExprKind, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 
 impl<'a> BodyChecker<'a> {
-    pub(crate) fn expect_type(&mut self, span: Span, expected: TyId, actual: TyId, context: &str) {
+    pub(crate) fn expect_type(
+        &mut self,
+        span: Span,
+        expected: InternedTyId,
+        actual: InternedTyId,
+        context: &str,
+    ) {
         if expected == self.error() || actual == self.error() || self.types_match(expected, actual)
         {
             return;
@@ -31,8 +37,8 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn expect_expr_type(
         &mut self,
         expr: &Expr,
-        expected: TyId,
-        actual: TyId,
+        expected: InternedTyId,
+        actual: InternedTyId,
         context: &str,
     ) {
         if let Some(coerced) = self.coerce_array_to_slice(expr, expected, actual) {
@@ -56,8 +62,8 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn array_expected_from_slice_expected(
         &mut self,
-        expected: Option<TyId>,
-    ) -> Option<TyId> {
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
         let expected = self.normalization.normalize(expected?);
         match self.interner.get(expected) {
             Some(TyKind::Slice { elem, .. }) => Some(self.interner.intern(TyKind::Array {
@@ -71,9 +77,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn coerce_array_to_slice(
         &mut self,
         expr: &Expr,
-        expected: TyId,
-        actual: TyId,
-    ) -> Option<TyId> {
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
         let Some(TyKind::Slice {
@@ -113,7 +119,7 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
-    fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: TyId) {
+    fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
         self.expr_types.insert(expr.span, ty);
         if let ExprKind::Unary {
             op: UnaryOp::Neg,
@@ -127,7 +133,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_integer_literal_range(
         &mut self,
         expr: &Expr,
-        expected: TyId,
+        expected: InternedTyId,
         context: &str,
     ) -> bool {
         let Some(value) = integer_literal_value(expr) else {
@@ -155,7 +161,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_integer_literal_enum_backing_range(
         &mut self,
         expr: &Expr,
-        expected_enum: TyId,
+        expected_enum: InternedTyId,
         context: &str,
     ) -> bool {
         let Some(value) = integer_literal_value(expr) else {
@@ -193,7 +199,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_float_literal_target(
         &mut self,
         expr: &Expr,
-        expected: TyId,
+        expected: InternedTyId,
         context: &str,
     ) -> bool {
         let Some(text) = float_literal_text(expr) else {
@@ -238,7 +244,7 @@ impl<'a> BodyChecker<'a> {
         ));
     }
 
-    pub(crate) fn expect_integer(&mut self, span: Span, actual: TyId, context: &str) {
+    pub(crate) fn expect_integer(&mut self, span: Span, actual: InternedTyId, context: &str) {
         if actual == self.error() || self.is_integer(actual) {
             return;
         }
@@ -251,7 +257,7 @@ impl<'a> BodyChecker<'a> {
         ));
     }
 
-    pub(crate) fn types_match(&self, expected: TyId, actual: TyId) -> bool {
+    pub(crate) fn types_match(&self, expected: InternedTyId, actual: InternedTyId) -> bool {
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
         if self.is_never(actual) {
@@ -294,9 +300,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn materialize_inferred_array_type(
         &self,
-        expected: TyId,
-        actual: TyId,
-    ) -> Option<TyId> {
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
         match (self.interner.get(expected), self.interner.get(actual)) {
             (
                 Some(TyKind::Array {
@@ -321,14 +327,14 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn ty_for_span(&self, span: Span) -> TyId {
+    pub(crate) fn ty_for_span(&self, span: Span) -> InternedTyId {
         self.type_uses
             .get(&span)
             .copied()
             .unwrap_or_else(|| self.error())
     }
 
-    pub(crate) fn layout_of(&self, ty: TyId) -> Option<nia_layout::TypeLayout> {
+    pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
         let ty = self.normalization.normalize(ty);
         self.layouts.types.get(&ty).cloned()
     }
@@ -358,7 +364,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn ty_name(&self, ty: TyId) -> String {
+    pub(crate) fn ty_name(&self, ty: InternedTyId) -> String {
         match self.interner.get(ty) {
             Some(TyKind::Primitive(primitive)) => primitive_ty_name(*primitive).to_string(),
             Some(TyKind::Pointer { is_const, elem }) => {
@@ -406,7 +412,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn nominal_ty_name(&self, def_id: nia_ids::GlobalDefId, args: &[TyId]) -> String {
+    fn nominal_ty_name(&self, def_id: nia_ids::GlobalDefId, args: &[InternedTyId]) -> String {
         let base = self
             .all_defs
             .iter()
@@ -426,11 +432,11 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn primitive(&self, primitive: PrimitiveTy) -> TyId {
+    pub(crate) fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
         self.interner.primitive(primitive)
     }
 
-    pub(crate) fn string_literal_type(&mut self, text: &str) -> TyId {
+    pub(crate) fn string_literal_type(&mut self, text: &str) -> InternedTyId {
         let len = string_literal_char_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr {
@@ -441,7 +447,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    pub(crate) fn byte_string_literal_type(&mut self, text: &str) -> TyId {
+    pub(crate) fn byte_string_literal_type(&mut self, text: &str) -> InternedTyId {
         let len = byte_string_literal_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr {
@@ -452,7 +458,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    pub(crate) fn c_string_literal_type(&mut self, text: &str) -> TyId {
+    pub(crate) fn c_string_literal_type(&mut self, text: &str) -> InternedTyId {
         let len = c_string_literal_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
             len: ArrayLenTy::ConstExpr {
@@ -463,27 +469,27 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    pub(crate) fn void(&self) -> TyId {
+    pub(crate) fn void(&self) -> InternedTyId {
         self.primitive(PrimitiveTy::Void)
     }
 
-    pub(crate) fn never(&self) -> TyId {
+    pub(crate) fn never(&self) -> InternedTyId {
         self.primitive(PrimitiveTy::Never)
     }
 
-    pub(crate) fn is_void(&self, ty: TyId) -> bool {
+    pub(crate) fn is_void(&self, ty: InternedTyId) -> bool {
         ty == self.void()
     }
 
-    pub(crate) fn is_never(&self, ty: TyId) -> bool {
+    pub(crate) fn is_never(&self, ty: InternedTyId) -> bool {
         self.normalization.normalize(ty) == self.never()
     }
 
-    pub(crate) fn is_invalid_temporary_type(&self, ty: TyId) -> bool {
+    pub(crate) fn is_invalid_temporary_type(&self, ty: InternedTyId) -> bool {
         self.is_void(ty) || self.is_never(ty)
     }
 
-    pub(crate) fn is_integer(&self, ty: TyId) -> bool {
+    pub(crate) fn is_integer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(ty),
             Some(TyKind::Primitive(
@@ -503,21 +509,21 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    pub(crate) fn is_char(&self, ty: TyId) -> bool {
+    pub(crate) fn is_char(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Char))
         )
     }
 
-    pub(crate) fn is_u32(&self, ty: TyId) -> bool {
+    pub(crate) fn is_u32(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::U32))
         )
     }
 
-    pub(crate) fn is_numeric(&self, ty: TyId) -> bool {
+    pub(crate) fn is_numeric(&self, ty: InternedTyId) -> bool {
         self.is_integer(ty)
             || matches!(
                 self.interner.get(ty),
@@ -525,25 +531,25 @@ impl<'a> BodyChecker<'a> {
             )
     }
 
-    pub(crate) fn is_pointer(&self, ty: TyId) -> bool {
+    pub(crate) fn is_pointer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(self.normalization.normalize(ty)),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
         )
     }
 
-    pub(crate) fn is_pointer_integer(&self, ty: TyId) -> bool {
+    pub(crate) fn is_pointer_integer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.interner.get(self.normalization.normalize(ty)),
             Some(TyKind::Primitive(PrimitiveTy::Usize | PrimitiveTy::Isize))
         )
     }
 
-    pub(crate) fn is_enum(&self, ty: TyId) -> bool {
+    pub(crate) fn is_enum(&self, ty: InternedTyId) -> bool {
         self.enum_global_def_id(ty).is_some()
     }
 
-    pub(crate) fn is_open_enum(&self, ty: TyId) -> bool {
+    pub(crate) fn is_open_enum(&self, ty: InternedTyId) -> bool {
         let Some(enum_id) = self.enum_global_def_id(ty) else {
             return false;
         };
@@ -559,19 +565,19 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn bool(&self) -> TyId {
+    pub(crate) fn bool(&self) -> InternedTyId {
         self.primitive(PrimitiveTy::Bool)
     }
 
-    pub(crate) fn i32(&self) -> TyId {
+    pub(crate) fn i32(&self) -> InternedTyId {
         self.primitive(PrimitiveTy::I32)
     }
 
-    pub(crate) fn f64(&self) -> TyId {
+    pub(crate) fn f64(&self) -> InternedTyId {
         self.primitive(PrimitiveTy::F64)
     }
 
-    pub(crate) fn error(&self) -> TyId {
+    pub(crate) fn error(&self) -> InternedTyId {
         self.interner.error()
     }
 }

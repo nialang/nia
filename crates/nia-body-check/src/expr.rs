@@ -4,18 +4,22 @@ use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
-    pub(crate) fn check_expr(&mut self, expr: &Expr) -> TyId {
+    pub(crate) fn check_expr(&mut self, expr: &Expr) -> InternedTyId {
         self.check_expr_with_expected(expr, None)
     }
 
-    pub(crate) fn check_expr_with_expected(&mut self, expr: &Expr, expected: Option<TyId>) -> TyId {
+    pub(crate) fn check_expr_with_expected(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         let array_expected = self.array_expected_from_slice_expected(expected);
         let ty = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) => self.error(),
@@ -205,7 +209,7 @@ impl<'a> BodyChecker<'a> {
         ty
     }
 
-    fn integer_literal_type(&mut self, expr: &Expr) -> TyId {
+    fn integer_literal_type(&mut self, expr: &Expr) -> InternedTyId {
         if let Some(primitive) = integer_literal_suffix_ty(expr) {
             let ty = self.primitive(primitive);
             self.check_integer_literal_range(expr, ty, "literal suffix");
@@ -218,7 +222,7 @@ impl<'a> BodyChecker<'a> {
         self.i32()
     }
 
-    fn float_literal_type(&mut self, expr: &Expr) -> TyId {
+    fn float_literal_type(&mut self, expr: &Expr) -> InternedTyId {
         if let Some(primitive) = float_literal_suffix_ty(expr) {
             let ty = self.primitive(primitive);
             self.check_float_literal_target(expr, ty, "literal suffix");
@@ -236,8 +240,8 @@ impl<'a> BodyChecker<'a> {
         cond: &Expr,
         then_branch: &nia_ast::Block,
         else_branch: Option<&Expr>,
-        expected: Option<TyId>,
-    ) -> TyId {
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         let cond_ty = self.check_expr(cond);
         self.expect_type(cond.span, self.bool(), cond_ty, "if condition");
         let Some(else_branch) = else_branch else {
@@ -282,8 +286,8 @@ impl<'a> BodyChecker<'a> {
     fn expect_block_tail_type(
         &mut self,
         block: &nia_ast::Block,
-        expected: TyId,
-        actual: TyId,
+        expected: InternedTyId,
+        actual: InternedTyId,
         context: &str,
     ) {
         if let Some(tail) = block.tail.as_deref() {
@@ -296,8 +300,8 @@ impl<'a> BodyChecker<'a> {
     fn expect_expr_or_block_tail_type(
         &mut self,
         expr: &Expr,
-        expected: TyId,
-        actual: TyId,
+        expected: InternedTyId,
+        actual: InternedTyId,
         context: &str,
     ) {
         if let ExprKind::Block(block) = &expr.kind {
@@ -307,7 +311,11 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn block_tail_materialized_type(&self, block: &nia_ast::Block, fallback: TyId) -> TyId {
+    fn block_tail_materialized_type(
+        &self,
+        block: &nia_ast::Block,
+        fallback: InternedTyId,
+    ) -> InternedTyId {
         block
             .tail
             .as_deref()
@@ -322,7 +330,10 @@ impl<'a> BodyChecker<'a> {
             .is_some_and(|tail| self.is_numeric_literal_expr(tail))
     }
 
-    fn array_expected_from_index_expected(&mut self, expected: Option<TyId>) -> Option<TyId> {
+    fn array_expected_from_index_expected(
+        &mut self,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
         let expected = expected?;
         Some(self.interner.intern(TyKind::Array {
             len: ArrayLenTy::Infer,
@@ -336,8 +347,8 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         op: BinaryOp,
         rhs: &Expr,
-        expected: Option<TyId>,
-    ) -> TyId {
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         match op {
             BinaryOp::Lt
             | BinaryOp::Le
@@ -450,7 +461,7 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         rhs: &Expr,
         context: &str,
-    ) -> (TyId, TyId) {
+    ) -> (InternedTyId, InternedTyId) {
         if self.is_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs) {
             let rhs_ty = self.check_expr(rhs);
             let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
@@ -485,7 +496,7 @@ impl<'a> BodyChecker<'a> {
             )
     }
 
-    fn check_cast(&mut self, span: Span, source: TyId, target: TyId) {
+    fn check_cast(&mut self, span: Span, source: InternedTyId, target: InternedTyId) {
         if source == self.error() || target == self.error() || self.is_valid_cast(source, target) {
             return;
         }
@@ -499,7 +510,7 @@ impl<'a> BodyChecker<'a> {
         ));
     }
 
-    fn is_valid_cast(&self, source: TyId, target: TyId) -> bool {
+    fn is_valid_cast(&self, source: InternedTyId, target: InternedTyId) -> bool {
         let source = self.normalization.normalize(source);
         let target = self.normalization.normalize(target);
         if source == target {
@@ -534,8 +545,8 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         callee: &Expr,
         args: &[BracketArg],
-        expected: Option<TyId>,
-    ) -> TyId {
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         if args.len() == 1
             && let Some(arg) = args.first()
             && let Some(index) = &arg.expr
@@ -566,7 +577,7 @@ impl<'a> BodyChecker<'a> {
         self.error()
     }
 
-    fn ident_type(&mut self, span: Span) -> TyId {
+    fn ident_type(&mut self, span: Span) -> InternedTyId {
         match self.locals.uses.get(&span) {
             Some(LocalUse::Local(local_id)) => {
                 self.local_types.get(local_id).copied().unwrap_or_else(|| {
@@ -601,7 +612,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn module_value_type(&mut self, def_id: DefId, span: Span) -> TyId {
+    fn module_value_type(&mut self, def_id: DefId, span: Span) -> InternedTyId {
         let Some(def) = self.defs.defs.get(def_id) else {
             return self.error();
         };

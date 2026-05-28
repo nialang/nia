@@ -215,7 +215,7 @@ pub(crate) fn collect_extension_methods(
     (extensions, diagnostics)
 }
 
-fn is_extendable_target(interner: &TyInterner, ty: nia_ids::TyId) -> bool {
+fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
     match interner.get(ty) {
         Some(TyKind::Error) | None => false,
         Some(TyKind::Primitive(PrimitiveTy::Never)) => false,

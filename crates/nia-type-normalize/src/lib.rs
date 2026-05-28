@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_diagnostic::Diagnostic;
-use nia_ids::{DefId, ModuleId, TyId};
+use nia_ids::{DefId, InternedTyId, ModuleId};
 use nia_item_signatures::{ItemSignatures, TypeAliasSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
@@ -10,7 +10,7 @@ use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeNormalization {
     pub interner: TyInterner,
-    pub normalized: HashMap<TyId, TyId>,
+    pub normalized: HashMap<InternedTyId, InternedTyId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -26,7 +26,7 @@ pub fn normalize_module_types(
         normalized: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    let ty_ids: Vec<TyId> = normalizer.interner.iter().map(|(ty_id, _)| ty_id).collect();
+    let ty_ids: Vec<InternedTyId> = normalizer.interner.iter().map(|(ty_id, _)| ty_id).collect();
     for ty_id in ty_ids {
         normalizer.normalize_ty(ty_id, &mut Vec::new());
     }
@@ -41,12 +41,12 @@ struct TypeNormalizer<'a> {
     module_id: ModuleId,
     interner: TyInterner,
     aliases: &'a HashMap<DefId, TypeAliasSignature>,
-    normalized: HashMap<TyId, TyId>,
+    normalized: HashMap<InternedTyId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
 }
 
 impl<'a> TypeNormalizer<'a> {
-    fn normalize_ty(&mut self, ty_id: TyId, stack: &mut Vec<DefId>) -> TyId {
+    fn normalize_ty(&mut self, ty_id: InternedTyId, stack: &mut Vec<DefId>) -> InternedTyId {
         if let Some(normalized) = self.normalized.get(&ty_id).copied() {
             return normalized;
         }
@@ -105,9 +105,9 @@ impl<'a> TypeNormalizer<'a> {
         &mut self,
         alias_id: DefId,
         alias: &TypeAliasSignature,
-        args: &[TyId],
+        args: &[InternedTyId],
         stack: &mut Vec<DefId>,
-    ) -> TyId {
+    ) -> InternedTyId {
         if stack.contains(&alias_id) {
             self.report_recursive_alias(alias.span, stack, alias_id);
             return self.interner.error();
@@ -123,7 +123,7 @@ impl<'a> TypeNormalizer<'a> {
             ));
             return self.interner.error();
         }
-        let substitutions: HashMap<String, TyId> = alias
+        let substitutions: HashMap<String, InternedTyId> = alias
             .generics
             .iter()
             .cloned()
@@ -137,10 +137,10 @@ impl<'a> TypeNormalizer<'a> {
 
     fn normalize_ty_with_substitutions(
         &mut self,
-        ty_id: TyId,
-        substitutions: &HashMap<String, TyId>,
+        ty_id: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
         stack: &mut Vec<DefId>,
-    ) -> TyId {
+    ) -> InternedTyId {
         match self.interner.get(ty_id).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions
                 .get(&name)
@@ -223,7 +223,7 @@ fn normalize_array_len(len: ArrayLenTy) -> ArrayLenTy {
 }
 
 impl TypeNormalization {
-    pub fn normalize(&self, ty_id: TyId) -> TyId {
+    pub fn normalize(&self, ty_id: InternedTyId) -> InternedTyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)
     }
 }

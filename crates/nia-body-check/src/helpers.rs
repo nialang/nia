@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{BodyChecker, ReceiverBase};
 use nia_ast::ReceiverKind;
 use nia_defs::{DefId, DefKind};
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
 use nia_ty::TyKind;
 
@@ -13,7 +13,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         def_id: DefId,
         signature: &FunctionSignature,
-    ) -> Option<TyId> {
+    ) -> Option<InternedTyId> {
         let method = self.defs.defs.get(def_id)?;
         if method.kind != DefKind::Method {
             return None;
@@ -33,7 +33,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn method_owner_type(&mut self, def_id: DefId) -> Option<TyId> {
+    fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
         let method_id = self.global_def_id(def_id);
         for item in self.extensions.targets() {
             if item.methods.iter().any(|method| method.def_id == method_id) {
@@ -43,13 +43,13 @@ impl<'a> BodyChecker<'a> {
         None
     }
 
-    pub(crate) fn receiver_base_type(&self, ty: TyId) -> Option<ReceiverBase> {
+    pub(crate) fn receiver_base_type(&self, ty: InternedTyId) -> Option<ReceiverBase> {
         self.receiver_base_type_inner(ty, false, false)
     }
 
     fn receiver_base_type_inner(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         from_pointer: bool,
         has_readonly_pointer: bool,
     ) -> Option<ReceiverBase> {
@@ -77,8 +77,8 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn generic_substitutions(
         &self,
         generics: &[String],
-        args: &[TyId],
-    ) -> HashMap<String, TyId> {
+        args: &[InternedTyId],
+    ) -> HashMap<String, InternedTyId> {
         generics
             .iter()
             .zip(args)
@@ -89,8 +89,8 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn struct_generic_substitutions(
         &mut self,
         def_id: GlobalDefId,
-        args: &[TyId],
-    ) -> HashMap<String, TyId> {
+        args: &[InternedTyId],
+    ) -> HashMap<String, InternedTyId> {
         self.resolved_struct_signature(def_id)
             .map(|resolved| self.generic_substitutions(&resolved.signature.generics, args))
             .unwrap_or_default()
@@ -98,9 +98,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn substitute_generics(
         &mut self,
-        ty: TyId,
-        substitutions: &HashMap<String, TyId>,
-    ) -> TyId {
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> InternedTyId {
         match self.interner.get(ty) {
             Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
             Some(TyKind::Pointer { is_const, elem }) => {

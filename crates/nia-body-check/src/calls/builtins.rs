@@ -2,7 +2,7 @@
 use crate::{BodyChecker, BuiltinValue};
 use nia_ast::{Expr, TypeRef};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 use nia_value_resolve::BuiltinResolution;
@@ -13,7 +13,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         name: &str,
         type_arg: &Option<TypeRef>,
-    ) -> TyId {
+    ) -> InternedTyId {
         let Some(resolution) = self.values.builtins.get(&span).copied() else {
             return self.error();
         };
@@ -55,7 +55,7 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         type_arg: &Option<TypeRef>,
         args: &[Expr],
-    ) -> TyId {
+    ) -> InternedTyId {
         let Some(resolution) = self.values.builtins.get(&builtin_span).copied() else {
             return self.error();
         };

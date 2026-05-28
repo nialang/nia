@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
 use nia_comptime_check::ComptimeCheck;
-use nia_ids::{GlobalDefId, LocalId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
 use nia_ty::TyInterner;
@@ -31,7 +31,7 @@ pub struct BackendModule {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendLayouts {
-    pub types: Vec<(TyId, TypeLayout)>,
+    pub types: Vec<(InternedTyId, TypeLayout)>,
     pub structs: Vec<(GlobalDefId, StructLayout)>,
     pub unions: Vec<(GlobalDefId, StructLayout)>,
     pub struct_instances: Vec<(BackendStructInstanceKey, StructLayout)>,
@@ -41,7 +41,7 @@ pub struct BackendLayouts {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendStructInstanceKey {
     pub def_id: GlobalDefId,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
 }
 
 impl BackendLayouts {
@@ -138,7 +138,7 @@ pub struct BackendUnion {
 pub struct BackendStructInstance {
     pub def_id: GlobalDefId,
     pub name: String,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
     pub symbol: String,
     pub fields: Vec<BackendField>,
     pub is_extern: bool,
@@ -149,7 +149,7 @@ pub struct BackendStructInstance {
 pub struct BackendUnionInstance {
     pub def_id: GlobalDefId,
     pub name: String,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
     pub symbol: String,
     pub fields: Vec<BackendField>,
     pub is_extern: bool,
@@ -160,7 +160,7 @@ pub struct BackendUnionInstance {
 pub struct BackendField {
     pub def_id: GlobalDefId,
     pub name: String,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -168,7 +168,7 @@ pub struct BackendField {
 pub struct BackendEnum {
     pub def_id: GlobalDefId,
     pub name: String,
-    pub backing_type: TyId,
+    pub backing_type: InternedTyId,
     pub variants: Vec<BackendEnumVariant>,
     pub span: Span,
 }
@@ -185,7 +185,7 @@ pub struct BackendEnumVariant {
 pub struct BackendGlobal {
     pub def_id: GlobalDefId,
     pub name: String,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub is_const: bool,
     pub is_extern: bool,
     pub init: Option<StaticInit>,
@@ -215,7 +215,7 @@ pub enum StaticInit {
     },
     AddrOfFunction {
         function: GlobalDefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     },
 }
 
@@ -231,7 +231,7 @@ pub struct BackendFunction {
     pub name: String,
     pub generics: Vec<String>,
     pub params: Vec<BackendParam>,
-    pub return_type: TyId,
+    pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
     pub body: Option<TypedBody>,
@@ -243,10 +243,10 @@ pub struct BackendFunctionInstance {
     pub def_id: GlobalDefId,
     pub name: String,
     pub arg_module_id: ModuleId,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
     pub symbol: String,
     pub params: Vec<BackendParam>,
-    pub return_type: TyId,
+    pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
     pub body: Option<TypedBody>,
@@ -257,7 +257,7 @@ pub struct BackendFunctionInstance {
 pub struct BackendGenericInstantiation {
     pub def_id: GlobalDefId,
     pub arg_module_id: ModuleId,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
     pub span: Span,
     pub source_def_id: Option<GlobalDefId>,
 }
@@ -267,7 +267,7 @@ pub struct BackendParam {
     pub local_id: Option<LocalId>,
     pub name: Option<String>,
     pub receiver: Option<ReceiverKind>,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -277,7 +277,7 @@ pub struct TypedBody {
     pub locals: Vec<TypedLocal>,
     pub stmts: Vec<TypedStmt>,
     pub tail: Option<Box<TypedExpr>>,
-    pub ty: TyId,
+    pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -285,7 +285,7 @@ pub struct TypedLocal {
     pub id: LocalId,
     pub name: String,
     pub kind: TypedLocalKind,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -318,7 +318,7 @@ pub enum TypedStmtKind {
 pub struct TypedBinding {
     pub local_id: LocalId,
     pub name: String,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub value: Option<TypedExpr>,
     pub is_const: bool,
 }
@@ -375,7 +375,7 @@ pub enum TypedSwitchArmBody {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedExpr {
     pub span: Span,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub kind: TypedExprKind,
 }
 
@@ -394,7 +394,7 @@ pub enum TypedExprKind {
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     },
     EnumVariant(GlobalDefId),
     BuiltinValue(BuiltinConst),
@@ -428,7 +428,7 @@ pub enum TypedExprKind {
     },
     Cast {
         expr: Box<TypedExpr>,
-        ty: TyId,
+        ty: InternedTyId,
     },
     Call {
         callee: TypedCallee,
@@ -514,11 +514,11 @@ pub enum TypedCallee {
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     },
     Method {
         def_id: GlobalDefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
         receiver: Box<TypedExpr>,
     },
     FunctionPointer(Box<TypedExpr>),
@@ -527,7 +527,7 @@ pub enum TypedCallee {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedPlace {
     pub span: Span,
-    pub ty: TyId,
+    pub ty: InternedTyId,
     pub base: PlaceBase,
     pub elems: Vec<PlaceElem>,
 }

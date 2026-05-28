@@ -14,7 +14,7 @@ use nia_backend_ir::{
 use nia_body_check::BodyCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, LocalId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_layout::Layouts;
 use nia_local_resolve::{LocalResolution, LocalUse};
@@ -328,15 +328,15 @@ impl<'a> ModuleLowerer<'a> {
             .unwrap_or_else(|| format!("def{}", def_id.0))
     }
 
-    fn local_ty(&self, local_id: LocalId) -> Option<TyId> {
+    fn local_ty(&self, local_id: LocalId) -> Option<InternedTyId> {
         self.input.body_check.local_types.get(&local_id).copied()
     }
 
-    fn expr_ty(&self, expr: &Expr) -> Option<TyId> {
+    fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
         self.input.body_check.expr_types.get(&expr.span).copied()
     }
 
-    fn ty_for_type_span(&self, span: Span) -> TyId {
+    fn ty_for_type_span(&self, span: Span) -> InternedTyId {
         self.input
             .type_lowering
             .type_uses
@@ -375,34 +375,34 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn error_ty(&self) -> TyId {
+    fn error_ty(&self) -> InternedTyId {
         self.input.body_check.interner.error()
     }
 
-    fn void_ty(&self) -> TyId {
+    fn void_ty(&self) -> InternedTyId {
         self.input.body_check.interner.primitive(PrimitiveTy::Void)
     }
 
-    pub(crate) fn ty_kind(&self, ty: TyId) -> Option<&TyKind> {
-        if ty.module_id == self.input.body_check.interner.module_id() {
+    pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
+        if ty.interner_id == self.input.body_check.interner.interner_id() {
             return self.input.body_check.interner.get(ty);
         }
         if let Some(extension_interner) = self.input.extension_interner
-            && ty.module_id == extension_interner.module_id()
+            && ty.interner_id == extension_interner.interner_id()
         {
             return extension_interner.get(ty);
         }
         None
     }
 
-    fn nominal_global_def(&self, ty: TyId) -> Option<GlobalDefId> {
+    fn nominal_global_def(&self, ty: InternedTyId) -> Option<GlobalDefId> {
         match self.input.body_check.interner.get(ty) {
             Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
             _ => None,
         }
     }
 
-    fn field_def_for_struct_ty(&self, ty: TyId, name: &str) -> Option<GlobalDefId> {
+    fn field_def_for_struct_ty(&self, ty: InternedTyId, name: &str) -> Option<GlobalDefId> {
         let def_id = self.nominal_global_def(ty)?;
         let defs = self.defs_for_module(def_id.module_id)?;
         defs.scopes
@@ -421,7 +421,7 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn field_def_for_base_ty(&self, ty: TyId, name: &str) -> Option<GlobalDefId> {
+    fn field_def_for_base_ty(&self, ty: InternedTyId, name: &str) -> Option<GlobalDefId> {
         let (def_id, _) = self.receiver_base_type(ty)?;
         let defs = self.defs_for_module(def_id.module_id)?;
         defs.scopes
@@ -440,7 +440,7 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn receiver_base_type(&self, ty: TyId) -> Option<(GlobalDefId, Vec<TyId>)> {
+    fn receiver_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         match self.input.body_check.interner.get(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.receiver_base_type(*elem),
@@ -455,7 +455,7 @@ impl<'a> ModuleLowerer<'a> {
             .find(|defs| defs.module_id == module_id)
     }
 
-    fn type_prefix_instance(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<TyId>)> {
+    fn type_prefix_instance(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
             let (def_id, _) = self.type_prefix_instance(callee)?;
             let args = lowered_type_args(args, self.input.type_lowering);
@@ -540,7 +540,10 @@ fn generic_inst_base(expr: &Expr) -> &Expr {
     }
 }
 
-pub(crate) fn lowered_type_args(args: &[BracketArg], type_lowering: &TypeLowering) -> Vec<TyId> {
+pub(crate) fn lowered_type_args(
+    args: &[BracketArg],
+    type_lowering: &TypeLowering,
+) -> Vec<InternedTyId> {
     args.iter()
         .filter_map(|arg| {
             arg.ty
