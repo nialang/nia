@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_backend_ir::{TypedArrayElements, TypedExpr, TypedFieldInit};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::values::{BasicValueEnum, PointerValue};
 use nia_span::Span;
 use nia_ty::TyKind;
@@ -137,7 +137,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_const_index_addr(
         &self,
         span: Span,
-        array_ty: TyId,
+        array_ty: InternedTyId,
         base_ptr: PointerValue<'ctx>,
         index: u64,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {

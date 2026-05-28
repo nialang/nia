@@ -627,7 +627,7 @@ extend[T] &T {
     assert_eq!(instances.len(), 2, "{instances:?}");
     for instance in instances {
         assert_eq!(instance.args.len(), 1, "{instance:?}");
-        assert_eq!(instance.arg_module_id, instance.args[0].module_id);
+        assert_eq!(instance.arg_module_id, instance.args[0].interner_id);
     }
 }
 

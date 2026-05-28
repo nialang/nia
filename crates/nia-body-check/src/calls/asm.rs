@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use nia_ast::{ArrayElements, Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 
@@ -12,7 +12,7 @@ impl<'a> BodyChecker<'a> {
         call_span: Span,
         builtin_span: Span,
         args: &[Expr],
-    ) -> TyId {
+    ) -> InternedTyId {
         if args.len() != 1 {
             self.diagnostics.push(Diagnostic::error(
                 call_span,
@@ -98,7 +98,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_asm_operand_type(&mut self, span: Span, ty: TyId, context: &str) {
+    fn check_asm_operand_type(&mut self, span: Span, ty: InternedTyId, context: &str) {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {

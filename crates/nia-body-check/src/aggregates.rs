@@ -5,13 +5,13 @@ use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, Resolve
 use nia_ast::{Expr, ExprKind};
 use nia_defs::DefId;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyKind};
 
 impl<'a> BodyChecker<'a> {
-    pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> TyId {
+    pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
         let ExprKind::ArrayLiteral { elems } = &expr.kind else {
             return self.check_expr(expr);
         };
@@ -23,9 +23,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_array_literal(
         &mut self,
         span: Span,
-        expected: Option<TyId>,
+        expected: Option<InternedTyId>,
         elems: &nia_ast::ArrayElements,
-    ) -> TyId {
+    ) -> InternedTyId {
         let Some(array_ty) = expected else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -54,7 +54,11 @@ impl<'a> BodyChecker<'a> {
         self.check_array_literal_len(span, len, elem_ty, elems)
     }
 
-    fn infer_array_literal_type(&mut self, span: Span, elems: &nia_ast::ArrayElements) -> TyId {
+    fn infer_array_literal_type(
+        &mut self,
+        span: Span,
+        elems: &nia_ast::ArrayElements,
+    ) -> InternedTyId {
         match elems {
             nia_ast::ArrayElements::List(values) => {
                 let Some(anchor_index) = self.array_literal_anchor_index(values) else {
@@ -88,7 +92,7 @@ impl<'a> BodyChecker<'a> {
             .or((!elems.is_empty()).then_some(0))
     }
 
-    fn infer_array_literal_elem_type(&mut self, elem: &Expr) -> TyId {
+    fn infer_array_literal_elem_type(&mut self, elem: &Expr) -> InternedTyId {
         if matches!(elem.kind, ExprKind::ArrayLiteral { .. }) {
             self.infer_array_literal_expr(elem)
         } else {
@@ -100,9 +104,9 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         len: ArrayLenTy,
-        elem_ty: TyId,
+        elem_ty: InternedTyId,
         elems: &nia_ast::ArrayElements,
-    ) -> TyId {
+    ) -> InternedTyId {
         match len {
             ArrayLenTy::Infer => {
                 let inferred = match elems {
@@ -165,9 +169,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_struct_literal(
         &mut self,
         span: Span,
-        expected: Option<TyId>,
+        expected: Option<InternedTyId>,
         fields: &[nia_ast::FieldInit],
-    ) -> TyId {
+    ) -> InternedTyId {
         let Some(aggregate_ty) = expected else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -200,7 +204,7 @@ impl<'a> BodyChecker<'a> {
         let generics = resolved.signature.generics.clone();
         let signature_fields = resolved.signature.fields.clone();
         let substitutions = self.generic_substitutions(&generics, &args);
-        let field_tys: HashMap<&str, TyId> = signature_fields
+        let field_tys: HashMap<&str, InternedTyId> = signature_fields
             .iter()
             .map(|field| {
                 (
@@ -242,11 +246,11 @@ impl<'a> BodyChecker<'a> {
     fn check_union_literal(
         &mut self,
         span: Span,
-        union_ty: TyId,
+        union_ty: InternedTyId,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         fields: &[nia_ast::FieldInit],
-    ) -> TyId {
+    ) -> InternedTyId {
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics
                 .push(Diagnostic::error(span, "union signature not found"));
@@ -286,7 +290,12 @@ impl<'a> BodyChecker<'a> {
         union_ty
     }
 
-    pub(crate) fn check_field_access(&mut self, span: Span, lhs: &Expr, name: &str) -> TyId {
+    pub(crate) fn check_field_access(
+        &mut self,
+        span: Span,
+        lhs: &Expr,
+        name: &str,
+    ) -> InternedTyId {
         if self.values.qualified_values.contains_key(&span) {
             return self
                 .qualified_global_type(span)
@@ -330,9 +339,9 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         name: &str,
-    ) -> TyId {
+    ) -> InternedTyId {
         let Some(resolved) = self.resolved_union_signature(def_id) else {
             self.diagnostics
                 .push(Diagnostic::error(span, "union signature not found"));
@@ -351,7 +360,7 @@ impl<'a> BodyChecker<'a> {
         self.substitute_generics(field.ty, &substitutions)
     }
 
-    pub(crate) fn qualified_global_type(&mut self, span: Span) -> Option<TyId> {
+    pub(crate) fn qualified_global_type(&mut self, span: Span) -> Option<InternedTyId> {
         let def_id = self.values.qualified_values.get(&span).copied()?;
         if def_id.module_id == self.defs.module_id {
             return self
@@ -457,7 +466,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         lhs: &Expr,
         name: &str,
-    ) -> Option<TyId> {
+    ) -> Option<InternedTyId> {
         let enum_id = self.type_prefix_def_id(lhs)?;
         if !self.is_enum_def(enum_id) {
             return None;
@@ -483,7 +492,7 @@ impl<'a> BodyChecker<'a> {
         }))
     }
 
-    pub(crate) fn enum_global_def_id(&self, ty: TyId) -> Option<GlobalDefId> {
+    pub(crate) fn enum_global_def_id(&self, ty: InternedTyId) -> Option<GlobalDefId> {
         let ty = self.normalization.normalize(ty);
         let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
             return None;
@@ -585,7 +594,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn field_base_type(&self, ty: TyId) -> Option<(GlobalDefId, Vec<TyId>)> {
+    fn field_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         match self.interner.get(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.field_base_type(*elem),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{GlobalDefId, LocalTyId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -10,24 +10,24 @@ pub enum TyKind {
     Primitive(PrimitiveTy),
     Pointer {
         is_const: bool,
-        elem: TyId,
+        elem: InternedTyId,
     },
     Slice {
         is_const: bool,
-        elem: TyId,
+        elem: InternedTyId,
     },
     Array {
         len: ArrayLenTy,
-        elem: TyId,
+        elem: InternedTyId,
     },
     FunctionPointer {
-        params: Vec<TyId>,
-        return_type: TyId,
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
         is_variadic: bool,
     },
     Nominal {
         def_id: GlobalDefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     },
     GenericParam(String),
 }
@@ -58,16 +58,16 @@ pub enum PrimitiveTy {
 pub enum ArrayLenTy {
     Infer,
     ConstExpr { text: String, span: Span },
-    Builtin { name: String, ty: TyId },
+    Builtin { name: String, ty: InternedTyId },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TyInterner {
     module_id: ModuleId,
     tys: Vec<TyKind>,
-    map: HashMap<TyKind, LocalTyId>,
-    error_ty: LocalTyId,
-    primitive_tys: HashMap<PrimitiveTy, LocalTyId>,
+    map: HashMap<TyKind, TyInternerIndex>,
+    error_ty: TyInternerIndex,
+    primitive_tys: HashMap<PrimitiveTy, TyInternerIndex>,
 }
 
 impl Default for TyInterner {
@@ -82,7 +82,7 @@ impl TyInterner {
             module_id,
             tys: Vec::new(),
             map: HashMap::new(),
-            error_ty: LocalTyId::from_interner_index(0),
+            error_ty: TyInternerIndex::from_interner_index(0),
             primitive_tys: HashMap::new(),
         };
         let error_ty = interner.intern_local(TyKind::Error);
@@ -94,47 +94,50 @@ impl TyInterner {
         interner
     }
 
-    pub fn module_id(&self) -> ModuleId {
+    pub fn interner_id(&self) -> ModuleId {
         self.module_id
     }
 
-    pub fn intern(&mut self, kind: TyKind) -> TyId {
-        TyId::new(self.module_id, self.intern_local(kind))
+    pub fn intern(&mut self, kind: TyKind) -> InternedTyId {
+        InternedTyId::new(self.module_id, self.intern_local(kind))
     }
 
-    fn intern_local(&mut self, kind: TyKind) -> LocalTyId {
+    fn intern_local(&mut self, kind: TyKind) -> TyInternerIndex {
         if let Some(local_id) = self.map.get(&kind) {
             return *local_id;
         }
-        let local_id = LocalTyId::from_interner_index(self.tys.len() as u32);
+        let local_id = TyInternerIndex::from_interner_index(self.tys.len() as u32);
         self.tys.push(kind.clone());
         self.map.insert(kind, local_id);
         local_id
     }
 
-    pub fn get(&self, id: TyId) -> Option<&TyKind> {
-        if id.module_id != self.module_id {
+    pub fn get(&self, id: InternedTyId) -> Option<&TyKind> {
+        if id.interner_id != self.module_id {
             return None;
         }
-        self.tys.get(id.local_id.index() as usize)
+        self.tys.get(id.index.index() as usize)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (TyId, &TyKind)> {
+    pub fn iter(&self) -> impl Iterator<Item = (InternedTyId, &TyKind)> {
         let module_id = self.module_id;
         self.tys.iter().enumerate().map(move |(index, ty)| {
             (
-                TyId::new(module_id, LocalTyId::from_interner_index(index as u32)),
+                InternedTyId::new(
+                    module_id,
+                    TyInternerIndex::from_interner_index(index as u32),
+                ),
                 ty,
             )
         })
     }
 
-    pub fn error(&self) -> TyId {
-        TyId::new(self.module_id, self.error_ty)
+    pub fn error(&self) -> InternedTyId {
+        InternedTyId::new(self.module_id, self.error_ty)
     }
 
-    pub fn primitive(&self, primitive: PrimitiveTy) -> TyId {
-        TyId::new(
+    pub fn primitive(&self, primitive: PrimitiveTy) -> InternedTyId {
+        InternedTyId::new(
             self.module_id,
             *self
                 .primitive_tys

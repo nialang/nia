@@ -193,7 +193,11 @@ impl<'a> ModuleLowerer<'a> {
         self.lower_expr_with_ty(expr, None)
     }
 
-    fn lower_expr_with_ty(&mut self, expr: &Expr, forced_ty: Option<nia_ids::TyId>) -> TypedExpr {
+    fn lower_expr_with_ty(
+        &mut self,
+        expr: &Expr,
+        forced_ty: Option<nia_ids::InternedTyId>,
+    ) -> TypedExpr {
         if forced_ty.is_none()
             && let Some(coercion) = self
                 .input
@@ -509,7 +513,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn empty_struct_literal_expr(&self, ty: nia_ids::TyId, block: &Block) -> bool {
+    fn empty_struct_literal_expr(&self, ty: nia_ids::InternedTyId, block: &Block) -> bool {
         if !block.stmts.is_empty() || block.tail.is_some() {
             return false;
         }

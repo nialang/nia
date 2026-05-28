@@ -6,7 +6,7 @@ use crate::{
 };
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
 use nia_ty::TyKind;
@@ -14,8 +14,8 @@ use nia_value_resolve::ValueNameResolution;
 
 struct FunctionItemRef {
     resolved: ResolvedFunctionSignature,
-    type_args: Vec<TyId>,
-    receiver_ty: Option<TyId>,
+    type_args: Vec<InternedTyId>,
+    receiver_ty: Option<InternedTyId>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -40,7 +40,11 @@ impl<'a> BodyChecker<'a> {
             })
     }
 
-    pub(crate) fn check_function_ref(&mut self, expr: &Expr, is_const: bool) -> Option<TyId> {
+    pub(crate) fn check_function_ref(
+        &mut self,
+        expr: &Expr,
+        is_const: bool,
+    ) -> Option<InternedTyId> {
         let item = self.function_item_ref(expr)?;
         if !is_const {
             self.diagnostics.push(Diagnostic::error(
@@ -161,8 +165,8 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         def_id: GlobalDefId,
         signature: &FunctionSignature,
-        type_args: &[TyId],
-    ) -> Option<HashMap<String, TyId>> {
+        type_args: &[InternedTyId],
+    ) -> Option<HashMap<String, InternedTyId>> {
         let generics = self.effective_generics_for_def(def_id);
         if generics.len() != type_args.len() {
             let message = if type_args.is_empty() {
@@ -205,11 +209,11 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         resolved: &ResolvedFunctionSignature,
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> TyId {
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         let signature = &resolved.signature;
         if signature.generics.is_empty() {
-            let params: Vec<TyId> = signature.params.iter().map(|param| param.ty).collect();
+            let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
             self.resolved_calls
                 .insert(span, ResolvedCall::Function(resolved.def_id));
@@ -224,8 +228,8 @@ impl<'a> BodyChecker<'a> {
         callee: &Expr,
         type_args: &[BracketArg],
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> TyId {
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         if let ExprKind::Field { lhs, name } = &callee.kind
             && let Some(return_type) = self.check_explicit_generic_field_method_call(
                 span, lhs, name, type_args, args, expected,
@@ -274,7 +278,7 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
         type_args: &[BracketArg],
         args: &[Expr],
-    ) -> TyId {
+    ) -> InternedTyId {
         let lowered_args = self.lower_bracket_type_args(type_args);
         if signature.generics.len() != lowered_args.len() {
             self.diagnostics.push(Diagnostic::error(
@@ -299,7 +303,7 @@ impl<'a> BodyChecker<'a> {
             },
         );
         let substitutions = self.generic_substitutions(&signature.generics, &lowered_args);
-        let params: Vec<TyId> = signature
+        let params: Vec<InternedTyId> = signature
             .params
             .iter()
             .map(|param| self.substitute_generics(param.ty, &substitutions))
@@ -314,9 +318,9 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         signature: &FunctionSignature,
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> TyId {
-        let params: Vec<TyId> = signature.params.iter().map(|param| param.ty).collect();
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let mut substitutions = HashMap::new();
         if let Some(expected) = expected {
             self.infer_generics_from_type(
@@ -326,7 +330,7 @@ impl<'a> BodyChecker<'a> {
                 span,
             );
         }
-        let actuals: Vec<TyId> = args
+        let actuals: Vec<InternedTyId> = args
             .iter()
             .enumerate()
             .map(|(index, arg)| {
@@ -374,7 +378,7 @@ impl<'a> BodyChecker<'a> {
             },
         );
 
-        let instantiated_params: Vec<TyId> = params
+        let instantiated_params: Vec<InternedTyId> = params
             .iter()
             .map(|param| self.substitute_generics(*param, &substitutions))
             .collect();
@@ -389,9 +393,9 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn infer_generics_from_type(
         &mut self,
-        pattern: TyId,
-        actual: TyId,
-        substitutions: &mut HashMap<String, TyId>,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
         span: Span,
     ) {
         let pattern = self.normalization.normalize(pattern);

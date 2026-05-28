@@ -8,7 +8,7 @@ use nia_ast::{ArrayElements, Expr, ExprKind};
 use nia_backend_ir::{PlaceBase, StaticFieldInit, StaticInit};
 use nia_body_check::BuiltinValue;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_static_init(&mut self, expr: &Expr) -> StaticInit {
@@ -192,7 +192,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn static_function_address(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<TyId>)> {
+    fn static_function_address(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         self.input
             .body_check
             .function_references

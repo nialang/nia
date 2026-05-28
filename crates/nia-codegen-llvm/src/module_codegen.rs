@@ -12,7 +12,7 @@ use crate::output::LlvmCodegenOptions;
 use crate::program_index::ProgramIndex;
 use nia_backend_ir::{BackendFunction, BackendModule};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::TypeLayout;
 use nia_llvm::{
     Context, LlvmError,
@@ -32,10 +32,11 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) options: LlvmCodegenOptions,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) unions: HashMap<GlobalDefId, StructType<'ctx>>,
-    pub(super) struct_instances: HashMap<(GlobalDefId, Vec<TyId>), StructType<'ctx>>,
-    pub(super) union_instances: HashMap<(GlobalDefId, Vec<TyId>), StructType<'ctx>>,
+    pub(super) struct_instances: HashMap<(GlobalDefId, Vec<InternedTyId>), StructType<'ctx>>,
+    pub(super) union_instances: HashMap<(GlobalDefId, Vec<InternedTyId>), StructType<'ctx>>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
-    pub(super) function_instances: HashMap<(GlobalDefId, ModuleId, Vec<TyId>), FunctionValue<'ctx>>,
+    pub(super) function_instances:
+        HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), FunctionValue<'ctx>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
 }
 
@@ -125,7 +126,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    pub(super) fn layout_of(&self, ty: TyId) -> Option<TypeLayout> {
+    pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
         self.source
             .layouts
             .types
@@ -133,7 +134,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
     }
 
-    fn is_const_argv_ty(&self, ty: TyId) -> bool {
+    fn is_const_argv_ty(&self, ty: InternedTyId) -> bool {
         let Some(TyKind::Pointer {
             is_const: true,
             elem: argv_elem,
