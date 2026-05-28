@@ -30,12 +30,11 @@ Nia provides:
 - host execution by default, with object/LLVM output available for bare or
   custom build flows.
 
-Nia does not provide:
+The current core language keeps these systems outside the 0.1 surface:
 
 - garbage collection;
 - exceptions;
 - a borrow checker;
-- traits, interfaces, inheritance, virtual dispatch, or hidden method tables;
 - algebraic data types;
 - pattern matching;
 - implicit allocation;
@@ -1169,9 +1168,8 @@ Numeric casts are explicit. `char as u32` is allowed and returns the Unicode
 scalar value. Integer-to-`char` casts are not allowed because they would require
 a runtime Unicode scalar validity check.
 
-Operator precedence follows the Rust-style shape: assignment is lower than
-logical operators; calls, indexing, and field access are higher than unary
-operators.
+Operator precedence is organized so assignment is lower than logical operators,
+while calls, indexing, and field access are higher than unary operators.
 
 Nia has no built-in pointer arithmetic. Convert to an integer type explicitly,
 perform the arithmetic, and convert back explicitly when needed.
@@ -1341,16 +1339,14 @@ id[i32](x) // explicit generic function call
 ```
 
 Generics are implemented by monomorphization. Type parameters have no runtime
-representation.
-
-Nia does not include trait bounds, associated types, specialization, or
-higher-kinded types. User-declared const generics are not part of the language;
-array length is part of array type syntax.
+representation. The current generic surface is explicit type parameters on
+functions, structs, unions, and methods. User-declared const generics are
+reserved for future design; array length is part of array type syntax.
 
 ## 10. Methods
 
-Methods are declared in `extend` blocks for nominal types. `struct` describes
-data layout; `extend` describes associated functions and methods:
+Methods are declared in `extend` blocks. An `extend` block attaches associated
+functions and receiver methods to its target type:
 
 ```nia
 struct Vec2 {
@@ -1390,8 +1386,8 @@ Receiver meaning:
 - no `self` means the function is an associated function called as
   `Type::method(...)`.
 
-The target of `extend` may be any visible nominal type, including an imported
-type:
+The target of `extend` may be any visible extendable value type, including an
+imported type:
 
 ```nia
 import .math;
@@ -1799,12 +1795,10 @@ provide `run`; use `emit exe` and execute the result.
 
 ## 14. Current Non-Goals And Reserved Features
 
-The following are not part of the current language. Some may be considered by
-future versions, but this specification does not reserve their final design:
+The following areas are reserved for future design and are outside the current
+0.1 surface:
 
-- traits;
-- trait objects;
-- associated types;
+- protocol-style constraints and associated type families;
 - algebraic data types;
 - pattern matching;
 - closures;
