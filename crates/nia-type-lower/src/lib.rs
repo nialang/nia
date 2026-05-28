@@ -452,11 +452,7 @@ fn binary_op_text(op: nia_ast::BinaryOp) -> &'static str {
 }
 
 fn type_name_segment(segments: &[TypePathSegment]) -> Option<&TypePathSegment> {
-    match segments {
-        [segment] => Some(segment),
-        [_, segment] => Some(segment),
-        _ => None,
-    }
+    segments.last()
 }
 
 fn lower_primitive(primitive: PrimitiveType) -> PrimitiveTy {

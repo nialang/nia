@@ -1582,36 +1582,48 @@ file. Re-export imported items with `pub using`.
 
 ### 11.2 Using
 
-`using` brings a specific item from an already visible host into the current
-scope. Hosts are:
+`using` shortens already visible namespaces in the current scope. It does not
+load files or organize modules; `import` remains the only operation that loads a
+module file. Hosts are:
 
-- a module alias: `using mod::name`;
-- an enum type: `using Enum::Variant` or `using mod::Enum::Variant`.
+- a module namespace: `using mod::name`, including module namespaces re-exported
+  by `pub using`;
+- an enum type namespace: `using Enum::Variant` or
+  `using mod::Enum::Variant`.
 
 Supported forms:
 
 ```nia
+using math;
 using math::add;
 using math::add as plus;
 using math::{add, sub as minus};
 using math::{add, sub as minus, Operator::*};
 using math::*;
+using {math, math::add, palette::Color::Red};
 
 using Color::Red;
 using Color::{Red, Black as Dark};
 using Color::*;
 using palette::Color::Red;
 using palette::Color::*;
+using root::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
 ```
 
-Grouped `using` accepts names, renames, and enum-member selectors from one
-module host.
+Grouped `using` accepts names, renames, module selectors, and enum-member
+selectors. Nested groups may use arbitrary-depth namespace paths.
+
+`using mod;` brings the module namespace itself into scope. If `facade` publicly
+re-exports a module namespace with `pub using impl;`, then `using facade::*;`
+also brings `impl` into scope.
 
 Wildcard rules:
 
-- `using mod::*` imports only the module's directly declared public top-level
-  definitions. It does not recursively expand the module's `pub using` chain and
-  does not import enum variants.
+- `using mod::*` imports the module's complete public surface: direct public
+  top-level definitions, public module namespaces re-exported with `pub using`,
+  and public items re-exported with `pub using`. It does not import enum
+  variants unless those variants are explicitly part of the module public
+  surface.
 - `using Enum::*` imports all variants of that enum.
 
 Top-level `using` is visible throughout the file. Block-local `using` is visible
@@ -1619,7 +1631,8 @@ only in that block and its children. Duplicate imported names in the same
 namespace and same scope are errors, whether they come from explicit imports or
 wildcards.
 
-`using` does not load files. The target module must already be imported.
+`using` does not load files. The root module namespace must already be imported
+or made visible by another `using`.
 
 Imported items enter the namespace matching their actual category: functions and
 globals enter the value namespace; structs, enums, and type aliases enter the
@@ -1634,11 +1647,13 @@ surface:
 ```nia
 // facade.nia
 import .impl;
+pub using impl;
 pub using impl::add;
 pub using impl::{frob as do_frob};
 pub using impl::*;
 
 import .palette;
+pub using {impl, impl::add, palette::Color};
 pub using palette::Color;
 pub using palette::Color::Red;
 pub using palette::Color::*;
@@ -1654,11 +1669,16 @@ fn main() facade::Color {
 
 `pub using` is only valid at module top level.
 
-The selected item must be visible to the current module. Visibility includes the
-source module's direct public definitions and items it re-exported with
-`pub using`. Re-export chains may be transitive, but cycles are diagnosed.
-Downstream modules may name re-exported items through the re-exporting module
-path, such as `facade::add`.
+The selected namespace member must be visible to the current module. Visibility
+includes the source module's direct public definitions, public module
+namespaces, and items it re-exported with `pub using`. Re-export chains may be
+transitive. Cycles are resolved through the module graph; concrete semantic
+cycles are diagnosed by the phase that observes them.
+
+`pub using impl;` re-exports the module namespace itself. Downstream modules may
+name re-exported items through the re-exporting module path, such as
+`facade::add`, or through a re-exported module namespace, such as
+`facade::impl::add`.
 
 Wildcard `pub using mod::*` has the same expansion rule as `using mod::*`.
 Wildcard `pub using Enum::*` re-exports every enum variant.
