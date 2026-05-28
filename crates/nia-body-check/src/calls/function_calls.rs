@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
+use crate::{
+    BodyChecker, FunctionReference, ResolvedCall, ResolvedFunctionSignature, generic_inst_base,
+};
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
@@ -178,6 +180,13 @@ impl<'a> BodyChecker<'a> {
         if !type_args.is_empty() {
             self.record_generic_instantiation(def_id, type_args, span);
         }
+        self.function_references.insert(
+            span,
+            FunctionReference {
+                def_id,
+                args: type_args.to_vec(),
+            },
+        );
         let mut substitutions = self.generic_substitutions(&generics, type_args);
         for generic in &signature.generics {
             if !substitutions.contains_key(generic) {
@@ -202,6 +211,8 @@ impl<'a> BodyChecker<'a> {
         if signature.generics.is_empty() {
             let params: Vec<TyId> = signature.params.iter().map(|param| param.ty).collect();
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
+            self.resolved_calls
+                .insert(span, ResolvedCall::Function(resolved.def_id));
             return signature.return_type;
         }
         self.check_inferred_generic_function_call(span, resolved.def_id, signature, args, expected)
@@ -280,6 +291,13 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         }
         self.record_generic_instantiation(def_id, &lowered_args, span);
+        self.resolved_calls.insert(
+            span,
+            ResolvedCall::FunctionInstance {
+                def_id,
+                args: lowered_args.clone(),
+            },
+        );
         let substitutions = self.generic_substitutions(&signature.generics, &lowered_args);
         let params: Vec<TyId> = signature
             .params
@@ -348,6 +366,13 @@ impl<'a> BodyChecker<'a> {
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
         self.record_generic_instantiation(def_id, &instance_args, span);
+        self.resolved_calls.insert(
+            span,
+            ResolvedCall::FunctionInstance {
+                def_id,
+                args: instance_args,
+            },
+        );
 
         let instantiated_params: Vec<TyId> = params
             .iter()

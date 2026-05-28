@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::ModuleLowerer;
 use crate::literals::{
     decode_byte_char, decode_byte_string_literal, decode_c_string_literal, decode_char_literal,
     decode_string_literal, numeric_literal_body, parse_int_literal,
 };
+use crate::{ModuleLowerer, generic_inst_base};
 use nia_ast::{ArrayElements, Expr, ExprKind};
 use nia_backend_ir::{PlaceBase, StaticFieldInit, StaticInit};
 use nia_body_check::BuiltinValue;
-use nia_defs::DefKind;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
-use nia_value_resolve::ValueNameResolution;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_static_init(&mut self, expr: &Expr) -> StaticInit {
@@ -195,53 +193,16 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn static_function_address(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<TyId>)> {
-        match &expr.kind {
-            ExprKind::BracketSuffix { callee, args } => {
-                let (function, mut function_args) = self.static_function_address(callee)?;
-                function_args.extend(super::lowered_type_args(args, self.input.type_lowering));
-                Some((function, function_args))
-            }
-            ExprKind::Qualified { lhs, name } => {
-                if let Some(target_ty) = self.associated_target_ty(lhs)
-                    && let Some((method_id, args)) =
-                        self.single_method_for_target_ty(target_ty, name)
-                {
-                    return Some((method_id, args));
-                }
+        self.input
+            .body_check
+            .function_references
+            .get(&expr.span)
+            .or_else(|| {
                 self.input
-                    .values
-                    .qualified_values
-                    .get(&expr.span)
-                    .copied()
-                    .filter(|global_id| {
-                        matches!(
-                            self.def_kind_of(*global_id),
-                            Some(DefKind::Function | DefKind::Method)
-                        )
-                    })
-                    .map(|function| (function, Vec::new()))
-            }
-            ExprKind::Ident(_) => {
-                if let Some(global_id) = self.input.values.qualified_values.get(&expr.span).copied()
-                {
-                    return matches!(
-                        self.def_kind_of(global_id),
-                        Some(DefKind::Function | DefKind::Method)
-                    )
-                    .then_some((global_id, Vec::new()));
-                }
-                let ValueNameResolution::Def(def_id) = self.input.values.names.get(&expr.span)?
-                else {
-                    return None;
-                };
-                match self.input.defs.defs.get(*def_id).map(|def| def.kind) {
-                    Some(DefKind::Function | DefKind::Method) => {
-                        Some((self.global_def_id(*def_id), Vec::new()))
-                    }
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
+                    .body_check
+                    .function_references
+                    .get(&generic_inst_base(expr).span)
+            })
+            .map(|reference| (reference.def_id, reference.args.clone()))
     }
 }

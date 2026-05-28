@@ -1805,6 +1805,284 @@ pub comptime width: usize = 4;
     assert!(output.modules[0].ir.contains("[4 x i32]"));
 }
 
+#[test]
+fn checked_program_smoke_matrix_emits_llvm_ir() {
+    for case in emit_smoke_cases() {
+        let root = temp_dir(&format!("checked_program_smoke_matrix_{}", case.name));
+        write_smoke_case(&root, case);
+        let checked =
+            nia_driver::check_program(root.join(case.root).to_string_lossy().into_owned());
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{} check diagnostics: {:?}",
+            case.name,
+            checked.diagnostics
+        );
+        let output = emit_llvm_ir(&checked.backend_lowering.program);
+        assert!(
+            output.diagnostics.is_empty(),
+            "{} codegen diagnostics: {:?}",
+            case.name,
+            output.diagnostics
+        );
+        assert_eq!(
+            output.modules.len(),
+            checked.backend_lowering.program.modules.len(),
+            "{} should emit one LLVM module per backend module",
+            case.name
+        );
+        assert!(
+            output
+                .modules
+                .iter()
+                .all(|module| module.ir.contains("source_filename")),
+            "{} emitted empty or malformed IR: {:?}",
+            case.name,
+            output
+                .modules
+                .iter()
+                .map(|module| (&module.name, module.ir.len()))
+                .collect::<Vec<_>>()
+        );
+        let joined_ir = output
+            .modules
+            .iter()
+            .map(|module| module.ir.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            joined_ir.contains("define"),
+            "{} should emit at least one function definition",
+            case.name
+        );
+    }
+}
+
+struct EmitSmokeCase {
+    name: &'static str,
+    root: &'static str,
+    files: &'static [(&'static str, &'static str)],
+}
+
+fn emit_smoke_cases() -> &'static [EmitSmokeCase] {
+    &[
+        EmitSmokeCase {
+            name: "control_flow_defer_switch",
+            root: "main.nia",
+            files: &[(
+                "main.nia",
+                r#"
+extern fn log(x: i32);
+
+enum State: u8 {
+    Start,
+    Stop,
+    _,
+}
+
+fn classify(state: State) i32 {
+    defer log(1);
+    switch state {
+        State::Start => return 10,
+        State::Stop => return 20,
+        _ => return 30,
+    }
+    0
+}
+
+fn main() i32 {
+    var total = 0;
+    for var i = 0; i < 4; i += 1 {
+        defer log(i);
+        if i == 1 {
+            continue;
+        }
+        if i == 3 {
+            break;
+        }
+        total += i;
+    }
+    classify(State::Start) + total
+}
+"#,
+            )],
+        },
+        EmitSmokeCase {
+            name: "generic_cross_module_using_reexports",
+            root: "main.nia",
+            files: &[
+                (
+                    "main.nia",
+                    r#"
+import .facade;
+
+using facade::{Box, make_box, read_box};
+
+fn main() i32 {
+    var box: Box[i32] = make_box(40);
+    read_box(&const box) + facade::answer
+}
+"#,
+                ),
+                (
+                    "facade.nia",
+                    r#"
+import .impl;
+
+pub using impl::{Box, make_box, read_box, answer};
+"#,
+                ),
+                (
+                    "impl.nia",
+                    r#"
+pub comptime answer: i32 = 2;
+
+pub struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    pub fn get(&const self) T {
+        self.value
+    }
+}
+
+pub fn make_box[T](value: T) Box[T] {
+    { value: value }
+}
+
+pub fn read_box(box: &const Box[i32]) i32 {
+    box.get()
+}
+"#,
+                ),
+            ],
+        },
+        EmitSmokeCase {
+            name: "static_data_layout_addresses",
+            root: "main.nia",
+            files: &[(
+                "main.nia",
+                r#"
+struct Header {
+    tag: u8,
+    count: i64,
+    flag: u8,
+}
+
+const header: Header = { tag: 1, count: 2, flag: 3 };
+const bytes = c"ok";
+const byte_ptr: &const u8 = &const bytes[0];
+var global: i32 = 5;
+const global_ptr: &i32 = &global;
+
+fn main() i32 {
+    global_ptr.* + header.tag as i32 + header.flag as i32 + byte_ptr.* as i32
+}
+"#,
+            )],
+        },
+        EmitSmokeCase {
+            name: "slices_arrays_and_coercions",
+            root: "main.nia",
+            files: &[(
+                "main.nia",
+                r#"
+fn sum(xs: &const [i32]) i32 {
+    var out = 0;
+    for var i: usize = 0; i < @len(xs); i += 1usize {
+        out += xs[i];
+    }
+    out
+}
+
+fn fill(xs: &[i32]) i32 {
+    xs[0] = 9;
+    xs[0]
+}
+
+fn main() i32 {
+    var xs: [4]i32 = [1, 2, 3, 4];
+    var part = &const xs[1..=2];
+    sum(part) + sum([5, 6]) + fill([0, 1])
+}
+"#,
+            )],
+        },
+        EmitSmokeCase {
+            name: "structural_associated_function_pointers",
+            root: "main.nia",
+            files: &[(
+                "main.nia",
+                r#"
+type Ptr[T] = &T;
+
+extend[T] Ptr[T] {
+    fn null(self) bool {
+        self as usize == 0
+    }
+
+    fn zero() usize {
+        0usize
+    }
+}
+
+fn main(ptr: &i32) i32 {
+    var null: &const fn(&i32) bool = &const [&i32]::null;
+    var zero: &const fn() usize = &const [&i32]::zero;
+    if null(ptr) or [&i32]::null(ptr) {
+        zero() as i32
+    } else {
+        0
+    }
+}
+"#,
+            )],
+        },
+        EmitSmokeCase {
+            name: "union_open_enum_and_comptime_lengths",
+            root: "main.nia",
+            files: &[(
+                "main.nia",
+                r#"
+comptime width: usize = 2 + 2;
+
+union Bits {
+    i: i32,
+    f: f32,
+}
+
+enum Flag: u32 {
+    A = 1,
+    B = 2,
+    _,
+}
+
+fn main(flag: Flag) i32 {
+    var values: [width]i32 = [10, 20, 30, 40];
+    var bits: Bits = { i: values[0] };
+    switch flag {
+        Flag::A => return bits.i,
+        _ => return Flag::B as u32 as i32,
+    }
+    0
+}
+"#,
+            )],
+        },
+    ]
+}
+
+fn write_smoke_case(root: &std::path::Path, case: &EmitSmokeCase) {
+    for (relative, source) in case.files {
+        let path = root.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create smoke case parent directory");
+        }
+        std::fs::write(path, source).expect("write smoke case source");
+    }
+}
+
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let mut dir = std::env::temp_dir();
     dir.push(format!("nia_codegen_llvm_{name}_{}", std::process::id()));

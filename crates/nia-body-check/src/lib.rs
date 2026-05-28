@@ -37,6 +37,8 @@ pub struct BodyCheck {
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     pub local_types: HashMap<LocalId, TyId>,
     pub builtin_values: HashMap<Span, BuiltinValue>,
+    pub resolved_calls: HashMap<Span, ResolvedCall>,
+    pub function_references: HashMap<Span, FunctionReference>,
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -60,6 +62,26 @@ pub struct GenericInstantiation {
     pub generics: Vec<String>,
     pub span: Span,
     pub source_def_id: Option<GlobalDefId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedCall {
+    Function(GlobalDefId),
+    FunctionInstance {
+        def_id: GlobalDefId,
+        args: Vec<TyId>,
+    },
+    Method {
+        def_id: GlobalDefId,
+        args: Vec<TyId>,
+    },
+    FunctionPointer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionReference {
+    pub def_id: GlobalDefId,
+    pub args: Vec<TyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,6 +282,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         expr_types: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
         builtin_values: HashMap::new(),
+        resolved_calls: HashMap::new(),
+        function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
         local_types: HashMap::new(),
         global_types: HashMap::new(),
@@ -276,6 +300,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         array_to_slice_coercions: checker.array_to_slice_coercions,
         local_types: checker.local_types,
         builtin_values: checker.builtin_values,
+        resolved_calls: checker.resolved_calls,
+        function_references: checker.function_references,
         generic_instantiations: checker.generic_instantiations,
         diagnostics: checker.diagnostics,
     }
@@ -302,6 +328,8 @@ struct BodyChecker<'a> {
     expr_types: HashMap<Span, TyId>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     builtin_values: HashMap<Span, BuiltinValue>,
+    resolved_calls: HashMap<Span, ResolvedCall>,
+    function_references: HashMap<Span, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
     local_types: HashMap<LocalId, TyId>,
     global_types: HashMap<DefId, TyId>,
