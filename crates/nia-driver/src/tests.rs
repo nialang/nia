@@ -1349,8 +1349,8 @@ pub fn sub(a: i32, b: i32) i32 { a - b }
 }
 
 #[test]
-fn using_wildcard_imports_direct_pub_defs_only() {
-    let root = temp_dir("using_wildcard_imports_direct_pub_defs_only");
+fn using_wildcard_imports_public_surface() {
+    let root = temp_dir("using_wildcard_imports_public_surface");
     write(
         &root.join("main.nia"),
         r#"
@@ -1368,6 +1368,98 @@ fn main(p: Point) i32 {
 pub struct Point { x: i32, y: i32 }
 pub fn add(a: i32, b: i32) i32 { a + b }
 "#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_wildcard_imports_pub_using_reexports() {
+    let root = temp_dir("using_wildcard_imports_pub_using_reexports");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+using facade::*;
+
+fn main(p: Point) i32 {
+    add(p.x, p.y)
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .impl;
+pub using impl::*;
+"#,
+    );
+    write(
+        &root.join("impl.nia"),
+        r#"
+pub struct Point { x: i32, y: i32 }
+pub fn add(a: i32, b: i32) i32 { a + b }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn pub_using_module_namespace_is_visible_downstream() {
+    let root = temp_dir("pub_using_module_namespace_is_visible_downstream");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+
+fn main() i32 {
+    facade::impl::add(40, 2)
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .impl;
+pub using impl;
+"#,
+    );
+    write(
+        &root.join("impl.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_wildcard_brings_reexported_module_namespace_into_scope() {
+    let root = temp_dir("using_wildcard_brings_reexported_module_namespace_into_scope");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+using facade::*;
+
+fn main() i32 {
+    impl::add(40, 2)
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .impl;
+pub using impl;
+"#,
+    );
+    write(
+        &root.join("impl.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
@@ -1432,6 +1524,105 @@ pub fn add(a: i32, b: i32) i32 { a + b }
 pub fn sub(a: i32, b: i32) i32 { a - b }
 "#,
     );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn pub_using_root_group_reexports_modules_items_and_variants() {
+    let root = temp_dir("pub_using_root_group_reexports_modules_items_and_variants");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+
+fn main(flag: bool) facade::palette::Color {
+    var n = facade::add(40, 2);
+    if flag { facade::Red } else { facade::DDD }
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .math;
+import .palette;
+pub using {math, math::add, palette, palette::Color::{Red, DDD}};
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+    write(
+        &root.join("palette.nia"),
+        r#"pub enum Color: u8 { Red, DDD }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn using_supports_deep_nested_module_groups() {
+    let root = temp_dir("using_supports_deep_nested_module_groups");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .rootmod;
+using rootmod::a::{b::c::foo, d::e::{f::goo, g}, h::Color::*};
+
+fn main(flag: bool) rootmod::a::h::Color {
+    var n = foo(40, 2) + goo(1) + g(2);
+    if flag { Red } else { Blue }
+}
+"#,
+    );
+    write(
+        &root.join("rootmod.nia"),
+        r#"
+import .a;
+pub using a;
+"#,
+    );
+    write(
+        &root.join("a.nia"),
+        r#"
+import .b;
+import .d;
+import .h;
+pub using {b, d, h};
+"#,
+    );
+    write(
+        &root.join("b.nia"),
+        r#"
+import .c;
+pub using c;
+"#,
+    );
+    write(
+        &root.join("c.nia"),
+        r#"pub fn foo(a: i32, b: i32) i32 { a + b }"#,
+    );
+    write(
+        &root.join("d.nia"),
+        r#"
+import .e;
+pub using e;
+"#,
+    );
+    write(
+        &root.join("e.nia"),
+        r#"
+import .f;
+pub using f;
+pub fn g(a: i32) i32 { a + 3 }
+"#,
+    );
+    write(&root.join("f.nia"), r#"pub fn goo(a: i32) i32 { a + 4 }"#);
+    write(&root.join("h.nia"), r#"pub enum Color: u8 { Red, Blue }"#);
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);

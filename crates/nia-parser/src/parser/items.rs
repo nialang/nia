@@ -106,15 +106,29 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_using_after_keyword(&mut self) -> Option<UsingItem> {
-        let head_token = self.eat(TokenKind::Ident).or_else(|| {
-            self.error_here("expected name after `using`");
-            None
-        })?;
-        let mut host = vec![UsingHostSegment {
-            name: self.token_text(&head_token).to_string(),
-            span: head_token.span,
-        }];
-        self.expect(TokenKind::ColonColon, "expected `::` after using head")?;
+        if self.eat(TokenKind::LBrace).is_some() {
+            let mut items = Vec::new();
+            while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                items.push(self.parse_using_group_item()?);
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            self.expect(TokenKind::RBrace, "expected `}` after using group")?;
+            return Some(UsingItem {
+                host: Vec::new(),
+                selector: UsingSelector::Group(items),
+            });
+        }
+
+        let mut host = Vec::new();
+        host.push(self.parse_using_host_segment("expected name after `using`")?);
+        if self.eat(TokenKind::ColonColon).is_none() {
+            return Some(UsingItem {
+                host,
+                selector: UsingSelector::SelfName,
+            });
+        }
         // Greedily accept additional host segments as long as we see `IDENT '::'`
         // before either `*`, `{`, or a single-name selector.
         loop {
@@ -139,12 +153,6 @@ impl<'a> Parser<'a> {
             }
             break;
         }
-        if host.len() > 2 {
-            self.error_at(
-                host[2].span,
-                "`using` host accepts at most two segments (`alias::Enum`)",
-            );
-        }
         let selector = if let Some(star) = self.eat(TokenKind::Star) {
             UsingSelector::Wildcard { span: star.span }
         } else if self.eat(TokenKind::LBrace).is_some() {
@@ -161,6 +169,17 @@ impl<'a> Parser<'a> {
             UsingSelector::Single(self.parse_using_name()?)
         };
         Some(UsingItem { host, selector })
+    }
+
+    fn parse_using_host_segment(&mut self, message: &str) -> Option<UsingHostSegment> {
+        let token = self.eat(TokenKind::Ident).or_else(|| {
+            self.error_here(message);
+            None
+        })?;
+        Some(UsingHostSegment {
+            name: self.token_text(&token).to_string(),
+            span: token.span,
+        })
     }
 
     fn parse_using_group_item(&mut self) -> Option<UsingGroupItem> {
@@ -181,7 +200,9 @@ impl<'a> Parser<'a> {
             self.expect(TokenKind::ColonColon, "expected `::`")?;
         }
         if !host.is_empty() {
-            let selector = if let Some(star) = self.eat(TokenKind::Star) {
+            let selector = if self.at(TokenKind::Comma) || self.at(TokenKind::RBrace) {
+                UsingSelector::SelfName
+            } else if let Some(star) = self.eat(TokenKind::Star) {
                 UsingSelector::Wildcard { span: star.span }
             } else if self.eat(TokenKind::LBrace).is_some() {
                 let mut items = Vec::new();

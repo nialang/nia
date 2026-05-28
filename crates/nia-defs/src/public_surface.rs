@@ -31,6 +31,7 @@ pub struct PublicItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModulePublicSurface {
     pub module_id: ModuleId,
+    pub modules: HashMap<String, ModuleId>,
     pub values: HashMap<String, PublicItem>,
     pub types: HashMap<String, PublicItem>,
 }
@@ -39,9 +40,14 @@ impl ModulePublicSurface {
     pub fn new(module_id: ModuleId) -> Self {
         Self {
             module_id,
+            modules: HashMap::new(),
             values: HashMap::new(),
             types: HashMap::new(),
         }
+    }
+
+    pub fn lookup_module(&self, name: &str) -> Option<ModuleId> {
+        self.modules.get(name).copied()
     }
 
     pub fn lookup_value(&self, name: &str) -> Option<&PublicItem> {
@@ -96,11 +102,16 @@ pub struct UsingEntry {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ModuleUsingScope {
+    pub modules: HashMap<String, ModuleId>,
     pub values: HashMap<String, UsingEntry>,
     pub types: HashMap<String, UsingEntry>,
 }
 
 impl ModuleUsingScope {
+    pub fn lookup_module(&self, name: &str) -> Option<ModuleId> {
+        self.modules.get(name).copied()
+    }
+
     pub fn lookup_value(&self, name: &str) -> Option<&UsingEntry> {
         self.values.get(name)
     }

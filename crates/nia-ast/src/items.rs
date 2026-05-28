@@ -70,6 +70,7 @@ pub enum UsingSelector {
     Single(UsingName),
     Group(Vec<UsingGroupItem>),
     Wildcard { span: Span },
+    SelfName,
 }
 
 #[derive(Debug, Clone, PartialEq)]

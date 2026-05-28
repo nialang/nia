@@ -6,7 +6,7 @@ use nia_ast_walk::{Visitor, walk_expr, walk_module};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
-use nia_ids::GlobalDefId;
+use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ImportAliasMap;
 use nia_span::Span;
 
@@ -124,6 +124,18 @@ struct ValueResolver<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolvedNamespace {
+    Module(ModuleId),
+    Type(GlobalDefId),
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PathSegment<'a> {
+    name: &'a str,
+    span: Span,
+}
+
 impl<'ast> Visitor<'ast> for ValueResolver<'_> {
     fn visit_expr(&mut self, expr: &'ast Expr) {
         match &expr.kind {
@@ -187,91 +199,202 @@ impl<'a> ValueResolver<'a> {
     }
 
     fn resolve_qualified_value(&mut self, expr: &Expr) {
-        let ExprKind::Qualified { lhs, name } = &expr.kind else {
+        let Some(segments) = qualified_path_segments(expr) else {
             return;
         };
-        let ExprKind::Ident(module_name) = &lhs.kind else {
+        if segments.len() < 2 {
             return;
         };
-        let Some(imports) = self.imports else {
+        let path_text = qualified_path_text(&segments);
+        let prefix = &segments[..segments.len() - 1];
+        let final_segment = segments[segments.len() - 1];
+        let Some(namespace) = self.resolve_namespace_path(prefix) else {
             return;
         };
-        let Some(import) = imports.get(self.defs.module_id, module_name) else {
-            return;
-        };
-        self.names
-            .insert(lhs.span, ValueNameResolution::ImportAlias);
-        if let Some(surfaces) = self.public_surfaces
-            && let Some(surface) = surfaces.get(import.target)
-            && let Some(item) = surface.lookup_value(name)
-        {
-            self.qualified_values.insert(
-                expr.span,
-                GlobalDefId {
-                    module_id: item.target_module,
-                    def_id: item.target_def_id,
-                },
-            );
-            if let Some(enum_id) = item.parent_enum {
-                self.variant_enums.insert(expr.span, enum_id);
+        match namespace {
+            ResolvedNamespace::Module(module_id) => {
+                self.resolve_module_qualified_value(
+                    expr.span,
+                    module_id,
+                    final_segment,
+                    &path_text,
+                );
             }
-            return;
+            ResolvedNamespace::Type(type_id) => {
+                self.resolve_type_qualified_value(expr.span, type_id, final_segment);
+            }
         }
-        // Look for a type in the target module's public surface — `mod::Type`
-        // appearing in expression position is a valid type prefix (e.g.
-        // `mod::Enum::Variant` or `mod::Type::associated_fn(...)`).
-        if let Some(surfaces) = self.public_surfaces
-            && let Some(surface) = surfaces.get(import.target)
-            && let Some(item) = surface.lookup_type(name)
+    }
+
+    fn resolve_namespace_path(
+        &mut self,
+        segments: &[PathSegment<'_>],
+    ) -> Option<ResolvedNamespace> {
+        let first = *segments.first()?;
+        let mut namespace = self.resolve_root_namespace(first)?;
+        for segment in &segments[1..] {
+            namespace = self.resolve_child_namespace(namespace, *segment)?;
+        }
+        Some(namespace)
+    }
+
+    fn resolve_root_namespace(&mut self, segment: PathSegment<'_>) -> Option<ResolvedNamespace> {
+        if let Some(imports) = self.imports
+            && let Some(import) = imports.get(self.defs.module_id, segment.name)
         {
-            self.qualified_type_prefixes.insert(
-                expr.span,
-                GlobalDefId {
-                    module_id: item.target_module,
-                    def_id: item.target_def_id,
-                },
-            );
-            return;
+            self.names
+                .insert(segment.span, ValueNameResolution::ImportAlias);
+            return Some(ResolvedNamespace::Module(import.target));
         }
-        // Fall back to scanning the target module's def table so direct
-        // crate-level tests can run without constructing public surfaces.
-        let Some(target_defs) = self
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == import.target)
-        else {
+        if let Some(scope) = self.using_scope
+            && let Some(module_id) = scope.lookup_module(segment.name)
+        {
+            self.names
+                .insert(segment.span, ValueNameResolution::ImportAlias);
+            return Some(ResolvedNamespace::Module(module_id));
+        }
+        if let Some(def_id) = self.defs.module_scope.types.get(segment.name) {
+            return Some(ResolvedNamespace::Type(GlobalDefId {
+                module_id: self.defs.module_id,
+                def_id,
+            }));
+        }
+        if let Some(scope) = self.using_scope
+            && let Some(entry) = scope.lookup_type(segment.name)
+        {
+            self.names.insert(
+                segment.span,
+                ValueNameResolution::External(GlobalDefId {
+                    module_id: entry.target_module,
+                    def_id: entry.target_def_id,
+                }),
+            );
+            return Some(ResolvedNamespace::Type(GlobalDefId {
+                module_id: entry.target_module,
+                def_id: entry.target_def_id,
+            }));
+        }
+        None
+    }
+
+    fn resolve_child_namespace(
+        &mut self,
+        namespace: ResolvedNamespace,
+        segment: PathSegment<'_>,
+    ) -> Option<ResolvedNamespace> {
+        match namespace {
+            ResolvedNamespace::Module(module_id) => {
+                if let Some(surfaces) = self.public_surfaces
+                    && let Some(surface) = surfaces.get(module_id)
+                {
+                    if let Some(child_module) = surface.lookup_module(segment.name) {
+                        return Some(ResolvedNamespace::Module(child_module));
+                    }
+                    if let Some(item) = surface.lookup_type(segment.name) {
+                        return Some(ResolvedNamespace::Type(GlobalDefId {
+                            module_id: item.target_module,
+                            def_id: item.target_def_id,
+                        }));
+                    }
+                }
+                let target_defs = match defs_for_module(self.all_defs, module_id) {
+                    Some(defs) => defs,
+                    None => {
+                        self.diagnostics.push(Diagnostic::error(
+                            segment.span,
+                            "module namespace refers to an unloaded module",
+                        ));
+                        return None;
+                    }
+                };
+                let def_id = target_defs.module_scope.types.get(segment.name)?;
+                let def = target_defs.defs.get(def_id)?;
+                if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+                    self.diagnostics.push(Diagnostic::error(
+                        segment.span,
+                        format!("type `{}` is private", segment.name),
+                    ));
+                    return None;
+                }
+                Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
+            }
+            ResolvedNamespace::Type(_) => None,
+        }
+    }
+
+    fn resolve_module_qualified_value(
+        &mut self,
+        span: Span,
+        module_id: ModuleId,
+        name: PathSegment<'_>,
+        path_text: &str,
+    ) {
+        if let Some(surfaces) = self.public_surfaces
+            && let Some(surface) = surfaces.get(module_id)
+        {
+            if surface.lookup_module(name.name).is_some() {
+                return;
+            }
+            if let Some(item) = surface.lookup_value(name.name) {
+                self.qualified_values.insert(
+                    span,
+                    GlobalDefId {
+                        module_id: item.target_module,
+                        def_id: item.target_def_id,
+                    },
+                );
+                if let Some(enum_id) = item.parent_enum {
+                    self.variant_enums.insert(span, enum_id);
+                }
+                return;
+            }
+            if let Some(item) = surface.lookup_type(name.name) {
+                self.qualified_type_prefixes.insert(
+                    span,
+                    GlobalDefId {
+                        module_id: item.target_module,
+                        def_id: item.target_def_id,
+                    },
+                );
+                return;
+            }
+        }
+        let Some(target_defs) = defs_for_module(self.all_defs, module_id) else {
             self.diagnostics.push(Diagnostic::error(
-                expr.span,
-                format!("import alias `{module_name}` refers to an unloaded module"),
+                span,
+                "module namespace refers to an unloaded module",
             ));
             return;
         };
-        if let Some(def_id) = target_defs.module_scope.types.get(name) {
-            // Type prefix path (possibly private — but we just record it; later
-            // phases will diagnose visibility if needed).
-            self.qualified_type_prefixes.insert(
-                expr.span,
-                GlobalDefId {
-                    module_id: import.target,
-                    def_id,
-                },
-            );
+        if let Some(def_id) = target_defs.module_scope.types.get(name.name) {
+            let Some(def) = target_defs.defs.get(def_id) else {
+                return;
+            };
+            if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("type `{path_text}` is private"),
+                ));
+                return;
+            }
+            self.qualified_type_prefixes
+                .insert(span, GlobalDefId { module_id, def_id });
             return;
         }
-        let Some(def_id) = target_defs.module_scope.values.get(name) else {
+        let Some(def_id) = target_defs.module_scope.values.get(name.name) else {
             self.diagnostics.push(Diagnostic::error(
-                expr.span,
-                format!("unknown value `{module_name}::{name}`"),
+                span,
+                format!("unknown value `{}`", name.name),
             ));
             return;
         };
         let Some(def) = target_defs.defs.get(def_id) else {
             return;
         };
-        if import.target != self.defs.module_id && def.visibility != Visibility::Public {
+        if module_id != self.defs.module_id && def.visibility != Visibility::Public {
             self.diagnostics.push(Diagnostic::error(
-                expr.span,
-                format!("value `{module_name}::{name}` is private"),
+                span,
+                format!("value `{path_text}` is private"),
             ));
             return;
         }
@@ -279,13 +402,38 @@ impl<'a> ValueResolver<'a> {
             def.kind,
             DefKind::Function | DefKind::Global | DefKind::Comptime
         ) {
+            self.qualified_values
+                .insert(span, GlobalDefId { module_id, def_id });
+        }
+    }
+
+    fn resolve_type_qualified_value(
+        &mut self,
+        span: Span,
+        type_id: GlobalDefId,
+        name: PathSegment<'_>,
+    ) {
+        let Some(target_defs) = defs_for_module(self.all_defs, type_id.module_id) else {
+            return;
+        };
+        let Some(def) = target_defs.defs.get(type_id.def_id) else {
+            return;
+        };
+        if def.kind != DefKind::Enum {
+            return;
+        }
+        let Some(enum_scope) = target_defs.scopes.enum_members.get(&type_id.def_id) else {
+            return;
+        };
+        if let Some(variant_def_id) = enum_scope.variants.get(name.name) {
             self.qualified_values.insert(
-                expr.span,
+                span,
                 GlobalDefId {
-                    module_id: import.target,
-                    def_id,
+                    module_id: type_id.module_id,
+                    def_id: variant_def_id,
                 },
             );
+            self.variant_enums.insert(span, type_id);
         }
     }
 
@@ -335,6 +483,45 @@ impl<'a> ValueResolver<'a> {
             }
         }
     }
+}
+
+fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
+    fn collect<'a>(expr: &'a Expr, segments: &mut Vec<PathSegment<'a>>) -> Option<()> {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                segments.push(PathSegment {
+                    name: name.as_str(),
+                    span: expr.span,
+                });
+                Some(())
+            }
+            ExprKind::Qualified { lhs, name } => {
+                collect(lhs, segments)?;
+                segments.push(PathSegment {
+                    name: name.as_str(),
+                    span: expr.span,
+                });
+                Some(())
+            }
+            _ => None,
+        }
+    }
+
+    let mut segments = Vec::new();
+    collect(expr, &mut segments)?;
+    Some(segments)
+}
+
+fn defs_for_module(all_defs: &[DefCollection], module_id: ModuleId) -> Option<&DefCollection> {
+    all_defs.iter().find(|defs| defs.module_id == module_id)
+}
+
+fn qualified_path_text(segments: &[PathSegment<'_>]) -> String {
+    segments
+        .iter()
+        .map(|segment| segment.name)
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 #[cfg(test)]
