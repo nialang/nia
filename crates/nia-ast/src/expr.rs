@@ -205,7 +205,7 @@ pub struct SliceRange {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayElements {
     List(Vec<Expr>),
-    Repeat { value: Box<Expr>, count: ExprStub },
+    Repeat { value: Box<Expr>, count: Box<Expr> },
 }
 
 #[derive(Debug, Clone, PartialEq)]

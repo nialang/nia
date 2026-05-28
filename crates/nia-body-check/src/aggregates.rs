@@ -3,9 +3,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
 use nia_ast::{Expr, ExprKind};
-use nia_defs::DefId;
+use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
+use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyKind};
@@ -112,14 +113,17 @@ impl<'a> BodyChecker<'a> {
                 let inferred = match elems {
                     nia_ast::ArrayElements::List(elems) => elems.len().to_string(),
                     nia_ast::ArrayElements::Repeat { count, .. } => {
-                        match nia_comptime_engine::eval_array_len_text(&count.text) {
+                        match self.eval_array_repeat_count(count) {
                             Ok(value) => value.to_string(),
                             Err(err) => {
                                 self.diagnostics.push(Diagnostic::error(
-                                    count.span,
-                                    format!("array repeat count is not a valid constant: {err}"),
+                                    err.span,
+                                    format!(
+                                        "array repeat count is not a valid constant: {}",
+                                        err.message
+                                    ),
                                 ));
-                                count.text.clone()
+                                "<error>".to_string()
                             }
                         }
                     }
@@ -133,7 +137,7 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             expected @ (ArrayLenTy::ConstExpr { .. } | ArrayLenTy::Builtin { .. }) => {
-                match explicit_array_literal_len(elems) {
+                match explicit_array_literal_len(self, elems) {
                     Ok(Some(actual)) => match self.array_len_value(span, &expected) {
                         Ok(expected) => {
                             if expected != actual {
@@ -153,8 +157,11 @@ impl<'a> BodyChecker<'a> {
                     Ok(None) => {}
                     Err(err) => {
                         self.diagnostics.push(Diagnostic::error(
-                            span,
-                            format!("array repeat count is not a valid constant: {err}"),
+                            err.span,
+                            format!(
+                                "array repeat count is not a valid constant: {}",
+                                err.message
+                            ),
                         ));
                     }
                 }
@@ -603,6 +610,79 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
+impl ComptimeEnv for BodyChecker<'_> {
+    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
+        if let Some(local_id) = self.local_comptime_use(span) {
+            return self
+                .comptime
+                .values
+                .get(&nia_comptime_check::ComptimeKey::Local(local_id))
+                .cloned()
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("failed to evaluate comptime value `{name}`"),
+                });
+        }
+        if let Some(global_id) = self.global_comptime_use(span) {
+            return self
+                .comptime
+                .values
+                .get(&nia_comptime_check::ComptimeKey::Global(global_id))
+                .cloned()
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("failed to evaluate comptime value `{name}`"),
+                });
+        }
+        Err(ComptimeError {
+            span,
+            message: format!("comptime expression can only use comptime bindings: `{name}`"),
+        })
+    }
+}
+
+impl<'a> BodyChecker<'a> {
+    fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {
+        self.check_expr(count);
+        if let Some(value) = self.comptime.array_lengths.get(&count.span).copied() {
+            return Ok(value);
+        }
+        nia_comptime_engine::eval_array_len_expr(count, self)
+    }
+
+    fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
+        let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.locals.uses.get(&span) else {
+            return None;
+        };
+        let local = self.locals.locals.get(*local_id)?;
+        (local.kind == nia_local_resolve::LocalKind::ComptimeBinding).then_some(*local_id)
+    }
+
+    fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
+        if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
+            if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
+                return Some(global_id);
+            }
+            return None;
+        }
+        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
+            self.values.names.get(&span)
+        else {
+            return None;
+        };
+        let def = self.defs.defs.get(*def_id)?;
+        (def.kind == DefKind::Comptime).then_some(self.global_def_id(*def_id))
+    }
+
+    fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
+        self.all_defs
+            .iter()
+            .find(|defs| defs.module_id == global_id.module_id)
+            .and_then(|defs| defs.defs.get(global_id.def_id))
+            .map(|def| def.kind)
+    }
+}
+
 fn array_literal_values(elems: &nia_ast::ArrayElements) -> Vec<&Expr> {
     match elems {
         nia_ast::ArrayElements::List(elems) => elems.iter().collect(),
@@ -610,11 +690,14 @@ fn array_literal_values(elems: &nia_ast::ArrayElements) -> Vec<&Expr> {
     }
 }
 
-fn explicit_array_literal_len(elems: &nia_ast::ArrayElements) -> Result<Option<u64>, String> {
+fn explicit_array_literal_len(
+    checker: &mut BodyChecker<'_>,
+    elems: &nia_ast::ArrayElements,
+) -> Result<Option<u64>, ComptimeError> {
     Ok(match elems {
         nia_ast::ArrayElements::List(elems) => Some(elems.len() as u64),
         nia_ast::ArrayElements::Repeat { count, .. } => {
-            Some(nia_comptime_engine::eval_array_len_text(&count.text)?)
+            Some(checker.eval_array_repeat_count(count)?)
         }
     })
 }

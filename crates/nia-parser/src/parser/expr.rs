@@ -534,13 +534,10 @@ impl<'a> Parser<'a> {
         } else {
             let first = self.parse_expr()?;
             if self.eat(TokenKind::Semicolon).is_some() {
-                let span = self.collect_until(&[TokenKind::RBracket])?;
+                let count = self.parse_expr()?;
                 ArrayElements::Repeat {
                     value: Box::new(first),
-                    count: ExprStub {
-                        span,
-                        text: self.source_text(span),
-                    },
+                    count: Box::new(count),
                 }
             } else {
                 elems.push(first);

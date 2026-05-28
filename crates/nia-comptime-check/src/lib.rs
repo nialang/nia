@@ -458,8 +458,7 @@ fn expr_for_span(expr: &Expr, span: Span) -> Option<&Expr> {
                 elems.iter().find_map(|elem| expr_for_span(elem, span))
             }
             nia_ast::ArrayElements::Repeat { value, count } => {
-                let _ = count;
-                expr_for_span(value, span)
+                expr_for_span(value, span).or_else(|| expr_for_span(count, span))
             }
         },
         ExprKind::StructLiteral { fields } => fields

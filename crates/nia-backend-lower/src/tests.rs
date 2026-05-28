@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_abi_check::check_module_abi;
+use nia_backend_ir::{TypedArrayElements, TypedExprKind, TypedStmtKind};
 use nia_body_check::{
     BodyCheckInput, ProgramSignatureMaps, check_module_bodies_with_program_signatures_and_layouts,
 };
@@ -171,6 +172,55 @@ fn main() i32 {
     local
 }
 "#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    assert!(module.globals.is_empty());
+    let main = module
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    assert!(
+        main.body
+            .as_ref()
+            .expect("main body")
+            .locals
+            .iter()
+            .all(|local| local.name != "local")
+    );
+}
+
+#[test]
+fn lowers_large_array_repeat_count_from_comptime_binding() {
+    let source = r#"
+comptime N: usize = 1048576;
+
+fn main() i32 {
+    var buffer: [N]u8 = [0u8; N];
+    0
+}
+"#;
+    let lowering = lower_source(source);
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.body.as_ref().expect("main body");
+    let Some(TypedStmtKind::Binding(binding)) = body.stmts.first().map(|stmt| &stmt.kind) else {
+        panic!("expected buffer binding");
+    };
+    let value = binding.value.as_ref().expect("buffer initializer");
+    let TypedExprKind::ArrayLiteral {
+        elems: TypedArrayElements::Repeat { count, .. },
+    } = &value.kind
+    else {
+        panic!("expected repeat array initializer");
+    };
+    assert_eq!(*count, 1048576);
+}
+
+fn lower_source(source: &str) -> BackendLowering {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
@@ -257,19 +307,5 @@ fn main() i32 {
         "{:?}",
         lowering.diagnostics
     );
-    let module = &lowering.program.modules[0];
-    assert!(module.globals.is_empty());
-    let main = module
-        .functions
-        .iter()
-        .find(|function| function.name == "main")
-        .expect("main function");
-    assert!(
-        main.body
-            .as_ref()
-            .expect("main body")
-            .locals
-            .iter()
-            .all(|local| local.name != "local")
-    );
+    lowering
 }

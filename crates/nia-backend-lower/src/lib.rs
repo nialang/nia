@@ -12,6 +12,7 @@ use nia_backend_ir::{
     BackendStructInstanceKey,
 };
 use nia_body_check::BodyCheck;
+use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
@@ -117,13 +118,17 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn comptime_global_id_for_expr(&self, expr: &Expr) -> Option<GlobalDefId> {
-        if let Some(global_id) = self.input.values.qualified_values.get(&expr.span).copied()
+        self.comptime_global_id_for_span(expr.span)
+    }
+
+    pub(crate) fn comptime_global_id_for_span(&self, span: Span) -> Option<GlobalDefId> {
+        if let Some(global_id) = self.input.values.qualified_values.get(&span).copied()
             && self.def_kind_of(global_id) == Some(DefKind::Comptime)
         {
             return Some(global_id);
         }
         let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
-            self.input.values.names.get(&expr.span)
+            self.input.values.names.get(&span)
         else {
             return None;
         };
@@ -530,6 +535,39 @@ impl<'a> ModuleLowerer<'a> {
             .find(|defs| defs.module_id == global_id.module_id)
             .and_then(|defs| defs.defs.get(global_id.def_id))
             .map(|def| def.kind)
+    }
+}
+
+impl ComptimeEnv for ModuleLowerer<'_> {
+    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
+        if let Some(local_id) = self.local_comptime_id_for_span(span) {
+            return self
+                .input
+                .comptime
+                .values
+                .get(&nia_comptime_check::ComptimeKey::Local(local_id))
+                .cloned()
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("failed to evaluate comptime value `{name}`"),
+                });
+        }
+        if let Some(global_id) = self.comptime_global_id_for_span(span) {
+            return self
+                .input
+                .comptime
+                .values
+                .get(&nia_comptime_check::ComptimeKey::Global(global_id))
+                .cloned()
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("failed to evaluate comptime value `{name}`"),
+                });
+        }
+        Err(ComptimeError {
+            span,
+            message: format!("comptime expression can only use comptime bindings: `{name}`"),
+        })
     }
 }
 
