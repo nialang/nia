@@ -1243,6 +1243,21 @@ fn main() i32 {
 }
 
 #[test]
+fn checks_large_array_repeat_count_from_comptime_binding() {
+    let checked = pipeline(
+        r#"
+comptime N: usize = 1048576;
+
+fn main() i32 {
+    var buffer: [N]u8 = [0u8; N];
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_text_byte_and_c_string_literal_types() {
     let checked = pipeline(
         r#"

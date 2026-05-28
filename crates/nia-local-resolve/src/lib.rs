@@ -319,7 +319,10 @@ impl<'a> LocalResolver<'a> {
                         self.resolve_expr(elem);
                     }
                 }
-                nia_ast::ArrayElements::Repeat { value, .. } => self.resolve_expr(value),
+                nia_ast::ArrayElements::Repeat { value, count } => {
+                    self.resolve_expr(value);
+                    self.resolve_expr(count);
+                }
             },
             ExprKind::StructLiteral { fields } => {
                 for field in fields {

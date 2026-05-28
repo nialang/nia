@@ -110,15 +110,7 @@ impl<'a> ModuleLowerer<'a> {
                 ),
                 ArrayElements::Repeat { value, count } => StaticInit::Repeat {
                     value: Box::new(self.lower_static_init(value)),
-                    count: nia_comptime_engine::eval_array_len_text(&count.text).unwrap_or_else(
-                        |err| {
-                            self.diagnostics.push(Diagnostic::error(
-                                count.span,
-                                format!("invalid repeat count: {err}"),
-                            ));
-                            0
-                        },
-                    ),
+                    count: self.lower_array_repeat_count(count),
                 },
             },
             ExprKind::StructLiteral { fields } => {

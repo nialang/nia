@@ -1951,6 +1951,31 @@ pub comptime width: usize = 4;
 }
 
 #[test]
+fn emits_large_array_repeat_count_from_comptime_binding() {
+    let root = temp_dir("emits_large_array_repeat_count_from_comptime_binding");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+comptime N: usize = 16;
+
+fn main() i32 {
+    var buffer: [N]u8 = [0u8; N];
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.modules[0].ir.contains("[16 x i8]"));
+}
+
+#[test]
 fn checked_program_smoke_matrix_emits_llvm_ir() {
     for case in emit_smoke_cases() {
         let root = temp_dir(&format!("checked_program_smoke_matrix_{}", case.name));

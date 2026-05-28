@@ -229,7 +229,10 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                     visitor.visit_expr(elem);
                 }
             }
-            ArrayElements::Repeat { value, .. } => visitor.visit_expr(value),
+            ArrayElements::Repeat { value, count } => {
+                visitor.visit_expr(value);
+                visitor.visit_expr(count);
+            }
         },
         ExprKind::StructLiteral { fields } => {
             for field in fields {

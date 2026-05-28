@@ -258,8 +258,9 @@ impl FlowChecker<'_> {
                         self.check_no_deferred_control_flow(elem);
                     }
                 }
-                nia_ast::ArrayElements::Repeat { value, .. } => {
+                nia_ast::ArrayElements::Repeat { value, count } => {
                     self.check_no_deferred_control_flow(value);
+                    self.check_no_deferred_control_flow(count);
                 }
             },
             ExprKind::StructLiteral { fields } => {

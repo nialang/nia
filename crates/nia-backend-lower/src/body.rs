@@ -12,6 +12,7 @@ use nia_backend_ir::{
 };
 use nia_body_check::{BuiltinValue, ResolvedCall};
 use nia_defs::DefKind;
+use nia_diagnostic::Diagnostic;
 use nia_ids::LocalId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
@@ -637,8 +638,24 @@ impl<'a> ModuleLowerer<'a> {
             }
             ArrayElements::Repeat { value, count } => TypedArrayElements::Repeat {
                 value: Box::new(self.lower_expr(value)),
-                count: nia_comptime_engine::eval_array_len_text(&count.text).unwrap_or(0),
+                count: self.lower_array_repeat_count(count),
             },
+        }
+    }
+
+    pub(crate) fn lower_array_repeat_count(&mut self, count: &Expr) -> u64 {
+        if let Some(value) = self.input.comptime.array_lengths.get(&count.span).copied() {
+            return value;
+        }
+        match nia_comptime_engine::eval_array_len_expr(count, self) {
+            Ok(value) => value,
+            Err(err) => {
+                self.diagnostics.push(Diagnostic::error(
+                    err.span,
+                    format!("invalid repeat count: {}", err.message),
+                ));
+                0
+            }
         }
     }
 
@@ -694,7 +711,11 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn local_comptime_id(&self, expr: &Expr) -> Option<LocalId> {
-        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&expr.span) else {
+        self.local_comptime_id_for_span(expr.span)
+    }
+
+    pub(crate) fn local_comptime_id_for_span(&self, span: Span) -> Option<LocalId> {
+        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&span) else {
             return None;
         };
         let local = self.input.locals.locals.get(*local_id)?;
