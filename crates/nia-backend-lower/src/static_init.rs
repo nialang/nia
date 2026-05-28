@@ -26,30 +26,30 @@ impl<'a> ModuleLowerer<'a> {
             }
             ExprKind::Float(text) => StaticInit::Float(numeric_literal_body(text).to_string()),
             ExprKind::Bool(value) => StaticInit::Bool(*value),
-            ExprKind::String(text) => decode_string_literal(text)
+            ExprKind::String(literal) => decode_string_literal(literal)
                 .map(StaticInit::Chars)
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
-                        format!("invalid string literal `{text}` in static initializer"),
+                        "invalid string literal in static initializer",
                     ));
                     StaticInit::Chars(Vec::new())
                 }),
-            ExprKind::ByteString(text) => decode_byte_string_literal(text)
+            ExprKind::ByteString(literal) => decode_byte_string_literal(literal)
                 .map(StaticInit::Bytes)
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
-                        format!("invalid byte string literal `{text}` in static initializer"),
+                        "invalid byte string literal in static initializer",
                     ));
                     StaticInit::Bytes(Vec::new())
                 }),
-            ExprKind::CString(text) => decode_c_string_literal(text)
+            ExprKind::CString(literal) => decode_c_string_literal(literal)
                 .map(StaticInit::Bytes)
                 .unwrap_or_else(|| {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
-                        format!("invalid C string literal `{text}` in static initializer"),
+                        "invalid C string literal in static initializer",
                     ));
                     StaticInit::Bytes(Vec::new())
                 }),

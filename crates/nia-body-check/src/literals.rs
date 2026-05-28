@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{Expr, ExprKind, UnaryOp};
+use nia_ast::{Expr, ExprKind, StringLiteral, UnaryOp};
 use nia_ty::PrimitiveTy;
 
 pub(super) fn integer_literal_value(expr: &Expr) -> Option<i128> {
@@ -213,7 +213,16 @@ pub(super) fn integer_range(primitive: PrimitiveTy) -> Option<(i128, i128)> {
     })
 }
 
-pub(super) fn string_literal_char_len(text: &str) -> Option<usize> {
+pub(super) fn string_literal_char_len(literal: &StringLiteral) -> Option<usize> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    literal.parts.iter().try_fold(0usize, |len, text| {
+        len.checked_add(string_literal_part_char_len(text)?)
+    })
+}
+
+fn string_literal_part_char_len(text: &str) -> Option<usize> {
     if text
         .strip_prefix("b")
         .or_else(|| text.strip_prefix("c"))
@@ -226,7 +235,16 @@ pub(super) fn string_literal_char_len(text: &str) -> Option<usize> {
     decoded_scalar_len(inner)
 }
 
-pub(super) fn byte_string_literal_len(text: &str) -> Option<usize> {
+pub(super) fn byte_string_literal_len(literal: &StringLiteral) -> Option<usize> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    literal.parts.iter().try_fold(0usize, |len, text| {
+        len.checked_add(byte_string_literal_part_len(text)?)
+    })
+}
+
+fn byte_string_literal_part_len(text: &str) -> Option<usize> {
     if text.strip_prefix("b").unwrap_or(text).starts_with("\\\\") {
         return multiline_string_literal_byte_len(text);
     }
@@ -237,12 +255,29 @@ pub(super) fn byte_string_literal_len(text: &str) -> Option<usize> {
     decoded_byte_len(inner)
 }
 
-pub(super) fn c_string_literal_len(text: &str) -> Option<usize> {
+pub(super) fn c_string_literal_len(literal: &StringLiteral) -> Option<usize> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    let bytes = literal.parts.iter().try_fold(0usize, |len, text| {
+        len.checked_add(c_string_literal_part_len(text)?)
+    })?;
+    bytes.checked_add(1)
+}
+
+fn is_multiline_literal(text: &str) -> bool {
+    text.strip_prefix('b')
+        .or_else(|| text.strip_prefix('c'))
+        .unwrap_or(text)
+        .starts_with("\\\\")
+}
+
+fn c_string_literal_part_len(text: &str) -> Option<usize> {
     if text.strip_prefix("c").unwrap_or(text).starts_with("\\\\") {
-        return multiline_string_literal_byte_len(text)?.checked_add(1);
+        return multiline_string_literal_byte_len(text);
     }
     let inner = text.strip_prefix("c\"")?.strip_suffix('"')?;
-    decoded_byte_len(inner)?.checked_add(1)
+    decoded_byte_len(inner)
 }
 
 fn decoded_byte_len(inner: &str) -> Option<usize> {
@@ -390,18 +425,37 @@ mod tests {
 
     #[test]
     fn rejects_unclosed_unicode_string_escape() {
-        assert_eq!(string_literal_char_len(r#""\u{41""#), None);
+        assert_eq!(
+            string_literal_char_len(&StringLiteral {
+                parts: vec![r#""\u{41""#.to_string()],
+            }),
+            None
+        );
     }
 
     #[test]
     fn counts_multiline_string_literal_scalars() {
         assert_eq!(
-            string_literal_char_len("\\\\hello\n    \\\\world"),
+            string_literal_char_len(&StringLiteral {
+                parts: vec!["\\\\hello\n    \\\\world".to_string()],
+            }),
             Some("hello\nworld".chars().count())
         );
         assert_eq!(
-            string_literal_char_len("\\\\hello\\n"),
+            string_literal_char_len(&StringLiteral {
+                parts: vec!["\\\\hello\\n".to_string()],
+            }),
             Some("hello\\n".chars().count())
+        );
+    }
+
+    #[test]
+    fn counts_adjacent_quoted_c_string_with_single_nul() {
+        assert_eq!(
+            c_string_literal_len(&StringLiteral {
+                parts: vec![r#"c"foo""#.to_string(), r#"c"bar""#.to_string()],
+            }),
+            Some(7)
         );
     }
 }

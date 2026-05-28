@@ -16,10 +16,11 @@ impl<'a> ModuleLowerer<'a> {
         for field in fields {
             match field.name.as_str() {
                 "code" => {
-                    if let ExprKind::ByteString(text) = &field.value.kind {
-                        code =
-                            String::from_utf8(decode_byte_string_literal(text).unwrap_or_default())
-                                .unwrap_or_default();
+                    if let ExprKind::ByteString(literal) = &field.value.kind {
+                        code = String::from_utf8(
+                            decode_byte_string_literal(literal).unwrap_or_default(),
+                        )
+                        .unwrap_or_default();
                     }
                 }
                 "inputs" => self.lower_asm_inputs(&field.value, &mut inputs),
@@ -72,9 +73,9 @@ impl<'a> ModuleLowerer<'a> {
             return;
         };
         for elem in elems {
-            if let ExprKind::ByteString(text) = &elem.kind
+            if let ExprKind::ByteString(literal) = &elem.kind
                 && let Ok(clobber) =
-                    String::from_utf8(decode_byte_string_literal(text).unwrap_or_default())
+                    String::from_utf8(decode_byte_string_literal(literal).unwrap_or_default())
             {
                 out.push(clobber);
             }
@@ -83,8 +84,8 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_asm_options(&mut self, expr: &Expr, out: &mut Vec<AsmOption>) {
         match &expr.kind {
-            ExprKind::ByteString(text) => {
-                if let Some(option) = asm_option_from_string(text) {
+            ExprKind::ByteString(literal) => {
+                if let Some(option) = asm_option_from_string(literal) {
                     out.push(option);
                 }
             }
@@ -92,8 +93,8 @@ impl<'a> ModuleLowerer<'a> {
                 elems: ArrayElements::List(elems),
             } => {
                 for elem in elems {
-                    if let ExprKind::ByteString(text) = &elem.kind
-                        && let Some(option) = asm_option_from_string(text)
+                    if let ExprKind::ByteString(literal) = &elem.kind
+                        && let Some(option) = asm_option_from_string(literal)
                     {
                         out.push(option);
                     }
@@ -127,7 +128,7 @@ fn asm_option(name: &str) -> Option<AsmOption> {
     }
 }
 
-fn asm_option_from_string(text: &str) -> Option<AsmOption> {
-    let name = String::from_utf8(decode_byte_string_literal(text)?).ok()?;
+fn asm_option_from_string(literal: &nia_ast::StringLiteral) -> Option<AsmOption> {
+    let name = String::from_utf8(decode_byte_string_literal(literal)?).ok()?;
     asm_option(&name)
 }

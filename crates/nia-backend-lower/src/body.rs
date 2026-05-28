@@ -288,14 +288,14 @@ impl<'a> ModuleLowerer<'a> {
                 TypedExprKind::Integer(numeric_literal_body(text).to_string())
             }
             ExprKind::Float(text) => TypedExprKind::Float(numeric_literal_body(text).to_string()),
-            ExprKind::String(text) => {
-                TypedExprKind::String(decode_string_literal(text).unwrap_or_default())
+            ExprKind::String(literal) => {
+                TypedExprKind::String(decode_string_literal(literal).unwrap_or_default())
             }
-            ExprKind::ByteString(text) => {
-                TypedExprKind::ByteString(decode_byte_string_literal(text).unwrap_or_default())
+            ExprKind::ByteString(literal) => {
+                TypedExprKind::ByteString(decode_byte_string_literal(literal).unwrap_or_default())
             }
-            ExprKind::CString(text) => {
-                TypedExprKind::ByteString(decode_c_string_literal(text).unwrap_or_default())
+            ExprKind::CString(literal) => {
+                TypedExprKind::ByteString(decode_c_string_literal(literal).unwrap_or_default())
             }
             ExprKind::Char(text) => TypedExprKind::Char(decode_char_literal(text).unwrap_or(0)),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),

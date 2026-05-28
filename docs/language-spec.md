@@ -258,6 +258,28 @@ C string literals are byte string literals with one trailing NUL byte appended.
 `c"nia"` has type `[4]u8` and is equivalent to `b"nia\0"`. Interior NUL bytes
 are allowed; the syntax only appends one trailing NUL.
 
+Adjacent quoted string literals with the same prefix are concatenated into one
+literal:
+
+```nia
+"hello, " "world"
+b"ni" b"a\0"
+c"hello, " c"world"
+```
+
+This is source-level literal concatenation, not runtime string or array
+concatenation. Mixed literal families are invalid:
+
+```nia
+"hello" b"world" // invalid
+b"hello" c"world" // invalid
+"hello" c"world" // invalid
+```
+
+For adjacent C string literals, the trailing NUL is appended once to the final
+combined byte sequence. For example, `c"foo" c"bar"` has type `[7]u8` and is
+equivalent to `b"foobar\0"`.
+
 In an expected `&u8` or `&const u8` context, a C string literal may be coerced to
 a pointer to its first byte. This creates a block-scoped array temporary; it does
 not promote the literal to static storage. The coercion is specific to C string
@@ -284,6 +306,11 @@ is. Adjacent lines are joined with `\n`; no extra newline is appended after the
 last line. Escape sequences are not interpreted inside multiline string lines.
 The prefix selects the same type family as the quoted form: `[N]char`, `[N]u8`,
 or NUL-terminated `[N + 1]u8`.
+
+Multiline string literals do not participate in adjacent literal concatenation.
+Use adjacent quoted literals when a long single-line literal should be split
+across source lines, and use multiline literals when the literal value should
+contain real line breaks.
 
 The literal:
 
