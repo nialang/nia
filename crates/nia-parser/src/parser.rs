@@ -3,9 +3,10 @@ use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, BinaryOp, BindingItem, BindingStmt, Block, BracketArg,
     EnumItem, EnumVariant, Expr, ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit,
     ForHeader, ForInit, ForStmt, FunctionItem, ImportItem, ImportPath, ImportPathKind, Item,
-    ItemKind, Module, Param, ReceiverKind, Stmt, StmtKind, StructItem, SwitchArm, SwitchArmBody,
-    SwitchPattern, SwitchStmt, TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp,
-    UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility,
+    ItemKind, Module, Param, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm,
+    SwitchArmBody, SwitchPattern, SwitchStmt, TypeAliasItem, TypeArg, TypeKind, TypePathSegment,
+    TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
+    UsingSelector, Visibility,
 };
 use nia_lexer::{Token, TokenKind, tokenize};
 use nia_span::Span;

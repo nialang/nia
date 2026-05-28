@@ -108,14 +108,19 @@ pub struct Expr {
     pub kind: ExprKind,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StringLiteral {
+    pub parts: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
     Error,
     Integer(String),
     Float(String),
-    String(String),
-    ByteString(String),
-    CString(String),
+    String(StringLiteral),
+    ByteString(StringLiteral),
+    CString(StringLiteral),
     Char(String),
     ByteChar(String),
     Raw(String),

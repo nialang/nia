@@ -364,9 +364,13 @@ impl<'a> Parser<'a> {
         match token.kind {
             TokenKind::Integer => Some(self.literal_expr(token, ExprKind::Integer)),
             TokenKind::Float => Some(self.literal_expr(token, ExprKind::Float)),
-            TokenKind::String => Some(self.literal_expr(token, ExprKind::String)),
-            TokenKind::ByteString => Some(self.literal_expr(token, ExprKind::ByteString)),
-            TokenKind::CString => Some(self.literal_expr(token, ExprKind::CString)),
+            TokenKind::String => self.parse_string_literal_run(TokenKind::String, ExprKind::String),
+            TokenKind::ByteString => {
+                self.parse_string_literal_run(TokenKind::ByteString, ExprKind::ByteString)
+            }
+            TokenKind::CString => {
+                self.parse_string_literal_run(TokenKind::CString, ExprKind::CString)
+            }
             TokenKind::Char => Some(self.literal_expr(token, ExprKind::Char)),
             TokenKind::ByteChar => Some(self.literal_expr(token, ExprKind::ByteChar)),
             TokenKind::True => {
@@ -598,6 +602,53 @@ impl<'a> Parser<'a> {
             span: token.span,
             kind: make(self.token_text(&token).to_string()),
         }
+    }
+
+    fn parse_string_literal_run(
+        &mut self,
+        kind: TokenKind,
+        make: impl FnOnce(StringLiteral) -> ExprKind,
+    ) -> Option<Expr> {
+        let first = self.peek().clone();
+        let start = first.span.start;
+        let mut parts = Vec::new();
+        let quoted_run = self.token_is_quoted_string_literal(&first);
+        let end = if quoted_run {
+            let mut end = start;
+            while self.at(kind.clone()) && self.token_is_quoted_string_literal(self.peek()) {
+                let token = self.bump();
+                end = token.span.end;
+                parts.push(self.token_text(&token).to_string());
+            }
+            end
+        } else {
+            let token = self.bump();
+            parts.push(self.token_text(&token).to_string());
+            token.span.end
+        };
+        if quoted_run && self.peek_is_quoted_string_literal() {
+            self.error_here("adjacent string literals must use the same literal prefix");
+        }
+        (!parts.is_empty()).then_some(Expr {
+            span: Span::new(start, end),
+            kind: make(StringLiteral { parts }),
+        })
+    }
+
+    fn peek_is_quoted_string_literal(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenKind::String | TokenKind::ByteString | TokenKind::CString
+        ) && self.token_is_quoted_string_literal(self.peek())
+    }
+
+    fn token_is_quoted_string_literal(&self, token: &Token) -> bool {
+        let text = self.token_text(token);
+        !text
+            .strip_prefix('b')
+            .or_else(|| text.strip_prefix('c'))
+            .unwrap_or(text)
+            .starts_with("\\\\")
     }
 
     fn has_line_break_between(&self, start: usize, end: usize) -> bool {

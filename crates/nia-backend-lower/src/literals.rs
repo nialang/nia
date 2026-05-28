@@ -90,7 +90,18 @@ pub(super) fn decode_char_literal(text: &str) -> Option<u32> {
     (scalars.len() == 1).then_some(scalars[0])
 }
 
-pub(super) fn decode_string_literal(text: &str) -> Option<Vec<u32>> {
+pub(super) fn decode_string_literal(literal: &nia_ast::StringLiteral) -> Option<Vec<u32>> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    let mut scalars = Vec::new();
+    for part in &literal.parts {
+        scalars.extend(decode_string_literal_part(part)?);
+    }
+    Some(scalars)
+}
+
+fn decode_string_literal_part(text: &str) -> Option<Vec<u32>> {
     if strip_multiline_prefix(text).is_some() {
         return decode_multiline_string_literal(text).map(bytes_to_scalars);
     }
@@ -98,7 +109,18 @@ pub(super) fn decode_string_literal(text: &str) -> Option<Vec<u32>> {
     decode_char_scalars(inner)
 }
 
-pub(super) fn decode_byte_string_literal(text: &str) -> Option<Vec<u8>> {
+pub(super) fn decode_byte_string_literal(literal: &nia_ast::StringLiteral) -> Option<Vec<u8>> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    for part in &literal.parts {
+        bytes.extend(decode_byte_string_literal_part(part)?);
+    }
+    Some(bytes)
+}
+
+pub(super) fn decode_byte_string_literal_part(text: &str) -> Option<Vec<u8>> {
     if strip_multiline_prefix(text).is_some() {
         return decode_multiline_string_literal(text);
     }
@@ -106,16 +128,28 @@ pub(super) fn decode_byte_string_literal(text: &str) -> Option<Vec<u8>> {
     decode_char_inner(inner)
 }
 
-pub(super) fn decode_c_string_literal(text: &str) -> Option<Vec<u8>> {
-    if strip_multiline_prefix(text).is_some() {
-        let mut bytes = decode_multiline_string_literal(text)?;
-        bytes.push(0);
-        return Some(bytes);
+pub(super) fn decode_c_string_literal(literal: &nia_ast::StringLiteral) -> Option<Vec<u8>> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
     }
-    let inner = text.strip_prefix("c\"")?.strip_suffix('"')?;
-    let mut bytes = decode_char_inner(inner)?;
+    let mut bytes = Vec::new();
+    for part in &literal.parts {
+        bytes.extend(decode_c_string_literal_part(part)?);
+    }
     bytes.push(0);
     Some(bytes)
+}
+
+fn is_multiline_literal(text: &str) -> bool {
+    strip_multiline_prefix(text).is_some()
+}
+
+fn decode_c_string_literal_part(text: &str) -> Option<Vec<u8>> {
+    if strip_multiline_prefix(text).is_some() {
+        return decode_multiline_string_literal(text);
+    }
+    let inner = text.strip_prefix("c\"")?.strip_suffix('"')?;
+    decode_char_inner(inner)
 }
 
 fn decode_multiline_string_literal(text: &str) -> Option<Vec<u8>> {
@@ -271,26 +305,58 @@ mod tests {
 
     #[test]
     fn rejects_unclosed_unicode_string_escape() {
-        assert_eq!(decode_string_literal(r#""\u{41""#), None);
+        assert_eq!(
+            decode_string_literal(&nia_ast::StringLiteral {
+                parts: vec![r#""\u{41""#.to_string()],
+            }),
+            None
+        );
     }
 
     #[test]
     fn decodes_multiline_string_literal_without_escapes_or_trailing_newline() {
         assert_eq!(
-            decode_string_literal("\\\\mov rax, 60\n    \\\\syscall"),
+            decode_string_literal(&nia_ast::StringLiteral {
+                parts: vec!["\\\\mov rax, 60\n    \\\\syscall".to_string()],
+            }),
             Some("mov rax, 60\nsyscall".chars().map(|ch| ch as u32).collect())
         );
         assert_eq!(
-            decode_string_literal("\\\\hello\\n\n\\\\world"),
+            decode_string_literal(&nia_ast::StringLiteral {
+                parts: vec!["\\\\hello\\n\n\\\\world".to_string()],
+            }),
             Some("hello\\n\nworld".chars().map(|ch| ch as u32).collect())
         );
         assert_eq!(
-            decode_byte_string_literal("b\\\\hello\n\\\\world"),
+            decode_byte_string_literal(&nia_ast::StringLiteral {
+                parts: vec!["b\\\\hello\n\\\\world".to_string()],
+            }),
             Some(b"hello\nworld".to_vec())
         );
         assert_eq!(
-            decode_c_string_literal("c\\\\hello\n\\\\world"),
+            decode_c_string_literal(&nia_ast::StringLiteral {
+                parts: vec!["c\\\\hello\n\\\\world".to_string()],
+            }),
             Some(b"hello\nworld\0".to_vec())
+        );
+    }
+
+    #[test]
+    fn decodes_adjacent_c_string_with_single_nul() {
+        assert_eq!(
+            decode_c_string_literal(&nia_ast::StringLiteral {
+                parts: vec![
+                    r#"c"""#.to_string(),
+                    r#"c"foo""#.to_string(),
+                    r#"c"""#.to_string(),
+                    r#"c"bar""#.to_string(),
+                    r#"c"""#.to_string(),
+                    r#"c"baz""#.to_string(),
+                    r#"c"""#.to_string(),
+                    r#"c"qux""#.to_string(),
+                ],
+            }),
+            Some(b"foobarbazqux\0".to_vec())
         );
     }
 }
