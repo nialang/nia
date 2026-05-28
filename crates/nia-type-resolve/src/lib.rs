@@ -123,6 +123,12 @@ struct TypeResolver<'a> {
     suppress_unknown_type_errors: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolvedNamespace {
+    Module(ModuleId),
+    Type(GlobalDefId),
+}
+
 impl<'ast> Visitor<'ast> for TypeResolver<'_> {
     fn visit_item(&mut self, item: &'ast Item) {
         match &item.kind {
@@ -229,52 +235,136 @@ impl<'a> TypeResolver<'a> {
         span: Span,
         segments: &[TypePathSegment],
     ) -> TypeNameResolution {
-        if segments.len() != 2 {
-            self.diagnostics.push(Diagnostic::error(
-                span,
-                "qualified type paths only support `module::Type`",
-            ));
+        let Some((last, prefix)) = segments.split_last() else {
             return TypeNameResolution::Error;
+        };
+        let Some(namespace) = self.resolve_namespace_path(prefix) else {
+            return TypeNameResolution::Error;
+        };
+        match namespace {
+            ResolvedNamespace::Module(module_id) => {
+                let path_text = type_path_text(segments);
+                self.resolve_module_type(span, module_id, last, &path_text)
+            }
+            ResolvedNamespace::Type(_) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "type namespaces do not contain nested types",
+                ));
+                TypeNameResolution::Error
+            }
         }
-        let Some(imports) = self.imports else {
-            self.diagnostics.push(Diagnostic::error(
-                span,
-                "qualified type paths are reserved until module path resolution is implemented",
-            ));
-            return TypeNameResolution::Error;
-        };
-        let module_name = &segments[0].name;
-        let type_name = &segments[1].name;
-        let Some(import) = imports.get(self.defs.module_id, module_name) else {
-            self.diagnostics.push(Diagnostic::error(
-                span,
-                format!("unknown import alias `{module_name}`"),
-            ));
-            return TypeNameResolution::Error;
-        };
+    }
+
+    fn resolve_namespace_path(
+        &mut self,
+        segments: &[TypePathSegment],
+    ) -> Option<ResolvedNamespace> {
+        let first = segments.first()?;
+        let mut namespace = self.resolve_root_namespace(first)?;
+        for segment in &segments[1..] {
+            namespace = self.resolve_child_namespace(namespace, segment)?;
+        }
+        Some(namespace)
+    }
+
+    fn resolve_root_namespace(&mut self, segment: &TypePathSegment) -> Option<ResolvedNamespace> {
+        if let Some(imports) = self.imports
+            && let Some(import) = imports.get(self.defs.module_id, &segment.name)
+        {
+            return Some(ResolvedNamespace::Module(import.target));
+        }
+        if let Some(scope) = self.using_scope
+            && let Some(module_id) = scope.lookup_module(&segment.name)
+        {
+            return Some(ResolvedNamespace::Module(module_id));
+        }
+        if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
+            return Some(ResolvedNamespace::Type(GlobalDefId {
+                module_id: self.defs.module_id,
+                def_id,
+            }));
+        }
+        if let Some(scope) = self.using_scope
+            && let Some(entry) = scope.lookup_type(&segment.name)
+        {
+            return Some(ResolvedNamespace::Type(GlobalDefId {
+                module_id: entry.target_module,
+                def_id: entry.target_def_id,
+            }));
+        }
+        self.diagnostics.push(Diagnostic::error(
+            segment_span(segment),
+            format!("unknown namespace `{}`", segment.name),
+        ));
+        None
+    }
+
+    fn resolve_child_namespace(
+        &mut self,
+        namespace: ResolvedNamespace,
+        segment: &TypePathSegment,
+    ) -> Option<ResolvedNamespace> {
+        match namespace {
+            ResolvedNamespace::Module(module_id) => {
+                if let Some(surfaces) = self.public_surfaces
+                    && let Some(surface) = surfaces.get(module_id)
+                {
+                    if let Some(child_module) = surface.lookup_module(&segment.name) {
+                        return Some(ResolvedNamespace::Module(child_module));
+                    }
+                    if let Some(item) = surface.lookup_type(&segment.name) {
+                        return Some(ResolvedNamespace::Type(GlobalDefId {
+                            module_id: item.target_module,
+                            def_id: item.target_def_id,
+                        }));
+                    }
+                }
+                let target_defs = defs_for_module(self.all_defs, module_id)?;
+                let def_id = target_defs.module_scope.types.get(&segment.name)?;
+                let def = target_defs.defs.get(def_id)?;
+                if module_id != self.defs.module_id && def.visibility != Visibility::Public {
+                    self.diagnostics.push(Diagnostic::error(
+                        segment_span(segment),
+                        format!("type `{}` is private", segment.name),
+                    ));
+                    return None;
+                }
+                Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
+            }
+            ResolvedNamespace::Type(_) => None,
+        }
+    }
+
+    fn resolve_module_type(
+        &mut self,
+        span: Span,
+        module_id: ModuleId,
+        segment: &TypePathSegment,
+        path_text: &str,
+    ) -> TypeNameResolution {
         if let Some(surfaces) = self.public_surfaces
-            && let Some(surface) = surfaces.get(import.target)
-            && let Some(item) = surface.lookup_type(type_name)
+            && let Some(surface) = surfaces.get(module_id)
+            && let Some(item) = surface.lookup_type(&segment.name)
         {
             let global = GlobalDefId {
                 module_id: item.target_module,
                 def_id: item.target_def_id,
             };
             self.qualified_type_names.insert(span, global);
-            return TypeNameResolution::Def(item.target_def_id);
+            return TypeNameResolution::External(global);
         }
-        let Some(target_defs) = defs_for_module(all_defs_module_map(self.all_defs), import.target)
-        else {
+        let Some(target_defs) = defs_for_module(self.all_defs, module_id) else {
             self.diagnostics.push(Diagnostic::error(
                 span,
-                format!("import alias `{module_name}` refers to an unloaded module"),
+                "module namespace refers to an unloaded module",
             ));
             return TypeNameResolution::Error;
         };
-        let Some(def_id) = target_defs.module_scope.types.get(type_name) else {
+        let Some(def_id) = target_defs.module_scope.types.get(&segment.name) else {
             self.diagnostics.push(Diagnostic::error(
                 span,
-                format!("unknown type `{module_name}::{type_name}`"),
+                format!("unknown type `{}`", segment.name),
             ));
             return TypeNameResolution::Error;
         };
@@ -287,21 +377,20 @@ impl<'a> TypeResolver<'a> {
         ) {
             return TypeNameResolution::Error;
         }
-        if import.target != self.defs.module_id && def.visibility != Visibility::Public {
+        if module_id != self.defs.module_id && def.visibility != Visibility::Public {
             self.diagnostics.push(Diagnostic::error(
                 span,
-                format!("type `{module_name}::{type_name}` is private"),
+                format!("type `{path_text}` is private"),
             ));
             return TypeNameResolution::Error;
         }
-        self.qualified_type_names.insert(
-            span,
-            GlobalDefId {
-                module_id: import.target,
-                def_id,
-            },
-        );
-        TypeNameResolution::Def(def_id)
+        self.qualified_type_names
+            .insert(span, GlobalDefId { module_id, def_id });
+        if module_id == self.defs.module_id {
+            TypeNameResolution::Def(def_id)
+        } else {
+            TypeNameResolution::External(GlobalDefId { module_id, def_id })
+        }
     }
 
     fn resolve_type_name(&mut self, segment: &TypePathSegment, span: Span) -> TypeNameResolution {
@@ -363,12 +452,20 @@ impl<'a> TypeResolver<'a> {
     }
 }
 
-fn all_defs_module_map(all_defs: &[DefCollection]) -> &[DefCollection] {
-    all_defs
-}
-
 fn defs_for_module(all_defs: &[DefCollection], module_id: ModuleId) -> Option<&DefCollection> {
     all_defs.iter().find(|defs| defs.module_id == module_id)
+}
+
+fn segment_span(_segment: &TypePathSegment) -> Span {
+    Span::default()
+}
+
+fn type_path_text(segments: &[TypePathSegment]) -> String {
+    segments
+        .iter()
+        .map(|segment| segment.name.as_str())
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 fn primitive_type(name: &str) -> Option<PrimitiveType> {

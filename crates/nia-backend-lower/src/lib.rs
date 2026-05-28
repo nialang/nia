@@ -449,11 +449,6 @@ impl<'a> ModuleLowerer<'a> {
             let args = lowered_type_args(args, self.input.type_lowering);
             return Some((def_id, args));
         }
-        if let Some(ty) = self.expr_ty(expr)
-            && let Some(TyKind::Nominal { def_id, args }) = self.input.body_check.interner.get(ty)
-        {
-            return Some((*def_id, args.clone()));
-        }
         if let ExprKind::Qualified { .. } = &expr.kind {
             if let Some(def_id) = self
                 .input
@@ -465,6 +460,11 @@ impl<'a> ModuleLowerer<'a> {
                 return Some((def_id, Vec::new()));
             }
             return None;
+        }
+        if let Some(ty) = self.expr_ty(expr)
+            && let Some(TyKind::Nominal { def_id, args }) = self.input.body_check.interner.get(ty)
+        {
+            return Some((*def_id, args.clone()));
         }
         let ExprKind::Ident(name) = &expr.kind else {
             return None;
@@ -508,6 +508,15 @@ impl<'a> ModuleLowerer<'a> {
             module_id: enum_id.module_id,
             def_id: variant_id,
         })
+    }
+
+    fn qualified_enum_variant(&self, expr: &Expr) -> Option<GlobalDefId> {
+        self.input
+            .values
+            .variant_enums
+            .contains_key(&expr.span)
+            .then(|| self.input.values.qualified_values.get(&expr.span).copied())
+            .flatten()
     }
 
     pub(crate) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {

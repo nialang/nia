@@ -246,6 +246,13 @@ impl<'a> ModuleLowerer<'a> {
                 return lowered;
             }
         }
+        if let Some(variant_id) = self.qualified_enum_variant(expr) {
+            return TypedExpr {
+                span: expr.span,
+                ty,
+                kind: TypedExprKind::EnumVariant(variant_id),
+            };
+        }
         if let Some(def_id) = self.input.values.qualified_values.get(&expr.span).copied() {
             let kind = if self.input.signatures.functions.contains_key(&def_id.def_id) {
                 TypedExprKind::Function(def_id)
@@ -455,7 +462,10 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             ExprKind::Qualified { lhs, name } => {
-                if let Some(variant) = self.enum_variant_for_qualified(lhs, name) {
+                if let Some(variant) = self
+                    .qualified_enum_variant(expr)
+                    .or_else(|| self.enum_variant_for_qualified(lhs, name))
+                {
                     TypedExprKind::EnumVariant(variant)
                 } else {
                     let lhs_expr = self.lower_expr(lhs);
@@ -1254,6 +1264,9 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_place_inner(&mut self, expr: &Expr, elems: &mut Vec<PlaceElem>) -> PlaceBase {
+        if self.input.values.variant_enums.contains_key(&expr.span) {
+            return PlaceBase::Local(LocalId(u32::MAX));
+        }
         if let Some(def_id) = self.input.values.qualified_values.get(&expr.span).copied() {
             return PlaceBase::Global(def_id);
         }
