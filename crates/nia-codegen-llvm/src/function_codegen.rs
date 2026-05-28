@@ -17,7 +17,7 @@ use nia_backend_ir::{
     BackendFunction, BuiltinConst, TypedBody, TypedExpr, TypedExprKind, TypedLocalKind,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, LocalId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
     basic_block::BasicBlock,
     builder::Builder,
@@ -32,7 +32,7 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     function: &'a BackendFunction,
     llvm_function: FunctionValue<'ctx>,
     locals: HashMap<LocalId, PointerValue<'ctx>>,
-    local_tys: HashMap<LocalId, TyId>,
+    local_tys: HashMap<LocalId, InternedTyId>,
     out_ptr: Option<PointerValue<'ctx>>,
     loops: Vec<LoopTargets<'ctx>>,
     defer_scopes: Vec<DeferScope>,
@@ -395,22 +395,32 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn field_index(
         &self,
-        base_ty: TyId,
+        base_ty: InternedTyId,
         field: GlobalDefId,
         span: Span,
     ) -> Result<u32, Diagnostic> {
         self.module.field_index(base_ty, field, span)
     }
 
-    fn field_ty(&self, base_ty: TyId, field: GlobalDefId, span: Span) -> Result<TyId, Diagnostic> {
+    fn field_ty(
+        &self,
+        base_ty: InternedTyId,
+        field: GlobalDefId,
+        span: Span,
+    ) -> Result<InternedTyId, Diagnostic> {
         self.module.field_ty(base_ty, field, span)
     }
 
-    fn array_elem_ty(&self, ty: TyId, span: Span) -> Result<TyId, Diagnostic> {
+    fn array_elem_ty(&self, ty: InternedTyId, span: Span) -> Result<InternedTyId, Diagnostic> {
         self.module.array_elem_ty(ty, span)
     }
 
-    fn same_llvm_type(&self, lhs: TyId, rhs: TyId, span: Span) -> Result<bool, Diagnostic> {
+    fn same_llvm_type(
+        &self,
+        lhs: InternedTyId,
+        rhs: InternedTyId,
+        span: Span,
+    ) -> Result<bool, Diagnostic> {
         Ok(self.module.llvm_basic_type(lhs, span)? == self.module.llvm_basic_type(rhs, span)?)
     }
 
@@ -445,17 +455,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
-    fn is_zero_sized(&self, ty: TyId) -> bool {
+    fn is_zero_sized(&self, ty: InternedTyId) -> bool {
         self.module
             .layout_of(ty)
             .is_some_and(|layout| layout.size == 0)
     }
 
-    fn is_integer_like(&self, ty: TyId) -> bool {
+    fn is_integer_like(&self, ty: InternedTyId) -> bool {
         self.is_integer(ty) || self.is_enum(ty)
     }
 
-    fn is_integer(&self, ty: TyId) -> bool {
+    fn is_integer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Primitive(
@@ -477,35 +487,35 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         )
     }
 
-    fn is_float(&self, ty: TyId) -> bool {
+    fn is_float(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
         )
     }
 
-    fn is_pointer_like(&self, ty: TyId) -> bool {
+    fn is_pointer_like(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
         )
     }
 
-    fn is_pointer_integer(&self, ty: TyId) -> bool {
+    fn is_pointer_integer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Usize | PrimitiveTy::Isize))
         )
     }
 
-    fn is_enum(&self, ty: TyId) -> bool {
+    fn is_enum(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Nominal { def_id, .. }) if self.module.program.enums.contains_key(def_id)
         )
     }
 
-    fn integer_bits(&self, ty: TyId, span: Span) -> Result<u32, Diagnostic> {
+    fn integer_bits(&self, ty: InternedTyId, span: Span) -> Result<u32, Diagnostic> {
         if let Some(TyKind::Nominal { def_id, .. }) = self.module.interner().get(ty)
             && let Some(item) = self.module.program.enums.get(def_id).copied()
         {
@@ -549,7 +559,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn is_signed_integer(&self, ty: TyId) -> bool {
+    fn is_signed_integer(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Primitive(
@@ -564,14 +574,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         )
     }
 
-    fn is_void(&self, ty: TyId) -> bool {
+    fn is_void(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Void))
         )
     }
 
-    fn is_never(&self, ty: TyId) -> bool {
+    fn is_never(&self, ty: InternedTyId) -> bool {
         matches!(
             self.module.interner().get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))

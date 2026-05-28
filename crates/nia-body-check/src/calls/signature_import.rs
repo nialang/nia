@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{BodyChecker, ProgramFunctionSignature, ResolvedFunctionSignature};
 use nia_ast::Expr;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
 use nia_ty::{TyInterner, TyKind};
 
-pub fn import_type_into(target: &mut TyInterner, source: &TyInterner, ty: TyId) -> TyId {
+pub fn import_type_into(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    ty: InternedTyId,
+) -> InternedTyId {
     match source.get(ty) {
         Some(TyKind::Error) | None => target.error(),
         Some(TyKind::Primitive(primitive)) => target.primitive(*primitive),
@@ -101,7 +105,11 @@ impl<'a> BodyChecker<'a> {
         signature
     }
 
-    pub(crate) fn import_type_from(&mut self, source: &TyInterner, ty: TyId) -> TyId {
+    pub(crate) fn import_type_from(
+        &mut self,
+        source: &TyInterner,
+        ty: InternedTyId,
+    ) -> InternedTyId {
         import_type_into(&mut self.interner, source, ty)
     }
 }

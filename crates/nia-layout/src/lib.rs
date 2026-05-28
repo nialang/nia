@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
@@ -37,7 +37,7 @@ pub struct StructLayout {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructLayoutKey {
     pub def_id: DefId,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +51,7 @@ pub struct FieldLayout {
 pub struct Layouts {
     pub target: TargetDataLayout,
     pub interner: TyInterner,
-    pub types: HashMap<TyId, TypeLayout>,
+    pub types: HashMap<InternedTyId, TypeLayout>,
     pub structs: HashMap<DefId, StructLayout>,
     pub unions: HashMap<DefId, StructLayout>,
     pub struct_instances: HashMap<StructLayoutKey, StructLayout>,
@@ -81,7 +81,7 @@ pub fn compute_layouts_with_normalized_types(
     defs: &DefCollection,
     interner: &TyInterner,
     signatures: &ItemSignatures,
-    normalized: &HashMap<TyId, TyId>,
+    normalized: &HashMap<InternedTyId, InternedTyId>,
     comptime: &ComptimeCheck,
     target: TargetDataLayout,
 ) -> Layouts {
@@ -109,16 +109,16 @@ struct LayoutComputer<'a> {
     module_id: nia_ids::ModuleId,
     interner: TyInterner,
     signatures: &'a ItemSignatures,
-    normalized: &'a HashMap<TyId, TyId>,
+    normalized: &'a HashMap<InternedTyId, InternedTyId>,
     comptime: &'a ComptimeCheck,
     target: TargetDataLayout,
-    types: HashMap<TyId, TypeLayout>,
+    types: HashMap<InternedTyId, TypeLayout>,
     structs: HashMap<DefId, StructLayout>,
     unions: HashMap<DefId, StructLayout>,
     struct_instances: HashMap<StructLayoutKey, StructLayout>,
     union_instances: HashMap<StructLayoutKey, StructLayout>,
     diagnostics: Vec<Diagnostic>,
-    visiting: HashSet<TyId>,
+    visiting: HashSet<InternedTyId>,
     visiting_structs: HashSet<StructLayoutKey>,
     visiting_unions: HashSet<StructLayoutKey>,
 }
@@ -173,7 +173,7 @@ impl<'a> LayoutComputer<'a> {
         }
     }
 
-    fn layout_ty(&mut self, ty_id: TyId, span: Span) -> Option<TypeLayout> {
+    fn layout_ty(&mut self, ty_id: InternedTyId, span: Span) -> Option<TypeLayout> {
         let ty_id = self.normalize_ty(ty_id);
         if let Some(layout) = self.types.get(&ty_id).cloned() {
             return Some(layout);
@@ -206,7 +206,7 @@ impl<'a> LayoutComputer<'a> {
         layout
     }
 
-    fn is_inferred_array_type(&self, ty_id: TyId) -> bool {
+    fn is_inferred_array_type(&self, ty_id: InternedTyId) -> bool {
         matches!(
             self.interner.get(ty_id),
             Some(TyKind::Array {
@@ -231,7 +231,12 @@ impl<'a> LayoutComputer<'a> {
         Some(TypeLayout { size, align })
     }
 
-    fn array_layout(&mut self, span: Span, len: ArrayLenTy, elem: TyId) -> Option<TypeLayout> {
+    fn array_layout(
+        &mut self,
+        span: Span,
+        len: ArrayLenTy,
+        elem: InternedTyId,
+    ) -> Option<TypeLayout> {
         let elem_layout = self.layout_ty(elem, span)?;
         let len = match len {
             ArrayLenTy::Infer => {
@@ -290,7 +295,7 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         span: Span,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<TypeLayout> {
         if def_id.module_id != self.module_id {
             return None;
@@ -316,7 +321,7 @@ impl<'a> LayoutComputer<'a> {
         span: Span,
         def_id: DefId,
         signature: &StructSignature,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<TypeLayout> {
         let key = StructLayoutKey {
             def_id,
@@ -335,7 +340,7 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: HashMap<String, TyId> = signature
+        let substitutions: HashMap<String, InternedTyId> = signature
             .generics
             .iter()
             .cloned()
@@ -360,7 +365,7 @@ impl<'a> LayoutComputer<'a> {
         span: Span,
         def_id: DefId,
         signature: &UnionSignature,
-        args: &[TyId],
+        args: &[InternedTyId],
     ) -> Option<TypeLayout> {
         let key = StructLayoutKey {
             def_id,
@@ -384,7 +389,7 @@ impl<'a> LayoutComputer<'a> {
             ));
             return None;
         }
-        let substitutions: HashMap<String, TyId> = signature
+        let substitutions: HashMap<String, InternedTyId> = signature
             .generics
             .iter()
             .cloned()
@@ -404,7 +409,7 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> Option<StructLayout> {
         self.sorted_field_layout(key, signature, substitutions)
     }
@@ -413,7 +418,7 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> Option<StructLayout> {
         self.field_order_layout(key, signature, substitutions)
     }
@@ -422,7 +427,7 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> Option<StructLayout> {
         let fields = self.layout_fields(key, &signature.fields, substitutions)?;
         Some(place_struct_fields(fields))
@@ -432,7 +437,7 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &StructSignature,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> Option<StructLayout> {
         let mut fields = self.layout_fields(key, &signature.fields, substitutions)?;
         fields.sort_by(|left, right| {
@@ -450,7 +455,7 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         fields: &[nia_item_signatures::FieldSignature],
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> Option<Vec<PendingFieldLayout>> {
         let mut layouts = Vec::new();
         for (source_index, field) in fields.iter().enumerate() {
@@ -473,7 +478,7 @@ impl<'a> LayoutComputer<'a> {
         &mut self,
         key: &StructLayoutKey,
         signature: &UnionSignature,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> Option<StructLayout> {
         let mut fields = Vec::new();
         let mut max_size = 0u64;
@@ -533,16 +538,16 @@ fn place_struct_fields(fields: Vec<PendingFieldLayout>) -> StructLayout {
 }
 
 impl LayoutComputer<'_> {
-    fn normalize_ty(&self, ty_id: TyId) -> TyId {
+    fn normalize_ty(&self, ty_id: InternedTyId) -> InternedTyId {
         self.normalized.get(&ty_id).copied().unwrap_or(ty_id)
     }
 }
 
 fn substitute_generics(
     interner: &mut TyInterner,
-    ty: TyId,
-    substitutions: &HashMap<String, TyId>,
-) -> TyId {
+    ty: InternedTyId,
+    substitutions: &HashMap<String, InternedTyId>,
+) -> InternedTyId {
     match interner.get(ty).cloned() {
         Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
         Some(TyKind::Pointer { is_const, elem }) => {
@@ -588,7 +593,7 @@ fn substitute_generics(
 fn substitute_array_len_generics(
     interner: &mut TyInterner,
     len: ArrayLenTy,
-    substitutions: &HashMap<String, TyId>,
+    substitutions: &HashMap<String, InternedTyId>,
 ) -> ArrayLenTy {
     match len {
         ArrayLenTy::Builtin { name, ty } => ArrayLenTy::Builtin {

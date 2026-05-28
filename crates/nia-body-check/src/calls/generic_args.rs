@@ -2,12 +2,15 @@
 use crate::{BodyChecker, GenericInstantiation};
 use nia_ast::BracketArg;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_span::Span;
 use nia_ty::TyKind;
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn lower_bracket_type_args(&mut self, type_args: &[BracketArg]) -> Vec<TyId> {
+    pub(super) fn lower_bracket_type_args(
+        &mut self,
+        type_args: &[BracketArg],
+    ) -> Vec<InternedTyId> {
         let mut lowered = Vec::new();
         for arg in type_args {
             if let Some(ty) = &arg.ty {
@@ -40,7 +43,7 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn record_generic_instantiation(
         &mut self,
         def_id: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         span: Span,
     ) {
         self.generic_instantiations.push(GenericInstantiation {
@@ -78,13 +81,13 @@ impl<'a> BodyChecker<'a> {
         generics
     }
 
-    pub(crate) fn generic_params_in_ty(&self, ty: TyId) -> Vec<String> {
+    pub(crate) fn generic_params_in_ty(&self, ty: InternedTyId) -> Vec<String> {
         let mut generics = Vec::new();
         self.collect_generic_params_in_ty(ty, &mut generics);
         generics
     }
 
-    fn collect_generic_params_in_ty(&self, ty: TyId, generics: &mut Vec<String>) {
+    fn collect_generic_params_in_ty(&self, ty: InternedTyId, generics: &mut Vec<String>) {
         match self.interner.get(ty) {
             Some(TyKind::GenericParam(name)) => {
                 if !generics.contains(name) {

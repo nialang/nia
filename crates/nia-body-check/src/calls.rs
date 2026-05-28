@@ -12,7 +12,7 @@ pub use signature_import::import_type_into;
 use crate::{BodyChecker, ResolvedCall};
 use nia_ast::{Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_ty::TyKind;
 
@@ -22,8 +22,8 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         callee: &Expr,
         args: &[Expr],
-        expected: Option<TyId>,
-    ) -> TyId {
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         if let ExprKind::Builtin { name, type_arg } = &callee.kind {
             return self.check_builtin_call(span, callee.span, name, type_arg, args);
         }

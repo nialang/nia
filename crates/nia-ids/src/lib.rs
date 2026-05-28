@@ -15,9 +15,9 @@ pub struct GlobalDefId {
 pub struct LocalId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct LocalTyId(u32);
+pub struct TyInternerIndex(u32);
 
-impl LocalTyId {
+impl TyInternerIndex {
     #[doc(hidden)]
     pub const fn from_interner_index(index: u32) -> Self {
         Self(index)
@@ -29,16 +29,13 @@ impl LocalTyId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct TyId {
-    pub module_id: ModuleId,
-    pub local_id: LocalTyId,
+pub struct InternedTyId {
+    pub interner_id: ModuleId,
+    pub index: TyInternerIndex,
 }
 
-impl TyId {
-    pub const fn new(module_id: ModuleId, local_id: LocalTyId) -> Self {
-        Self {
-            module_id,
-            local_id,
-        }
+impl InternedTyId {
+    pub const fn new(interner_id: ModuleId, index: TyInternerIndex) -> Self {
+        Self { interner_id, index }
     }
 }

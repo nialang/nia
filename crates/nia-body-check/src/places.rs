@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
 use nia_ty::TyKind;
@@ -196,8 +196,8 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         range: &SliceRange,
         is_const: bool,
-        expected: Option<TyId>,
-    ) -> TyId {
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         let lhs_expected = self.array_expected_from_slice_expected(expected);
         let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
         self.check_slice_range_bounds(range);
@@ -220,11 +220,20 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn slice_result_type(&mut self, lhs_ty: TyId, is_const: bool) -> TyId {
+    pub(crate) fn slice_result_type(
+        &mut self,
+        lhs_ty: InternedTyId,
+        is_const: bool,
+    ) -> InternedTyId {
         self.slice_result_type_with_context(Span::default(), lhs_ty, is_const)
     }
 
-    fn slice_result_type_with_context(&mut self, span: Span, lhs_ty: TyId, is_const: bool) -> TyId {
+    fn slice_result_type_with_context(
+        &mut self,
+        span: Span,
+        lhs_ty: InternedTyId,
+        is_const: bool,
+    ) -> InternedTyId {
         match self.interner.get(lhs_ty) {
             Some(TyKind::Array { elem, .. }) | Some(TyKind::Pointer { elem, .. }) => {
                 self.interner.intern(TyKind::Slice {
@@ -249,7 +258,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn index_result_type(&mut self, span: Span, lhs_ty: TyId) -> TyId {
+    pub(crate) fn index_result_type(&mut self, span: Span, lhs_ty: InternedTyId) -> InternedTyId {
         match self.interner.get(lhs_ty) {
             Some(TyKind::Array { elem, .. })
             | Some(TyKind::Pointer { elem, .. })
@@ -265,7 +274,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn deref_result_type(&mut self, span: Span, ty: TyId) -> TyId {
+    pub(crate) fn deref_result_type(&mut self, span: Span, ty: InternedTyId) -> InternedTyId {
         match self.interner.get(ty) {
             Some(TyKind::Pointer { elem, .. })
                 if self.normalization.normalize(*elem) == self.void() =>

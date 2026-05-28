@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use nia_ast::Expr;
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_span::Span;
 
 impl<'a> BodyChecker<'a> {
@@ -10,7 +10,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         args: &[Expr],
-        params: &[TyId],
+        params: &[InternedTyId],
         is_variadic: bool,
     ) {
         self.check_call_arg_count(span, args.len(), params.len(), is_variadic);
