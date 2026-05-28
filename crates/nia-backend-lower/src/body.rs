@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::{ModuleLowerer, generic_inst_base};
 use nia_ast::{
-    ArrayElements, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg, ItemKind,
-    SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
+    ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg,
+    ItemKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_backend_ir::{
     BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody, TypedCallee,
@@ -448,6 +448,13 @@ impl<'a> ModuleLowerer<'a> {
                 op: *op,
                 rhs: Box::new(self.lower_expr(rhs)),
             },
+            ExprKind::Assign {
+                lhs,
+                op: AssignOp::Assign,
+                rhs,
+            } if matches!(lhs.kind, ExprKind::Underscore) => {
+                TypedExprKind::Discard(Box::new(self.lower_expr(rhs)))
+            }
             ExprKind::Assign { lhs, op, rhs } => TypedExprKind::Assign {
                 place: self.lower_place(lhs),
                 op: *op,

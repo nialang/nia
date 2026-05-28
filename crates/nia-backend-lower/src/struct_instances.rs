@@ -261,6 +261,9 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instance_ty(place.ty, seen, out);
                 self.collect_struct_instances_expr(rhs, seen, out);
             }
+            TypedExprKind::Discard(expr) => {
+                self.collect_struct_instances_expr(expr, seen, out);
+            }
             TypedExprKind::Len(inner) | TypedExprKind::Ptr(inner) => {
                 self.collect_struct_instances_expr(inner, seen, out);
             }
@@ -520,6 +523,9 @@ impl<'a> ModuleLowerer<'a> {
             TypedExprKind::Assign { place, rhs, .. } => {
                 self.collect_union_instance_ty(place.ty, seen, out);
                 self.collect_union_instances_expr(rhs, seen, out);
+            }
+            TypedExprKind::Discard(expr) => {
+                self.collect_union_instances_expr(expr, seen, out);
             }
             TypedExprKind::Len(inner) | TypedExprKind::Ptr(inner) => {
                 self.collect_union_instances_expr(inner, seen, out);

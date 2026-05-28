@@ -1732,6 +1732,40 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_discarded_void_calls() {
+    let root = temp_dir("emits_discarded_void_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn printf(fmt: &const u8, ...);
+
+fn effect() {}
+fn value() i32 { 7 }
+
+fn main() i32 {
+    _ = effect();
+    _ = printf(c"ok\n");
+    _ = value();
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("declare void @printf"));
+    assert!(ir.contains("call void (ptr, ...) @printf"));
+    assert!(ir.contains("call void @nia__m0__d1__effect"));
+    assert!(ir.contains("call i32 @nia__m0__d2__value"));
+}
+
+#[test]
 fn rejects_bare_global_as_pointer_initializer() {
     let root = temp_dir("rejects_bare_global_as_pointer_initializer");
     let main = root.join("main.nia");

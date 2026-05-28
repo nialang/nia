@@ -399,6 +399,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let value = self.emit_expr(rhs)?;
                 self.emit_assign(expr.span, place, *op, value)
             }
+            TypedExprKind::Discard(inner) => self.emit_discard(inner),
             TypedExprKind::Call { callee, args } => {
                 let _ = self.emit_call_raw(expr, callee, args)?;
                 Ok(())
@@ -421,7 +422,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn is_void_expr(&self, expr: &TypedExpr) -> bool {
-        self.is_void_expr_ty(expr.ty) || matches!(expr.kind, TypedExprKind::Assign { .. })
+        self.is_void_expr_ty(expr.ty)
+            || matches!(
+                expr.kind,
+                TypedExprKind::Assign { .. } | TypedExprKind::Discard(_)
+            )
     }
 
     fn expr_requires_void_emit(&self, expr: &TypedExpr) -> bool {
@@ -429,6 +434,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             expr.kind,
             TypedExprKind::Block(_) | TypedExprKind::If { .. } | TypedExprKind::Switch(_)
         )
+    }
+
+    fn emit_discard(&mut self, expr: &TypedExpr) -> Result<(), Diagnostic> {
+        if self.expr_requires_void_emit(expr) || self.is_void_expr(expr) {
+            self.emit_void_expr(expr)
+        } else {
+            let _ = self.emit_expr(expr)?;
+            Ok(())
+        }
     }
 
     fn is_void_expr_ty(&self, ty: nia_ids::InternedTyId) -> bool {

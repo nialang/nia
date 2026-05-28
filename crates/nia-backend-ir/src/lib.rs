@@ -429,6 +429,7 @@ pub enum TypedExprKind {
         op: AssignOp,
         rhs: Box<TypedExpr>,
     },
+    Discard(Box<TypedExpr>),
     Cast {
         expr: Box<TypedExpr>,
         ty: InternedTyId,

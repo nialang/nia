@@ -367,6 +367,9 @@ impl<'a> ModuleLowerer<'a> {
                     op,
                     rhs: Box::new(self.instantiate_expr(*rhs, substitutions)),
                 },
+                TypedExprKind::Discard(expr) => {
+                    TypedExprKind::Discard(Box::new(self.instantiate_expr(*expr, substitutions)))
+                }
                 TypedExprKind::Cast { expr, ty } => TypedExprKind::Cast {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                     ty: self.instantiate_ty(ty, substitutions),
