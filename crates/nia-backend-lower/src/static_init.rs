@@ -202,9 +202,9 @@ impl<'a> ModuleLowerer<'a> {
                 Some((function, function_args))
             }
             ExprKind::Qualified { lhs, name } => {
-                if let Some((struct_id, struct_args)) = self.type_prefix_instance(lhs)
+                if let Some(target_ty) = self.associated_target_ty(lhs)
                     && let Some((method_id, args)) =
-                        self.single_method_for_target(struct_id, &struct_args, name)
+                        self.single_method_for_target_ty(target_ty, name)
                 {
                     return Some((method_id, args));
                 }

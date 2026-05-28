@@ -224,6 +224,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_type(type_arg);
             }
         }
+        ExprKind::TypeTarget { ty } => visitor.visit_type(ty),
         ExprKind::BracketSuffix { callee, args } => {
             visitor.visit_expr(callee);
             for arg in args {

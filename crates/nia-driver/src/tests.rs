@@ -941,8 +941,8 @@ fn main(pair: Pair[i32, i32]) i32 {
 }
 
 #[test]
-fn rejects_invalid_structural_extension_members() {
-    let root = temp_dir("rejects_invalid_structural_extension_members");
+fn supports_structural_extension_associated_functions() {
+    let root = temp_dir("supports_structural_extension_associated_functions");
     write(
         &root.join("main.nia"),
         r#"
@@ -952,6 +952,10 @@ extend ! {
 
 extend i32 {
     fn make() i32 { 0 }
+}
+
+fn main() i32 {
+    [i32]::make()
 }
 "#,
     );
@@ -966,10 +970,10 @@ extend i32 {
         program.diagnostics
     );
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
+        !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .message
-            .contains("associated functions are not supported for non-nominal extend targets")),
+            .contains("associated functions are not supported")),
         "{:?}",
         program.diagnostics
     );

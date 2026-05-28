@@ -30,6 +30,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Underscore => self.error(),
             ExprKind::Ident(_) => self.ident_type(expr.span),
             ExprKind::Builtin { name, type_arg } => self.check_builtin(expr.span, name, type_arg),
+            ExprKind::TypeTarget { .. } => self.error(),
             ExprKind::BracketSuffix { callee, args } => {
                 self.check_bracket_suffix_expr(expr.span, callee, args, expected)
             }

@@ -160,6 +160,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                     }
                 }
             }
+            ExprKind::TypeTarget { ty } => {
+                self.visit_type(ty);
+            }
             _ => nia_ast_walk::walk_expr(self, expr),
         }
     }
