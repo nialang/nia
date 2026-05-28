@@ -41,6 +41,7 @@ fn pipeline(source: &str) -> BodyCheck {
         locals: &locals,
         signatures: &signatures,
         interner: &lowered.interner,
+        const_exprs: &lowered.const_exprs,
     });
     assert!(
         comptime.diagnostics.is_empty(),

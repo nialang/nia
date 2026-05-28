@@ -644,9 +644,6 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn lower_array_repeat_count(&mut self, count: &Expr) -> u64 {
-        if let Some(value) = self.input.comptime.array_lengths.get(&count.span).copied() {
-            return value;
-        }
         match nia_comptime_engine::eval_array_len_expr(count, self) {
             Ok(value) => value,
             Err(err) => {

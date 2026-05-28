@@ -15,7 +15,7 @@ use nia_body_check::BodyCheck;
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_layout::Layouts;
 use nia_local_resolve::{LocalResolution, LocalUse};
@@ -371,6 +371,15 @@ impl<'a> ModuleLowerer<'a> {
             module_id: self.input.module_id,
             def_id,
         }
+    }
+
+    fn resolved_array_len(&self, id: GlobalConstExprId) -> u64 {
+        self.input
+            .comptime
+            .array_lengths
+            .get(&id)
+            .copied()
+            .expect("array length used in backend symbol must be evaluated")
     }
 
     fn global_error_def(&self) -> GlobalDefId {

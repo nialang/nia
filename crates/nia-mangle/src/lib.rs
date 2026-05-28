@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId};
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
 pub fn sanitize_symbol_part(text: &str) -> String {
@@ -28,20 +28,28 @@ pub fn mangle_base_symbol(def_id: GlobalDefId, name: &str) -> String {
     )
 }
 
-pub fn mangle_instance_symbol<F>(
+pub fn mangle_instance_symbol<F, G>(
     def_id: GlobalDefId,
     name: &str,
     args: &[InternedTyId],
     interner: &TyInterner,
     nominal_name: F,
+    array_len: G,
 ) -> String
 where
     F: FnMut(GlobalDefId) -> String,
+    G: FnMut(GlobalConstExprId) -> u64,
 {
     let mut nominal_name = nominal_name;
+    let mut array_len = array_len;
     let args = args
         .iter()
-        .map(|arg| format!("t_{}", mangle_type_with(interner, *arg, &mut nominal_name)))
+        .map(|arg| {
+            format!(
+                "t_{}",
+                mangle_type_inner(interner, *arg, &mut nominal_name, &mut array_len)
+            )
+        })
         .collect::<Vec<_>>()
         .join("__");
     if args.is_empty() {
@@ -51,17 +59,30 @@ where
     }
 }
 
-pub fn mangle_type_with<F>(interner: &TyInterner, ty: InternedTyId, nominal_name: F) -> String
+pub fn mangle_type_with<F, G>(
+    interner: &TyInterner,
+    ty: InternedTyId,
+    nominal_name: F,
+    array_len: G,
+) -> String
 where
     F: FnMut(GlobalDefId) -> String,
+    G: FnMut(GlobalConstExprId) -> u64,
 {
     let mut nominal_name = nominal_name;
-    mangle_type_inner(interner, ty, &mut nominal_name)
+    let mut array_len = array_len;
+    mangle_type_inner(interner, ty, &mut nominal_name, &mut array_len)
 }
 
-fn mangle_type_inner<F>(interner: &TyInterner, ty: InternedTyId, nominal_name: &mut F) -> String
+fn mangle_type_inner<F, G>(
+    interner: &TyInterner,
+    ty: InternedTyId,
+    nominal_name: &mut F,
+    array_len: &mut G,
+) -> String
 where
     F: FnMut(GlobalDefId) -> String,
+    G: FnMut(GlobalConstExprId) -> u64,
 {
     match interner.get(ty) {
         Some(TyKind::Primitive(primitive)) => mangle_primitive(*primitive),
@@ -69,20 +90,20 @@ where
             let prefix = if *is_const { "ptr_const" } else { "ptr" };
             format!(
                 "{prefix}__{}",
-                mangle_type_inner(interner, *elem, nominal_name)
+                mangle_type_inner(interner, *elem, nominal_name, array_len)
             )
         }
         Some(TyKind::Slice { is_const, elem }) => {
             let prefix = if *is_const { "slice_const" } else { "slice" };
             format!(
                 "{prefix}__{}",
-                mangle_type_inner(interner, *elem, nominal_name)
+                mangle_type_inner(interner, *elem, nominal_name, array_len)
             )
         }
         Some(TyKind::Array { len, elem }) => format!(
             "arr__{}__{}",
-            mangle_array_len(len, interner, nominal_name),
-            mangle_type_inner(interner, *elem, nominal_name)
+            mangle_array_len(len, interner, nominal_name, array_len),
+            mangle_type_inner(interner, *elem, nominal_name, array_len)
         ),
         Some(TyKind::FunctionPointer {
             params,
@@ -91,14 +112,14 @@ where
         }) => {
             let params = params
                 .iter()
-                .map(|param| mangle_type_inner(interner, *param, nominal_name))
+                .map(|param| mangle_type_inner(interner, *param, nominal_name, array_len))
                 .collect::<Vec<_>>()
                 .join("__");
             let mut result = format!(
                 "fnptr__pc{}__{}__ret__{}",
                 params.len(),
                 params,
-                mangle_type_inner(interner, *return_type, nominal_name)
+                mangle_type_inner(interner, *return_type, nominal_name, array_len)
             );
             if *is_variadic {
                 result.push_str("__variadic");
@@ -112,7 +133,7 @@ where
             } else {
                 let args = args
                     .iter()
-                    .map(|arg| mangle_type_inner(interner, *arg, nominal_name))
+                    .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
                     .collect::<Vec<_>>()
                     .join("__");
                 format!("nom__{base}__argc{}__{}", args.len(), args)
@@ -123,17 +144,24 @@ where
     }
 }
 
-fn mangle_array_len<F>(len: &ArrayLenTy, interner: &TyInterner, nominal_name: &mut F) -> String
+fn mangle_array_len<F, G>(
+    len: &ArrayLenTy,
+    interner: &TyInterner,
+    nominal_name: &mut F,
+    array_len: &mut G,
+) -> String
 where
     F: FnMut(GlobalDefId) -> String,
+    G: FnMut(GlobalConstExprId) -> u64,
 {
     match len {
         ArrayLenTy::Infer => "infer".to_string(),
-        ArrayLenTy::ConstExpr { text, .. } => format!("len__{}", sanitize_symbol_part(text)),
+        ArrayLenTy::ConstValue(value) => format!("len__{value}"),
+        ArrayLenTy::ConstExpr(id) => format!("len__{}", array_len(*id)),
         ArrayLenTy::Builtin { name, ty } => format!(
             "builtin__{}__{}",
             sanitize_symbol_part(name),
-            mangle_type_inner(interner, *ty, nominal_name)
+            mangle_type_inner(interner, *ty, nominal_name, array_len)
         ),
     }
 }
