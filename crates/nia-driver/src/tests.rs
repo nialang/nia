@@ -1321,6 +1321,34 @@ pub fn sub(a: i32, b: i32) i32 { a - b }
 }
 
 #[test]
+fn using_group_supports_nested_enum_wildcard() {
+    let root = temp_dir("using_group_supports_nested_enum_wildcard");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+using math::{add, sub as minus, Operator::*};
+
+fn main(flag: bool) math::Operator {
+    var n = add(40, minus(4, 2));
+    if flag { Add } else { Sub }
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub enum Operator: u8 { Add, Sub }
+pub fn add(a: i32, b: i32) i32 { a + b }
+pub fn sub(a: i32, b: i32) i32 { a - b }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn using_wildcard_imports_direct_pub_defs_only() {
     let root = temp_dir("using_wildcard_imports_direct_pub_defs_only");
     write(
@@ -1369,6 +1397,40 @@ pub using impl::add;
     write(
         &root.join("impl.nia"),
         r#"pub fn add(a: i32, b: i32) i32 { a + b }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn pub_using_group_supports_nested_enum_wildcard() {
+    let root = temp_dir("pub_using_group_supports_nested_enum_wildcard");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .facade;
+
+fn main(flag: bool) facade::Operator {
+    var n = facade::add(40, facade::minus(4, 2));
+    if flag { facade::Add } else { facade::Sub }
+}
+"#,
+    );
+    write(
+        &root.join("facade.nia"),
+        r#"
+import .math;
+pub using math::{Operator, add, sub as minus, Operator::*};
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub enum Operator: u8 { Add, Sub }
+pub fn add(a: i32, b: i32) i32 { a + b }
+pub fn sub(a: i32, b: i32) i32 { a - b }
+"#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());

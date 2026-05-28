@@ -68,8 +68,17 @@ pub struct UsingHostSegment {
 #[derive(Debug, Clone, PartialEq)]
 pub enum UsingSelector {
     Single(UsingName),
-    Group(Vec<UsingName>),
+    Group(Vec<UsingGroupItem>),
     Wildcard { span: Span },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UsingGroupItem {
+    Name(UsingName),
+    Nested {
+        host: Vec<UsingHostSegment>,
+        selector: Box<UsingSelector>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

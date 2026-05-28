@@ -150,7 +150,7 @@ impl<'a> Parser<'a> {
         } else if self.eat(TokenKind::LBrace).is_some() {
             let mut items = Vec::new();
             while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
-                items.push(self.parse_using_name()?);
+                items.push(self.parse_using_group_item()?);
                 if self.eat(TokenKind::Comma).is_none() {
                     break;
                 }
@@ -161,6 +161,49 @@ impl<'a> Parser<'a> {
             UsingSelector::Single(self.parse_using_name()?)
         };
         Some(UsingItem { host, selector })
+    }
+
+    fn parse_using_group_item(&mut self) -> Option<UsingGroupItem> {
+        let checkpoint = self.pos;
+        let errors_len = self.errors.len();
+        let mut host = Vec::new();
+        while self.at(TokenKind::Ident)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|token| &token.kind),
+                Some(TokenKind::ColonColon)
+            )
+        {
+            let segment_token = self.bump();
+            host.push(UsingHostSegment {
+                name: self.token_text(&segment_token).to_string(),
+                span: segment_token.span,
+            });
+            self.expect(TokenKind::ColonColon, "expected `::`")?;
+        }
+        if !host.is_empty() {
+            let selector = if let Some(star) = self.eat(TokenKind::Star) {
+                UsingSelector::Wildcard { span: star.span }
+            } else if self.eat(TokenKind::LBrace).is_some() {
+                let mut items = Vec::new();
+                while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+                    items.push(self.parse_using_group_item()?);
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RBrace, "expected `}` after using group")?;
+                UsingSelector::Group(items)
+            } else {
+                UsingSelector::Single(self.parse_using_name()?)
+            };
+            return Some(UsingGroupItem::Nested {
+                host,
+                selector: Box::new(selector),
+            });
+        }
+        self.pos = checkpoint;
+        self.errors.truncate(errors_len);
+        self.parse_using_name().map(UsingGroupItem::Name)
     }
 
     fn parse_using_name(&mut self) -> Option<UsingName> {

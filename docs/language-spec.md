@@ -1594,6 +1594,7 @@ Supported forms:
 using math::add;
 using math::add as plus;
 using math::{add, sub as minus};
+using math::{add, sub as minus, Operator::*};
 using math::*;
 
 using Color::Red;
@@ -1603,8 +1604,8 @@ using palette::Color::Red;
 using palette::Color::*;
 ```
 
-Grouped `using` accepts names and renames from one host. It does not nest
-additional hosts inside the group.
+Grouped `using` accepts names, renames, and enum-member selectors from one
+module host.
 
 Wildcard rules:
 
