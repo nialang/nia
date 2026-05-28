@@ -1178,6 +1178,38 @@ fn main(ptr: &u8, triple: [3]i32) i32 {
 }
 
 #[test]
+fn emits_deep_pointer_structural_associated_calls_and_function_pointers() {
+    let root = temp_dir("emits_deep_pointer_structural_associated_calls_and_function_pointers");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extend &&&&&&const &&i32 {
+    fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+fn main(ptr: &&&&&&const &&i32) bool {
+    var null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::null;
+    null(ptr) and [&&&&&&const &&i32]::null(ptr)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("@nia__m0__d0__null"), "{ir}");
+    assert!(ir.contains("call i1 %"), "{ir}");
+    assert!(ir.contains("call i1 @"), "{ir}");
+}
+
+#[test]
 fn emits_numeric_literal_suffix_extension_method_calls() {
     let root = temp_dir("emits_numeric_literal_suffix_extension_method_calls");
     let main = root.join("main.nia");
