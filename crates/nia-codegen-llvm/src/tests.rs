@@ -804,6 +804,60 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_adjacent_string_literal_concatenation() {
+    let root = temp_dir("emits_adjacent_string_literal_concatenation");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn printf(fmt: &const u8, ...);
+
+const fmt =
+    c""
+    c"  #  Type      Offset             VirtAddr           FileSiz"
+    c""
+    c"            MemSiz"
+    c""
+    c"             Flags Align\n";
+
+fn main() i32 {
+    var text = "中" "" "a" "" "b" "" "c" "";
+    var bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    _ = text;
+    _ = bytes;
+    printf(
+        c""
+        c"  #  Type      Offset             VirtAddr           FileSiz"
+        c""
+        c"            MemSiz"
+        c""
+        c"             Flags Align\n"
+    );
+    printf(&const fmt[0]);
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("[4 x i32]"), "{ir}");
+    assert!(
+        ir.contains("[4 x i8] c\"nia\\00\"")
+            || ir.contains("[4 x i8] [i8 110, i8 105, i8 97, i8 0]"),
+        "{ir}"
+    );
+    assert!(ir.contains("MemSiz"));
+    assert!(ir.contains("Flags Align\\0A\\00"));
+    assert!(ir.contains("@printf"));
+}
+
+#[test]
 fn emits_receiver_method_calls() {
     let root = temp_dir("emits_receiver_method_calls");
     let main = root.join("main.nia");

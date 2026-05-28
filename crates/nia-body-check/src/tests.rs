@@ -1264,6 +1264,7 @@ fn checks_text_byte_and_c_string_literal_types() {
         r#"
 fn main() i32 {
     var text: [3]char = "中a\n";
+    var adjacent_text: [9]char = "中" "" "a\n" "" "b" "c" "" "done";
     var inferred_text: [_]char = "hi";
     var multiline: [11]char =
         \\hello
@@ -1278,7 +1279,9 @@ fn main() i32 {
         \\world
     ;
     var bytes: [4]u8 = b"nia\0";
+    var adjacent_bytes: [4]u8 = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
     var cstr: [4]u8 = c"nia";
+    var adjacent_cstr: [4]u8 = c"" c"n" c"" c"i" c"" c"a" c"" c"";
     var wrong_text_len: [2]char = "中a\n";
     var bad_bytes: [3]u8 = "nia";
     var byte: u8 = b'a';
@@ -1446,17 +1449,22 @@ fn takes_mut(ptr: &u8) i32 {
 fn main() i32 {
     var rw: &u8 = c"hello";
     var ro: &const u8 = c"world";
+    var adjacent: &const u8 = c"hello, " c"world";
     _ = printf(c"hello, world\n");
+    _ = printf(
+        c"  #  Type      Offset             VirtAddr           FileSiz"
+        c"            MemSiz             Flags Align\n"
+    );
     _ = takes_const(
         c\\multi
         \\line
     );
-    takes_mut(rw) + takes_const(ro)
+    takes_mut(rw) + takes_const(ro) + takes_const(adjacent)
 }
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert_eq!(checked.c_string_pointer_coercions.len(), 4);
+    assert_eq!(checked.c_string_pointer_coercions.len(), 6);
 }
 
 #[test]

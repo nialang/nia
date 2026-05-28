@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
-use nia_ast::{ArrayElements, Expr, ExprKind};
+use nia_ast::{ArrayElements, Expr, ExprKind, StringLiteral};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_span::Span;
@@ -186,7 +186,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_asm_option_name(&mut self, span: Span, text: &str) {
+    fn check_asm_option_name(&mut self, span: Span, text: &StringLiteral) {
         match decode_asm_string(text).as_deref() {
             Some("volatile") => {}
             Some(name) => self.diagnostics.push(Diagnostic::error(
@@ -201,7 +201,15 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-fn decode_asm_string(text: &str) -> Option<String> {
+fn decode_asm_string(literal: &StringLiteral) -> Option<String> {
+    let mut out = String::new();
+    for part in &literal.parts {
+        out.push_str(&decode_asm_string_part(part)?);
+    }
+    Some(out)
+}
+
+fn decode_asm_string_part(text: &str) -> Option<String> {
     let inner = text.strip_prefix("b\"")?.strip_suffix('"')?;
     let mut out = String::new();
     let mut chars = inner.chars();
