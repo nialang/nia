@@ -229,6 +229,95 @@ using math::{add, sub as minus, Operator::*};
 }
 
 #[test]
+fn parses_module_self_using() {
+    let (module, errors) = parse_module(
+        r#"
+import .math;
+pub using math;
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Using(using) = &module.items[1].kind else {
+        panic!("expected using");
+    };
+    assert_eq!(using.host.len(), 1);
+    assert_eq!(using.host[0].name, "math");
+    assert!(matches!(using.selector, UsingSelector::SelfName));
+}
+
+#[test]
+fn parses_root_using_group_with_module_and_deep_paths() {
+    let (module, errors) = parse_module(
+        r#"
+using {A, A::foo, C::SomeEnum::DDD};
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Using(using) = &module.items[0].kind else {
+        panic!("expected using");
+    };
+    assert!(using.host.is_empty());
+    let UsingSelector::Group(items) = &using.selector else {
+        panic!("expected root using group");
+    };
+    assert_eq!(items.len(), 3);
+    assert!(matches!(items[0], UsingGroupItem::Name(_)));
+    assert!(
+        matches!(&items[1], UsingGroupItem::Nested { host, selector }
+        if host.len() == 1
+            && host[0].name == "A"
+            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == "foo"))
+    );
+    assert!(
+        matches!(&items[2], UsingGroupItem::Nested { host, selector }
+        if host.len() == 2
+            && host[0].name == "C"
+            && host[1].name == "SomeEnum"
+            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == "DDD"))
+    );
+}
+
+#[test]
+fn parses_deep_nested_using_group_selectors() {
+    let (module, errors) = parse_module(
+        r#"
+using A::B::{C::foo, D::E::{F::goo, G}, H::Color::*};
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Using(using) = &module.items[0].kind else {
+        panic!("expected using");
+    };
+    assert_eq!(using.host.len(), 2);
+    assert_eq!(using.host[0].name, "A");
+    assert_eq!(using.host[1].name, "B");
+    let UsingSelector::Group(items) = &using.selector else {
+        panic!("expected using group");
+    };
+    assert_eq!(items.len(), 3);
+    assert!(
+        matches!(&items[0], UsingGroupItem::Nested { host, selector }
+        if host.len() == 1
+            && host[0].name == "C"
+            && matches!(selector.as_ref(), UsingSelector::Single(name) if name.name == "foo"))
+    );
+    assert!(
+        matches!(&items[1], UsingGroupItem::Nested { host, selector }
+        if host.len() == 2
+            && host[0].name == "D"
+            && host[1].name == "E"
+            && matches!(selector.as_ref(), UsingSelector::Group(group) if group.len() == 2))
+    );
+    assert!(
+        matches!(&items[2], UsingGroupItem::Nested { host, selector }
+        if host.len() == 2
+            && host[0].name == "H"
+            && host[1].name == "Color"
+            && matches!(selector.as_ref(), UsingSelector::Wildcard { .. }))
+    );
+}
+
+#[test]
 fn rejects_extern_before_pub_modifier_order() {
     let (_, errors) = parse_module("extern pub fn add(a: i32, b: i32) i32;");
     assert!(
