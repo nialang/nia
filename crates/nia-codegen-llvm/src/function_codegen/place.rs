@@ -26,6 +26,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             | TypedExprKind::Field { .. }
             | TypedExprKind::Index { .. } => self.emit_place_addr(expr.span, expr),
+            TypedExprKind::CStringPointer { array, .. } => self
+                .emit_c_string_pointer(expr.span, array)
+                .map(|value| value.into_pointer_value().expect("C string pointer value")),
             _ => Err(self.error(expr.span, "expression is not a place")),
         }
     }
@@ -72,7 +75,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self
             .builder
-            .build_alloca(ty, "slicetmp")
+            .build_alloca(ty, "arraytmp")
             .map_err(|_| self.error(expr.span, "failed to allocate slice temporary"))?;
         let value = self.emit_expr(expr)?;
         self.builder
@@ -202,6 +205,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             | TypedExprKind::Index { .. } => self.emit_place_addr(lhs.span, lhs),
             _ => self.emit_array_temp_addr(lhs),
         }
+    }
+
+    pub(super) fn emit_c_string_pointer(
+        &mut self,
+        span: Span,
+        array: &TypedExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Array { .. }) = self.module.interner().get(array.ty) else {
+            return Err(self.error(span, "C string literal pointer source is not an array"));
+        };
+        let base_ptr = self.emit_array_temp_addr(array)?;
+        let array_ty = self.module.llvm_basic_type(array.ty, span)?;
+        let zero = self.module.context.i64_type().const_int(0, false);
+        let ptr = unsafe {
+            self.builder
+                .build_gep(array_ty, base_ptr, &[zero, zero], "cstr")
+                .map_err(|_| self.error(span, "failed to build C string literal pointer"))?
+        };
+        Ok(ptr.into())
     }
 
     fn emit_range_start(&mut self, range: &TypedSliceRange) -> Result<IntValue<'ctx>, Diagnostic> {

@@ -401,6 +401,10 @@ pub enum TypedExprKind {
     Len(Box<TypedExpr>),
     Ptr(Box<TypedExpr>),
     InlineAsm(TypedInlineAsm),
+    CStringPointer {
+        array: Box<TypedExpr>,
+        is_const: bool,
+    },
     ArrayLiteral {
         elems: TypedArrayElements,
     },

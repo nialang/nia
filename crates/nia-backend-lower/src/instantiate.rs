@@ -326,6 +326,12 @@ impl<'a> ModuleLowerer<'a> {
                     clobbers: asm.clobbers,
                     options: asm.options,
                 }),
+                TypedExprKind::CStringPointer { array, is_const } => {
+                    TypedExprKind::CStringPointer {
+                        array: Box::new(self.instantiate_expr(*array, substitutions)),
+                        is_const,
+                    }
+                }
                 TypedExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
                     elems: self.instantiate_array_elements(elems, substitutions),
                 },

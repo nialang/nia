@@ -1413,6 +1413,66 @@ fn make() i32 {
 }
 
 #[test]
+fn checks_c_string_literal_pointer_coercions() {
+    let checked = pipeline(
+        r#"
+extern fn printf(fmt: &const u8, ...);
+
+fn takes_const(ptr: &const u8) i32 {
+    ptr.* as i32
+}
+
+fn takes_mut(ptr: &u8) i32 {
+    ptr.* = b'H';
+    ptr.* as i32
+}
+
+fn main() i32 {
+    var rw: &u8 = c"hello";
+    var ro: &const u8 = c"world";
+    _ = printf(c"hello, world\n");
+    _ = takes_const(
+        c\\multi
+        \\line
+    );
+    takes_mut(rw) + takes_const(ro)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.c_string_pointer_coercions.len(), 4);
+}
+
+#[test]
+fn rejects_non_c_string_literal_pointer_coercions() {
+    let checked = pipeline(
+        r#"
+fn main() void {
+    var bytes: [4]u8 = [1, 2, 3, 0];
+    var byte_ptr: &const u8 = b"hello";
+    var array_ptr: &const u8 = bytes;
+    _ = byte_ptr;
+    _ = array_ptr;
+}
+"#,
+    );
+    let messages = checked
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .filter(|message| message.contains("expected &const u8"))
+            .count()
+            >= 2,
+        "{messages:?}"
+    );
+    assert!(checked.c_string_pointer_coercions.is_empty());
+}
+
+#[test]
 fn checks_struct_literal_fields() {
     let checked = pipeline(
         r#"

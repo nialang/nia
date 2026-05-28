@@ -199,7 +199,8 @@ impl<'a> BodyChecker<'a> {
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
         };
         let ty = if let Some(expected) = expected {
-            self.coerce_array_to_slice(expr, expected, ty)
+            self.coerce_c_string_to_pointer(expr, expected, ty)
+                .or_else(|| self.coerce_array_to_slice(expr, expected, ty))
                 .or_else(|| self.materialize_inferred_array_type(expected, ty))
                 .unwrap_or(ty)
         } else {
