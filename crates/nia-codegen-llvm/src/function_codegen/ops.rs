@@ -3,7 +3,7 @@ use crate::literals::assign_to_binary_op;
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_backend_ir::{TypedExpr, TypedExprKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_llvm::{FloatPredicate, IntPredicate, values::BasicValueEnum};
 use nia_span::Span;
 
@@ -13,7 +13,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_unary(
         &mut self,
         span: Span,
-        ty: TyId,
+        ty: InternedTyId,
         op: UnaryOp,
         inner: &TypedExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -58,8 +58,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_cast(
         &mut self,
         span: Span,
-        source_ty: TyId,
-        target_ty: TyId,
+        source_ty: InternedTyId,
+        target_ty: InternedTyId,
         value: BasicValueEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         if self.same_llvm_type(source_ty, target_ty, span)? {
@@ -231,7 +231,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_compound_assignment(
         &self,
         span: Span,
-        ty: TyId,
+        ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
         op: AssignOp,
         rhs: BasicValueEnum<'ctx>,
@@ -245,7 +245,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_binary(
         &self,
         span: Span,
-        ty: TyId,
+        ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
         op: BinaryOp,
         rhs: BasicValueEnum<'ctx>,

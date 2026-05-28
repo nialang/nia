@@ -5,7 +5,7 @@ use nia_backend_ir::{
     BackendLayouts, BuiltinConst, PlaceElem, StaticFieldInit, StaticInit, TypedExpr, TypedExprKind,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::{types::BasicTypeEnum, values::BasicValueEnum};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
@@ -13,7 +13,7 @@ use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn static_init_value_in(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         init: &StaticInit,
         span: Span,
         interner: &TyInterner,
@@ -75,7 +75,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn static_init_value_in_current(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         init: &StaticInit,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -84,7 +84,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn static_addr_of_global_value(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         global: GlobalDefId,
         path: &[PlaceElem],
         span: Span,
@@ -136,9 +136,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn static_addr_of_function_value(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         function: GlobalDefId,
-        args: &[TyId],
+        args: &[InternedTyId],
         span: Span,
         target_interner: &TyInterner,
         target_layouts: &BackendLayouts,
@@ -161,7 +161,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn static_float_init_value(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         text: &str,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -181,7 +181,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn static_char_init_value_in(
         &self,
         _interner: &TyInterner,
-        ty: TyId,
+        ty: InternedTyId,
         value: u32,
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -195,7 +195,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn static_chars_init_value_in(
         &self,
         interner: &TyInterner,
-        ty: TyId,
+        ty: InternedTyId,
         scalars: &[u32],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -216,7 +216,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         interner: &TyInterner,
         layouts: &BackendLayouts,
-        ty: TyId,
+        ty: InternedTyId,
         elems: &[StaticInit],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -234,7 +234,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         interner: &TyInterner,
         layouts: &BackendLayouts,
-        ty: TyId,
+        ty: InternedTyId,
         value: &StaticInit,
         count: u64,
         span: Span,
@@ -251,7 +251,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         interner: &TyInterner,
         layouts: &BackendLayouts,
-        ty: TyId,
+        ty: InternedTyId,
         fields: &[StaticFieldInit],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -303,7 +303,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn const_array_from_values_in(
         &self,
-        elem_ty: TyId,
+        elem_ty: InternedTyId,
         values: &[BasicValueEnum<'ctx>],
         span: Span,
         interner: &TyInterner,
@@ -359,7 +359,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn const_array_from_values_in_current(
         &self,
-        elem_ty: TyId,
+        elem_ty: InternedTyId,
         values: &[BasicValueEnum<'ctx>],
         span: Span,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {

@@ -8,15 +8,15 @@ use nia_backend_ir::{
     TypedForHeader, TypedForInit, TypedInlineAsm, TypedLocal, TypedPlace, TypedSliceRange,
     TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
 };
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::TyKind;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn generic_substitutions(
         &self,
         generics: &[String],
-        args: &[TyId],
-    ) -> HashMap<String, TyId> {
+        args: &[InternedTyId],
+    ) -> HashMap<String, InternedTyId> {
         generics.iter().cloned().zip(args.iter().copied()).collect()
     }
 
@@ -48,13 +48,17 @@ impl<'a> ModuleLowerer<'a> {
             .map(|target| self.generic_params_in_ty(target.target_ty))
     }
 
-    pub(crate) fn generic_params_in_ty(&self, ty: TyId) -> Vec<String> {
+    pub(crate) fn generic_params_in_ty(&self, ty: InternedTyId) -> Vec<String> {
         let mut generics = Vec::new();
         self.collect_generic_params_in_ty(ty, &mut generics);
         generics
     }
 
-    pub(crate) fn collect_generic_params_in_ty(&self, ty: TyId, generics: &mut Vec<String>) {
+    pub(crate) fn collect_generic_params_in_ty(
+        &self,
+        ty: InternedTyId,
+        generics: &mut Vec<String>,
+    ) {
         match self.ty_kind(ty) {
             Some(TyKind::GenericParam(name)) => {
                 if !generics.contains(name) {
@@ -89,8 +93,8 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn effective_generic_substitutions(
         &self,
         def_id: GlobalDefId,
-        args: &[TyId],
-    ) -> HashMap<String, TyId> {
+        args: &[InternedTyId],
+    ) -> HashMap<String, InternedTyId> {
         let own_generics = self
             .input
             .defs
@@ -105,7 +109,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn instantiate_params(
         &mut self,
         function: &BackendFunction,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> Vec<BackendParam> {
         function
             .params
@@ -123,7 +127,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn instantiate_body(
         &mut self,
         body: TypedBody,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedBody {
         TypedBody {
             span: body.span,
@@ -153,7 +157,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_stmt(
         &mut self,
         stmt: TypedStmt,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedStmt {
         TypedStmt {
             span: stmt.span,
@@ -185,7 +189,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_binding(
         &mut self,
         binding: TypedBinding,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedBinding {
         TypedBinding {
             local_id: binding.local_id,
@@ -201,7 +205,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_for(
         &mut self,
         for_stmt: TypedFor,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedFor {
         TypedFor {
             header: match for_stmt.header {
@@ -231,7 +235,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_switch(
         &mut self,
         switch: TypedSwitch,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedSwitch {
         TypedSwitch {
             target: self.instantiate_expr(switch.target, substitutions),
@@ -265,7 +269,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_expr(
         &mut self,
         expr: TypedExpr,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedExpr {
         TypedExpr {
             span: expr.span,
@@ -408,7 +412,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_callee(
         &mut self,
         callee: TypedCallee,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedCallee {
         match callee {
             TypedCallee::Function(def_id) => TypedCallee::Function(def_id),
@@ -440,7 +444,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_place(
         &mut self,
         place: TypedPlace,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedPlace {
         TypedPlace {
             span: place.span,
@@ -462,7 +466,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_slice_range(
         &mut self,
         range: TypedSliceRange,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedSliceRange {
         TypedSliceRange {
             start: range
@@ -478,7 +482,7 @@ impl<'a> ModuleLowerer<'a> {
     fn instantiate_array_elements(
         &mut self,
         elems: TypedArrayElements,
-        substitutions: &HashMap<String, TyId>,
+        substitutions: &HashMap<String, InternedTyId>,
     ) -> TypedArrayElements {
         match elems {
             TypedArrayElements::List(elems) => TypedArrayElements::List(
@@ -496,9 +500,9 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn instantiate_ty(
         &mut self,
-        ty: TyId,
-        substitutions: &HashMap<String, TyId>,
-    ) -> TyId {
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> InternedTyId {
         match self.interner.get(ty).cloned() {
             Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
             Some(TyKind::Pointer { is_const, elem }) => {

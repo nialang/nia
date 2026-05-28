@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use nia_body_check::GenericInstantiation;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, ModuleId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{mangle_base_symbol, mangle_type_with, sanitize_symbol_part};
 use nia_span::Span;
 use nia_ty::{TyInterner, TyKind};
@@ -19,7 +19,7 @@ pub struct Monomorphization {
 pub struct MonoInstance {
     pub def_id: GlobalDefId,
     pub arg_module_id: ModuleId,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
     pub symbol: String,
 }
 
@@ -72,7 +72,7 @@ struct MonoCollector<'a> {
 struct MonoInstanceKey {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
-    args: Vec<TyId>,
+    args: Vec<InternedTyId>,
 }
 
 impl MonoCollector<'_> {
@@ -205,7 +205,10 @@ impl MonoCollector<'_> {
         }
     }
 
-    fn generic_substitutions_for_instance(&self, key: &MonoInstanceKey) -> HashMap<String, TyId> {
+    fn generic_substitutions_for_instance(
+        &self,
+        key: &MonoInstanceKey,
+    ) -> HashMap<String, InternedTyId> {
         self.effective_generics_for(key.def_id)
             .iter()
             .cloned()
@@ -216,9 +219,9 @@ impl MonoCollector<'_> {
     fn instantiate_args(
         &self,
         module_id: ModuleId,
-        args: &[TyId],
-        substitutions: &HashMap<String, TyId>,
-    ) -> Vec<TyId> {
+        args: &[InternedTyId],
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Vec<InternedTyId> {
         args.iter()
             .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
             .collect()
@@ -227,9 +230,9 @@ impl MonoCollector<'_> {
     fn instantiate_ty(
         &self,
         module_id: ModuleId,
-        ty: TyId,
-        substitutions: &HashMap<String, TyId>,
-    ) -> TyId {
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> InternedTyId {
         let Some(interner) = self.interners_by_module.get(&module_id) else {
             return ty;
         };
@@ -307,9 +310,9 @@ impl MonoCollector<'_> {
             .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
     }
 
-    fn type_symbol(&self, module_id: ModuleId, ty: TyId) -> String {
+    fn type_symbol(&self, module_id: ModuleId, ty: InternedTyId) -> String {
         let Some(interner) = self.interners_by_module.get(&module_id) else {
-            return format!("m{}_ty{}", ty.module_id.0, ty.local_id.index());
+            return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         };
         match interner.get(ty) {
             Some(TyKind::Primitive(_)) => {
@@ -342,7 +345,7 @@ impl MonoCollector<'_> {
             }
             Some(TyKind::GenericParam(name)) => sanitize_symbol_part(name),
             Some(TyKind::Error) | None => {
-                format!("m{}_ty{}", ty.module_id.0, ty.local_id.index())
+                format!("m{}_ty{}", ty.interner_id.0, ty.index.index())
             }
         }
     }

@@ -8,7 +8,7 @@ use nia_backend_ir::{
     TypedForInit, TypedStmt, TypedStmtKind, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_defs::{DefId, DefKind};
-use nia_ids::{GlobalDefId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_mangle::mangle_instance_symbol;
 use nia_span::Span;
 use nia_ty::TyKind;
@@ -156,7 +156,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_body(
         &mut self,
         body: &TypedBody,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         self.collect_struct_instance_ty(body.ty, seen, out);
@@ -174,7 +174,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_stmt(
         &mut self,
         stmt: &TypedStmt,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match &stmt.kind {
@@ -246,7 +246,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_struct_instances_expr(
         &mut self,
         expr: &TypedExpr,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         self.collect_struct_instance_ty(expr.ty, seen, out);
@@ -339,8 +339,8 @@ impl<'a> ModuleLowerer<'a> {
 
     fn collect_struct_instance_ty(
         &mut self,
-        ty: TyId,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        ty: InternedTyId,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         match self.interner.get(ty).cloned() {
@@ -378,7 +378,7 @@ impl<'a> ModuleLowerer<'a> {
     fn lower_struct_instance(
         &mut self,
         def_id: DefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     ) -> Option<BackendStructInstance> {
         let signature = self.input.signatures.structs.get(&def_id)?.clone();
         if signature.generics.is_empty() || signature.generics.len() != args.len() {
@@ -415,7 +415,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_body(
         &mut self,
         body: &TypedBody,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         self.collect_union_instance_ty(body.ty, seen, out);
@@ -433,7 +433,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_stmt(
         &mut self,
         stmt: &TypedStmt,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match &stmt.kind {
@@ -503,7 +503,7 @@ impl<'a> ModuleLowerer<'a> {
     fn collect_union_instances_expr(
         &mut self,
         expr: &TypedExpr,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         self.collect_union_instance_ty(expr.ty, seen, out);
@@ -596,8 +596,8 @@ impl<'a> ModuleLowerer<'a> {
 
     fn collect_union_instance_ty(
         &mut self,
-        ty: TyId,
-        seen: &mut HashSet<(GlobalDefId, Vec<TyId>)>,
+        ty: InternedTyId,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         match self.interner.get(ty).cloned() {
@@ -635,7 +635,7 @@ impl<'a> ModuleLowerer<'a> {
     fn lower_union_instance(
         &mut self,
         def_id: DefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     ) -> Option<BackendUnionInstance> {
         let signature = self.input.signatures.unions.get(&def_id)?.clone();
         if signature.generics.is_empty() || signature.generics.len() != args.len() {

@@ -17,7 +17,7 @@ use nia_ast::{
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, LocalId, TyId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
     StructSignature, UnionSignature,
@@ -33,9 +33,9 @@ use nia_value_resolve::ValueResolution;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyCheck {
     pub interner: TyInterner,
-    pub expr_types: HashMap<Span, TyId>,
+    pub expr_types: HashMap<Span, InternedTyId>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
-    pub local_types: HashMap<LocalId, TyId>,
+    pub local_types: HashMap<LocalId, InternedTyId>,
     pub builtin_values: HashMap<Span, BuiltinValue>,
     pub resolved_calls: HashMap<Span, ResolvedCall>,
     pub function_references: HashMap<Span, FunctionReference>,
@@ -50,15 +50,15 @@ pub enum BuiltinValue {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArrayToSliceCoercion {
-    pub array_ty: TyId,
-    pub slice_ty: TyId,
+    pub array_ty: InternedTyId,
+    pub slice_ty: InternedTyId,
     pub is_const: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GenericInstantiation {
     pub def_id: GlobalDefId,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
     pub generics: Vec<String>,
     pub span: Span,
     pub source_def_id: Option<GlobalDefId>,
@@ -69,11 +69,11 @@ pub enum ResolvedCall {
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     },
     Method {
         def_id: GlobalDefId,
-        args: Vec<TyId>,
+        args: Vec<InternedTyId>,
     },
     FunctionPointer,
 }
@@ -81,7 +81,7 @@ pub enum ResolvedCall {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionReference {
     pub def_id: GlobalDefId,
-    pub args: Vec<TyId>,
+    pub args: Vec<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -313,7 +313,7 @@ struct BodyChecker<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     interner: TyInterner,
-    type_uses: &'a HashMap<Span, TyId>,
+    type_uses: &'a HashMap<Span, InternedTyId>,
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
     comptime: &'a ComptimeCheck,
@@ -325,24 +325,24 @@ struct BodyChecker<'a> {
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
-    expr_types: HashMap<Span, TyId>,
+    expr_types: HashMap<Span, InternedTyId>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     builtin_values: HashMap<Span, BuiltinValue>,
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
-    local_types: HashMap<LocalId, TyId>,
-    global_types: HashMap<DefId, TyId>,
-    comptime_types: HashMap<DefId, TyId>,
+    local_types: HashMap<LocalId, InternedTyId>,
+    global_types: HashMap<DefId, InternedTyId>,
+    comptime_types: HashMap<DefId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
-    current_return: TyId,
+    current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct ReceiverBase {
     def_id: GlobalDefId,
-    args: Vec<TyId>,
+    args: Vec<InternedTyId>,
     from_pointer: bool,
     has_readonly_pointer: bool,
 }
@@ -511,7 +511,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         signature: &FunctionSignature,
         function: &FunctionItem,
-        self_ty: Option<TyId>,
+        self_ty: Option<InternedTyId>,
     ) {
         for (param, param_sig) in function.params.iter().zip(&signature.params) {
             if let Some(local_id) = self.locals.local_defs.get(&param.span).copied() {
@@ -525,11 +525,15 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_block(&mut self, block: &Block) -> TyId {
+    fn check_block(&mut self, block: &Block) -> InternedTyId {
         self.check_block_with_expected(block, None)
     }
 
-    fn check_block_with_expected(&mut self, block: &Block, expected_tail: Option<TyId>) -> TyId {
+    fn check_block_with_expected(
+        &mut self,
+        block: &Block,
+        expected_tail: Option<InternedTyId>,
+    ) -> InternedTyId {
         if block.stmts.is_empty()
             && block.tail.is_none()
             && let Some(expected) = expected_tail
@@ -558,7 +562,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn is_empty_struct_type(&mut self, def_id: GlobalDefId, args: &[TyId]) -> bool {
+    fn is_empty_struct_type(&mut self, def_id: GlobalDefId, args: &[InternedTyId]) -> bool {
         let Some(resolved) = self.resolved_struct_signature(def_id) else {
             return false;
         };

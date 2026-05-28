@@ -2,7 +2,7 @@
 use nia_ast::AssignOp;
 use nia_backend_ir::{TypedExpr, TypedExprKind, TypedPlace, TypedSliceRange};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{LocalId, TyId};
+use nia_ids::{InternedTyId, LocalId};
 use nia_llvm::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
@@ -81,7 +81,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(ptr)
     }
 
-    fn module_field_base_type(&self, ty: TyId) -> Option<(nia_ids::GlobalDefId, Vec<TyId>)> {
+    fn module_field_base_type(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(nia_ids::GlobalDefId, Vec<InternedTyId>)> {
         match self.module.interner().get(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.module_field_base_type(*elem),
@@ -156,7 +159,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         span: Span,
         lhs: &TypedExpr,
-    ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>, TyId), Diagnostic> {
+    ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>, InternedTyId), Diagnostic> {
         let one = self.module.context.i64_type().const_int(1, false);
         match self.module.interner().get(lhs.ty) {
             Some(TyKind::Array { len, elem }) => {
@@ -438,7 +441,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn place_base_ty(&self, place: &TypedPlace) -> TyId {
+    fn place_base_ty(&self, place: &TypedPlace) -> InternedTyId {
         match &place.base {
             nia_backend_ir::PlaceBase::Local(local_id) => {
                 self.local_tys.get(local_id).copied().unwrap_or(place.ty)
@@ -457,7 +460,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn is_union_ty(&self, ty: TyId) -> bool {
+    fn is_union_ty(&self, ty: InternedTyId) -> bool {
         self.module_field_base_type(ty)
             .is_some_and(|(def_id, _)| self.module.is_union_def(def_id))
     }
@@ -465,7 +468,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_index_addr(
         &mut self,
         span: Span,
-        base_ty: TyId,
+        base_ty: InternedTyId,
         base_ptr: PointerValue<'ctx>,
         index: &TypedExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {

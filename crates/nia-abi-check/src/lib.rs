@@ -143,7 +143,7 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn check_extern_ty(&mut self, span: Span, ty: nia_ids::TyId, context: &str) {
+    fn check_extern_ty(&mut self, span: Span, ty: nia_ids::InternedTyId, context: &str) {
         match self.interner.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Bool)) => self.diagnostics.push(Diagnostic::error(
                 span,
@@ -223,7 +223,7 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn is_void(&self, ty: nia_ids::TyId) -> bool {
+    fn is_void(&self, ty: nia_ids::InternedTyId) -> bool {
         matches!(
             self.interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Void))
@@ -254,7 +254,7 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn is_never(&self, ty: nia_ids::TyId) -> bool {
+    fn is_never(&self, ty: nia_ids::InternedTyId) -> bool {
         matches!(
             self.interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))

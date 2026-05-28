@@ -2,7 +2,7 @@
 use crate::literals::{decode_byte_char_literal, parse_float_literal, parse_int_literal};
 use nia_backend_ir::StaticInit;
 use nia_diagnostic::Diagnostic;
-use nia_ids::TyId;
+use nia_ids::InternedTyId;
 use nia_llvm::values::BasicValueEnum;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
@@ -12,7 +12,7 @@ use super::FunctionCodegen;
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_float_literal(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
         text: &str,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -31,7 +31,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_integer_literal(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
         text: &str,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -46,7 +46,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_string_literal(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
         scalars: &[u32],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -66,7 +66,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_byte_string_literal(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
         bytes: &[u8],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -86,7 +86,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_char_literal(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
         value: u32,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
@@ -99,7 +99,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_byte_char_literal(
         &self,
-        ty: TyId,
+        ty: InternedTyId,
         span: Span,
         text: &str,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
