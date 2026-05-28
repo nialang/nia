@@ -55,6 +55,7 @@ fn main() i32 {
         locals: &locals,
         signatures: &signatures,
         interner: &normalization.interner,
+        const_exprs: &type_lowering.const_exprs,
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
@@ -239,6 +240,7 @@ fn lower_source(source: &str) -> BackendLowering {
         locals: &locals,
         signatures: &signatures,
         interner: &normalization.interner,
+        const_exprs: &type_lowering.const_exprs,
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,

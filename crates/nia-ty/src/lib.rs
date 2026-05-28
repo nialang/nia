@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
-use nia_span::Span;
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyKind {
@@ -57,7 +56,8 @@ pub enum PrimitiveTy {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArrayLenTy {
     Infer,
-    ConstExpr { text: String, span: Span },
+    ConstValue(u64),
+    ConstExpr(GlobalConstExprId),
     Builtin { name: String, ty: InternedTyId },
 }
 

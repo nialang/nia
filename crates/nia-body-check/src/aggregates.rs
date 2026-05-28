@@ -111,10 +111,10 @@ impl<'a> BodyChecker<'a> {
         match len {
             ArrayLenTy::Infer => {
                 let inferred = match elems {
-                    nia_ast::ArrayElements::List(elems) => elems.len().to_string(),
+                    nia_ast::ArrayElements::List(elems) => elems.len() as u64,
                     nia_ast::ArrayElements::Repeat { count, .. } => {
                         match self.eval_array_repeat_count(count) {
-                            Ok(value) => value.to_string(),
+                            Ok(value) => value,
                             Err(err) => {
                                 self.diagnostics.push(Diagnostic::error(
                                     err.span,
@@ -123,20 +123,19 @@ impl<'a> BodyChecker<'a> {
                                         err.message
                                     ),
                                 ));
-                                "<error>".to_string()
+                                0
                             }
                         }
                     }
                 };
                 self.interner.intern(TyKind::Array {
-                    len: ArrayLenTy::ConstExpr {
-                        text: inferred,
-                        span,
-                    },
+                    len: ArrayLenTy::ConstValue(inferred),
                     elem: elem_ty,
                 })
             }
-            expected @ (ArrayLenTy::ConstExpr { .. } | ArrayLenTy::Builtin { .. }) => {
+            expected @ (ArrayLenTy::ConstValue(_)
+            | ArrayLenTy::ConstExpr(_)
+            | ArrayLenTy::Builtin { .. }) => {
                 match explicit_array_literal_len(self, elems) {
                     Ok(Some(actual)) => match self.array_len_value(span, &expected) {
                         Ok(expected) => {
@@ -644,9 +643,6 @@ impl ComptimeEnv for BodyChecker<'_> {
 impl<'a> BodyChecker<'a> {
     fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {
         self.check_expr(count);
-        if let Some(value) = self.comptime.array_lengths.get(&count.span).copied() {
-            return Ok(value);
-        }
         nia_comptime_engine::eval_array_len_expr(count, self)
     }
 

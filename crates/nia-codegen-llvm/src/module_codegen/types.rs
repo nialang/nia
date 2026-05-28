@@ -335,19 +335,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         layouts: &BackendLayouts,
     ) -> Result<u64, Diagnostic> {
         match len {
-            ArrayLenTy::ConstExpr { text, span } => self
+            ArrayLenTy::ConstValue(value) => Ok(*value),
+            ArrayLenTy::ConstExpr(id) => self
                 .source
                 .comptime
                 .array_lengths
-                .get(span)
+                .get(id)
                 .copied()
-                .or_else(|| nia_comptime_engine::eval_array_len_text(text).ok())
-                .ok_or_else(|| {
-                    self.error(
-                        *span,
-                        format!("array length `{text}` was not evaluated by comptime"),
-                    )
-                }),
+                .ok_or_else(|| self.error(span, "array length was not evaluated by comptime")),
             ArrayLenTy::Builtin { name, ty } => {
                 let Some(layout) = layouts
                     .types
@@ -787,10 +782,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {
         match (left, right) {
             (ArrayLenTy::Infer, ArrayLenTy::Infer) => true,
-            (
-                ArrayLenTy::ConstExpr { text: left, .. },
-                ArrayLenTy::ConstExpr { text: right, .. },
-            ) => left == right,
+            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
+            (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
+            | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
+                .source
+                .comptime
+                .array_lengths
+                .get(right)
+                .is_some_and(|right| left == right),
+            (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {
+                left == right || {
+                    let left = self.source.comptime.array_lengths.get(left);
+                    let right = self.source.comptime.array_lengths.get(right);
+                    left.is_some() && left == right
+                }
+            }
             (
                 ArrayLenTy::Builtin {
                     name: left_name,

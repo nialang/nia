@@ -307,17 +307,20 @@ dependencies = [
 name = "nia-layout"
 version = "0.1.14"
 dependencies = [
+ "nia-ast",
  "nia-comptime-check",
  "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
  "nia-item-signatures",
+ "nia-local-resolve",
  "nia-parser",
  "nia-span",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
+ "nia-value-resolve",
 ]
 
 [[package]]
@@ -363,6 +366,7 @@ name = "nia-monomorphize"
 version = "0.1.14"
 dependencies = [
  "nia-body-check",
+ "nia-comptime-check",
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",

@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{Expr, ExprKind, ItemKind, Module};
+use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, LocalId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, LocalId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComptimeCheck {
     pub values: HashMap<ComptimeKey, ComptimeValue>,
     pub enum_values: HashMap<DefId, ComptimeValue>,
-    pub array_lengths: HashMap<Span, u64>,
+    pub array_lengths: HashMap<GlobalConstExprId, u64>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -38,6 +38,7 @@ pub struct ComptimeInput<'a> {
     pub locals: &'a LocalResolution,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
+    pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
 }
 
 pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
@@ -62,7 +63,7 @@ struct Analyzer<'a> {
     input: ComptimeInput<'a>,
     values: HashMap<ComptimeKey, ComptimeValue>,
     enum_values: HashMap<DefId, ComptimeValue>,
-    array_lengths: HashMap<Span, u64>,
+    array_lengths: HashMap<GlobalConstExprId, u64>,
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ComptimeKey>,
 }
@@ -86,8 +87,11 @@ impl Analyzer<'_> {
                 let _ = self.eval_key(ComptimeKey::Local(local_id), local.span);
             }
         }
-        for (_, ty) in self.input.interner.iter() {
-            self.collect_array_lengths_in_ty(ty);
+        for (id, expr) in self.input.const_exprs {
+            let expr = expr.clone();
+            if let Some(value) = self.eval_array_len_expr(&expr) {
+                self.array_lengths.insert(*id, value);
+            }
         }
     }
 
@@ -134,57 +138,6 @@ impl Analyzer<'_> {
             return None;
         };
         integer_range(*primitive)
-    }
-
-    fn collect_array_lengths_in_ty(&mut self, ty: &TyKind) {
-        match ty {
-            TyKind::Array { len, elem } => {
-                if let ArrayLenTy::ConstExpr { text, span } = len {
-                    let value = if let Ok(value) = nia_comptime_engine::eval_array_len_text(text) {
-                        Some(value)
-                    } else {
-                        self.expr_for_span(*span)
-                            .cloned()
-                            .and_then(|expr| self.eval_array_len_expr(&expr))
-                    };
-                    if let Some(value) = value {
-                        self.array_lengths.insert(*span, value);
-                    }
-                }
-                if let Some(elem) = self.input.interner.get(*elem).cloned() {
-                    self.collect_array_lengths_in_ty(&elem);
-                }
-            }
-            TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. } => {
-                if let Some(elem) = self.input.interner.get(*elem).cloned() {
-                    self.collect_array_lengths_in_ty(&elem);
-                }
-            }
-            TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            } => {
-                let params = params.clone();
-                for param in params {
-                    if let Some(param) = self.input.interner.get(param).cloned() {
-                        self.collect_array_lengths_in_ty(&param);
-                    }
-                }
-                if let Some(return_type) = self.input.interner.get(*return_type).cloned() {
-                    self.collect_array_lengths_in_ty(&return_type);
-                }
-            }
-            TyKind::Nominal { args, .. } => {
-                let args = args.clone();
-                for arg in args {
-                    if let Some(arg) = self.input.interner.get(arg).cloned() {
-                        self.collect_array_lengths_in_ty(&arg);
-                    }
-                }
-            }
-            TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_) => {}
-        }
     }
 
     fn eval_array_len_expr(&mut self, expr: &Expr) -> Option<u64> {
@@ -339,76 +292,6 @@ impl Analyzer<'_> {
         defs.defs.get(global_id.def_id).map(|def| def.kind)
     }
 
-    fn expr_for_span(&self, span: Span) -> Option<&Expr> {
-        self.input
-            .module
-            .items
-            .iter()
-            .find_map(|item| match &item.kind {
-                ItemKind::Binding(binding) => binding
-                    .ty
-                    .as_ref()
-                    .and_then(|ty| expr_for_span_in_type(ty, span))
-                    .or_else(|| {
-                        binding
-                            .value
-                            .as_ref()
-                            .and_then(|value| expr_for_span(value, span))
-                    }),
-                ItemKind::Function(function) => {
-                    for param in &function.params {
-                        if let Some(ty) = &param.ty
-                            && let Some(expr) = expr_for_span_in_type(ty, span)
-                        {
-                            return Some(expr);
-                        }
-                    }
-                    if let Some(ty) = &function.return_type
-                        && let Some(expr) = expr_for_span_in_type(ty, span)
-                    {
-                        return Some(expr);
-                    }
-                    function
-                        .body
-                        .as_ref()
-                        .and_then(|body| expr_for_span_in_block(body, span))
-                }
-                ItemKind::Extend(extend) => extend.methods.iter().find_map(|method| {
-                    method.function.body.as_ref().and_then(|body| {
-                        for param in &method.function.params {
-                            if let Some(ty) = &param.ty
-                                && let Some(expr) = expr_for_span_in_type(ty, span)
-                            {
-                                return Some(expr);
-                            }
-                        }
-                        if let Some(ty) = &method.function.return_type
-                            && let Some(expr) = expr_for_span_in_type(ty, span)
-                        {
-                            return Some(expr);
-                        }
-                        expr_for_span_in_block(body, span)
-                    })
-                }),
-                ItemKind::Struct(item_struct) => item_struct
-                    .fields
-                    .iter()
-                    .find_map(|field| expr_for_span_in_type(&field.ty, span)),
-                ItemKind::Union(item_union) => item_union
-                    .fields
-                    .iter()
-                    .find_map(|field| expr_for_span_in_type(&field.ty, span)),
-                ItemKind::TypeAlias(alias) => expr_for_span_in_type(&alias.ty, span),
-                ItemKind::Enum(item_enum) => item_enum.variants.iter().find_map(|variant| {
-                    variant
-                        .value
-                        .as_ref()
-                        .and_then(|value| expr_for_span(value, span))
-                }),
-                ItemKind::Import(_) | ItemKind::Using(_) => None,
-            })
-    }
-
     fn def_id_for_span(&self, span: Span, expected: DefKind) -> Option<DefId> {
         let def_id = self.input.defs.def_spans.get(span)?;
         let def = self.input.defs.defs.get(def_id)?;
@@ -439,199 +322,6 @@ impl ComptimeEnv for Analyzer<'_> {
             span,
             message: format!("failed to evaluate comptime value `{name}`"),
         })
-    }
-}
-
-fn expr_for_span(expr: &Expr, span: Span) -> Option<&Expr> {
-    if expr.span == span {
-        return Some(expr);
-    }
-    match &expr.kind {
-        ExprKind::Unary { expr, .. } | ExprKind::Cast { expr, .. } => expr_for_span(expr, span),
-        ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
-            expr_for_span(lhs, span).or_else(|| expr_for_span(rhs, span))
-        }
-        ExprKind::Call { callee, args } => expr_for_span(callee, span)
-            .or_else(|| args.iter().find_map(|arg| expr_for_span(arg, span))),
-        ExprKind::ArrayLiteral { elems } => match elems {
-            nia_ast::ArrayElements::List(elems) => {
-                elems.iter().find_map(|elem| expr_for_span(elem, span))
-            }
-            nia_ast::ArrayElements::Repeat { value, count } => {
-                expr_for_span(value, span).or_else(|| expr_for_span(count, span))
-            }
-        },
-        ExprKind::StructLiteral { fields } => fields
-            .iter()
-            .find_map(|field| expr_for_span(&field.value, span)),
-        ExprKind::Field { lhs, .. } | ExprKind::Qualified { lhs, .. } => expr_for_span(lhs, span),
-        ExprKind::Index { lhs, index } => expr_for_span(lhs, span).or_else(|| match index {
-            nia_ast::IndexArg::Expr(index) => expr_for_span(index, span),
-            nia_ast::IndexArg::Range(range) => range
-                .start
-                .as_ref()
-                .and_then(|start| expr_for_span(start, span))
-                .or_else(|| range.end.as_ref().and_then(|end| expr_for_span(end, span))),
-        }),
-        ExprKind::Block(block) => expr_for_span_in_block(block, span),
-        ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => expr_for_span(cond, span)
-            .or_else(|| expr_for_span_in_block(then_branch, span))
-            .or_else(|| {
-                else_branch
-                    .as_ref()
-                    .and_then(|expr| expr_for_span(expr, span))
-            }),
-        ExprKind::Switch(switch) => expr_for_span(&switch.target, span).or_else(|| {
-            switch.arms.iter().find_map(|arm| {
-                let pattern = match &arm.pattern {
-                    nia_ast::SwitchPattern::Expr(pattern) => expr_for_span(pattern, span),
-                    nia_ast::SwitchPattern::Default => None,
-                };
-                pattern.or_else(|| match &arm.body {
-                    nia_ast::SwitchArmBody::Expr(expr) => expr_for_span(expr, span),
-                    nia_ast::SwitchArmBody::Stmt(stmt) => expr_for_span_in_stmt(stmt, span),
-                    nia_ast::SwitchArmBody::Block(block) => expr_for_span_in_block(block, span),
-                })
-            })
-        }),
-        ExprKind::BracketSuffix { callee, args } => expr_for_span(callee, span).or_else(|| {
-            args.iter()
-                .filter_map(|arg| arg.expr.as_ref())
-                .find_map(|expr| expr_for_span(expr, span))
-        }),
-        ExprKind::Error
-        | ExprKind::Integer(_)
-        | ExprKind::Float(_)
-        | ExprKind::String(_)
-        | ExprKind::ByteString(_)
-        | ExprKind::CString(_)
-        | ExprKind::Char(_)
-        | ExprKind::ByteChar(_)
-        | ExprKind::Bool(_)
-        | ExprKind::Ident(_)
-        | ExprKind::Builtin { .. }
-        | ExprKind::TypeTarget { .. }
-        | ExprKind::Underscore
-        | ExprKind::Raw(_) => None,
-    }
-}
-
-fn expr_for_span_in_block(block: &nia_ast::Block, span: Span) -> Option<&Expr> {
-    for stmt in &block.stmts {
-        let found = match &stmt.kind {
-            nia_ast::StmtKind::Binding(binding) => binding
-                .ty
-                .as_ref()
-                .and_then(|ty| expr_for_span_in_type(ty, span))
-                .or_else(|| {
-                    binding
-                        .value
-                        .as_ref()
-                        .and_then(|value| expr_for_span(value, span))
-                }),
-            nia_ast::StmtKind::Expr(expr)
-            | nia_ast::StmtKind::Return(Some(expr))
-            | nia_ast::StmtKind::Defer(expr) => expr_for_span(expr, span),
-            nia_ast::StmtKind::For(for_stmt) => match &for_stmt.header {
-                nia_ast::ForHeader::Infinite => expr_for_span_in_block(&for_stmt.body, span),
-                nia_ast::ForHeader::Condition(cond) => expr_for_span(cond, span)
-                    .or_else(|| expr_for_span_in_block(&for_stmt.body, span)),
-                nia_ast::ForHeader::CStyle { init, cond, step } => init
-                    .as_ref()
-                    .and_then(|init| match &**init {
-                        nia_ast::ForInit::Binding { binding, .. } => binding
-                            .ty
-                            .as_ref()
-                            .and_then(|ty| expr_for_span_in_type(ty, span))
-                            .or_else(|| {
-                                binding
-                                    .value
-                                    .as_ref()
-                                    .and_then(|value| expr_for_span(value, span))
-                            }),
-                        nia_ast::ForInit::Expr(expr) => expr_for_span(expr, span),
-                    })
-                    .or_else(|| cond.as_ref().and_then(|cond| expr_for_span(cond, span)))
-                    .or_else(|| step.as_ref().and_then(|step| expr_for_span(step, span)))
-                    .or_else(|| expr_for_span_in_block(&for_stmt.body, span)),
-            },
-            nia_ast::StmtKind::Using(_)
-            | nia_ast::StmtKind::Return(None)
-            | nia_ast::StmtKind::Break
-            | nia_ast::StmtKind::Continue => None,
-        };
-        if found.is_some() {
-            return found;
-        }
-    }
-    block
-        .tail
-        .as_ref()
-        .and_then(|tail| expr_for_span(tail, span))
-}
-
-fn expr_for_span_in_stmt(stmt: &nia_ast::Stmt, span: Span) -> Option<&Expr> {
-    match &stmt.kind {
-        nia_ast::StmtKind::Binding(binding) => binding
-            .ty
-            .as_ref()
-            .and_then(|ty| expr_for_span_in_type(ty, span))
-            .or_else(|| {
-                binding
-                    .value
-                    .as_ref()
-                    .and_then(|value| expr_for_span(value, span))
-            }),
-        nia_ast::StmtKind::Expr(expr)
-        | nia_ast::StmtKind::Return(Some(expr))
-        | nia_ast::StmtKind::Defer(expr) => expr_for_span(expr, span),
-        nia_ast::StmtKind::For(for_stmt) => expr_for_span_in_block(&for_stmt.body, span),
-        nia_ast::StmtKind::Using(_)
-        | nia_ast::StmtKind::Return(None)
-        | nia_ast::StmtKind::Break
-        | nia_ast::StmtKind::Continue => None,
-    }
-}
-
-fn expr_for_span_in_type(ty: &nia_ast::TypeRef, span: Span) -> Option<&Expr> {
-    match &ty.kind {
-        nia_ast::TypeKind::Array { len, elem } => {
-            if let nia_ast::ArrayLen::Expr(expr) = len
-                && (expr.span == span || expr_for_span(expr, span).is_some())
-            {
-                return expr_for_span(expr, span).or(Some(expr));
-            }
-            expr_for_span_in_type(elem, span)
-        }
-        nia_ast::TypeKind::Pointer { elem, .. } | nia_ast::TypeKind::Slice { elem, .. } => {
-            expr_for_span_in_type(elem, span)
-        }
-        nia_ast::TypeKind::FunctionPointer {
-            params,
-            return_type,
-            ..
-        } => params
-            .iter()
-            .find_map(|param| expr_for_span_in_type(param, span))
-            .or_else(|| {
-                return_type
-                    .as_ref()
-                    .and_then(|return_type| expr_for_span_in_type(return_type, span))
-            }),
-        nia_ast::TypeKind::Path { segments } => segments.iter().find_map(|segment| {
-            segment.args.iter().find_map(|arg| match arg {
-                nia_ast::TypeArg::Type(ty) => expr_for_span_in_type(ty, span),
-                nia_ast::TypeArg::Const(_) => None,
-            })
-        }),
-        nia_ast::TypeKind::Error
-        | nia_ast::TypeKind::Void
-        | nia_ast::TypeKind::Never
-        | nia_ast::TypeKind::Infer => None,
     }
 }
 
