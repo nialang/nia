@@ -483,6 +483,14 @@ impl<'a> ModuleLowerer<'a> {
             .map(|def_id| (self.global_def_id(def_id), Vec::new()))
     }
 
+    fn associated_target_ty(&self, expr: &Expr) -> Option<TyId> {
+        if let ExprKind::TypeTarget { ty } = &expr.kind {
+            return self.ty_for_type_span(ty.span).into();
+        }
+        let (def_id, args) = self.type_prefix_instance(expr)?;
+        self.nominal_ty(def_id, &args)
+    }
+
     fn enum_variant_for_qualified(&self, lhs: &Expr, name: &str) -> Option<GlobalDefId> {
         let (enum_id, _) = self.type_prefix_instance(lhs)?;
         let target_defs = self
@@ -519,7 +527,7 @@ fn generic_inst_base(expr: &Expr) -> &Expr {
     }
 }
 
-fn lowered_type_args(args: &[BracketArg], type_lowering: &TypeLowering) -> Vec<TyId> {
+pub(crate) fn lowered_type_args(args: &[BracketArg], type_lowering: &TypeLowering) -> Vec<TyId> {
     args.iter()
         .filter_map(|arg| {
             arg.ty

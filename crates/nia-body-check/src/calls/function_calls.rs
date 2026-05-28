@@ -10,6 +10,12 @@ use nia_span::Span;
 use nia_ty::TyKind;
 use nia_value_resolve::ValueNameResolution;
 
+struct FunctionItemRef {
+    resolved: ResolvedFunctionSignature,
+    type_args: Vec<TyId>,
+    receiver_ty: Option<TyId>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(super) fn direct_callee_signature(
         &self,
@@ -33,7 +39,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn check_function_ref(&mut self, expr: &Expr, is_const: bool) -> Option<TyId> {
-        let (resolved, type_args) = self.function_item_resolution(expr)?;
+        let item = self.function_item_ref(expr)?;
         if !is_const {
             self.diagnostics.push(Diagnostic::error(
                 expr.span,
@@ -41,65 +47,148 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         }
-        let signature = resolved.signature;
-        let (params, return_type, is_variadic) = if let Some(type_args) = type_args {
-            let lowered_args = self.lower_bracket_type_args(&type_args);
-            if signature.generics.len() != lowered_args.len() {
-                self.diagnostics.push(Diagnostic::error(
-                    expr.span,
-                    format!(
-                        "generic argument count mismatch for function pointer: expected {}, got {}",
-                        signature.generics.len(),
-                        lowered_args.len()
-                    ),
-                ));
-                return Some(self.error());
-            }
-            self.record_generic_instantiation(resolved.def_id, &lowered_args, expr.span);
-            let substitutions = self.generic_substitutions(&signature.generics, &lowered_args);
-            (
-                signature
-                    .params
-                    .iter()
-                    .map(|param| self.substitute_generics(param.ty, &substitutions))
-                    .collect(),
-                self.substitute_generics(signature.return_type, &substitutions),
-                signature.is_variadic,
-            )
-        } else {
-            if !signature.generics.is_empty() {
-                self.diagnostics.push(Diagnostic::error(
-                    expr.span,
-                    "generic function pointer requires explicit type arguments",
-                ));
-                return Some(self.error());
-            }
-            (
-                signature.params.iter().map(|param| param.ty).collect(),
-                signature.return_type,
-                signature.is_variadic,
-            )
-        };
+        let signature = item.resolved.signature;
+        let substitutions = self.generic_substitutions_for_function_ref(
+            expr.span,
+            item.resolved.def_id,
+            &signature,
+            &item.type_args,
+        )?;
+        let params = signature
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                if index == 0
+                    && param.receiver.is_some()
+                    && let Some(receiver_ty) = item.receiver_ty
+                {
+                    receiver_ty
+                } else {
+                    self.substitute_generics(param.ty, &substitutions)
+                }
+            })
+            .collect();
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
         Some(self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
-            is_variadic,
+            is_variadic: signature.is_variadic,
         }))
     }
 
-    fn function_item_resolution(
-        &mut self,
-        expr: &Expr,
-    ) -> Option<(ResolvedFunctionSignature, Option<Vec<BracketArg>>)> {
+    fn function_item_ref(&mut self, expr: &Expr) -> Option<FunctionItemRef> {
         match &expr.kind {
-            ExprKind::BracketSuffix { callee, args } => self
-                .function_item_resolution(callee)
-                .map(|(resolved, _)| (resolved, Some(args.clone()))),
+            ExprKind::BracketSuffix { callee, args } => {
+                let mut item = self.function_item_ref(callee)?;
+                let type_args = self.lower_bracket_type_args(args);
+                item.type_args.extend(type_args);
+                Some(item)
+            }
+            ExprKind::Qualified { lhs, name } => {
+                if let Some(item) = self.associated_method_item_ref(expr.span, lhs, name) {
+                    return Some(item);
+                }
+                self.qualified_callee_signature(expr)
+                    .map(|resolved| FunctionItemRef {
+                        resolved,
+                        type_args: Vec::new(),
+                        receiver_ty: None,
+                    })
+            }
             _ => self
                 .qualified_callee_signature(expr)
                 .or_else(|| self.direct_callee_signature(expr))
-                .map(|resolved| (resolved, None)),
+                .map(|resolved| FunctionItemRef {
+                    resolved,
+                    type_args: Vec::new(),
+                    receiver_ty: None,
+                }),
         }
+    }
+
+    fn associated_method_item_ref(
+        &mut self,
+        span: Span,
+        ty_expr: &Expr,
+        name: &str,
+    ) -> Option<FunctionItemRef> {
+        let (target_ty, method_id, target_substitutions) = if let ExprKind::TypeTarget { ty } =
+            &ty_expr.kind
+        {
+            let target_ty = self.ty_for_span(ty.span);
+            let candidates = self.method_candidates_for_target(target_ty, name);
+            let method_id = self.single_method_candidate(span, name, candidates)?;
+            let target_substitutions = self.extension_target_substitutions(method_id, target_ty);
+            (Some(target_ty), method_id, target_substitutions)
+        } else {
+            let (struct_id, type_args) = self.type_prefix_instance(ty_expr)?;
+            let candidates = self.method_candidates_for_struct(struct_id, name);
+            let method_id = self.single_method_candidate(span, name, candidates)?;
+            let target_ty = (!type_args.is_empty() || self.type_prefix_has_no_generics(struct_id))
+                .then(|| {
+                    self.check_type_prefix_arg_count(ty_expr.span, struct_id, type_args.len());
+                    self.interner.intern(TyKind::Nominal {
+                        def_id: struct_id,
+                        args: type_args,
+                    })
+                });
+            let target_substitutions = target_ty
+                .map(|target_ty| self.extension_target_substitutions(method_id, target_ty))
+                .unwrap_or_default();
+            (target_ty, method_id, target_substitutions)
+        };
+        let resolved = self.resolved_function_signature(method_id)?;
+        let receiver_ty = target_ty.and_then(|target_ty| {
+            resolved
+                .signature
+                .params
+                .first()
+                .and_then(|param| param.receiver)
+                .map(|receiver| self.receiver_ty_for_target(target_ty, receiver))
+        });
+        Some(FunctionItemRef {
+            resolved,
+            type_args: self.extension_target_instance_args(method_id, &target_substitutions),
+            receiver_ty,
+        })
+    }
+
+    fn generic_substitutions_for_function_ref(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        signature: &FunctionSignature,
+        type_args: &[TyId],
+    ) -> Option<HashMap<String, TyId>> {
+        let generics = self.effective_generics_for_def(def_id);
+        if generics.len() != type_args.len() {
+            let message = if type_args.is_empty() {
+                "generic function pointer requires explicit type arguments".to_string()
+            } else {
+                format!(
+                    "generic argument count mismatch for function pointer: expected {}, got {}",
+                    generics.len(),
+                    type_args.len()
+                )
+            };
+            self.diagnostics.push(Diagnostic::error(span, message));
+            return None;
+        }
+        if !type_args.is_empty() {
+            self.record_generic_instantiation(def_id, type_args, span);
+        }
+        let mut substitutions = self.generic_substitutions(&generics, type_args);
+        for generic in &signature.generics {
+            if !substitutions.contains_key(generic) {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("generic function pointer requires `{generic}`"),
+                ));
+                return None;
+            }
+        }
+        Some(std::mem::take(&mut substitutions))
     }
 
     pub(super) fn check_function_signature_call(

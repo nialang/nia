@@ -543,6 +543,7 @@ fn expr_for_span(expr: &Expr, span: Span) -> Option<&Expr> {
         | ExprKind::Bool(_)
         | ExprKind::Ident(_)
         | ExprKind::Builtin { .. }
+        | ExprKind::TypeTarget { .. }
         | ExprKind::Underscore
         | ExprKind::Raw(_) => None,
     }

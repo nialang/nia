@@ -209,6 +209,7 @@ impl FlowChecker<'_> {
             | ExprKind::Ident(_)
             | ExprKind::Underscore
             | ExprKind::Builtin { .. }
+            | ExprKind::TypeTarget { .. }
             | ExprKind::Qualified { .. } => {}
             ExprKind::BracketSuffix { callee, args } => {
                 self.check_no_deferred_control_flow(callee);

@@ -29,9 +29,9 @@ struct MethodGenericContext<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct MethodCandidate {
-    target_ty: TyId,
-    method_id: GlobalDefId,
+pub(super) struct MethodCandidate {
+    pub(super) target_ty: TyId,
+    pub(super) method_id: GlobalDefId,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -74,24 +74,8 @@ impl<'a> BodyChecker<'a> {
         args: &[Expr],
         expected: Option<TyId>,
     ) -> Option<TyId> {
-        let (struct_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
-        let mut candidates = self.method_candidates_for_struct(struct_id, name);
-        if type_args.is_empty()
-            && let Some(expected) = expected
-            && let Some(inferred) =
-                self.infer_associated_type_args_from_candidates(struct_id, &candidates, expected)
-        {
-            type_args = inferred;
-        }
-        if !type_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
-            let target_ty = self.interner.intern(TyKind::Nominal {
-                def_id: struct_id,
-                args: type_args.clone(),
-            });
-            candidates.retain(|candidate| {
-                self.match_type_pattern(candidate.target_ty, target_ty, &mut HashMap::new())
-            });
-        }
+        let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
+        let candidates = self.method_candidates_for_target(target_ty, name);
         let Some(method_id) = self.single_method_candidate(span, name, candidates) else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -109,13 +93,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        if !self.check_type_prefix_arg_count(span, struct_id, type_args.len()) {
-            for arg in args {
-                self.check_expr(arg);
-            }
-            return Some(self.error());
-        }
-        let substitutions = self.struct_generic_substitutions(struct_id, &type_args);
+        let mut substitutions = self.extension_target_substitutions(method_id, target_ty);
         let Some(method_instantiation_args) = self.lowered_method_type_args(method_type_args)
         else {
             for arg in args {
@@ -123,7 +101,6 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         };
-        let mut substitutions = substitutions;
         let method_arg_count = method_instantiation_args.len();
         if method_type_args.is_some() && signature.generics.len() != method_arg_count {
             self.diagnostics.push(Diagnostic::error(
@@ -165,7 +142,7 @@ impl<'a> BodyChecker<'a> {
             && let Some(first_arg) = args.first()
             && let Some(receiver_kind) = signature.params.first().and_then(|param| param.receiver)
         {
-            let receiver_ty = self.receiver_ty_for_struct(struct_id, &type_args, receiver_kind);
+            let receiver_ty = self.receiver_ty_for_target(target_ty, receiver_kind);
             let actual = self.check_expr_with_expected(first_arg, Some(receiver_ty));
             self.expect_expr_type(first_arg, receiver_ty, actual, "receiver argument");
         }
@@ -194,35 +171,63 @@ impl<'a> BodyChecker<'a> {
             .map(|param| self.substitute_generics(param.ty, &substitutions))
             .collect();
         self.check_direct_call_args(span, value_args, &params, false);
-        if !type_args.is_empty() || !method_instantiation_args.is_empty() {
-            let mut instance_args = type_args.clone();
+        let target_args = self.extension_target_instance_args(method_id, &substitutions);
+        if !target_args.is_empty() || !method_instantiation_args.is_empty() {
+            let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, span);
         }
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
 
-    fn receiver_ty_for_struct(
+    pub(super) fn receiver_ty_for_target(
         &mut self,
-        def_id: GlobalDefId,
-        args: &[TyId],
+        target_ty: TyId,
         receiver: ReceiverKind,
     ) -> TyId {
-        let nominal = self.interner.intern(nia_ty::TyKind::Nominal {
-            def_id,
-            args: args.to_vec(),
-        });
         match receiver {
-            ReceiverKind::Value => nominal,
+            ReceiverKind::Value => target_ty,
             ReceiverKind::RefConst => self.interner.intern(nia_ty::TyKind::Pointer {
                 is_const: true,
-                elem: nominal,
+                elem: target_ty,
             }),
             ReceiverKind::Ref => self.interner.intern(nia_ty::TyKind::Pointer {
                 is_const: false,
-                elem: nominal,
+                elem: target_ty,
             }),
         }
+    }
+
+    pub(super) fn associated_target_ty(
+        &mut self,
+        ty_expr: &Expr,
+        expected: Option<TyId>,
+        name: &str,
+    ) -> Option<TyId> {
+        if let ExprKind::TypeTarget { ty } = &ty_expr.kind {
+            return Some(self.ty_for_span(ty.span));
+        }
+        let (struct_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
+        let candidates = self.method_candidates_for_struct(struct_id, name);
+        if type_args.is_empty()
+            && let Some(expected) = expected
+            && let Some(inferred) =
+                self.infer_associated_type_args_from_candidates(struct_id, &candidates, expected)
+        {
+            type_args = inferred;
+        }
+        if !type_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
+            self.check_type_prefix_arg_count(ty_expr.span, struct_id, type_args.len());
+            return Some(self.interner.intern(TyKind::Nominal {
+                def_id: struct_id,
+                args: type_args,
+            }));
+        }
+        self.check_type_prefix_arg_count(ty_expr.span, struct_id, type_args.len());
+        Some(self.interner.intern(TyKind::Nominal {
+            def_id: struct_id,
+            args: Vec::new(),
+        }))
     }
 
     fn infer_associated_type_args_from_expected_return(
@@ -278,13 +283,13 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn type_prefix_has_no_generics(&mut self, def_id: GlobalDefId) -> bool {
+    pub(super) fn type_prefix_has_no_generics(&mut self, def_id: GlobalDefId) -> bool {
         self.resolved_struct_signature(def_id)
             .map(|resolved| resolved.signature.generics.is_empty())
             .unwrap_or(false)
     }
 
-    fn check_type_prefix_arg_count(
+    pub(super) fn check_type_prefix_arg_count(
         &mut self,
         span: Span,
         def_id: GlobalDefId,
@@ -484,7 +489,7 @@ impl<'a> BodyChecker<'a> {
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
 
-    fn method_candidates_for_struct(
+    pub(super) fn method_candidates_for_struct(
         &mut self,
         struct_id: GlobalDefId,
         name: &str,
@@ -502,6 +507,24 @@ impl<'a> BodyChecker<'a> {
                     target_ty,
                     method_id,
                 })
+            })
+            .collect()
+    }
+
+    pub(super) fn method_candidates_for_target(
+        &mut self,
+        target_ty: TyId,
+        name: &str,
+    ) -> Vec<MethodCandidate> {
+        self.extensions
+            .all_methods_named(name)
+            .into_iter()
+            .filter_map(|(candidate_ty, method_id)| {
+                self.match_type_pattern(candidate_ty, target_ty, &mut HashMap::new())
+                    .then_some(MethodCandidate {
+                        target_ty: candidate_ty,
+                        method_id,
+                    })
             })
             .collect()
     }
@@ -538,7 +561,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn single_method_candidate(
+    pub(super) fn single_method_candidate(
         &mut self,
         span: Span,
         name: &str,
@@ -724,7 +747,7 @@ impl<'a> BodyChecker<'a> {
         Some(substitutions)
     }
 
-    fn extension_target_substitutions(
+    pub(super) fn extension_target_substitutions(
         &mut self,
         method_id: GlobalDefId,
         receiver_ty: TyId,
@@ -737,7 +760,7 @@ impl<'a> BodyChecker<'a> {
         substitutions
     }
 
-    fn extension_target_instance_args(
+    pub(super) fn extension_target_instance_args(
         &mut self,
         method_id: GlobalDefId,
         substitutions: &HashMap<String, TyId>,
@@ -782,7 +805,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn match_type_pattern(
+    pub(super) fn match_type_pattern(
         &self,
         pattern: TyId,
         actual: TyId,

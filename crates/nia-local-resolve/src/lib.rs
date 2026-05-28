@@ -304,6 +304,7 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_ident(name, expr.span);
             }
             ExprKind::Builtin { .. }
+            | ExprKind::TypeTarget { .. }
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
             | ExprKind::String(_)
@@ -432,6 +433,10 @@ impl<'a> LocalResolver<'a> {
         if let ExprKind::BracketSuffix { callee, .. } = &expr.kind {
             return self.try_resolve_type_prefix(callee);
         }
+        if matches!(expr.kind, ExprKind::TypeTarget { .. }) {
+            self.uses.insert(expr.span, LocalUse::TypePrefix);
+            return true;
+        }
         if let ExprKind::Qualified { lhs, .. } = &expr.kind {
             if self.values.qualified_type_prefixes.contains_key(&expr.span) {
                 // The Qualified's own span resolves to a type — recurse into
@@ -473,6 +478,7 @@ impl<'a> LocalResolver<'a> {
                         .qualified_type_prefixes
                         .contains_key(&callee.span)
             }
+            ExprKind::TypeTarget { .. } => true,
             ExprKind::Field { .. } => true,
             ExprKind::BracketSuffix { callee, .. } => self.bracket_suffix_can_be_generic(callee),
             _ => false,
