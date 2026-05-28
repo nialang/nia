@@ -7,7 +7,6 @@ use nia_ast::{
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
-use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,7 +129,42 @@ impl FlowChecker<'_> {
                 then_returns && else_returns
             }
             ExprKind::Block(block) => self.block_returns_on_all_paths(block),
+            ExprKind::Switch(switch) => self.switch_tail_covers_all_paths(switch),
             _ => true,
+        }
+    }
+
+    fn switch_tail_covers_all_paths(&mut self, switch: &nia_ast::SwitchStmt) -> bool {
+        let mut has_default = false;
+        let mut seen_patterns = HashSet::new();
+        let mut all_arms_produce = !switch.arms.is_empty();
+        for arm in &switch.arms {
+            match &arm.pattern {
+                SwitchPattern::Default => {
+                    if has_default {
+                        self.diagnostics
+                            .push(Diagnostic::error(arm.span, "duplicate switch default"));
+                    }
+                    has_default = true;
+                }
+                SwitchPattern::Expr(expr) => {
+                    let key = format!("{:?}", expr.kind);
+                    if !seen_patterns.insert(key) {
+                        self.diagnostics
+                            .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                    }
+                }
+            }
+            all_arms_produce &= self.switch_tail_arm_produces_value(&arm.body);
+        }
+        has_default && all_arms_produce
+    }
+
+    fn switch_tail_arm_produces_value(&mut self, body: &SwitchArmBody) -> bool {
+        match body {
+            SwitchArmBody::Expr(_) => true,
+            SwitchArmBody::Stmt(stmt) => !self.check_stmt(stmt).falls_through,
+            SwitchArmBody::Block(block) => self.block_returns_on_all_paths(block),
         }
     }
 
@@ -186,7 +220,6 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-            StmtKind::Switch(switch) => self.check_switch(stmt.span, switch),
         }
     }
 
@@ -274,6 +307,28 @@ impl FlowChecker<'_> {
                     self.check_no_deferred_control_flow(else_branch);
                 }
             }
+            ExprKind::Switch(switch) => {
+                self.check_switch_patterns(switch);
+                self.check_no_deferred_control_flow(&switch.target);
+                for arm in &switch.arms {
+                    if let SwitchPattern::Expr(expr) = &arm.pattern {
+                        self.check_no_deferred_control_flow(expr);
+                    }
+                    match &arm.body {
+                        SwitchArmBody::Expr(expr) => self.check_no_deferred_control_flow(expr),
+                        SwitchArmBody::Stmt(stmt) => {
+                            self.check_no_deferred_control_flow_in_block(&Block {
+                                span: stmt.span,
+                                stmts: vec![*stmt.clone()],
+                                tail: None,
+                            });
+                        }
+                        SwitchArmBody::Block(block) => {
+                            self.check_no_deferred_control_flow_in_block(block);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -326,27 +381,6 @@ impl FlowChecker<'_> {
                     }
                     self.check_no_deferred_control_flow_in_block(&for_stmt.body);
                 }
-                StmtKind::Switch(switch) => {
-                    self.check_no_deferred_control_flow(&switch.target);
-                    for arm in &switch.arms {
-                        if let SwitchPattern::Expr(expr) = &arm.pattern {
-                            self.check_no_deferred_control_flow(expr);
-                        }
-                        match &arm.body {
-                            SwitchArmBody::Expr(expr) => self.check_no_deferred_control_flow(expr),
-                            SwitchArmBody::Stmt(stmt) => {
-                                self.check_no_deferred_control_flow_in_block(&Block {
-                                    span: stmt.span,
-                                    stmts: vec![*stmt.clone()],
-                                    tail: None,
-                                });
-                            }
-                            SwitchArmBody::Block(block) => {
-                                self.check_no_deferred_control_flow_in_block(block);
-                            }
-                        }
-                    }
-                }
             }
         }
         if let Some(tail) = &block.tail {
@@ -354,10 +388,9 @@ impl FlowChecker<'_> {
         }
     }
 
-    fn check_switch(&mut self, _span: Span, switch: &nia_ast::SwitchStmt) -> Flow {
+    fn check_switch_patterns(&mut self, switch: &nia_ast::SwitchStmt) {
         let mut has_default = false;
         let mut seen_patterns = HashSet::new();
-        let mut all_arms_exit = !switch.arms.is_empty();
         for arm in &switch.arms {
             match &arm.pattern {
                 SwitchPattern::Default => {
@@ -375,21 +408,6 @@ impl FlowChecker<'_> {
                     }
                 }
             }
-            let arm_flow = self.check_switch_arm_body(&arm.body);
-            all_arms_exit &= !arm_flow.falls_through;
-        }
-        Flow {
-            falls_through: !(has_default && all_arms_exit),
-        }
-    }
-
-    fn check_switch_arm_body(&mut self, body: &SwitchArmBody) -> Flow {
-        match body {
-            SwitchArmBody::Expr(_) => Flow {
-                falls_through: true,
-            },
-            SwitchArmBody::Stmt(stmt) => self.check_stmt(stmt),
-            SwitchArmBody::Block(block) => self.check_block(block),
         }
     }
 }
@@ -487,6 +505,48 @@ fn main(x: i32) {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("duplicate switch default"))
+        );
+    }
+
+    #[test]
+    fn exhaustive_switch_returns_on_all_paths() {
+        let checked = pipeline(
+            r#"
+fn name(x: u32) &const u8 {
+    switch x {
+        1 => return 0 as &const u8,
+        _ => return 1 as &const u8,
+    }
+}
+"#,
+        );
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("does not return on all reachable paths")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn switch_tail_expression_satisfies_return_analysis() {
+        let checked = pipeline(
+            r#"
+fn name(x: u32) &const u8 {
+    switch x {
+        1 => 0 as &const u8,
+        _ => 1 as &const u8,
+    }
+}
+"#,
+        );
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("does not return on all reachable paths")),
+            "{:?}",
+            checked.diagnostics
         );
     }
 

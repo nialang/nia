@@ -4,7 +4,10 @@ use nia_backend_ir::{
     TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_diagnostic::Diagnostic;
-use nia_llvm::values::{BasicValueEnum, IntValue};
+use nia_llvm::{
+    basic_block::BasicBlock,
+    values::{BasicValueEnum, IntValue},
+};
 use nia_span::Span;
 
 use super::{FunctionCodegen, LoopTargets};
@@ -14,7 +17,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         match &stmt.kind {
             TypedStmtKind::Binding(binding) => self.emit_binding(stmt.span, binding),
             TypedStmtKind::Expr(expr) => {
-                if self.is_void_expr(expr) {
+                if self.expr_requires_void_emit(expr) || self.is_void_expr(expr) {
                     self.emit_void_expr(expr)?;
                 } else {
                     let _ = self.emit_expr(expr)?;
@@ -50,7 +53,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             TypedStmtKind::Break => self.emit_break(stmt.span),
             TypedStmtKind::Continue => self.emit_continue(stmt.span),
             TypedStmtKind::For(for_stmt) => self.emit_for_stmt(stmt.span, for_stmt),
-            TypedStmtKind::Switch(switch) => self.emit_switch_stmt(stmt.span, switch),
         }
     }
 
@@ -189,7 +191,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_switch_stmt(&mut self, span: Span, switch: &TypedSwitch) -> Result<(), Diagnostic> {
+    pub(super) fn emit_void_switch_expr(
+        &mut self,
+        span: Span,
+        switch: &TypedSwitch,
+    ) -> Result<(), Diagnostic> {
         let target = self.emit_expr(&switch.target)?.into_int_value()?;
         let end_block = self
             .module
@@ -224,7 +230,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
         for (block, body) in arm_blocks {
             self.builder.position_at_end(block);
-            self.emit_switch_arm_body(body)?;
+            self.emit_void_switch_arm_body(body)?;
             if !self.current_block_has_terminator() {
                 self.builder
                     .build_unconditional_branch(end_block)
@@ -234,7 +240,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
         self.builder.position_at_end(default_block);
         if let Some(body) = default_arm {
-            self.emit_switch_arm_body(body)?;
+            self.emit_void_switch_arm_body(body)?;
         }
         if !self.current_block_has_terminator() {
             self.builder
@@ -253,11 +259,116 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(self.emit_expr(pattern)?.into_int_value()?)
     }
 
-    fn emit_switch_arm_body(&mut self, body: &TypedSwitchArmBody) -> Result<(), Diagnostic> {
+    fn emit_void_switch_arm_body(&mut self, body: &TypedSwitchArmBody) -> Result<(), Diagnostic> {
         match body {
             TypedSwitchArmBody::Expr(expr) => self.emit_void_expr(expr),
             TypedSwitchArmBody::Stmt(stmt) => self.emit_stmt(stmt),
             TypedSwitchArmBody::Block(body) => self.emit_body_contents(body),
+        }
+    }
+
+    pub(super) fn emit_switch_expr(
+        &mut self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        switch: &TypedSwitch,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if self.is_void_expr_ty(ty) {
+            self.emit_void_switch_expr(span, switch)?;
+            return Err(self.error(span, "zero-sized switch has no runtime value"));
+        }
+        let target = self.emit_expr(&switch.target)?.into_int_value()?;
+        let merge_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "switch.end")?;
+        let default_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "switch.default")?;
+        let mut arm_blocks = Vec::new();
+        let mut cases = Vec::new();
+        let mut default_arm = None;
+
+        for (index, arm) in switch.arms.iter().enumerate() {
+            match &arm.pattern {
+                TypedSwitchPattern::Default => default_arm = Some(&arm.body),
+                TypedSwitchPattern::Expr(pattern) => {
+                    let block = self
+                        .module
+                        .context
+                        .append_basic_block(self.llvm_function, &format!("switch.arm.{index}"))?;
+                    let value = self.emit_switch_pattern_value(pattern)?;
+                    cases.push((value, block));
+                    arm_blocks.push((block, &arm.body));
+                }
+            }
+        }
+
+        self.builder
+            .build_switch(target, default_block, &cases)
+            .map_err(|_| self.error(span, "failed to build switch"))?;
+
+        let mut incoming = Vec::new();
+        for (block, body) in arm_blocks {
+            self.builder.position_at_end(block);
+            if let Some((value, end_block)) = self.emit_switch_arm_value(body)? {
+                self.builder
+                    .build_unconditional_branch(merge_block)
+                    .map_err(|_| self.error(span, "failed to branch from switch arm"))?;
+                incoming.push((value, end_block));
+            }
+        }
+
+        self.builder.position_at_end(default_block);
+        if let Some(body) = default_arm {
+            if let Some((value, end_block)) = self.emit_switch_arm_value(body)? {
+                self.builder
+                    .build_unconditional_branch(merge_block)
+                    .map_err(|_| self.error(span, "failed to branch from switch default"))?;
+                incoming.push((value, end_block));
+            }
+        } else {
+            self.builder
+                .build_unconditional_branch(merge_block)
+                .map_err(|_| self.error(span, "failed to branch from switch default"))?;
+        }
+
+        self.builder.position_at_end(merge_block);
+        let Some((first_value, _)) = incoming.first() else {
+            return Err(self.error(span, "value switch has no reachable value arms"));
+        };
+        let phi = self
+            .builder
+            .build_phi(first_value.get_type()?, "switchtmp")
+            .map_err(|_| self.error(span, "failed to build switch phi"))?;
+        let incoming_refs = incoming
+            .iter()
+            .map(|(value, block)| (value as &dyn nia_llvm::values::BasicValue<'ctx>, *block))
+            .collect::<Vec<_>>();
+        phi.add_incoming(&incoming_refs);
+        Ok(phi.as_basic_value()?)
+    }
+
+    fn emit_switch_arm_value(
+        &mut self,
+        body: &TypedSwitchArmBody,
+    ) -> Result<Option<(BasicValueEnum<'ctx>, BasicBlock<'ctx>)>, Diagnostic> {
+        let value = match body {
+            TypedSwitchArmBody::Expr(expr) => self.emit_expr(expr)?,
+            TypedSwitchArmBody::Stmt(stmt) => {
+                self.emit_stmt(stmt)?;
+                return Ok(None);
+            }
+            TypedSwitchArmBody::Block(body) => self.emit_block_expr(body)?,
+        };
+        let Some(block) = self.builder.get_insert_block() else {
+            return Err(self.error(Span::default(), "missing switch arm block"));
+        };
+        if self.current_block_has_terminator() {
+            Ok(None)
+        } else {
+            Ok(Some((value, block)))
         }
     }
 
@@ -301,6 +412,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 then_branch,
                 else_branch,
             } => self.emit_void_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
+            TypedExprKind::Switch(switch) => self.emit_void_switch_expr(expr.span, switch),
             _ => {
                 let _ = self.emit_expr(expr)?;
                 Ok(())
@@ -309,13 +421,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn is_void_expr(&self, expr: &TypedExpr) -> bool {
-        self.is_void(expr.ty)
-            || self.is_never(expr.ty)
+        self.is_void_expr_ty(expr.ty) || matches!(expr.kind, TypedExprKind::Assign { .. })
+    }
+
+    fn expr_requires_void_emit(&self, expr: &TypedExpr) -> bool {
+        matches!(
+            expr.kind,
+            TypedExprKind::Block(_) | TypedExprKind::If { .. } | TypedExprKind::Switch(_)
+        )
+    }
+
+    fn is_void_expr_ty(&self, ty: nia_ids::InternedTyId) -> bool {
+        self.is_void(ty)
+            || self.is_never(ty)
             || self
                 .module
-                .layout_of(expr.ty)
+                .layout_of(ty)
                 .is_some_and(|layout| layout.size == 0)
-            || matches!(expr.kind, TypedExprKind::Assign { .. })
     }
 
     pub(super) fn emit_if_expr(

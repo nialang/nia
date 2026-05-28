@@ -70,13 +70,6 @@ impl<'a> Parser<'a> {
                 kind: StmtKind::For(Box::new(for_stmt)),
             });
         }
-        if self.at(TokenKind::Switch) {
-            let switch = self.parse_switch_stmt()?;
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Switch(switch),
-            });
-        }
         None
     }
 
@@ -180,7 +173,17 @@ impl<'a> Parser<'a> {
         Some(ForStmt { header, body })
     }
 
-    fn parse_switch_stmt(&mut self) -> Option<SwitchStmt> {
+    pub(super) fn parse_switch_expr(&mut self) -> Option<Expr> {
+        let start = self.peek().span.start;
+        let switch = self.parse_switch()?;
+        let end = self.previous_end();
+        Some(Expr {
+            span: Span::new(start, end),
+            kind: ExprKind::Switch(Box::new(switch)),
+        })
+    }
+
+    fn parse_switch(&mut self) -> Option<SwitchStmt> {
         self.expect(TokenKind::Switch, "expected `switch`")?;
         let target = self.parse_expr()?;
         self.expect(TokenKind::LBrace, "expected `{` after switch target")?;
@@ -271,7 +274,6 @@ impl<'a> Parser<'a> {
                 | TokenKind::Continue
                 | TokenKind::Defer
                 | TokenKind::For
-                | TokenKind::Switch
                 | TokenKind::Using
         )
     }

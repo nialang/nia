@@ -301,51 +301,10 @@ impl Analyzer<'_> {
                         return Some(value);
                     }
                 }
-                nia_ast::StmtKind::Switch(switch) => {
-                    for arm in &switch.arms {
-                        let value = match &arm.body {
-                            nia_ast::SwitchArmBody::Block(block) => {
-                                self.local_initializer_in_block(local_id, block)
-                            }
-                            nia_ast::SwitchArmBody::Stmt(stmt) => {
-                                self.local_initializer_in_stmt(local_id, stmt)
-                            }
-                            nia_ast::SwitchArmBody::Expr(_) => None,
-                        };
-                        if value.is_some() {
-                            return value;
-                        }
-                    }
-                }
                 _ => {}
             }
         }
         None
-    }
-
-    fn local_initializer_in_stmt(&self, local_id: LocalId, stmt: &nia_ast::Stmt) -> Option<Expr> {
-        match &stmt.kind {
-            nia_ast::StmtKind::Binding(binding)
-                if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
-            {
-                binding.value.clone()
-            }
-            nia_ast::StmtKind::For(for_stmt) => {
-                self.local_initializer_in_block(local_id, &for_stmt.body)
-            }
-            nia_ast::StmtKind::Switch(switch) => {
-                switch.arms.iter().find_map(|arm| match &arm.body {
-                    nia_ast::SwitchArmBody::Block(block) => {
-                        self.local_initializer_in_block(local_id, block)
-                    }
-                    nia_ast::SwitchArmBody::Stmt(stmt) => {
-                        self.local_initializer_in_stmt(local_id, stmt)
-                    }
-                    nia_ast::SwitchArmBody::Expr(_) => None,
-                })
-            }
-            _ => None,
-        }
     }
 
     fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
@@ -527,6 +486,19 @@ fn expr_for_span(expr: &Expr, span: Span) -> Option<&Expr> {
                     .as_ref()
                     .and_then(|expr| expr_for_span(expr, span))
             }),
+        ExprKind::Switch(switch) => expr_for_span(&switch.target, span).or_else(|| {
+            switch.arms.iter().find_map(|arm| {
+                let pattern = match &arm.pattern {
+                    nia_ast::SwitchPattern::Expr(pattern) => expr_for_span(pattern, span),
+                    nia_ast::SwitchPattern::Default => None,
+                };
+                pattern.or_else(|| match &arm.body {
+                    nia_ast::SwitchArmBody::Expr(expr) => expr_for_span(expr, span),
+                    nia_ast::SwitchArmBody::Stmt(stmt) => expr_for_span_in_stmt(stmt, span),
+                    nia_ast::SwitchArmBody::Block(block) => expr_for_span_in_block(block, span),
+                })
+            })
+        }),
         ExprKind::BracketSuffix { callee, args } => expr_for_span(callee, span).or_else(|| {
             args.iter()
                 .filter_map(|arg| arg.expr.as_ref())
@@ -588,23 +560,6 @@ fn expr_for_span_in_block(block: &nia_ast::Block, span: Span) -> Option<&Expr> {
                     .or_else(|| step.as_ref().and_then(|step| expr_for_span(step, span)))
                     .or_else(|| expr_for_span_in_block(&for_stmt.body, span)),
             },
-            nia_ast::StmtKind::Switch(switch) => {
-                expr_for_span(&switch.target, span).or_else(|| {
-                    switch.arms.iter().find_map(|arm| {
-                        let pattern = match &arm.pattern {
-                            nia_ast::SwitchPattern::Expr(pattern) => expr_for_span(pattern, span),
-                            nia_ast::SwitchPattern::Default => None,
-                        };
-                        pattern.or_else(|| match &arm.body {
-                            nia_ast::SwitchArmBody::Expr(expr) => expr_for_span(expr, span),
-                            nia_ast::SwitchArmBody::Stmt(stmt) => expr_for_span_in_stmt(stmt, span),
-                            nia_ast::SwitchArmBody::Block(block) => {
-                                expr_for_span_in_block(block, span)
-                            }
-                        })
-                    })
-                })
-            }
             nia_ast::StmtKind::Using(_)
             | nia_ast::StmtKind::Return(None)
             | nia_ast::StmtKind::Break
@@ -636,11 +591,6 @@ fn expr_for_span_in_stmt(stmt: &nia_ast::Stmt, span: Span) -> Option<&Expr> {
         | nia_ast::StmtKind::Return(Some(expr))
         | nia_ast::StmtKind::Defer(expr) => expr_for_span(expr, span),
         nia_ast::StmtKind::For(for_stmt) => expr_for_span_in_block(&for_stmt.body, span),
-        nia_ast::StmtKind::Switch(switch) => switch.arms.iter().find_map(|arm| match &arm.body {
-            nia_ast::SwitchArmBody::Expr(expr) => expr_for_span(expr, span),
-            nia_ast::SwitchArmBody::Stmt(stmt) => expr_for_span_in_stmt(stmt, span),
-            nia_ast::SwitchArmBody::Block(block) => expr_for_span_in_block(block, span),
-        }),
         nia_ast::StmtKind::Using(_)
         | nia_ast::StmtKind::Return(None)
         | nia_ast::StmtKind::Break

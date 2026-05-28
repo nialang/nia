@@ -197,6 +197,7 @@ impl<'a> BodyChecker<'a> {
                 then_branch,
                 else_branch,
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
+            ExprKind::Switch(switch) => self.check_switch_expr(switch, expected),
         };
         let ty = if let Some(expected) = expected {
             self.coerce_c_string_to_pointer(expr, expected, ty)
@@ -284,7 +285,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn expect_block_tail_type(
+    pub(crate) fn expect_block_tail_type(
         &mut self,
         block: &nia_ast::Block,
         expected: InternedTyId,

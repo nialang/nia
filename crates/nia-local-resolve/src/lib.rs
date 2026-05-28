@@ -218,19 +218,6 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_block(&for_stmt.body);
                 self.pop_scope();
             }
-            StmtKind::Switch(switch) => {
-                self.resolve_expr(&switch.target);
-                for arm in &switch.arms {
-                    if let SwitchPattern::Expr(pattern) = &arm.pattern {
-                        self.resolve_expr(pattern);
-                    }
-                    match &arm.body {
-                        SwitchArmBody::Expr(expr) => self.resolve_expr(expr),
-                        SwitchArmBody::Stmt(stmt) => self.resolve_stmt(stmt),
-                        SwitchArmBody::Block(block) => self.resolve_block(block),
-                    }
-                }
-            }
         }
     }
 
@@ -385,6 +372,19 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_block(then_branch);
                 if let Some(else_branch) = else_branch {
                     self.resolve_expr(else_branch);
+                }
+            }
+            ExprKind::Switch(switch) => {
+                self.resolve_expr(&switch.target);
+                for arm in &switch.arms {
+                    if let SwitchPattern::Expr(pattern) = &arm.pattern {
+                        self.resolve_expr(pattern);
+                    }
+                    match &arm.body {
+                        SwitchArmBody::Expr(expr) => self.resolve_expr(expr),
+                        SwitchArmBody::Stmt(stmt) => self.resolve_stmt(stmt),
+                        SwitchArmBody::Block(block) => self.resolve_block(block),
+                    }
                 }
             }
         }

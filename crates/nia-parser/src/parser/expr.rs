@@ -416,6 +416,7 @@ impl<'a> Parser<'a> {
                 })
             }
             TokenKind::If => self.parse_if_expr(),
+            TokenKind::Switch => self.parse_switch_expr(),
             _ => {
                 self.error_here("expected expression");
                 None
@@ -653,5 +654,8 @@ impl<'a> Parser<'a> {
 }
 
 pub(super) fn expr_can_terminate_statement_without_semicolon(expr: &Expr) -> bool {
-    matches!(expr.kind, ExprKind::Block(_) | ExprKind::If { .. })
+    matches!(
+        expr.kind,
+        ExprKind::Block(_) | ExprKind::If { .. } | ExprKind::Switch(_)
+    )
 }

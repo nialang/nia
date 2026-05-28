@@ -32,7 +32,6 @@ pub enum StmtKind {
     Continue,
     Defer(Expr),
     For(Box<ForStmt>),
-    Switch(SwitchStmt),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -180,6 +179,7 @@ pub enum ExprKind {
         then_branch: Block,
         else_branch: Option<Box<Expr>>,
     },
+    Switch(Box<SwitchStmt>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
