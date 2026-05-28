@@ -203,6 +203,32 @@ fn main() i32 {
 }
 
 #[test]
+fn parses_nested_using_group_items() {
+    let (module, errors) = parse_module(
+        r#"
+import .math;
+using math::{add, sub as minus, Operator::*};
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Using(using) = &module.items[1].kind else {
+        panic!("expected using");
+    };
+    let UsingSelector::Group(items) = &using.selector else {
+        panic!("expected using group");
+    };
+    assert_eq!(items.len(), 3);
+    assert!(matches!(items[0], UsingGroupItem::Name(_)));
+    assert!(matches!(items[1], UsingGroupItem::Name(_)));
+    assert!(
+        matches!(&items[2], UsingGroupItem::Nested { host, selector }
+            if host.len() == 1
+                && host[0].name == "Operator"
+                && matches!(selector.as_ref(), UsingSelector::Wildcard { .. }))
+    );
+}
+
+#[test]
 fn rejects_extern_before_pub_modifier_order() {
     let (_, errors) = parse_module("extern pub fn add(a: i32, b: i32) i32;");
     assert!(

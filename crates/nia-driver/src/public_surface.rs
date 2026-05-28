@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{UsingSelector, Visibility};
+use nia_ast::{UsingGroupItem, UsingSelector, Visibility};
 use nia_defs::{
     DefCollection, DefKind, ModulePublicSurface, ModuleUsing, ModuleUsingScope, PublicItem,
     PublicNamespace, PublicSource, PublicSurfaces, UsingEntry,
@@ -351,16 +351,33 @@ fn expand_using(
         directive_span: using.span,
     };
     match host {
-        HostBinding::Module { target_module } => {
-            expand_module_host(target_module, &using.selector, surfaces, source)
-        }
+        HostBinding::Module { target_module } => expand_module_host(
+            defs_by_module,
+            target_module,
+            &using.selector,
+            surfaces,
+            source,
+        ),
         HostBinding::Enum { enum_id } => {
             expand_enum_host(enum_id, defs_by_module, &using.selector, visible, source)
         }
     }
 }
 
+fn merge_entries(
+    entries: &mut Vec<ResolvedEntry>,
+    seen: &mut HashSet<(String, PublicNamespace)>,
+    mut sub: Vec<ResolvedEntry>,
+) {
+    for entry in sub.drain(..) {
+        if seen.insert((entry.name.clone(), entry.item.namespace)) {
+            entries.push(entry);
+        }
+    }
+}
+
 fn expand_module_host<F>(
+    defs_by_module: &[DefCollection],
     target_module: ModuleId,
     selector: &UsingSelector,
     surfaces: &PublicSurfaces,
@@ -398,19 +415,19 @@ where
             UsingExpansion::Resolved(entries)
         }
         UsingSelector::Single(name) => resolve_module_single(target_surface, name, &source),
-        UsingSelector::Group(names) => {
+        UsingSelector::Group(items) => {
             let mut entries = Vec::new();
             let mut any_unresolved = false;
             let mut seen: HashSet<(String, PublicNamespace)> = HashSet::new();
-            for name in names {
-                match resolve_module_single(target_surface, name, &source) {
-                    UsingExpansion::Resolved(mut sub) => {
-                        for entry in sub.drain(..) {
-                            if seen.insert((entry.name.clone(), entry.item.namespace)) {
-                                entries.push(entry);
-                            }
-                        }
-                    }
+            for item in items {
+                match expand_module_group_item(
+                    defs_by_module,
+                    target_module,
+                    target_surface,
+                    item,
+                    &source,
+                ) {
+                    UsingExpansion::Resolved(sub) => merge_entries(&mut entries, &mut seen, sub),
                     UsingExpansion::Unresolved => {
                         any_unresolved = true;
                     }
@@ -424,6 +441,83 @@ where
             }
         }
     }
+}
+
+fn expand_module_group_item<F>(
+    defs_by_module: &[DefCollection],
+    target_module: ModuleId,
+    target_surface: &ModulePublicSurface,
+    item: &UsingGroupItem,
+    source: &F,
+) -> UsingExpansion
+where
+    F: Fn() -> PublicSource,
+{
+    match item {
+        UsingGroupItem::Name(name) => resolve_module_single(target_surface, name, source),
+        UsingGroupItem::Nested { host, selector } => {
+            let enum_id = match resolve_module_nested_enum(defs_by_module, target_module, host) {
+                Ok(enum_id) => enum_id,
+                Err(diag) => return UsingExpansion::HardError(diag),
+            };
+            expand_enum_host(enum_id, defs_by_module, selector, false, source)
+        }
+    }
+}
+
+fn resolve_module_nested_enum(
+    defs_by_module: &[DefCollection],
+    target_module: ModuleId,
+    host: &[nia_ast::UsingHostSegment],
+) -> Result<GlobalDefId, Diagnostic> {
+    let [segment] = host else {
+        let span = host
+            .get(1)
+            .or_else(|| host.first())
+            .map(|segment| segment.span)
+            .unwrap_or_default();
+        return Err(Diagnostic::error(
+            span,
+            "nested `using` group host must name an enum in the module host",
+        ));
+    };
+    let Some(target_defs) = defs_by_module
+        .iter()
+        .find(|defs| defs.module_id == target_module)
+    else {
+        return Err(Diagnostic::error(
+            segment.span,
+            "module host refers to an unloaded module",
+        ));
+    };
+    let Some(def_id) = target_defs.module_scope.types.get(&segment.name) else {
+        return Err(Diagnostic::error(
+            segment.span,
+            format!("unknown type `{}` in using group", segment.name),
+        ));
+    };
+    let Some(def) = target_defs.defs.get(def_id) else {
+        return Err(Diagnostic::error(segment.span, "enum definition not found"));
+    };
+    if def.kind != DefKind::Enum {
+        return Err(Diagnostic::error(
+            segment.span,
+            format!(
+                "nested `using` group host `{}` is not an enum",
+                segment.name
+            ),
+        ));
+    }
+    if def.visibility != Visibility::Public {
+        return Err(Diagnostic::error(
+            segment.span,
+            format!("enum `{}` is private", segment.name),
+        ));
+    }
+    Ok(GlobalDefId {
+        module_id: target_module,
+        def_id,
+    })
 }
 
 fn resolve_module_single<F>(
@@ -513,23 +607,41 @@ where
         UsingSelector::Single(name) => {
             resolve_enum_single(enum_id, target_defs, enum_scope, name, &source)
         }
-        UsingSelector::Group(names) => {
+        UsingSelector::Group(items) => {
             let mut entries = Vec::new();
-            let mut seen: HashSet<String> = HashSet::new();
-            for name in names {
-                match resolve_enum_single(enum_id, target_defs, enum_scope, name, &source) {
-                    UsingExpansion::Resolved(mut sub) => {
-                        for entry in sub.drain(..) {
-                            if seen.insert(entry.name.clone()) {
-                                entries.push(entry);
-                            }
-                        }
-                    }
+            let mut seen: HashSet<(String, PublicNamespace)> = HashSet::new();
+            for item in items {
+                match expand_enum_group_item(enum_id, target_defs, enum_scope, item, &source) {
+                    UsingExpansion::Resolved(sub) => merge_entries(&mut entries, &mut seen, sub),
                     UsingExpansion::Unresolved => return UsingExpansion::Unresolved,
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }
             }
             UsingExpansion::Resolved(entries)
+        }
+    }
+}
+
+fn expand_enum_group_item<F>(
+    enum_id: GlobalDefId,
+    target_defs: &DefCollection,
+    enum_scope: &nia_defs::EnumScope,
+    item: &UsingGroupItem,
+    source: &F,
+) -> UsingExpansion
+where
+    F: Fn() -> PublicSource,
+{
+    match item {
+        UsingGroupItem::Name(name) => {
+            resolve_enum_single(enum_id, target_defs, enum_scope, name, source)
+        }
+        UsingGroupItem::Nested { host, .. } => {
+            let span = host.first().map(|segment| segment.span).unwrap_or_default();
+            UsingExpansion::HardError(Diagnostic::error(
+                span,
+                "nested `using` group hosts are only valid under a module host",
+            ))
         }
     }
 }
