@@ -1388,6 +1388,49 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_defer_registered_after_earlier_return_branch() {
+    let root = temp_dir("emits_defer_registered_after_earlier_return_branch");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn fclose(file: &void) i32;
+extern fn fopen(path: &const u8, mode: &const u8) &void;
+
+fn inspect(path: &const u8) i32 {
+    var file = fopen(path, c"rb");
+
+    if file as usize == 0 {
+        return 1;
+    }
+
+    defer {
+        _ = fclose(file);
+    };
+
+    0
+}
+
+fn main(argc: i32, argv: &const &const u8) i32 {
+    inspect(argv[0])
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call ptr @fopen"));
+    assert!(ir.contains("call i32 @fclose"));
+    assert!(ir.contains("ret i32 1"));
+    assert!(ir.contains("ret i32 0"));
+}
+
+#[test]
 fn emits_deferred_block_cleanup() {
     let root = temp_dir("emits_deferred_block_cleanup");
     let main = root.join("main.nia");

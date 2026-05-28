@@ -179,7 +179,14 @@ impl FlowChecker<'_> {
 
     fn check_stmt(&mut self, stmt: &Stmt) -> Flow {
         match &stmt.kind {
-            StmtKind::Binding(_) | StmtKind::Expr(_) | StmtKind::Using(_) => Flow {
+            StmtKind::Binding(binding) => binding.value.as_ref().map_or(
+                Flow {
+                    falls_through: true,
+                },
+                |value| self.check_expr_flow(value),
+            ),
+            StmtKind::Expr(expr) => self.check_expr_flow(expr),
+            StmtKind::Using(_) => Flow {
                 falls_through: true,
             },
             StmtKind::Defer(expr) => {
@@ -220,6 +227,154 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
+        }
+    }
+
+    fn check_expr_flow(&mut self, expr: &Expr) -> Flow {
+        match &expr.kind {
+            ExprKind::Block(block) => self.check_block(block),
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.check_expr_flow(cond);
+                let then_flow = self.check_block(then_branch);
+                let else_flow = else_branch.as_deref().map_or(
+                    Flow {
+                        falls_through: true,
+                    },
+                    |else_branch| self.check_expr_flow(else_branch),
+                );
+                Flow {
+                    falls_through: then_flow.falls_through || else_flow.falls_through,
+                }
+            }
+            ExprKind::Switch(switch) => {
+                self.check_switch_patterns(switch);
+                self.check_expr_flow(&switch.target);
+                let mut has_default = false;
+                let mut all_arms_terminate = !switch.arms.is_empty();
+                for arm in &switch.arms {
+                    if matches!(arm.pattern, SwitchPattern::Default) {
+                        has_default = true;
+                    }
+                    if let SwitchPattern::Expr(pattern) = &arm.pattern {
+                        self.check_expr_flow(pattern);
+                    }
+                    all_arms_terminate &= !self.check_switch_arm_flow(&arm.body).falls_through;
+                }
+                Flow {
+                    falls_through: !(has_default && all_arms_terminate),
+                }
+            }
+            ExprKind::BracketSuffix { callee, args } => {
+                self.check_expr_flow(callee);
+                for arg in args {
+                    if let Some(expr) = &arg.expr {
+                        self.check_expr_flow(expr);
+                    }
+                }
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::ArrayLiteral { elems } => {
+                match elems {
+                    nia_ast::ArrayElements::List(elems) => {
+                        for elem in elems {
+                            self.check_expr_flow(elem);
+                        }
+                    }
+                    nia_ast::ArrayElements::Repeat { value, count } => {
+                        self.check_expr_flow(value);
+                        self.check_expr_flow(count);
+                    }
+                }
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::StructLiteral { fields } => {
+                for field in fields {
+                    self.check_expr_flow(&field.value);
+                }
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::Unary { expr, .. } | ExprKind::Cast { expr, .. } => {
+                self.check_expr_flow(expr);
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
+                self.check_expr_flow(lhs);
+                self.check_expr_flow(rhs);
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::Call { callee, args } => {
+                self.check_expr_flow(callee);
+                for arg in args {
+                    self.check_expr_flow(arg);
+                }
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::Field { lhs, .. } => {
+                self.check_expr_flow(lhs);
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::Index { lhs, index } => {
+                self.check_expr_flow(lhs);
+                match index {
+                    IndexArg::Expr(index) => {
+                        self.check_expr_flow(index);
+                    }
+                    IndexArg::Range(range) => {
+                        if let Some(start) = &range.start {
+                            self.check_expr_flow(start);
+                        }
+                        if let Some(end) = &range.end {
+                            self.check_expr_flow(end);
+                        }
+                    }
+                }
+                Flow {
+                    falls_through: true,
+                }
+            }
+            ExprKind::Error
+            | ExprKind::Integer(_)
+            | ExprKind::Float(_)
+            | ExprKind::String(_)
+            | ExprKind::ByteString(_)
+            | ExprKind::CString(_)
+            | ExprKind::Char(_)
+            | ExprKind::ByteChar(_)
+            | ExprKind::Raw(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Ident(_)
+            | ExprKind::Underscore
+            | ExprKind::Builtin { .. }
+            | ExprKind::TypeTarget { .. }
+            | ExprKind::Qualified { .. } => Flow {
+                falls_through: true,
+            },
+        }
+    }
+
+    fn check_switch_arm_flow(&mut self, body: &SwitchArmBody) -> Flow {
+        match body {
+            SwitchArmBody::Expr(expr) => self.check_expr_flow(expr),
+            SwitchArmBody::Stmt(stmt) => self.check_stmt(stmt),
+            SwitchArmBody::Block(block) => self.check_block(block),
         }
     }
 
@@ -636,6 +791,104 @@ fn main() {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("`continue` is not allowed")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn rejects_control_flow_deep_inside_deferred_expression_shapes() {
+        let checked = pipeline(
+            r#"
+fn cleanup() {}
+
+fn main(flag: bool) {
+    defer if flag {
+        for {
+            continue;
+        }
+    } else {
+        cleanup();
+    };
+
+    defer {
+        switch 1 {
+            0 => {
+                for {
+                    break;
+                }
+            },
+            _ => cleanup(),
+        }
+    };
+}
+"#,
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("`continue` is not allowed")),
+            "{:?}",
+            checked.diagnostics
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("`break` is not allowed")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn accepts_nested_loop_control_flow_outside_defer() {
+        let checked = pipeline(
+            r#"
+fn main(limit: i32) {
+    var i = 0;
+    for ; i < limit; i += 1 {
+        if i == 1 {
+            continue;
+        }
+        for {
+            break;
+        }
+    }
+}
+"#,
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("inside loops")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn reports_unreachable_after_switch_arm_control_flow_blocks() {
+        let checked = pipeline(
+            r#"
+fn main(kind: i32) {
+    switch kind {
+        0 => return,
+        _ => {
+            return;
+        },
+    }
+    var unreachable = 1;
+}
+"#,
+        );
+        assert!(
+            checked
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("unreachable statement")),
             "{:?}",
             checked.diagnostics
         );

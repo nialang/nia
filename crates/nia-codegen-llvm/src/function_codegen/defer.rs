@@ -70,15 +70,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         loop_depth: usize,
     ) -> Result<(), Diagnostic> {
-        while self
+        let scopes = self
             .defer_scopes
-            .last()
-            .is_some_and(|scope| scope.loop_depth >= loop_depth)
-        {
-            let scope = self
-                .defer_scopes
-                .pop()
-                .ok_or_else(|| self.error(span, "missing defer scope"))?;
+            .iter()
+            .rev()
+            .take_while(|scope| scope.loop_depth >= loop_depth)
+            .cloned()
+            .collect::<Vec<_>>();
+        if scopes.is_empty() {
+            return Err(self.error(span, "missing defer scope"));
+        }
+        for scope in scopes {
             self.emit_defer_scope(scope)?;
         }
         Ok(())
