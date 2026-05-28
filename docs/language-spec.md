@@ -1493,17 +1493,25 @@ short name for the method, and it does not capture a receiver.
 
 ## 11. Modules
 
-Each `.nia` file is a module.
+Each `.nia` file is a module. Import resolution always produces one concrete
+source file path; directories and packages are not modules by themselves.
 
 ### 11.1 Import
 
-`import` makes another `.nia` file available to the current file. Paths are
-dot-separated. Leading dots determine the starting directory:
+`import` makes another `.nia` file available to the current file. The
+dot-separated import path is a portable spelling of a source file path. It has
+the same module meaning as directly naming that resolved file path. Leading dots
+determine the starting directory:
 
 - `.` starts at the current file directory;
 - `..` starts one directory above;
 - remaining identifier segments are appended as directories, and the final
   segment gets the `.nia` extension.
+
+For example, `import .math.ops;` resolves to a concrete file such as
+`math/ops.nia` relative to the current module directory. The compiler does not
+interpret `math` as a package module unless a separate import resolves to
+`math.nia`.
 
 Relative imports do not support `...` or deeper parent traversal. Use a mapped
 root module when code needs to cross more than one parent boundary.
@@ -1516,19 +1524,26 @@ import .math.ops;      // src/app/math/ops.nia
 import ..lib;          // src/lib.nia
 ```
 
-A bare import such as `import math;` is not relative. It is resolved through an
-external module map. The CLI registers map entries with `-M name=path` or
-`--module name=path`. Module map options may appear before or after the command:
+A bare import such as `import math;` is not relative. Its first segment is
+resolved through an external module map. The CLI registers map entries with
+`-M name=path` or `--module name=path`. Module map options may appear before or
+after the command:
 
 ```bash
 niac check src/main.nia -M std=/usr/share/nia/std.nia
 ```
 
 ```nia
-import std;            // loads the mapped std file
-import std.io;         // if std maps to /usr/share/nia/std.nia,
-                       // loads /usr/share/nia/std/io.nia
+import std;            // /usr/share/nia/std.nia
+import std.io;         // /usr/share/nia/std/io.nia
 ```
+
+When a mapped root has extra path segments, the root file path is treated as the
+root module file and the tail segments select files below the root stem. If
+`std` maps to `/usr/share/nia/std.nia`, then `import std.io;` resolves to
+`/usr/share/nia/std/io.nia`. This is a deterministic path mapping; it does not
+depend on whether the host filesystem permits a file and a directory with the
+same stem.
 
 Unmapped bare imports are errors. Bare imports do not fall back to relative file
 lookup.
