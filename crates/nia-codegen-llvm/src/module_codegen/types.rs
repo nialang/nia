@@ -2,7 +2,7 @@
 use super::ModuleCodegen;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
-    BackendStructInstanceKey, BackendUnionInstance,
+    BackendUnionInstance,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId, TyId};
@@ -573,14 +573,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[TyId],
     ) -> Option<&nia_layout::StructLayout> {
+        let owner = self.program.module(def_id.module_id)?;
         if args.is_empty() {
-            self.source
+            owner
                 .layouts
                 .unions
                 .iter()
                 .find_map(|(candidate, layout)| (*candidate == def_id).then_some(layout))
         } else {
-            self.source
+            owner
                 .layouts
                 .union_instances
                 .iter()
@@ -608,12 +609,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .struct_instances
                 .iter()
                 .find_map(|(key, layout)| {
-                    (*key
-                        == BackendStructInstanceKey {
-                            def_id,
-                            args: args.to_vec(),
-                        })
-                    .then_some(layout)
+                    (key.def_id == def_id && self.same_type_args(&key.args, args)).then_some(layout)
                 })
         }
     }

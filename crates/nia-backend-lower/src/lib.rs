@@ -383,6 +383,18 @@ impl<'a> ModuleLowerer<'a> {
         self.input.body_check.interner.primitive(PrimitiveTy::Void)
     }
 
+    pub(crate) fn ty_kind(&self, ty: TyId) -> Option<&TyKind> {
+        if ty.module_id == self.input.body_check.interner.module_id() {
+            return self.input.body_check.interner.get(ty);
+        }
+        if let Some(extension_interner) = self.input.extension_interner
+            && ty.module_id == extension_interner.module_id()
+        {
+            return extension_interner.get(ty);
+        }
+        None
+    }
+
     fn nominal_global_def(&self, ty: TyId) -> Option<GlobalDefId> {
         match self.input.body_check.interner.get(ty) {
             Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
@@ -481,14 +493,6 @@ impl<'a> ModuleLowerer<'a> {
             .types
             .get(name)
             .map(|def_id| (self.global_def_id(def_id), Vec::new()))
-    }
-
-    fn associated_target_ty(&self, expr: &Expr) -> Option<TyId> {
-        if let ExprKind::TypeTarget { ty } = &expr.kind {
-            return self.ty_for_type_span(ty.span).into();
-        }
-        let (def_id, args) = self.type_prefix_instance(expr)?;
-        self.nominal_ty(def_id, &args)
     }
 
     fn enum_variant_for_qualified(&self, lhs: &Expr, name: &str) -> Option<GlobalDefId> {

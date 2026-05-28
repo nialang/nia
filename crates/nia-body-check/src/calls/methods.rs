@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::BodyChecker;
+use crate::{BodyChecker, ResolvedCall};
 use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, TyId};
@@ -176,6 +176,16 @@ impl<'a> BodyChecker<'a> {
             let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, span);
+            self.resolved_calls.insert(
+                span,
+                ResolvedCall::FunctionInstance {
+                    def_id: method_id,
+                    args: instance_args,
+                },
+            );
+        } else {
+            self.resolved_calls
+                .insert(span, ResolvedCall::Function(method_id));
         }
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
@@ -485,6 +495,21 @@ impl<'a> BodyChecker<'a> {
             let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, call.span);
+            self.resolved_calls.insert(
+                call.span,
+                ResolvedCall::Method {
+                    def_id: method_id,
+                    args: instance_args,
+                },
+            );
+        } else {
+            self.resolved_calls.insert(
+                call.span,
+                ResolvedCall::Method {
+                    def_id: method_id,
+                    args: Vec::new(),
+                },
+            );
         }
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }

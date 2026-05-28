@@ -9,7 +9,7 @@ mod signature_import;
 
 pub use signature_import::import_type_into;
 
-use crate::BodyChecker;
+use crate::{BodyChecker, ResolvedCall};
 use nia_ast::{Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::TyId;
@@ -64,6 +64,8 @@ impl<'a> BodyChecker<'a> {
                 is_variadic,
             }) => {
                 self.check_direct_call_args(span, args, &params, is_variadic);
+                self.resolved_calls
+                    .insert(span, ResolvedCall::FunctionPointer);
                 return_type
             }
             Some(TyKind::Error) | None => {
