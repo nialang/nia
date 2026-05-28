@@ -113,29 +113,43 @@ impl<'a> BodyChecker<'a> {
         ty_expr: &Expr,
         name: &str,
     ) -> Option<FunctionItemRef> {
-        let (struct_id, type_args) = self.type_prefix_instance(ty_expr)?;
-        self.check_type_prefix_arg_count(span, struct_id, type_args.len());
-        let mut candidates = self.method_candidates_for_struct(struct_id, name);
-        if !type_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
-            let target_ty = self.interner.intern(TyKind::Nominal {
-                def_id: struct_id,
-                args: type_args.clone(),
-            });
-            candidates.retain(|candidate| {
-                self.match_type_pattern(candidate.target_ty, target_ty, &mut HashMap::new())
-            });
-        }
-        let method_id = self.single_method_candidate(span, name, candidates)?;
+        let (target_ty, method_id, target_substitutions) = if let ExprKind::TypeTarget { ty } =
+            &ty_expr.kind
+        {
+            let target_ty = self.ty_for_span(ty.span);
+            let candidates = self.method_candidates_for_target(target_ty, name);
+            let method_id = self.single_method_candidate(span, name, candidates)?;
+            let target_substitutions = self.extension_target_substitutions(method_id, target_ty);
+            (Some(target_ty), method_id, target_substitutions)
+        } else {
+            let (struct_id, type_args) = self.type_prefix_instance(ty_expr)?;
+            let candidates = self.method_candidates_for_struct(struct_id, name);
+            let method_id = self.single_method_candidate(span, name, candidates)?;
+            let target_ty = (!type_args.is_empty() || self.type_prefix_has_no_generics(struct_id))
+                .then(|| {
+                    self.check_type_prefix_arg_count(ty_expr.span, struct_id, type_args.len());
+                    self.interner.intern(TyKind::Nominal {
+                        def_id: struct_id,
+                        args: type_args,
+                    })
+                });
+            let target_substitutions = target_ty
+                .map(|target_ty| self.extension_target_substitutions(method_id, target_ty))
+                .unwrap_or_default();
+            (target_ty, method_id, target_substitutions)
+        };
         let resolved = self.resolved_function_signature(method_id)?;
-        let receiver_ty = resolved
-            .signature
-            .params
-            .first()
-            .and_then(|param| param.receiver)
-            .map(|receiver| self.receiver_ty_for_struct(struct_id, &type_args, receiver));
+        let receiver_ty = target_ty.and_then(|target_ty| {
+            resolved
+                .signature
+                .params
+                .first()
+                .and_then(|param| param.receiver)
+                .map(|receiver| self.receiver_ty_for_target(target_ty, receiver))
+        });
         Some(FunctionItemRef {
             resolved,
-            type_args,
+            type_args: self.extension_target_instance_args(method_id, &target_substitutions),
             receiver_ty,
         })
     }

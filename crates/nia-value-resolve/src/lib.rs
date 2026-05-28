@@ -139,6 +139,9 @@ impl<'ast> Visitor<'ast> for ValueResolver<'_> {
                 self.builtins.insert(expr.span, resolution);
                 walk_expr(self, expr);
             }
+            ExprKind::TypeTarget { .. } => {
+                walk_expr(self, expr);
+            }
             ExprKind::Call { callee, args } => {
                 if let ExprKind::Builtin { name, .. } = &callee.kind
                     && name == "asm"

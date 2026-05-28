@@ -101,6 +101,11 @@ impl<'a> Parser<'a> {
     fn parse_postfix(&mut self) -> Option<Expr> {
         let mut expr = self.parse_primary()?;
         loop {
+            if expr_can_terminate_statement_without_semicolon(&expr)
+                && self.has_line_break_between(expr.span.end, self.peek().span.start)
+            {
+                break;
+            }
             if self.eat(TokenKind::LParen).is_some() {
                 let mut args = Vec::new();
                 while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
@@ -393,7 +398,7 @@ impl<'a> Parser<'a> {
                 })
             }
             TokenKind::At => self.parse_builtin_expr(),
-            TokenKind::LBracket => self.parse_bracket_array_literal(),
+            TokenKind::LBracket => self.parse_bracket_primary(),
             TokenKind::LParen => {
                 self.bump();
                 let expr = self.parse_expr()?;
@@ -473,6 +478,39 @@ impl<'a> Parser<'a> {
             span: Span::new(start, self.previous_end()),
             kind: ExprKind::Builtin { name, type_arg },
         })
+    }
+
+    fn parse_bracket_primary(&mut self) -> Option<Expr> {
+        let checkpoint = self.pos;
+        let errors_len = self.errors.len();
+        let start = self.peek().span.start;
+        self.expect(TokenKind::LBracket, "expected `[` before type target")?;
+        if let Some(ty) = self.parse_type_target_type_after_open()
+            && self.at(TokenKind::ColonColon)
+        {
+            let end = self.previous_end();
+            return Some(Expr {
+                span: Span::new(start, end),
+                kind: ExprKind::TypeTarget { ty },
+            });
+        }
+        self.pos = checkpoint;
+        self.errors.truncate(errors_len);
+        self.parse_bracket_array_literal()
+    }
+
+    fn parse_type_target_type_after_open(&mut self) -> Option<TypeRef> {
+        if !self.token_can_start_type(&self.peek().kind) {
+            let ty_start = self.peek().span.start;
+            self.error_at(
+                Span::new(ty_start, self.peek().span.end),
+                "expected type target",
+            );
+            return None;
+        }
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::RBracket, "expected `]` after type target")?;
+        Some(ty)
     }
 
     fn parse_bracket_array_literal(&mut self) -> Option<Expr> {
@@ -562,6 +600,14 @@ impl<'a> Parser<'a> {
             span: token.span,
             kind: make(self.token_text(&token).to_string()),
         }
+    }
+
+    fn has_line_break_between(&self, start: usize, end: usize) -> bool {
+        self.source.get(start..end).is_some_and(|text| {
+            text.as_bytes()
+                .iter()
+                .any(|byte| *byte == b'\n' || *byte == b'\r')
+        })
     }
 
     fn assignment_op(&self) -> Option<AssignOp> {

@@ -2000,6 +2000,38 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn checks_structural_associated_calls_and_function_pointers() {
+    let checked = pipeline(
+        r#"
+extend[T] &T {
+    fn null(self) bool {
+        self as usize == 0
+    }
+
+    fn zero() usize {
+        0usize
+    }
+}
+
+extend[T] [3]T {
+    fn first(self) T {
+        self[0]
+    }
+}
+
+fn main(ptr: &u8, triple: [3]i32) i32 {
+    var null: &const fn(&u8) bool = &const [&u8]::null;
+    var zero: &const fn() usize = &const [&u8]::zero;
+    if null(ptr) {}
+    if [&u8]::null(ptr) {}
+    [[3]i32]::first(triple) + zero() as i32
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn checks_associated_method_function_pointer_errors() {
     let checked = pipeline(
         r#"

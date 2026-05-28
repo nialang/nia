@@ -1473,6 +1473,28 @@ var replace: &const fn(&const Box[i32], bool) bool =
 var y = Box[i32]::replace[bool](&const box, true);
 ```
 
+Structural extension targets use `[type]::name` as their explicit associated
+path:
+
+```nia
+extend[T] &T {
+    fn null(self) bool {
+        self as usize == 0
+    }
+
+    fn zero() usize {
+        0usize
+    }
+}
+
+var p: &u8 = [&u8]::zero() as &u8;
+var n = [&u8]::null(p);
+var f: &const fn(&u8) bool = &const [&u8]::null;
+```
+
+`[type]::name` is only an associated target path. It does not introduce a
+short name for the method, and it does not capture a receiver.
+
 ## 11. Modules
 
 Each `.nia` file is a module.

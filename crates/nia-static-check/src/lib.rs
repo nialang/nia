@@ -100,6 +100,7 @@ impl StaticChecker<'_> {
             ExprKind::Binary { .. } => self.int_const_expr_reject_reason(expr),
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),
             ExprKind::Builtin { .. } => None,
+            ExprKind::TypeTarget { .. } => Some("type target is not static data"),
             ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
                 Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(*def_id) => None,
@@ -188,6 +189,7 @@ impl StaticChecker<'_> {
                 }
                 self.static_address_path_reject_reason(lhs)
             }
+            ExprKind::TypeTarget { .. } => None,
             ExprKind::Field { lhs, .. } => self.static_address_path_reject_reason(lhs),
             ExprKind::Index { lhs, index } => {
                 self.static_address_path_reject_reason(lhs)
@@ -222,6 +224,7 @@ impl StaticChecker<'_> {
             ExprKind::Qualified { .. } => {
                 self.values.qualified_type_prefixes.contains_key(&expr.span)
             }
+            ExprKind::TypeTarget { .. } => true,
             ExprKind::BracketSuffix { callee, .. } => self.is_type_prefix_expr(callee),
             _ => false,
         }
