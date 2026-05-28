@@ -315,6 +315,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_inline_asm(asm)?;
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
             }
+            TypedExprKind::CStringPointer { array, .. } => {
+                self.emit_c_string_pointer(expr.span, array)
+            }
             TypedExprKind::ArrayLiteral { elems } => self.emit_array_literal(expr, elems),
             TypedExprKind::StructLiteral { def_id, fields } => {
                 self.emit_struct_literal(expr, *def_id, fields)
@@ -434,6 +437,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             } => self.emit_void_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
             TypedExprKind::StructLiteral { .. } => Ok(()),
             TypedExprKind::Local(_) | TypedExprKind::Global(_) => Ok(()),
+            TypedExprKind::CStringPointer { .. } => Ok(()),
             _ => self.emit_void_expr(expr),
         }
     }

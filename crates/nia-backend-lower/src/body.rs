@@ -202,6 +202,23 @@ impl<'a> ModuleLowerer<'a> {
             && let Some(coercion) = self
                 .input
                 .body_check
+                .c_string_pointer_coercions
+                .get(&expr.span)
+                .copied()
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: coercion.pointer_ty,
+                kind: TypedExprKind::CStringPointer {
+                    array: Box::new(self.lower_expr_with_ty(expr, Some(coercion.array_ty))),
+                    is_const: coercion.is_const,
+                },
+            };
+        }
+        if forced_ty.is_none()
+            && let Some(coercion) = self
+                .input
+                .body_check
                 .array_to_slice_coercions
                 .get(&expr.span)
                 .copied()
