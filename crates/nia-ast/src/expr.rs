@@ -127,6 +127,9 @@ pub enum ExprKind {
         name: String,
         type_arg: Option<TypeRef>,
     },
+    TypeTarget {
+        ty: TypeRef,
+    },
     BracketSuffix {
         callee: Box<Expr>,
         args: Vec<BracketArg>,

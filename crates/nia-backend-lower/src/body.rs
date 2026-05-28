@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::{ModuleLowerer, generic_inst_base};
+use crate::{ModuleLowerer, generic_inst_base, lowered_type_args};
 use nia_ast::{
     ArrayElements, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg, ItemKind,
     SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
@@ -309,6 +309,7 @@ impl<'a> ModuleLowerer<'a> {
                     None => TypedExprKind::Error,
                 }
             }
+            ExprKind::TypeTarget { .. } => TypedExprKind::Error,
             ExprKind::BracketSuffix { callee, args } => {
                 let base = generic_inst_base(callee);
                 if let Some(def_id) = self.input.values.qualified_values.get(&base.span).copied() {
@@ -400,6 +401,17 @@ impl<'a> ModuleLowerer<'a> {
                         lhs: Box::new(self.lower_expr(lhs)),
                         range: self.lower_slice_range(range),
                         is_const: matches!(op, UnaryOp::RefConst),
+                    }
+                } else if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                    && let Some(function_item) = self.lower_function_item_ref(inner)
+                {
+                    TypedExprKind::Unary {
+                        op: *op,
+                        expr: Box::new(TypedExpr {
+                            span: inner.span,
+                            ty: self.expr_ty(inner).unwrap_or_else(|| self.error_ty()),
+                            kind: function_item,
+                        }),
                     }
                 } else {
                     TypedExprKind::Unary {
@@ -561,6 +573,64 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn lower_function_item_ref(&mut self, expr: &Expr) -> Option<TypedExprKind> {
+        match &expr.kind {
+            ExprKind::BracketSuffix { callee, args } => {
+                let mut kind = self.lower_function_item_ref(callee)?;
+                let type_args = lowered_type_args(args, self.input.type_lowering);
+                match &mut kind {
+                    TypedExprKind::FunctionInstance { args, .. } => args.extend(type_args),
+                    TypedExprKind::Function(def_id) => {
+                        kind = TypedExprKind::FunctionInstance {
+                            def_id: *def_id,
+                            args: type_args,
+                        };
+                    }
+                    _ => {}
+                }
+                Some(kind)
+            }
+            ExprKind::Qualified { lhs, name } => {
+                if let Some(target_ty) = self.associated_target_ty(lhs)
+                    && let Some((method_id, mut args)) =
+                        self.single_method_for_target_ty(target_ty, name)
+                {
+                    if args.is_empty() {
+                        return Some(TypedExprKind::Function(method_id));
+                    }
+                    return Some(TypedExprKind::FunctionInstance {
+                        def_id: method_id,
+                        args: std::mem::take(&mut args),
+                    });
+                }
+                self.input
+                    .values
+                    .qualified_values
+                    .get(&expr.span)
+                    .copied()
+                    .map(TypedExprKind::Function)
+            }
+            ExprKind::Ident(_) => {
+                if let Some(global_id) = self.input.values.qualified_values.get(&expr.span).copied()
+                    && matches!(
+                        self.def_kind_of(global_id),
+                        Some(DefKind::Function | DefKind::Method)
+                    )
+                {
+                    return Some(TypedExprKind::Function(global_id));
+                }
+                if let Some(ValueNameResolution::Def(def_id)) =
+                    self.input.values.names.get(&expr.span)
+                    && self.input.signatures.functions.contains_key(def_id)
+                {
+                    return Some(TypedExprKind::Function(self.global_def_id(*def_id)));
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
     fn lower_slice_range(&mut self, range: &SliceRange) -> TypedSliceRange {
         TypedSliceRange {
             start: range
@@ -604,16 +674,15 @@ impl<'a> ModuleLowerer<'a> {
             };
         }
         if let ExprKind::Qualified { lhs, name } = &base.kind
-            && let Some((struct_id, struct_args)) = self.type_prefix_instance(lhs)
-            && let Some(method_id) =
-                self.single_method_def_for_target(struct_id, &struct_args, name)
+            && let Some(target_ty) = self.associated_target_ty(lhs)
+            && let Some((method_id, args)) = self.single_method_for_target_ty(target_ty, name)
         {
-            if struct_args.is_empty() || !self.method_has_effective_generics(method_id) {
+            if args.is_empty() || !self.method_has_effective_generics(method_id) {
                 return TypedCallee::Function(method_id);
             }
             return TypedCallee::FunctionInstance {
                 def_id: method_id,
-                args: struct_args,
+                args,
             };
         }
         if let Some(method) = self.lower_method_callee(callee) {
@@ -661,22 +730,24 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
-    fn single_method_def_for_target(
+    pub(crate) fn single_method_for_target_ty(
         &self,
-        struct_id: GlobalDefId,
-        struct_args: &[TyId],
+        target_ty: TyId,
         name: &str,
-    ) -> Option<GlobalDefId> {
-        let mut candidates = self.methods_for_nominal_target(struct_id, name);
-        if !struct_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
-            let target_ty = self.nominal_ty(struct_id, struct_args)?;
-            candidates.retain(|candidate| {
-                self.match_type_pattern(candidate.target_ty, target_ty, &mut HashMap::new())
-            });
-        }
+    ) -> Option<(GlobalDefId, Vec<TyId>)> {
+        let candidates = self.methods_for_target(target_ty, name);
         let candidates = self.most_specific_candidates(&candidates);
         match candidates.as_slice() {
-            [method] => Some(method.method_id),
+            [method] => {
+                let mut substitutions = HashMap::new();
+                self.match_type_pattern(method.target_ty, target_ty, &mut substitutions)
+                    .then(|| {
+                        (
+                            method.method_id,
+                            self.extension_target_instance_args(method.target_ty, &substitutions),
+                        )
+                    })
+            }
             _ => None,
         }
     }
@@ -692,14 +763,7 @@ impl<'a> ModuleLowerer<'a> {
         !self.effective_generics(def_id, own_generics).is_empty()
     }
 
-    fn type_prefix_has_no_generics(&self, def_id: GlobalDefId) -> bool {
-        let Some(signature) = self.input.signatures.structs.get(&def_id.def_id) else {
-            return false;
-        };
-        signature.generics.is_empty()
-    }
-
-    fn nominal_ty(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<TyId> {
+    pub(crate) fn nominal_ty(&self, def_id: GlobalDefId, args: &[TyId]) -> Option<TyId> {
         self.input
             .body_check
             .interner
@@ -716,24 +780,17 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn methods_for_nominal_target(
-        &self,
-        struct_id: GlobalDefId,
-        name: &str,
-    ) -> Vec<MethodCandidate> {
+    fn methods_for_target(&self, target_ty: TyId, name: &str) -> Vec<MethodCandidate> {
         self.input
             .extensions
             .all_methods_named(name)
             .into_iter()
-            .filter_map(|(target_ty, method_id)| {
-                matches!(
-                    self.ty_kind(target_ty),
-                    Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
-                )
-                .then_some(MethodCandidate {
-                    target_ty,
-                    method_id,
-                })
+            .filter_map(|(candidate_ty, method_id)| {
+                self.match_type_pattern(candidate_ty, target_ty, &mut HashMap::new())
+                    .then_some(MethodCandidate {
+                        target_ty: candidate_ty,
+                        method_id,
+                    })
             })
             .collect()
     }

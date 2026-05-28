@@ -100,6 +100,7 @@ impl StaticChecker<'_> {
             ExprKind::Binary { .. } => self.int_const_expr_reject_reason(expr),
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),
             ExprKind::Builtin { .. } => None,
+            ExprKind::TypeTarget { .. } => Some("type target is not static data"),
             ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
                 Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
                     Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(*def_id) => None,
@@ -175,7 +176,20 @@ impl StaticChecker<'_> {
         if self.values.qualified_values.contains_key(&expr.span) {
             return None;
         }
+        if self.values.qualified_type_prefixes.contains_key(&expr.span) {
+            return None;
+        }
         match &expr.kind {
+            ExprKind::Qualified { lhs, .. } => {
+                if self.values.qualified_type_prefixes.contains_key(&expr.span) {
+                    return None;
+                }
+                if self.is_type_prefix_expr(lhs) {
+                    return None;
+                }
+                self.static_address_path_reject_reason(lhs)
+            }
+            ExprKind::TypeTarget { .. } => None,
             ExprKind::Field { lhs, .. } => self.static_address_path_reject_reason(lhs),
             ExprKind::Index { lhs, index } => {
                 self.static_address_path_reject_reason(lhs)
@@ -199,6 +213,20 @@ impl StaticChecker<'_> {
                 self.static_address_reject_reason(expr)
             }
             _ => self.static_address_reject_reason(expr),
+        }
+    }
+
+    fn is_type_prefix_expr(&self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Ident(_) => {
+                matches!(self.locals.uses.get(&expr.span), Some(LocalUse::TypePrefix))
+            }
+            ExprKind::Qualified { .. } => {
+                self.values.qualified_type_prefixes.contains_key(&expr.span)
+            }
+            ExprKind::TypeTarget { .. } => true,
+            ExprKind::BracketSuffix { callee, .. } => self.is_type_prefix_expr(callee),
+            _ => false,
         }
     }
 

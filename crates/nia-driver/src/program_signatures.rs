@@ -194,27 +194,10 @@ pub(crate) fn collect_extension_methods(
                 ));
                 continue;
             }
-            let is_nominal_target = matches!(
-                lowering.interner.get(target_ty),
-                Some(TyKind::Nominal { .. })
-            );
             for method in &extend.methods {
                 let Some(method_id) = defs.def_spans.get(method.function.span) else {
                     continue;
                 };
-                if !is_nominal_target
-                    && method
-                        .function
-                        .params
-                        .first()
-                        .is_none_or(|param| param.receiver.is_none())
-                {
-                    diagnostics.push(Diagnostic::error(
-                        method.function.span,
-                        "associated functions are not supported for non-nominal extend targets",
-                    ));
-                    continue;
-                }
                 extensions.insert(
                     module.id,
                     ExtensionMethod {

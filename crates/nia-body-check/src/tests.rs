@@ -1936,6 +1936,169 @@ fn main(cb: &const fn(i32, bool) i64, variadic: &const fn(i32, ...) void, flag: 
 }
 
 #[test]
+fn checks_associated_method_function_pointers() {
+    let checked = pipeline(
+        r#"
+struct Point {
+    x: i32,
+}
+
+extend Point {
+    fn new(x: i32) Point {
+        { x: x }
+    }
+
+    fn get(&const self) i32 {
+        self.x
+    }
+
+    fn set(&self, value: i32) {
+        self.x = value;
+    }
+}
+
+fn main() i32 {
+    var make: &const fn(i32) Point = &const Point::new;
+    var get: &const fn(&const Point) i32 = &const Point::get;
+    var set: &const fn(&Point, i32) void = &const Point::set;
+    var p = make(1);
+    set(&p, 2);
+    get(&const p)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_generic_associated_method_function_pointers() {
+    let checked = pipeline(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn make(value: T) Box[T] {
+        { value: value }
+    }
+
+    fn replace[U](&const self, value: U) U {
+        value
+    }
+}
+
+fn main(flag: bool) i32 {
+    var make: &const fn(i32) Box[i32] = &const Box[i32]::make;
+    var replace: &const fn(&const Box[i32], bool) bool = &const Box[i32]::replace[bool];
+    var b = make(1);
+    if replace(&const b, flag) { b.value } else { 0 }
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_structural_associated_calls_and_function_pointers() {
+    let checked = pipeline(
+        r#"
+extend[T] &T {
+    fn null(self) bool {
+        self as usize == 0
+    }
+
+    fn zero() usize {
+        0usize
+    }
+}
+
+extend[T] [3]T {
+    fn first(self) T {
+        self[0]
+    }
+}
+
+fn main(ptr: &u8, triple: [3]i32) i32 {
+    var null: &const fn(&u8) bool = &const [&u8]::null;
+    var zero: &const fn() usize = &const [&u8]::zero;
+    if null(ptr) {}
+    if [&u8]::null(ptr) {}
+    [[3]i32]::first(triple) + zero() as i32
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_deep_pointer_structural_associated_calls_and_function_pointers() {
+    let checked = pipeline(
+        r#"
+extend &&&&&&const &&i32 {
+    fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+fn main(ptr: &&&&&&const &&i32) bool {
+    var null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::null;
+    null(ptr) and [&&&&&&const &&i32]::null(ptr)
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn checks_associated_method_function_pointer_errors() {
+    let checked = pipeline(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn make(value: T) Box[T] {
+        { value: value }
+    }
+
+    fn replace[U](&const self, value: U) U {
+        value
+    }
+}
+
+fn main() {
+    var bad_make: &const fn(i32) Box[i32] = &const Box::make;
+    var bad_replace: &const fn(&const Box[i32], bool) bool = &const Box[i32]::replace;
+    var mutable_ref = &Box[i32]::make;
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("generic function pointer requires explicit type arguments")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("generic argument count mismatch for function pointer")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("function pointers must be formed with `&const`")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_associated_function_calls() {
     let checked = pipeline(
         r#"

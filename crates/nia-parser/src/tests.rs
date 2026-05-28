@@ -532,6 +532,159 @@ fn main() Box[i32] {
 }
 
 #[test]
+fn parses_structural_type_target_associated_call() {
+    let (module, errors) = parse_module(
+        r#"
+extend[T] &T {
+    fn is_null(self) bool {
+        self as usize == 0
+    }
+}
+
+fn main(ptr: &u8) bool {
+    [&u8]::is_null(ptr)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Call { callee, .. } = &tail.kind else {
+        panic!("expected call");
+    };
+    let ExprKind::Qualified { lhs, .. } = &callee.kind else {
+        panic!("expected qualified callee");
+    };
+    assert!(matches!(lhs.kind, ExprKind::TypeTarget { .. }));
+}
+
+#[test]
+fn parses_deep_pointer_structural_type_target_associated_call() {
+    let (module, errors) = parse_module(
+        r#"
+extend &&&&&&const &&i32 {
+    fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+fn main(ptr: &&&&&&const &&i32) bool {
+    [&&&&&&const &&i32]::null(ptr)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Call { callee, .. } = &tail.kind else {
+        panic!("expected call");
+    };
+    let ExprKind::Qualified { lhs, .. } = &callee.kind else {
+        panic!("expected qualified callee");
+    };
+    assert!(matches!(lhs.kind, ExprKind::TypeTarget { .. }));
+}
+
+#[test]
+fn parses_array_structural_type_target_associated_call() {
+    let (module, errors) = parse_module(
+        r#"
+extend[T] [3]T {
+    fn first(self) T {
+        self[0]
+    }
+}
+
+fn main(triple: [3]i32) i32 {
+    [[3]i32]::first(triple)
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    let ExprKind::Call { callee, .. } = &tail.kind else {
+        panic!("expected call");
+    };
+    let ExprKind::Qualified { lhs, .. } = &callee.kind else {
+        panic!("expected qualified callee");
+    };
+    assert!(matches!(lhs.kind, ExprKind::TypeTarget { .. }));
+}
+
+#[test]
+fn parses_array_structural_type_target_in_binary_expr() {
+    let (module, errors) = parse_module(
+        r#"
+extend[T] [3]T {
+    fn first(self) T {
+        self[0]
+    }
+}
+
+fn zero() i32 {
+    0
+}
+
+fn main(triple: [3]i32) i32 {
+    [[3]i32]::first(triple) + zero() as i32
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    assert!(matches!(tail.kind, ExprKind::Binary { .. }));
+}
+
+#[test]
+fn parses_structural_type_targets_after_if_statements() {
+    let (module, errors) = parse_module(
+        r#"
+extend[T] &T {
+    fn null(self) bool {
+        self as usize == 0
+    }
+}
+
+extend[T] [3]T {
+    fn first(self) T {
+        self[0]
+    }
+}
+
+fn zero() usize {
+    0usize
+}
+
+fn main(ptr: &u8, triple: [3]i32) i32 {
+    if [&u8]::null(ptr) {}
+    [[3]i32]::first(triple) + zero() as i32
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[3].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    assert!(matches!(tail.kind, ExprKind::Binary { .. }));
+}
+
+#[test]
 fn parses_index_before_field_as_index_not_generic_instantiation() {
     let (module, errors) = parse_module(
         r#"
