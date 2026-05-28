@@ -387,13 +387,13 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn array_len_value(&self, span: Span, len: &ArrayLenTy) -> Result<u64, String> {
         match len {
-            ArrayLenTy::ConstExpr { text, span } => self
+            ArrayLenTy::ConstValue(value) => Ok(*value),
+            ArrayLenTy::ConstExpr(id) => self
                 .comptime
                 .array_lengths
-                .get(span)
+                .get(id)
                 .copied()
-                .or_else(|| nia_comptime_engine::eval_array_len_text(text).ok())
-                .ok_or_else(|| format!("array length `{text}` was not evaluated by comptime")),
+                .ok_or_else(|| "array length was not evaluated by comptime".to_string()),
             ArrayLenTy::Builtin { name, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
                     return Err(format!(
@@ -453,7 +453,13 @@ impl<'a> BodyChecker<'a> {
     fn array_len_name(&self, len: &ArrayLenTy) -> String {
         match len {
             ArrayLenTy::Infer => "_".to_string(),
-            ArrayLenTy::ConstExpr { text, .. } => text.clone(),
+            ArrayLenTy::ConstValue(value) => value.to_string(),
+            ArrayLenTy::ConstExpr(id) => self
+                .comptime
+                .array_lengths
+                .get(id)
+                .map(u64::to_string)
+                .unwrap_or_else(|| "<unevaluated const>".to_string()),
             ArrayLenTy::Builtin { name, ty } => format!("@{name}[{}]()", self.ty_name(*ty)),
         }
     }
@@ -485,10 +491,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn string_literal_type(&mut self, text: &str) -> InternedTyId {
         let len = string_literal_char_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr {
-                text: len.to_string(),
-                span: Span::default(),
-            },
+            len: ArrayLenTy::ConstValue(len as u64),
             elem: self.primitive(PrimitiveTy::Char),
         })
     }
@@ -496,10 +499,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn byte_string_literal_type(&mut self, text: &str) -> InternedTyId {
         let len = byte_string_literal_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr {
-                text: len.to_string(),
-                span: Span::default(),
-            },
+            len: ArrayLenTy::ConstValue(len as u64),
             elem: self.primitive(PrimitiveTy::U8),
         })
     }
@@ -507,10 +507,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn c_string_literal_type(&mut self, text: &str) -> InternedTyId {
         let len = c_string_literal_len(text).unwrap_or(0);
         self.interner.intern(TyKind::Array {
-            len: ArrayLenTy::ConstExpr {
-                text: len.to_string(),
-                span: Span::default(),
-            },
+            len: ArrayLenTy::ConstValue(len as u64),
             elem: self.primitive(PrimitiveTy::U8),
         })
     }

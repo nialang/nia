@@ -212,13 +212,10 @@ impl<'a> TypeNormalizer<'a> {
 
 fn normalize_array_len(len: ArrayLenTy) -> ArrayLenTy {
     match len {
-        ArrayLenTy::ConstExpr { text, span } => nia_comptime_engine::eval_array_len_text(&text)
-            .map(|value| ArrayLenTy::ConstExpr {
-                text: value.to_string(),
-                span,
-            })
-            .unwrap_or(ArrayLenTy::ConstExpr { text, span }),
-        ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => len,
+        ArrayLenTy::Infer
+        | ArrayLenTy::ConstValue(_)
+        | ArrayLenTy::ConstExpr(_)
+        | ArrayLenTy::Builtin { .. } => len,
     }
 }
 
@@ -321,7 +318,7 @@ type B = A;
     }
 
     #[test]
-    fn canonicalizes_array_length_constants() {
+    fn preserves_array_length_const_expr_identity() {
         let (module, errors) = parse_module(
             r#"
 fn take(xs: [2 + 3]u8) void {}
@@ -336,12 +333,9 @@ fn take(xs: [2 + 3]u8) void {}
         assert!(normalization.interner.iter().any(|(_, ty)| matches!(
             ty,
             TyKind::Array {
-                len: ArrayLenTy::ConstExpr {
-                    text: len,
-                    span: _,
-                },
+                len: ArrayLenTy::ConstExpr(_),
                 elem: _,
-            } if len == "5"
+            }
         )));
     }
 }

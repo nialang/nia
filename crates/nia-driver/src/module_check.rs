@@ -59,6 +59,7 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
         locals: &local_resolution,
         signatures: &item_signatures,
         interner: &type_normalization.interner,
+        const_exprs: &type_lowering.const_exprs,
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,

@@ -2,9 +2,10 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_body_check::GenericInstantiation;
+use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{mangle_base_symbol, mangle_type_with, sanitize_symbol_part};
 use nia_span::Span;
 use nia_ty::{TyInterner, TyKind};
@@ -28,6 +29,7 @@ pub struct MonomorphizeModuleInput<'a> {
     pub module_id: ModuleId,
     pub defs: &'a DefCollection,
     pub interner: &'a TyInterner,
+    pub comptime: &'a ComptimeCheck,
     pub instantiations: &'a [GenericInstantiation],
 }
 
@@ -40,6 +42,10 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         interners_by_module: inputs
             .iter()
             .map(|input| (input.module_id, input.interner))
+            .collect(),
+        comptime_by_module: inputs
+            .iter()
+            .map(|input| (input.module_id, input.comptime))
             .collect(),
         instantiations_by_source: collect_instantiations_by_source(inputs),
         recorded_generics: collect_recorded_generics(inputs),
@@ -60,6 +66,7 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
 struct MonoCollector<'a> {
     defs_by_module: HashMap<ModuleId, &'a DefCollection>,
     interners_by_module: HashMap<ModuleId, &'a TyInterner>,
+    comptime_by_module: HashMap<ModuleId, &'a ComptimeCheck>,
     instantiations_by_source: HashMap<GlobalDefId, Vec<(ModuleId, GenericInstantiation)>>,
     recorded_generics: HashMap<GlobalDefId, Vec<String>>,
     instances: Vec<MonoInstance>,
@@ -314,40 +321,22 @@ impl MonoCollector<'_> {
         let Some(interner) = self.interners_by_module.get(&module_id) else {
             return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         };
-        match interner.get(ty) {
-            Some(TyKind::Primitive(_)) => {
-                mangle_type_with(interner, ty, |def_id| self.def_name(def_id))
-            }
-            Some(TyKind::Pointer { is_const, elem }) => {
-                let qualifier = if *is_const { "const_ptr" } else { "ptr" };
-                format!("{qualifier}_{}", self.type_symbol(module_id, *elem))
-            }
-            Some(TyKind::Slice { is_const, elem }) => {
-                let qualifier = if *is_const { "const_slice" } else { "slice" };
-                format!("{qualifier}_{}", self.type_symbol(module_id, *elem))
-            }
-            Some(TyKind::Array { elem, .. }) => {
-                format!("array_{}", self.type_symbol(module_id, *elem))
-            }
-            Some(TyKind::FunctionPointer { .. }) => "fnptr".to_string(),
-            Some(TyKind::Nominal { def_id, args }) => {
-                let name = self.def_name(*def_id);
-                if args.is_empty() {
-                    name
-                } else {
-                    let args = args
-                        .iter()
-                        .map(|arg| self.type_symbol(module_id, *arg))
-                        .collect::<Vec<_>>()
-                        .join("_");
-                    format!("{name}_{args}")
-                }
-            }
-            Some(TyKind::GenericParam(name)) => sanitize_symbol_part(name),
-            Some(TyKind::Error) | None => {
-                format!("m{}_ty{}", ty.interner_id.0, ty.index.index())
-            }
+        if interner.get(ty).is_none() {
+            return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         }
+        mangle_type_with(
+            interner,
+            ty,
+            |def_id| self.def_name(def_id),
+            |id| self.array_len(id),
+        )
+    }
+
+    fn array_len(&self, id: GlobalConstExprId) -> u64 {
+        self.comptime_by_module
+            .get(&id.module_id)
+            .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+            .expect("array length used in monomorphization symbol must be evaluated")
     }
 }
 
@@ -429,6 +418,7 @@ mod tests {
             module_id: ModuleId(0),
             defs: &defs,
             interner: &interner,
+            comptime: &ComptimeCheck::default(),
             instantiations: &instantiations,
         }]);
 

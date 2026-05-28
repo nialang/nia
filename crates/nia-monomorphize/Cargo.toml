@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 nia-body-check.workspace = true
+nia-comptime-check.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true

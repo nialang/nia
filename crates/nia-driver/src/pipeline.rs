@@ -275,6 +275,7 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                 module_id: module.id,
                 defs: &module.defs,
                 interner: &module.body_check.interner,
+                comptime: &module.comptime,
                 instantiations: &module.body_check.generic_instantiations,
             })
             .collect::<Vec<_>>(),
