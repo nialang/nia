@@ -1225,11 +1225,12 @@ dereference is limited to fields, methods, and receiver matching. It is not a
 general implicit conversion.
 
 Expression statements may not silently discard non-`void` and non-`!` values.
-Discard explicitly with `_`:
+Discard explicitly with `_`. Discarding a `void` expression is also valid:
 
 ```nia
 vec.push(2);      // error if push returns non-void
 _ = vec.push(2);  // allowed
+_ = log("done");  // allowed even if log returns void
 abort();          // allowed if abort returns !
 ```
 

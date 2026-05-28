@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
-use nia_ast::{BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
+use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
@@ -132,9 +132,15 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Binary { lhs, op, rhs } => {
                 self.check_binary_expr(expr.span, lhs, *op, rhs, expected)
             }
-            ExprKind::Assign { lhs, rhs, .. } => {
+            ExprKind::Assign { lhs, op, rhs } => {
                 if matches!(lhs.kind, ExprKind::Underscore) {
                     self.check_expr(rhs);
+                    if !matches!(op, AssignOp::Assign) {
+                        self.diagnostics.push(Diagnostic::error(
+                            expr.span,
+                            "`_` discard only supports plain assignment",
+                        ));
+                    }
                     self.void()
                 } else {
                     let lhs_ty = self.check_expr(lhs);

@@ -1558,10 +1558,13 @@ fn rejects_implicit_discard_of_non_void_expression_statements() {
 fn value() i32 { 1 }
 fn effect() {}
 extern fn abort() !;
+extern fn printf(fmt: &const u8, ...);
 
 fn main() i32 {
     value();
     _ = value();
+    _ = effect();
+    _ = printf(c"ok\n");
     effect();
     abort();
     0
@@ -1688,6 +1691,7 @@ fn main(param: i32, read: &const i32, write: &i32, cell: Cell, read_cell: &const
     var local_mut = 1;
     local_mut = 2;
     param = 3;
+    _ += 1;
     global_mut = 4;
     local_const = 5;
     global_const = 6;
@@ -1726,6 +1730,11 @@ fn main(param: i32, read: &const i32, write: &i32, cell: Cell, read_cell: &const
             .iter()
             .any(|diagnostic| diagnostic.message.contains("local_mut"))
     );
+    assert!(checked.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("`_` discard only supports plain assignment")
+    }));
 }
 
 #[test]

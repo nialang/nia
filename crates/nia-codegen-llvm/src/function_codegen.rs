@@ -364,6 +364,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             TypedExprKind::Assign { .. } => {
                 Err(self.error(expr.span, "assignment expression cannot be used as a value"))
             }
+            TypedExprKind::Discard(_) => {
+                Err(self.error(expr.span, "discard expression cannot be used as a value"))
+            }
             TypedExprKind::Error => Err(self.error(expr.span, "cannot emit erroneous expression")),
         }
     }
