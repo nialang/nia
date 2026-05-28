@@ -1388,6 +1388,34 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_deferred_block_cleanup() {
+    let root = temp_dir("emits_deferred_block_cleanup");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn cleanup() void {}
+
+fn main() i32 {
+    defer {
+        cleanup();
+    };
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_substrings_in_order(ir, &["call void @nia__m0__d0__cleanup()", "ret i32 0"]);
+}
+
+#[test]
 fn emits_defer_lifo_for_normal_nested_block_exit() {
     let root = temp_dir("emits_defer_lifo_for_normal_nested_block_exit");
     let main = root.join("main.nia");
