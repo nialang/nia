@@ -179,9 +179,6 @@ impl<'a> ModuleLowerer<'a> {
                 TypedStmtKind::For(for_stmt) => {
                     TypedStmtKind::For(Box::new(self.instantiate_for(*for_stmt, substitutions)))
                 }
-                TypedStmtKind::Switch(switch) => {
-                    TypedStmtKind::Switch(self.instantiate_switch(switch, substitutions))
-                }
             },
         }
     }
@@ -411,6 +408,9 @@ impl<'a> ModuleLowerer<'a> {
                     else_branch: else_branch
                         .map(|expr| Box::new(self.instantiate_expr(*expr, substitutions))),
                 },
+                TypedExprKind::Switch(switch) => {
+                    TypedExprKind::Switch(Box::new(self.instantiate_switch(*switch, substitutions)))
+                }
             },
         }
     }

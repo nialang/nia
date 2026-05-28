@@ -1506,6 +1506,47 @@ fn main(c: Color) i32 {
 }
 
 #[test]
+fn emits_switch_expressions() {
+    let root = temp_dir("emits_switch_expressions");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn pick(x: u32) i32 {
+    switch x {
+        0 => 10,
+        1 => 20,
+        _ => 30,
+    }
+}
+
+fn early(x: u32) i32 {
+    switch x {
+        0 => return 1,
+        _ => 2,
+    }
+}
+
+fn main() i32 {
+    pick(1) + early(2)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("switch i32"));
+    assert!(ir.contains("switchtmp"));
+    assert!(ir.contains("phi i32"));
+    assert!(ir.contains("ret i32 1"));
+}
+
+#[test]
 fn emits_static_aggregate_initializers() {
     let root = temp_dir("emits_static_aggregate_initializers");
     let main = root.join("main.nia");

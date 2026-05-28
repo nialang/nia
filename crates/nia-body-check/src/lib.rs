@@ -640,9 +640,6 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.check_block(&for_stmt.body);
             }
-            StmtKind::Switch(switch) => {
-                self.check_switch_stmt(switch);
-            }
         }
     }
 
@@ -691,11 +688,16 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_switch_stmt(&mut self, switch: &nia_ast::SwitchStmt) {
+    pub(crate) fn check_switch_expr(
+        &mut self,
+        switch: &nia_ast::SwitchStmt,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
         let target_ty = self.check_expr(&switch.target);
         let enum_id = self.enum_global_def_id(target_ty);
         let mut has_default = false;
         let mut covered_variants = HashSet::new();
+        let mut result_ty = expected;
 
         for arm in &switch.arms {
             match &arm.pattern {
@@ -723,14 +725,11 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            match &arm.body {
-                nia_ast::SwitchArmBody::Expr(expr) => {
-                    self.check_expr(expr);
-                }
-                nia_ast::SwitchArmBody::Stmt(stmt) => self.check_stmt(stmt),
-                nia_ast::SwitchArmBody::Block(block) => {
-                    self.check_block(block);
-                }
+            let arm_ty = self.check_switch_arm_body(&arm.body, result_ty);
+            if let Some(expected) = result_ty {
+                self.expect_switch_arm_type(&arm.body, expected, arm_ty);
+            } else if !self.is_never(arm_ty) {
+                result_ty = Some(arm_ty);
             }
         }
 
@@ -741,6 +740,51 @@ impl<'a> BodyChecker<'a> {
                 has_default,
                 &covered_variants,
             );
+        }
+        result_ty.unwrap_or_else(|| self.void())
+    }
+
+    fn check_switch_arm_body(
+        &mut self,
+        body: &nia_ast::SwitchArmBody,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        match body {
+            nia_ast::SwitchArmBody::Expr(expr) => self.check_expr_with_expected(expr, expected),
+            nia_ast::SwitchArmBody::Stmt(stmt) => {
+                self.check_stmt(stmt);
+                if matches!(
+                    stmt.kind,
+                    StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue
+                ) {
+                    self.never()
+                } else {
+                    self.void()
+                }
+            }
+            nia_ast::SwitchArmBody::Block(block) => self.check_block_with_expected(block, expected),
+        }
+    }
+
+    fn expect_switch_arm_type(
+        &mut self,
+        body: &nia_ast::SwitchArmBody,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) {
+        if self.is_never(actual) {
+            return;
+        }
+        match body {
+            nia_ast::SwitchArmBody::Expr(expr) => {
+                self.expect_expr_type(expr, expected, actual, "switch arms");
+            }
+            nia_ast::SwitchArmBody::Block(block) => {
+                self.expect_block_tail_type(block, expected, actual, "switch arms");
+            }
+            nia_ast::SwitchArmBody::Stmt(stmt) => {
+                self.expect_type(stmt.span, expected, actual, "switch arms");
+            }
         }
     }
 }

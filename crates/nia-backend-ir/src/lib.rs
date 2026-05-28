@@ -311,7 +311,6 @@ pub enum TypedStmtKind {
     Continue,
     Defer(TypedExpr),
     For(Box<TypedFor>),
-    Switch(TypedSwitch),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -457,6 +456,7 @@ pub enum TypedExprKind {
         then_branch: TypedBody,
         else_branch: Option<Box<TypedExpr>>,
     },
+    Switch(Box<TypedSwitch>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -221,25 +221,6 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_struct_instances_body(&for_stmt.body, seen, out);
             }
-            TypedStmtKind::Switch(switch) => {
-                self.collect_struct_instances_expr(&switch.target, seen, out);
-                for arm in &switch.arms {
-                    if let TypedSwitchPattern::Expr(expr) = &arm.pattern {
-                        self.collect_struct_instances_expr(expr, seen, out);
-                    }
-                    match &arm.body {
-                        TypedSwitchArmBody::Expr(expr) => {
-                            self.collect_struct_instances_expr(expr, seen, out);
-                        }
-                        TypedSwitchArmBody::Stmt(stmt) => {
-                            self.collect_struct_instances_stmt(stmt, seen, out);
-                        }
-                        TypedSwitchArmBody::Block(body) => {
-                            self.collect_struct_instances_body(body, seen, out);
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -321,6 +302,25 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instances_body(then_branch, seen, out);
                 if let Some(else_branch) = else_branch {
                     self.collect_struct_instances_expr(else_branch, seen, out);
+                }
+            }
+            TypedExprKind::Switch(switch) => {
+                self.collect_struct_instances_expr(&switch.target, seen, out);
+                for arm in &switch.arms {
+                    if let TypedSwitchPattern::Expr(expr) = &arm.pattern {
+                        self.collect_struct_instances_expr(expr, seen, out);
+                    }
+                    match &arm.body {
+                        TypedSwitchArmBody::Expr(expr) => {
+                            self.collect_struct_instances_expr(expr, seen, out);
+                        }
+                        TypedSwitchArmBody::Stmt(stmt) => {
+                            self.collect_struct_instances_stmt(stmt, seen, out);
+                        }
+                        TypedSwitchArmBody::Block(body) => {
+                            self.collect_struct_instances_body(body, seen, out);
+                        }
+                    }
                 }
             }
             TypedExprKind::Error
@@ -481,25 +481,6 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_union_instances_body(&for_stmt.body, seen, out);
             }
-            TypedStmtKind::Switch(switch) => {
-                self.collect_union_instances_expr(&switch.target, seen, out);
-                for arm in &switch.arms {
-                    if let TypedSwitchPattern::Expr(expr) = &arm.pattern {
-                        self.collect_union_instances_expr(expr, seen, out);
-                    }
-                    match &arm.body {
-                        TypedSwitchArmBody::Expr(expr) => {
-                            self.collect_union_instances_expr(expr, seen, out);
-                        }
-                        TypedSwitchArmBody::Stmt(stmt) => {
-                            self.collect_union_instances_stmt(stmt, seen, out);
-                        }
-                        TypedSwitchArmBody::Block(body) => {
-                            self.collect_union_instances_body(body, seen, out);
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -581,6 +562,25 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_union_instances_body(then_branch, seen, out);
                 if let Some(else_branch) = else_branch {
                     self.collect_union_instances_expr(else_branch, seen, out);
+                }
+            }
+            TypedExprKind::Switch(switch) => {
+                self.collect_union_instances_expr(&switch.target, seen, out);
+                for arm in &switch.arms {
+                    if let TypedSwitchPattern::Expr(expr) = &arm.pattern {
+                        self.collect_union_instances_expr(expr, seen, out);
+                    }
+                    match &arm.body {
+                        TypedSwitchArmBody::Expr(expr) => {
+                            self.collect_union_instances_expr(expr, seen, out);
+                        }
+                        TypedSwitchArmBody::Stmt(stmt) => {
+                            self.collect_union_instances_stmt(stmt, seen, out);
+                        }
+                        TypedSwitchArmBody::Block(body) => {
+                            self.collect_union_instances_body(body, seen, out);
+                        }
+                    }
                 }
             }
             TypedExprKind::Error
