@@ -49,6 +49,12 @@ enum Fallthrough {
     },
 }
 
+struct StatementIf<'a> {
+    cond: &'a TypedExpr,
+    then_branch: &'a TypedBody,
+    else_branch: Option<&'a TypedExpr>,
+}
+
 impl FunctionLowerer {
     fn new() -> Self {
         Self {
@@ -199,9 +205,11 @@ impl FunctionLowerer {
             } => {
                 self.lower_if_expr_stmt(
                     span,
-                    cond,
-                    then_branch,
-                    else_branch.as_deref(),
+                    StatementIf {
+                        cond,
+                        then_branch,
+                        else_branch: else_branch.as_deref(),
+                    },
                     scope,
                     current,
                     ops,
@@ -254,17 +262,15 @@ impl FunctionLowerer {
     fn lower_if_expr_stmt(
         &mut self,
         span: Span,
-        cond: &TypedExpr,
-        then_branch: &TypedBody,
-        else_branch: Option<&TypedExpr>,
+        if_expr: StatementIf<'_>,
         scope: FunctionScopeId,
         current: &mut FunctionBlockId,
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) {
-        let cond = self.lower_value_expr(cond, scope, current, ops, blocks);
+        let cond = self.lower_value_expr(if_expr.cond, scope, current, ops, blocks);
         let then_target = self.alloc_block();
-        let else_target = else_branch.map(|_| self.alloc_block());
+        let else_target = if_expr.else_branch.map(|_| self.alloc_block());
         let merge_target = self.alloc_block();
         self.finish_block(
             blocks,
@@ -280,16 +286,16 @@ impl FunctionLowerer {
             },
         );
 
-        let then_scope = self.alloc_scope(Some(scope), then_branch.span);
+        let then_scope = self.alloc_scope(Some(scope), if_expr.then_branch.span);
         self.lower_body_into(
-            then_branch,
+            if_expr.then_branch,
             then_target,
             then_scope,
             blocks,
             Fallthrough::Branch(merge_target),
         );
 
-        if let (Some(else_branch), Some(else_target)) = (else_branch, else_target) {
+        if let (Some(else_branch), Some(else_target)) = (if_expr.else_branch, else_target) {
             let mut else_current = else_target;
             let mut else_ops = Vec::new();
             self.lower_expr_stmt(
@@ -795,9 +801,11 @@ impl FunctionLowerer {
                 else_branch,
             } => self.lower_if_expr_stmt(
                 expr.span,
-                cond,
-                then_branch,
-                else_branch.as_deref(),
+                StatementIf {
+                    cond,
+                    then_branch,
+                    else_branch: else_branch.as_deref(),
+                },
                 scope,
                 current,
                 ops,

@@ -610,7 +610,7 @@ impl<'a> BodyChecker<'a> {
             }
             let item_def_id = defs.def_spans.get(item.span)?;
             (item_def_id == def_id.def_id)
-                .then(|| binding.value.as_ref())
+                .then_some(binding.value.as_ref())
                 .flatten()
         })
     }
