@@ -34,6 +34,7 @@ use nia_value_resolve::ValueResolution;
 pub struct BodyCheck {
     pub interner: TyInterner,
     pub expr_types: HashMap<Span, InternedTyId>,
+    pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
     pub local_types: HashMap<LocalId, InternedTyId>,
@@ -47,6 +48,13 @@ pub struct BodyCheck {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinValue {
     Usize(u64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BracketSuffixResolution {
+    Index,
+    GenericCall,
+    TypePrefixInstantiation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -288,6 +296,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
         expr_types: HashMap::new(),
+        bracket_suffix_resolutions: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
         c_string_pointer_coercions: HashMap::new(),
         builtin_values: HashMap::new(),
@@ -306,6 +315,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     BodyCheck {
         interner: checker.interner,
         expr_types: checker.expr_types,
+        bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
         array_to_slice_coercions: checker.array_to_slice_coercions,
         c_string_pointer_coercions: checker.c_string_pointer_coercions,
         local_types: checker.local_types,
@@ -336,6 +346,7 @@ struct BodyChecker<'a> {
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     expr_types: HashMap<Span, InternedTyId>,
+    bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
     builtin_values: HashMap<Span, BuiltinValue>,
@@ -374,6 +385,14 @@ struct ResolvedEnumSignature {
 }
 
 impl<'a> BodyChecker<'a> {
+    fn record_bracket_suffix_resolution(
+        &mut self,
+        span: Span,
+        resolution: BracketSuffixResolution,
+    ) {
+        self.bracket_suffix_resolutions.insert(span, resolution);
+    }
+
     fn check_module(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Binding(binding) = &item.kind {

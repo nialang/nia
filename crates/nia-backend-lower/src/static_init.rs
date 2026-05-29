@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use crate::ModuleLowerer;
 use crate::literals::{
     decode_byte_char, decode_byte_string_literal, decode_c_string_literal, decode_char_literal,
     decode_string_literal, numeric_literal_body, parse_int_literal,
 };
-use crate::{ModuleLowerer, generic_inst_base};
 use nia_ast::{ArrayElements, Expr, ExprKind};
 use nia_backend_ir::{PlaceBase, StaticFieldInit, StaticInit};
 use nia_body_check::BuiltinValue;
@@ -189,12 +189,6 @@ impl<'a> ModuleLowerer<'a> {
             .body_check
             .function_references
             .get(&expr.span)
-            .or_else(|| {
-                self.input
-                    .body_check
-                    .function_references
-                    .get(&generic_inst_base(expr).span)
-            })
             .map(|reference| (reference.def_id, reference.args.clone()))
     }
 }
