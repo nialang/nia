@@ -309,7 +309,7 @@ struct BodyChecker<'a> {
     function_references: HashMap<Span, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
-    global_inits: HashMap<GlobalDefId, nia_body_ir::StaticInit>,
+    global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,

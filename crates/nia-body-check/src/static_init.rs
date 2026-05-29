@@ -5,10 +5,11 @@ use crate::literals::{
     decode_char_literal, decode_string_literal, numeric_literal_body, parse_int_literal,
 };
 use nia_ast::{ArrayElements, Expr, ExprKind, IndexArg};
-use nia_body_ir::{BuiltinConst, BuiltinValue, PlaceBase, PlaceElem, StaticFieldInit, StaticInit};
+use nia_body_ir::BuiltinValue;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
+use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -158,11 +159,11 @@ impl<'a> BodyChecker<'a> {
         }
         let place = self.lower_static_place(expr);
         match place.base {
-            PlaceBase::Global(global) => StaticInit::AddrOfGlobal {
+            StaticAddressBase::Global(global) => StaticInit::AddrOfGlobal {
                 global,
-                path: place.elems,
+                path: place.path,
             },
-            _ => {
+            StaticAddressBase::Invalid => {
                 self.diagnostics.push(Diagnostic::error(
                     expr.span,
                     "global address initializer must refer to global storage",
@@ -178,43 +179,43 @@ impl<'a> BodyChecker<'a> {
             .map(|reference| (reference.def_id, reference.args.clone()))
     }
 
-    fn lower_static_place(&mut self, expr: &Expr) -> nia_body_ir::TypedPlace {
-        let ty = self
-            .expr_types
-            .get(&expr.span)
-            .copied()
-            .unwrap_or_else(|| self.error());
+    fn lower_static_place(&mut self, expr: &Expr) -> StaticAddressPlace {
         let mut elems = Vec::new();
         let base = self.lower_static_place_inner(expr, &mut elems);
-        nia_body_ir::TypedPlace {
-            span: expr.span,
-            ty,
-            base,
-            elems,
-        }
+        StaticAddressPlace { base, path: elems }
     }
 
-    fn lower_static_place_inner(&mut self, expr: &Expr, elems: &mut Vec<PlaceElem>) -> PlaceBase {
+    fn lower_static_place_inner(
+        &mut self,
+        expr: &Expr,
+        elems: &mut Vec<StaticAddressElem>,
+    ) -> StaticAddressBase {
         if self.values.variant_enums.contains_key(&expr.span) {
-            return PlaceBase::Local(LocalId(u32::MAX));
+            return StaticAddressBase::Invalid;
         }
         if let Some(def_id) = self.values.qualified_values.get(&expr.span).copied() {
-            return PlaceBase::Global(def_id);
+            return StaticAddressBase::Global(def_id);
         }
         match &expr.kind {
             ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
                 Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
                     Some(ValueNameResolution::Def(def_id)) => {
-                        PlaceBase::Global(self.global_def_id(*def_id))
+                        StaticAddressBase::Global(self.global_def_id(*def_id))
                     }
-                    _ => PlaceBase::Local(LocalId(u32::MAX)),
+                    _ => StaticAddressBase::Invalid,
                 },
-                _ => PlaceBase::Local(LocalId(u32::MAX)),
+                _ => StaticAddressBase::Invalid,
             },
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 expr,
-            } => PlaceBase::Deref(Box::new(self.lower_static_place_index_expr(expr))),
+            } => {
+                self.diagnostics.push(Diagnostic::error(
+                    expr.span,
+                    "global address initializer cannot dereference runtime pointers",
+                ));
+                StaticAddressBase::Invalid
+            }
             ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name } => {
                 let base = self.lower_static_place_inner(lhs, elems);
                 let lhs_ty = self
@@ -225,15 +226,15 @@ impl<'a> BodyChecker<'a> {
                 let field = self
                     .field_def_for_base_ty(lhs_ty, name)
                     .unwrap_or_else(|| self.global_error_def());
-                elems.push(PlaceElem::Field(field));
+                elems.push(StaticAddressElem::Field(field));
                 base
             }
             ExprKind::Index { lhs, index } => {
                 let base = self.lower_static_place_inner(lhs, elems);
                 if let IndexArg::Expr(index) = index {
-                    elems.push(PlaceElem::Index(Box::new(
-                        self.lower_static_place_index_expr(index),
-                    )));
+                    elems.push(StaticAddressElem::Index(
+                        self.lower_static_place_index(index),
+                    ));
                 }
                 base
             }
@@ -244,48 +245,32 @@ impl<'a> BodyChecker<'a> {
                 ) {
                     let base = self.lower_static_place_inner(callee, elems);
                     if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
-                        elems.push(PlaceElem::Index(Box::new(
-                            self.lower_static_place_index_expr(index),
-                        )));
+                        elems.push(StaticAddressElem::Index(
+                            self.lower_static_place_index(index),
+                        ));
                     }
                     base
                 } else {
-                    PlaceBase::Local(LocalId(u32::MAX))
+                    StaticAddressBase::Invalid
                 }
             }
-            _ => PlaceBase::Local(LocalId(u32::MAX)),
+            _ => StaticAddressBase::Invalid,
         }
     }
 
-    fn lower_static_place_index_expr(&self, expr: &Expr) -> nia_body_ir::TypedExpr {
-        let ty = self
-            .expr_types
-            .get(&expr.span)
-            .copied()
-            .unwrap_or_else(|| self.error());
-        let kind = match &expr.kind {
-            ExprKind::Integer(text) => {
-                nia_body_ir::TypedExprKind::Integer(numeric_literal_body(text).to_string())
+    fn lower_static_place_index(&mut self, expr: &Expr) -> u64 {
+        match nia_comptime_engine::eval_array_len_expr(expr, self) {
+            Ok(value) => value,
+            Err(error) => {
+                self.diagnostics.push(Diagnostic::error(
+                    expr.span,
+                    format!(
+                        "static address index is not a valid usize constant: {}",
+                        error.message
+                    ),
+                ));
+                0
             }
-            ExprKind::Builtin { .. } => self
-                .builtin_values
-                .get(&expr.span)
-                .map(|value| match value {
-                    BuiltinValue::Usize(value) => {
-                        nia_body_ir::TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
-                    }
-                })
-                .unwrap_or(nia_body_ir::TypedExprKind::Error),
-            ExprKind::Ident(_) | ExprKind::Qualified { .. } => self
-                .static_comptime_int(expr)
-                .map(|value| nia_body_ir::TypedExprKind::Integer(value.to_string()))
-                .unwrap_or(nia_body_ir::TypedExprKind::Error),
-            _ => nia_body_ir::TypedExprKind::Error,
-        };
-        nia_body_ir::TypedExpr {
-            span: expr.span,
-            ty,
-            kind,
         }
     }
 
@@ -306,4 +291,14 @@ impl<'a> BodyChecker<'a> {
         }
         None
     }
+}
+
+struct StaticAddressPlace {
+    base: StaticAddressBase,
+    path: Vec<StaticAddressElem>,
+}
+
+enum StaticAddressBase {
+    Global(GlobalDefId),
+    Invalid,
 }

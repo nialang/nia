@@ -90,6 +90,7 @@ dependencies = [
  "nia-ids",
  "nia-layout",
  "nia-span",
+ "nia-static-ir",
  "nia-ty",
 ]
 
@@ -139,6 +140,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-parser",
  "nia-span",
+ "nia-static-ir",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",
@@ -153,6 +155,7 @@ dependencies = [
  "nia-ast",
  "nia-ids",
  "nia-span",
+ "nia-static-ir",
  "nia-ty",
 ]
 
@@ -188,6 +191,7 @@ dependencies = [
  "nia-llvm",
  "nia-mangle",
  "nia-span",
+ "nia-static-ir",
  "nia-ty",
 ]
 
@@ -431,6 +435,13 @@ dependencies = [
  "nia-type-lower",
  "nia-type-resolve",
  "nia-value-resolve",
+]
+
+[[package]]
+name = "nia-static-ir"
+version = "0.1.19"
+dependencies = [
+ "nia-ids",
 ]
 
 [[package]]

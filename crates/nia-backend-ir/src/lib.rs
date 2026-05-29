@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::ReceiverKind;
-use nia_body_ir::StaticInit;
 use nia_comptime_check::ComptimeCheck;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
+use nia_static_ir::StaticInit;
 use nia_ty::TyInterner;
 
 #[derive(Debug, Clone, PartialEq)]

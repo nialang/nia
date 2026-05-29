@@ -19,6 +19,7 @@ nia-layout.workspace = true
 nia-mangle.workspace = true
 nia-llvm.workspace = true
 nia-span.workspace = true
+nia-static-ir.workspace = true
 nia-ty.workspace = true
 
 [dev-dependencies]

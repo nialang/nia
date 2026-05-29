@@ -2135,10 +2135,12 @@ fn emits_static_global_address_initializers() {
         &main,
         r#"
 var target: i32 = 1;
+var values: [4]i32 = [1, 2, 3, 4];
 const p: &i32 = &target;
+const q: &i32 = &values[1 + 1];
 
 fn main() i32 {
-    p.*
+    p.* + q.*
 }
 "#,
     )
@@ -2151,7 +2153,10 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("@nia__m0__d0__target = global i32 1"));
-    assert!(ir.contains("@nia__m0__d1__p = constant ptr @nia__m0__d0__target"));
+    assert!(ir.contains("@nia__m0__d2__p = constant ptr @nia__m0__d0__target"));
+    assert!(
+        ir.contains("@nia__m0__d3__q = constant ptr getelementptr inbounds ([4 x i32], ptr @nia__m0__d1__values, i64 0, i64 2)")
+    );
 }
 
 #[test]
