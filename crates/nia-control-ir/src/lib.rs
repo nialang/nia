@@ -105,10 +105,12 @@ impl ControlLowerer {
     fn lower_body(&mut self, body: &TypedBody) -> ControlBody {
         let entry = self.alloc_block();
         let mut blocks = Vec::new();
+        let mut locals = Vec::new();
         self.lower_body_into(body, entry, &mut blocks, Fallthrough::Tail);
+        self.collect_body_locals(body, &mut locals);
         ControlBody {
             span: body.span,
-            locals: body.locals.clone(),
+            locals,
             blocks,
             entry,
             ty: body.ty,
@@ -350,6 +352,33 @@ impl ControlLowerer {
         let id = ControlBlockId(self.next_block);
         self.next_block += 1;
         id
+    }
+
+    fn collect_body_locals(&self, body: &TypedBody, locals: &mut Vec<TypedLocal>) {
+        self.extend_unique_locals(&body.locals, locals);
+        self.collect_nested_body_locals(body, locals);
+    }
+
+    fn collect_nested_body_locals(&self, body: &TypedBody, locals: &mut Vec<TypedLocal>) {
+        for stmt in &body.stmts {
+            match &stmt.kind {
+                TypedStmtKind::For(for_stmt) => self.collect_body_locals(&for_stmt.body, locals),
+                TypedStmtKind::Binding(_)
+                | TypedStmtKind::Expr(_)
+                | TypedStmtKind::Return(_)
+                | TypedStmtKind::Break
+                | TypedStmtKind::Continue
+                | TypedStmtKind::Defer(_) => {}
+            }
+        }
+    }
+
+    fn extend_unique_locals(&self, source: &[TypedLocal], target: &mut Vec<TypedLocal>) {
+        for local in source {
+            if !target.iter().any(|existing| existing.id == local.id) {
+                target.push(local.clone());
+            }
+        }
     }
 }
 
@@ -625,5 +654,162 @@ mod tests {
             .expect("continue block");
         assert!(matches!(continue_block.ops[0], ControlOp::Expr(_)));
         assert_eq!(continue_block.terminator.successors(), vec![loop_block.id]);
+    }
+
+    #[test]
+    fn preserves_unique_locals_from_flattened_loop_bodies() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let outer_local = TypedLocal {
+            id: LocalId(0),
+            name: "outer".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        };
+        let inner_local = TypedLocal {
+            id: LocalId(1),
+            name: "inner".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        };
+        let body = TypedBody {
+            span,
+            locals: vec![outer_local, inner_local.clone()],
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::Infinite,
+                    body: TypedBody {
+                        span,
+                        locals: vec![inner_local],
+                        stmts: Vec::new(),
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(
+            control
+                .locals
+                .iter()
+                .map(|local| local.id)
+                .collect::<Vec<_>>(),
+            vec![LocalId(0), LocalId(1)]
+        );
+    }
+
+    #[test]
+    fn nested_loops_resolve_break_and_continue_to_nearest_loop() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let inner_continue_loop = TypedStmt {
+            span,
+            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                header: TypedForHeader::Infinite,
+                body: TypedBody {
+                    span,
+                    locals: Vec::new(),
+                    stmts: vec![TypedStmt {
+                        span,
+                        kind: TypedStmtKind::Continue,
+                    }],
+                    tail: None,
+                    ty,
+                },
+            })),
+        };
+        let inner_break_loop = TypedStmt {
+            span,
+            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                header: TypedForHeader::Infinite,
+                body: TypedBody {
+                    span,
+                    locals: Vec::new(),
+                    stmts: vec![TypedStmt {
+                        span,
+                        kind: TypedStmtKind::Break,
+                    }],
+                    tail: None,
+                    ty,
+                },
+            })),
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::Infinite,
+                    body: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: vec![inner_continue_loop, inner_break_loop],
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::Loop {
+            body: outer_body, ..
+        } = control.blocks[0].terminator
+        else {
+            panic!("expected outer loop");
+        };
+        let outer_body = control
+            .blocks
+            .iter()
+            .find(|block| block.id == outer_body)
+            .expect("outer body block");
+        let ControlTerminator::Loop {
+            body: inner_body,
+            continue_target: inner_continue,
+            break_target: first_inner_break,
+            ..
+        } = outer_body.terminator
+        else {
+            panic!("expected first inner loop");
+        };
+        let inner_body = control
+            .blocks
+            .iter()
+            .find(|block| block.id == inner_body)
+            .expect("first inner body block");
+
+        assert_eq!(inner_body.terminator.successors(), vec![inner_continue]);
+
+        let second_inner_loop = control
+            .blocks
+            .iter()
+            .find(|block| block.id == first_inner_break)
+            .expect("second inner loop block");
+        let ControlTerminator::Loop {
+            body: inner_body,
+            break_target: inner_break,
+            ..
+        } = second_inner_loop.terminator
+        else {
+            panic!("expected second inner loop");
+        };
+        let inner_body = control
+            .blocks
+            .iter()
+            .find(|block| block.id == inner_body)
+            .expect("second inner body block");
+
+        assert_eq!(inner_body.terminator.successors(), vec![inner_break]);
     }
 }
