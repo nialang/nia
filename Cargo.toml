@@ -22,7 +22,11 @@ members = [
     "crates/nia-comptime-engine",
     "crates/nia-comptime-check",
     "crates/nia-static-check",
+    "crates/nia-static-ir",
+    "crates/nia-body-ir",
     "crates/nia-body-check",
+    "crates/nia-function-ir",
+    "crates/nia-function-lower",
     "crates/nia-monomorphize",
     "crates/nia-mangle",
     "crates/nia-backend-ir",
@@ -36,7 +40,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.19"
+version = "0.2.0"
 edition = "2024"
 authors = ["softfault <givenyoung46@gmail.com>"]
 license = "GPL-3.0-or-later"
@@ -63,7 +67,11 @@ nia-type-normalize = { path = "crates/nia-type-normalize" }
 nia-comptime-engine = { path = "crates/nia-comptime-engine" }
 nia-comptime-check = { path = "crates/nia-comptime-check" }
 nia-static-check = { path = "crates/nia-static-check" }
+nia-static-ir = { path = "crates/nia-static-ir" }
+nia-body-ir = { path = "crates/nia-body-ir" }
 nia-body-check = { path = "crates/nia-body-check" }
+nia-function-ir = { path = "crates/nia-function-ir" }
+nia-function-lower = { path = "crates/nia-function-lower" }
 nia-monomorphize = { path = "crates/nia-monomorphize" }
 nia-mangle = { path = "crates/nia-mangle" }
 nia-backend-ir = { path = "crates/nia-backend-ir" }

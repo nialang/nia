@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_backend_ir::{TypedArrayElements, TypedExpr, TypedFieldInit};
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::{FunctionArrayElements, FunctionExpr, FunctionFieldInit};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::values::{BasicValueEnum, PointerValue};
 use nia_span::Span;
@@ -11,8 +11,8 @@ use super::FunctionCodegen;
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_array_literal(
         &mut self,
-        expr: &TypedExpr,
-        elems: &TypedArrayElements,
+        expr: &FunctionExpr,
+        elems: &FunctionArrayElements,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let array_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self
@@ -20,7 +20,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_alloca(array_ty, "arraytmp")
             .map_err(|_| self.error(expr.span, "failed to allocate array literal"))?;
         match elems {
-            TypedArrayElements::List(values) => {
+            FunctionArrayElements::List(values) => {
                 for (index, value) in values.iter().enumerate() {
                     let elem_ptr =
                         self.emit_const_index_addr(expr.span, expr.ty, ptr, index as u64)?;
@@ -30,7 +30,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .map_err(|_| self.error(expr.span, "failed to store array element"))?;
                 }
             }
-            TypedArrayElements::Repeat { value, count } => {
+            FunctionArrayElements::Repeat { value, count } => {
                 for index in 0..*count {
                     let elem_ptr = self.emit_const_index_addr(expr.span, expr.ty, ptr, index)?;
                     let value = self.emit_expr(value)?;
@@ -47,9 +47,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_struct_literal(
         &mut self,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
         _def_id: GlobalDefId,
-        fields: &[TypedFieldInit],
+        fields: &[FunctionFieldInit],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         if self
             .module
@@ -81,9 +81,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_union_literal(
         &mut self,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
         _def_id: GlobalDefId,
-        field: &TypedFieldInit,
+        field: &FunctionFieldInit,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let union_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self
@@ -101,7 +101,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_enum_variant(
         &self,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
         def_id: GlobalDefId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(enum_item) = self

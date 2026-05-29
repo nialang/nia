@@ -624,10 +624,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         }
         if let Some(global_id) = self.global_comptime_use(span) {
             return self
-                .comptime
-                .values
-                .get(&nia_comptime_check::ComptimeKey::Global(global_id))
-                .cloned()
+                .global_comptime_value(global_id)
                 .ok_or_else(|| ComptimeError {
                     span,
                     message: format!("failed to evaluate comptime value `{name}`"),
@@ -646,7 +643,7 @@ impl<'a> BodyChecker<'a> {
         nia_comptime_engine::eval_array_len_expr(count, self)
     }
 
-    fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
+    pub(crate) fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
         let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.locals.uses.get(&span) else {
             return None;
         };
@@ -654,7 +651,7 @@ impl<'a> BodyChecker<'a> {
         (local.kind == nia_local_resolve::LocalKind::ComptimeBinding).then_some(*local_id)
     }
 
-    fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
+    pub(crate) fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
         if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
             if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
                 return Some(global_id);
@@ -670,7 +667,7 @@ impl<'a> BodyChecker<'a> {
         (def.kind == DefKind::Comptime).then_some(self.global_def_id(*def_id))
     }
 
-    fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
+    pub(crate) fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
         self.all_defs
             .iter()
             .find(|defs| defs.module_id == global_id.module_id)

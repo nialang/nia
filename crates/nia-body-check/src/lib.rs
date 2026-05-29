@@ -2,11 +2,13 @@
 use std::collections::{HashMap, HashSet};
 
 mod aggregates;
+mod bir;
 mod calls;
 mod expr;
 mod helpers;
 mod literals;
 mod places;
+mod static_init;
 mod type_support;
 
 pub use calls::import_type_into;
@@ -14,10 +16,14 @@ pub use calls::import_type_into;
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, ForInit, FunctionItem, ItemKind, Module, Stmt, StmtKind,
 };
+use nia_body_ir::{
+    ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
+    FunctionReference, GenericInstantiation, ResolvedCall,
+};
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
     StructSignature, UnionSignature,
@@ -32,72 +38,8 @@ use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyCheck {
-    pub interner: TyInterner,
-    pub expr_types: HashMap<Span, InternedTyId>,
-    pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
-    pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
-    pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
-    pub local_types: HashMap<LocalId, InternedTyId>,
-    pub builtin_values: HashMap<Span, BuiltinValue>,
-    pub resolved_calls: HashMap<Span, ResolvedCall>,
-    pub function_references: HashMap<Span, FunctionReference>,
-    pub generic_instantiations: Vec<GenericInstantiation>,
+    pub ir: BodyIr,
     pub diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinValue {
-    Usize(u64),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BracketSuffixResolution {
-    Index,
-    GenericCall,
-    TypePrefixInstantiation,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ArrayToSliceCoercion {
-    pub array_ty: InternedTyId,
-    pub slice_ty: InternedTyId,
-    pub is_const: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CStringPointerCoercion {
-    pub array_ty: InternedTyId,
-    pub pointer_ty: InternedTyId,
-    pub is_const: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GenericInstantiation {
-    pub def_id: GlobalDefId,
-    pub args: Vec<InternedTyId>,
-    pub generics: Vec<String>,
-    pub span: Span,
-    pub source_def_id: Option<GlobalDefId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResolvedCall {
-    Function(GlobalDefId),
-    FunctionInstance {
-        def_id: GlobalDefId,
-        args: Vec<InternedTyId>,
-    },
-    Method {
-        def_id: GlobalDefId,
-        args: Vec<InternedTyId>,
-    },
-    FunctionPointer,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FunctionReference {
-    pub def_id: GlobalDefId,
-    pub args: Vec<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,8 +89,14 @@ pub struct ProgramSignatureMaps<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct ProgramComptimeMaps<'a> {
+    pub comptimes: &'a HashMap<ModuleId, ComptimeCheck>,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct BodyCheckInput<'a> {
     pub module: &'a Module,
+    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
     pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
@@ -161,11 +109,13 @@ pub struct BodyCheckInput<'a> {
     pub extensions: &'a VisibleExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
     pub program_signatures: ProgramSignatureMaps<'a>,
+    pub program_comptime: ProgramComptimeMaps<'a>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub module: &'a Module,
+    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
     pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
@@ -206,6 +156,7 @@ pub fn check_module_bodies(
     let empty_functions = HashMap::new();
     let empty_globals = HashMap::new();
     let empty_comptimes = HashMap::new();
+    let empty_program_comptime = HashMap::new();
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
@@ -213,6 +164,7 @@ pub fn check_module_bodies(
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         module,
+        all_modules: std::slice::from_ref(module),
         defs,
         all_defs: std::slice::from_ref(defs),
         values,
@@ -231,6 +183,9 @@ pub fn check_module_bodies(
             structs: &empty_structs,
             unions: &empty_unions,
             enums: &empty_enums,
+        },
+        program_comptime: ProgramComptimeMaps {
+            comptimes: &empty_program_comptime,
         },
     });
     checked.diagnostics.extend(layouts.diagnostics);
@@ -254,6 +209,7 @@ pub fn check_module_bodies_with_program_signatures(
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         module: input.module,
+        all_modules: input.all_modules,
         defs: input.defs,
         all_defs: input.all_defs,
         values: input.values,
@@ -266,6 +222,9 @@ pub fn check_module_bodies_with_program_signatures(
         extensions: input.extensions,
         extension_interner: None,
         program_signatures: input.program_signatures,
+        program_comptime: ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
+        },
     });
     checked.diagnostics.extend(layouts.diagnostics);
     checked
@@ -277,6 +236,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     let mut checker = BodyChecker {
         defs: input.defs,
         all_defs: input.all_defs,
+        all_modules: input.all_modules,
         values: input.values,
         locals: input.locals,
         interner: input
@@ -295,6 +255,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_structs: input.program_signatures.structs,
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
+        program_comptime: input.program_comptime.comptimes,
         expr_types: HashMap::new(),
         bracket_suffix_resolutions: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
@@ -303,26 +264,33 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         resolved_calls: HashMap::new(),
         function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
+        function_bodies: HashMap::new(),
+        global_inits: HashMap::new(),
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         comptime_types: HashMap::new(),
         diagnostics: Vec::new(),
         current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
         current_def_id: None,
+        current_param_locals: Vec::new(),
     };
     checker.seed_global_types();
     checker.check_module(input.module);
     BodyCheck {
-        interner: checker.interner,
-        expr_types: checker.expr_types,
-        bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
-        array_to_slice_coercions: checker.array_to_slice_coercions,
-        c_string_pointer_coercions: checker.c_string_pointer_coercions,
-        local_types: checker.local_types,
-        builtin_values: checker.builtin_values,
-        resolved_calls: checker.resolved_calls,
-        function_references: checker.function_references,
-        generic_instantiations: checker.generic_instantiations,
+        ir: BodyIr {
+            interner: checker.interner,
+            function_bodies: checker.function_bodies,
+            global_inits: checker.global_inits,
+            expr_types: checker.expr_types,
+            bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
+            array_to_slice_coercions: checker.array_to_slice_coercions,
+            c_string_pointer_coercions: checker.c_string_pointer_coercions,
+            local_types: checker.local_types,
+            builtin_values: checker.builtin_values,
+            resolved_calls: checker.resolved_calls,
+            function_references: checker.function_references,
+            generic_instantiations: checker.generic_instantiations,
+        },
         diagnostics: checker.diagnostics,
     }
 }
@@ -330,6 +298,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
 struct BodyChecker<'a> {
     defs: &'a DefCollection,
     all_defs: &'a [DefCollection],
+    all_modules: &'a [Module],
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     interner: TyInterner,
@@ -345,6 +314,7 @@ struct BodyChecker<'a> {
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     expr_types: HashMap<Span, InternedTyId>,
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
@@ -353,12 +323,15 @@ struct BodyChecker<'a> {
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
+    function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
+    global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
+    current_param_locals: Vec<LocalId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -495,6 +468,8 @@ impl<'a> BodyChecker<'a> {
             }
         };
         self.global_types.insert(def_id, global_ty);
+        let init = self.lower_static_init(value);
+        self.global_inits.insert(self.global_def_id(def_id), init);
     }
 
     fn check_function_item(&mut self, item_span: Span, function: &FunctionItem) {
@@ -517,6 +492,7 @@ impl<'a> BodyChecker<'a> {
         };
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
+        let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         self.current_return = signature.return_type;
         self.current_def_id = Some(self.global_def_id(def_id));
         let self_ty = self.method_self_type(def_id, signature);
@@ -532,9 +508,13 @@ impl<'a> BodyChecker<'a> {
             } else if self.is_void(signature.return_type) {
                 self.expect_type(body.span, signature.return_type, body_ty, "function body");
             }
+            let body = self.lower_body(body);
+            self.function_bodies
+                .insert(self.global_def_id(def_id), body);
         }
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
+        self.current_param_locals = previous_param_locals;
     }
 
     fn seed_param_types(
@@ -551,6 +531,7 @@ impl<'a> BodyChecker<'a> {
                     param_sig.ty
                 };
                 self.local_types.insert(local_id, ty);
+                self.current_param_locals.push(local_id);
             }
         }
     }

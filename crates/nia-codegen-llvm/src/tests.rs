@@ -2,7 +2,11 @@
 use super::*;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
-    TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind,
+};
+use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
+use nia_function_ir::{
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionExpr, FunctionExprKind, FunctionScope,
+    FunctionScopeId, FunctionTerminator,
 };
 use nia_ids::{DefId, GlobalDefId, LocalId, ModuleId};
 use nia_layout::{FieldLayout, StructLayout, TypeLayout};
@@ -124,6 +128,177 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn emits_function_body_from_function_ir_when_available() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: Default::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Tail {
+                            value: Some(FunctionExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: FunctionExprKind::Integer("2".to_string()),
+                            }),
+                            span,
+                        },
+                    }],
+                    entry: FunctionBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("ret i32 2"), "{ir}");
+}
+
+#[test]
+fn emits_statement_if_from_function_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_if_from_function_ir_with_defer_cleanup");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main() i32 {
+    if true {
+        defer log(1);
+    }
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("if.then") || ir.contains("fir.bb"), "{ir}");
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("ret i32 0"));
+}
+
+#[test]
+fn emits_statement_switch_from_function_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_switch_from_function_ir_with_defer_cleanup");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main() i32 {
+    switch 1 {
+        1 => {
+            defer log(1);
+        },
+        _ => {
+            defer log(2);
+        },
+    }
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("call void @log(i32 2)"));
+    assert!(ir.contains("ret i32 0"));
+}
+
+#[test]
+fn emits_statement_loop_from_function_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_loop_from_function_ir_with_defer_cleanup");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main() i32 {
+    for {
+        defer log(1);
+        break;
+    }
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("fir.bb"), "{ir}");
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("ret i32 0"));
+}
+
+#[test]
 fn emits_literals_with_expected_context_types() {
     let root = temp_dir("emits_literals_with_expected_context_types");
     let main = root.join("main.nia");
@@ -221,6 +396,31 @@ fn rejects_field_access_with_mismatched_base_struct() {
         def_id: point_id,
         args: Vec::new(),
     });
+    let body = TypedBody {
+        span: Span::default(),
+        locals: vec![TypedLocal {
+            id: LocalId(0),
+            name: "point".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty: point_ty,
+            span: Span::default(),
+        }],
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span: Span::default(),
+            ty: i32_ty,
+            kind: TypedExprKind::Field {
+                lhs: Box::new(TypedExpr {
+                    span: Span::default(),
+                    ty: point_ty,
+                    kind: TypedExprKind::Local(LocalId(0)),
+                }),
+                field: other_y,
+            },
+        })),
+        ty: i32_ty,
+    };
+    let function_body = nia_function_lower::lower_function_body(&body);
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),
@@ -301,30 +501,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
-                body: Some(TypedBody {
-                    span: Span::default(),
-                    locals: vec![TypedLocal {
-                        id: LocalId(0),
-                        name: "point".to_string(),
-                        kind: TypedLocalKind::Binding,
-                        ty: point_ty,
-                        span: Span::default(),
-                    }],
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(TypedExpr {
-                        span: Span::default(),
-                        ty: i32_ty,
-                        kind: TypedExprKind::Field {
-                            lhs: Box::new(TypedExpr {
-                                span: Span::default(),
-                                ty: point_ty,
-                                kind: TypedExprKind::Local(LocalId(0)),
-                            }),
-                            field: other_y,
-                        },
-                    })),
-                    ty: i32_ty,
-                }),
+                function_body: Some(function_body),
                 span: Span::default(),
             }],
             function_instances: Vec::new(),
@@ -548,8 +725,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_if_expression_with_phi() {
-    let root = temp_dir("emits_if_expression_with_phi");
+fn emits_if_expression_from_function_ir() {
+    let root = temp_dir("emits_if_expression_from_function_ir");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -569,9 +746,117 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("br i1"));
-    assert!(ir.contains("if.then"));
-    assert!(ir.contains("if.else"));
-    assert!(ir.contains("phi i32"));
+    assert!(ir.contains("fir.bb"));
+    assert!(ir.contains("store i32 40"));
+    assert!(ir.contains("store i32 2"));
+    assert!(!ir.contains("phi i32"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_nested_value_function_flow_from_function_ir() {
+    let root = temp_dir("emits_nested_value_function_flow_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn take(x: i32, y: i32) i32 {
+    x + y
+}
+
+fn main(flag: bool) i32 {
+    var values = [
+        if flag { 1 } else { 2 },
+        { var tmp = 3; tmp },
+        switch 1 {
+            0 => 4,
+            _ => 5,
+        },
+    ];
+    take(values[if flag { 0usize } else { 1usize }], if flag { 10 } else { 20 })
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("fir.tmp"), "{ir}");
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert!(ir.contains("call i32 @"));
+    assert!(!ir.contains("function expression was not lowered"));
+}
+
+#[test]
+fn emits_deferred_function_body_from_function_ir() {
+    let root = temp_dir("emits_deferred_function_body_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main(flag: bool) i32 {
+    defer {
+        if flag {
+            log(1);
+        } else {
+            switch 2 {
+                1 => log(2),
+                _ => log(3),
+            };
+        };
+    };
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("defer.entry"), "{ir}");
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("call void @log(i32 2)"));
+    assert!(ir.contains("call void @log(i32 3)"));
+    assert!(ir.contains("ret i32 0"));
+}
+
+#[test]
+fn emits_for_header_value_flow_from_function_ir() {
+    let root = temp_dir("emits_for_header_value_flow_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    var i = 0;
+    for ; { i < 2 }; i += if i == 0 { 1 } else { 2 } {
+        i += 1;
+    }
+    i
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("fir.tmp"), "{ir}");
+    assert!(ir.contains("br i1"), "{ir}");
     assert!(ir.contains("ret i32"));
 }
 
@@ -1527,10 +1812,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("for.cond"));
-    assert!(ir.contains("for.body"));
-    assert!(ir.contains("for.step"));
-    assert!(ir.contains("for.end"));
+    assert!(ir.contains("fir.bb"));
+    assert!(ir.contains("br i1"));
     assert!(ir.contains("br label"));
     assert!(ir.contains("ret i32"));
 }
@@ -1756,8 +2039,7 @@ fn main(c: Color) i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i8"));
-    assert!(ir.contains("switch.arm.0"));
-    assert!(ir.contains("switch.default"));
+    assert!(ir.contains("fir.bb"));
     assert!(ir.contains("ret i32 1"));
     assert!(ir.contains("ret i32 2"));
     assert!(ir.contains("ret i32 3"));
@@ -1799,8 +2081,11 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i32"));
-    assert!(ir.contains("switchtmp"));
-    assert!(ir.contains("phi i32"));
+    assert!(ir.contains("store i32 10"));
+    assert!(ir.contains("store i32 20"));
+    assert!(ir.contains("store i32 30"));
+    assert!(!ir.contains("switchtmp"));
+    assert!(!ir.contains("phi i32"));
     assert!(ir.contains("ret i32 1"));
 }
 
@@ -1850,10 +2135,12 @@ fn emits_static_global_address_initializers() {
         &main,
         r#"
 var target: i32 = 1;
+var values: [4]i32 = [1, 2, 3, 4];
 const p: &i32 = &target;
+const q: &i32 = &values[1 + 1];
 
 fn main() i32 {
-    p.*
+    p.* + q.*
 }
 "#,
     )
@@ -1866,7 +2153,10 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("@nia__m0__d0__target = global i32 1"));
-    assert!(ir.contains("@nia__m0__d1__p = constant ptr @nia__m0__d0__target"));
+    assert!(ir.contains("@nia__m0__d2__p = constant ptr @nia__m0__d0__target"));
+    assert!(
+        ir.contains("@nia__m0__d3__q = constant ptr getelementptr inbounds ([4 x i32], ptr @nia__m0__d1__values, i64 0, i64 2)")
+    );
 }
 
 #[test]
@@ -2815,6 +3105,69 @@ pub comptime width: usize = 4;
 }
 
 #[test]
+fn emits_imported_struct_array_field_repeat_literals() {
+    let root = temp_dir("emits_imported_struct_array_field_repeat_literals");
+    let main = root.join("main.nia");
+    std::fs::write(
+        root.join("defs.nia"),
+        r#"
+pub comptime N: usize = 4;
+
+pub struct Item {
+    value: u32,
+}
+
+pub struct Boxed {
+    items: [N]Item,
+}
+
+extend Item {
+    pub fn zero() Item {
+        { value: 0 }
+    }
+}
+"#,
+    )
+    .expect("write defs source");
+    std::fs::write(
+        &main,
+        r#"
+import .defs;
+using defs::*;
+
+fn literal_count() Boxed {
+    {
+        items: [Item::zero(); 4],
+    }
+}
+
+fn imported_count() Boxed {
+    {
+        items: [Item::zero(); defs::N],
+    }
+}
+
+fn main() i32 {
+    var a = literal_count();
+    var b = imported_count();
+    a.items[0].value as i32 + b.items[0].value as i32
+}
+"#,
+    )
+    .expect("write main source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(
+        output.modules[0].ir.contains("[4 x %"),
+        "{:?}",
+        output.modules[0].ir
+    );
+}
+
+#[test]
 fn emits_large_array_repeat_count_from_comptime_binding() {
     let root = temp_dir("emits_large_array_repeat_count_from_comptime_binding");
     let main = root.join("main.nia");
@@ -2901,7 +3254,7 @@ struct EmitSmokeCase {
 fn emit_smoke_cases() -> &'static [EmitSmokeCase] {
     &[
         EmitSmokeCase {
-            name: "control_flow_defer_switch",
+            name: "function_flow_defer_switch",
             root: "main.nia",
             files: &[(
                 "main.nia",

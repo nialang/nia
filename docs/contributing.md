@@ -10,9 +10,9 @@ direction of Nia.
 
 ## Project Status
 
-Nia is not released yet. Compatibility with earlier experimental syntax is not a
-goal. Removed behavior should not receive migration paths, compatibility tests,
-or diagnostics that exist only to explain old spellings.
+Nia is pre-1.0 and under active design. Compatibility with earlier experimental
+syntax is not a goal. Removed behavior should not receive migration paths,
+compatibility tests, or diagnostics that exist only to explain old spellings.
 
 ## Before Contributing
 
@@ -35,7 +35,7 @@ Before submitting compiler changes, run:
 
 ```sh
 cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 

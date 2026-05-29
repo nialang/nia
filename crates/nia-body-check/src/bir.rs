@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::ModuleLowerer;
+use crate::BodyChecker;
 use nia_ast::{
     ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg,
-    ItemKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
+    SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
-use nia_backend_ir::{
-    BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody, TypedCallee,
-    TypedExpr, TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal,
-    TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
-    TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+use nia_body_ir::{
+    BracketSuffixResolution, BuiltinConst, BuiltinValue, PlaceBase, PlaceElem, ResolvedCall,
+    TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind,
+    TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal, TypedLocalKind, TypedPlace,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
+    TypedSwitchPattern,
 };
-use nia_body_check::{BracketSuffixResolution, BuiltinValue, ResolvedCall};
-use nia_defs::DefKind;
-use nia_diagnostic::Diagnostic;
 use nia_ids::LocalId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
@@ -26,7 +24,7 @@ use crate::literals::{
 
 mod asm;
 
-impl<'a> ModuleLowerer<'a> {
+impl<'a> BodyChecker<'a> {
     pub(crate) fn lower_body(&mut self, block: &Block) -> TypedBody {
         let stmts = block
             .stmts
@@ -50,7 +48,7 @@ impl<'a> ModuleLowerer<'a> {
         let ty = tail
             .as_ref()
             .map(|tail| tail.ty)
-            .unwrap_or_else(|| self.void_ty());
+            .unwrap_or_else(|| self.void());
         TypedBody {
             span: block.span,
             locals: self.lower_locals(block.span),
@@ -61,8 +59,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_locals(&self, body_span: Span) -> Vec<TypedLocal> {
-        self.input
-            .locals
+        self.locals
             .locals
             .iter()
             .filter(|(id, local)| {
@@ -79,7 +76,11 @@ impl<'a> ModuleLowerer<'a> {
                     LocalKind::ConstBinding => TypedLocalKind::ConstBinding,
                     LocalKind::ComptimeBinding => unreachable!("comptime locals are not lowered"),
                 },
-                ty: self.local_ty(id).unwrap_or_else(|| self.error_ty()),
+                ty: self
+                    .local_types
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_else(|| self.error()),
                 span: local.span,
             })
             .collect()
@@ -89,7 +90,7 @@ impl<'a> ModuleLowerer<'a> {
         let kind = match &stmt.kind {
             StmtKind::Using(_) => TypedStmtKind::Expr(TypedExpr {
                 span: stmt.span,
-                ty: self.error_ty(),
+                ty: self.error(),
                 kind: TypedExprKind::Error,
             }),
             StmtKind::Binding(binding) => {
@@ -115,22 +116,21 @@ impl<'a> ModuleLowerer<'a> {
 
     fn lower_binding_stmt(&mut self, span: Span, binding: &BindingStmt) -> TypedBinding {
         let local_id = self
-            .input
             .locals
             .local_defs
             .get(&span)
             .copied()
             .unwrap_or(LocalId(u32::MAX));
-        let ty = self.local_ty(local_id).unwrap_or_else(|| {
+        let ty = self.local_types.get(&local_id).copied().unwrap_or_else(|| {
             binding.ty.as_ref().map_or_else(
                 || {
                     binding
                         .value
                         .as_ref()
-                        .and_then(|value| self.expr_ty(value))
-                        .unwrap_or_else(|| self.error_ty())
+                        .and_then(|value| self.expr_types.get(&value.span).copied())
+                        .unwrap_or_else(|| self.error())
                 },
-                |ty| self.ty_for_type_span(ty.span),
+                |ty| self.ty_for_span(ty.span),
             )
         });
         TypedBinding {
@@ -162,7 +162,7 @@ impl<'a> ModuleLowerer<'a> {
                             if binding.is_comptime {
                                 TypedForInit::Expr(TypedExpr {
                                     span: *span,
-                                    ty: self.void_ty(),
+                                    ty: self.void(),
                                     kind: TypedExprKind::Error,
                                 })
                             } else {
@@ -208,7 +208,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn lower_expr(&mut self, expr: &Expr) -> TypedExpr {
+    pub(crate) fn lower_expr(&mut self, expr: &Expr) -> TypedExpr {
         self.lower_expr_with_ty(expr, None)
     }
 
@@ -218,12 +218,7 @@ impl<'a> ModuleLowerer<'a> {
         forced_ty: Option<nia_ids::InternedTyId>,
     ) -> TypedExpr {
         if forced_ty.is_none()
-            && let Some(coercion) = self
-                .input
-                .body_check
-                .c_string_pointer_coercions
-                .get(&expr.span)
-                .copied()
+            && let Some(coercion) = self.c_string_pointer_coercions.get(&expr.span).copied()
         {
             return TypedExpr {
                 span: expr.span,
@@ -235,12 +230,7 @@ impl<'a> ModuleLowerer<'a> {
             };
         }
         if forced_ty.is_none()
-            && let Some(coercion) = self
-                .input
-                .body_check
-                .array_to_slice_coercions
-                .get(&expr.span)
-                .copied()
+            && let Some(coercion) = self.array_to_slice_coercions.get(&expr.span).copied()
         {
             return TypedExpr {
                 span: expr.span,
@@ -257,26 +247,14 @@ impl<'a> ModuleLowerer<'a> {
             };
         }
         let ty = forced_ty
-            .or_else(|| self.expr_ty(expr))
-            .unwrap_or_else(|| self.error_ty());
-        if let Some(def_id) = self.comptime_global_id_for_expr(expr) {
-            if self.comptime_global_stack.contains(&def_id) {
-                return TypedExpr {
-                    span: expr.span,
-                    ty,
-                    kind: TypedExprKind::Error,
-                };
-            }
-            if let Some(binding) = self.comptime_binding_for(def_id)
-                && let Some(value) = &binding.value
-            {
-                self.comptime_global_stack.push(def_id);
-                let mut lowered = self.lower_expr(value);
-                self.comptime_global_stack.pop();
-                lowered.span = expr.span;
-                lowered.ty = ty;
-                return lowered;
-            }
+            .or_else(|| self.expr_types.get(&expr.span).copied())
+            .unwrap_or_else(|| self.error());
+        if let Some(def_id) = self.global_comptime_use(expr.span) {
+            return self.lower_comptime_value_expr(
+                expr.span,
+                ty,
+                self.global_comptime_value(def_id),
+            );
         }
         if let Some(variant_id) = self.qualified_enum_variant(expr) {
             return TypedExpr {
@@ -285,11 +263,20 @@ impl<'a> ModuleLowerer<'a> {
                 kind: TypedExprKind::EnumVariant(variant_id),
             };
         }
-        if let Some(def_id) = self.input.values.qualified_values.get(&expr.span).copied() {
-            let kind = if self.input.signatures.functions.contains_key(&def_id.def_id) {
-                TypedExprKind::Function(def_id)
-            } else {
-                TypedExprKind::Global(def_id)
+        if let Some(def_id) = self.values.qualified_values.get(&expr.span).copied() {
+            let kind = match self.global_def_kind(def_id) {
+                Some(nia_defs::DefKind::Function | nia_defs::DefKind::Method) => {
+                    TypedExprKind::Function(def_id)
+                }
+                Some(nia_defs::DefKind::Global) => TypedExprKind::Global(def_id),
+                Some(nia_defs::DefKind::Comptime) => {
+                    return self.lower_comptime_value_expr(
+                        expr.span,
+                        ty,
+                        self.global_comptime_value(def_id),
+                    );
+                }
+                _ => TypedExprKind::Error,
             };
             return TypedExpr {
                 span: expr.span,
@@ -316,38 +303,24 @@ impl<'a> ModuleLowerer<'a> {
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
             ExprKind::Bool(value) => TypedExprKind::Bool(*value),
             ExprKind::Ident(_) => {
-                if let Some(local_id) = self.local_comptime_id(expr) {
-                    if self.comptime_local_stack.contains(&local_id) {
-                        return TypedExpr {
-                            span: expr.span,
-                            ty,
-                            kind: TypedExprKind::Error,
-                        };
-                    }
-                    let Some(value) = self.local_comptime_value(expr).cloned() else {
-                        return TypedExpr {
-                            span: expr.span,
-                            ty,
-                            kind: TypedExprKind::Error,
-                        };
-                    };
-                    self.comptime_local_stack.push(local_id);
-                    let mut lowered = self.lower_expr(&value);
-                    self.comptime_local_stack.pop();
-                    lowered.span = expr.span;
-                    lowered.ty = ty;
-                    return lowered;
+                if let Some(local_id) = self.local_comptime_use(expr.span) {
+                    return self.lower_comptime_value_expr(
+                        expr.span,
+                        ty,
+                        self.comptime
+                            .values
+                            .get(&nia_comptime_check::ComptimeKey::Local(local_id))
+                            .cloned(),
+                    );
                 }
                 self.lower_ident_expr(expr)
             }
-            ExprKind::Builtin { .. } => {
-                match self.input.body_check.builtin_values.get(&expr.span) {
-                    Some(BuiltinValue::Usize(value)) => {
-                        TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
-                    }
-                    None => TypedExprKind::Error,
+            ExprKind::Builtin { .. } => match self.builtin_values.get(&expr.span) {
+                Some(BuiltinValue::Usize(value)) => {
+                    TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
                 }
-            }
+                None => TypedExprKind::Error,
+            },
             ExprKind::TypeTarget { .. } => TypedExprKind::Error,
             ExprKind::BracketSuffix { callee, args } => {
                 match self.bracket_suffix_resolution(expr.span) {
@@ -362,9 +335,7 @@ impl<'a> ModuleLowerer<'a> {
                         }
                     }
                     Some(BracketSuffixResolution::GenericCall) => {
-                        if let Some(reference) =
-                            self.input.body_check.function_references.get(&expr.span)
-                        {
+                        if let Some(reference) = self.function_references.get(&expr.span) {
                             TypedExprKind::FunctionInstance {
                                 def_id: reference.def_id,
                                 args: reference.args.clone(),
@@ -394,7 +365,7 @@ impl<'a> ModuleLowerer<'a> {
             ExprKind::StructLiteral { fields } => {
                 let def_id = self.nominal_global_def(ty);
                 let def_id = def_id.unwrap_or_else(|| self.global_error_def());
-                if self.input.signatures.unions.contains_key(&def_id.def_id) {
+                if self.is_union_def(def_id) {
                     let field = fields.first().map(|field| TypedFieldInit {
                         field: self
                             .field_def_for_struct_ty(ty, &field.name)
@@ -410,7 +381,7 @@ impl<'a> ModuleLowerer<'a> {
                             name: String::new(),
                             value: TypedExpr {
                                 span: expr.span,
-                                ty: self.error_ty(),
+                                ty: self.error(),
                                 kind: TypedExprKind::Error,
                             },
                             span: expr.span,
@@ -452,7 +423,11 @@ impl<'a> ModuleLowerer<'a> {
                         op: *op,
                         expr: Box::new(TypedExpr {
                             span: inner.span,
-                            ty: self.expr_ty(inner).unwrap_or_else(|| self.error_ty()),
+                            ty: self
+                                .expr_types
+                                .get(&inner.span)
+                                .copied()
+                                .unwrap_or_else(|| self.error()),
                             kind: function_item,
                         }),
                     }
@@ -482,7 +457,7 @@ impl<'a> ModuleLowerer<'a> {
             },
             ExprKind::Cast { expr: inner, ty } => TypedExprKind::Cast {
                 expr: Box::new(self.lower_expr(inner)),
-                ty: self.ty_for_type_span(ty.span),
+                ty: self.ty_for_span(ty.span),
             },
             ExprKind::Call { callee, args } => {
                 if let ExprKind::Builtin { name, .. } = &callee.kind {
@@ -560,25 +535,215 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn empty_struct_literal_expr(&self, ty: nia_ids::InternedTyId, block: &Block) -> bool {
+    fn lower_comptime_value_expr(
+        &self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        value: Option<nia_comptime_check::ComptimeValue>,
+    ) -> TypedExpr {
+        match value {
+            Some(nia_comptime_check::ComptimeValue::Int(value)) => TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(value)),
+            },
+            None => TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Error,
+            },
+        }
+    }
+
+    pub(crate) fn global_comptime_value(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+    ) -> Option<nia_comptime_check::ComptimeValue> {
+        self.global_comptime_value_for_env(def_id, &mut Vec::new())
+    }
+
+    fn global_comptime_value_for_env(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        active: &mut Vec<nia_ids::GlobalDefId>,
+    ) -> Option<nia_comptime_check::ComptimeValue> {
+        self.comptime
+            .values
+            .get(&nia_comptime_check::ComptimeKey::Global(def_id))
+            .cloned()
+            .or_else(|| self.eval_global_comptime_value(def_id, active))
+    }
+
+    fn eval_global_comptime_value(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        active: &mut Vec<nia_ids::GlobalDefId>,
+    ) -> Option<nia_comptime_check::ComptimeValue> {
+        if active.contains(&def_id) {
+            return None;
+        }
+        let value = self.global_comptime_initializer(def_id)?.clone();
+        active.push(def_id);
+        let mut env = BirComptimeEnv {
+            checker: self,
+            module_id: def_id.module_id,
+            active,
+        };
+        let value = nia_comptime_engine::eval_expr(&value, &mut env).ok();
+        active.pop();
+        value
+    }
+
+    fn global_comptime_initializer(&self, def_id: nia_ids::GlobalDefId) -> Option<&Expr> {
+        let (module_index, defs) = self
+            .all_defs
+            .iter()
+            .enumerate()
+            .find(|(_, defs)| defs.module_id == def_id.module_id)?;
+        let module = self.all_modules.get(module_index)?;
+        module.items.iter().find_map(|item| {
+            let nia_ast::ItemKind::Binding(binding) = &item.kind else {
+                return None;
+            };
+            if !binding.is_comptime {
+                return None;
+            }
+            let item_def_id = defs.def_spans.get(item.span)?;
+            (item_def_id == def_id.def_id)
+                .then_some(binding.value.as_ref())
+                .flatten()
+        })
+    }
+
+    fn global_comptime_id_in_module(
+        &self,
+        module_id: nia_ids::ModuleId,
+        span: Span,
+    ) -> Option<nia_ids::GlobalDefId> {
+        if let Some(global_id) = self.values.qualified_values.get(&span).copied()
+            && self.global_def_kind(global_id) == Some(nia_defs::DefKind::Comptime)
+        {
+            return Some(global_id);
+        }
+        let module_defs = self
+            .all_defs
+            .iter()
+            .find(|defs| defs.module_id == module_id)?;
+        let nia_value_resolve::ValueNameResolution::Def(def_id) = self.values.names.get(&span)?
+        else {
+            return None;
+        };
+        let def = module_defs.defs.get(*def_id)?;
+        (def.kind == nia_defs::DefKind::Comptime).then_some(nia_ids::GlobalDefId {
+            module_id,
+            def_id: *def_id,
+        })
+    }
+
+    fn empty_struct_literal_expr(&mut self, ty: nia_ids::InternedTyId, block: &Block) -> bool {
         if !block.stmts.is_empty() || block.tail.is_some() {
             return false;
         }
-        let Some(TyKind::Nominal { def_id, .. }) = self.input.body_check.interner.get(ty) else {
+        let Some(TyKind::Nominal { def_id, .. }) = self.interner.get(ty) else {
             return false;
         };
-        self.input
-            .signatures
-            .structs
+        self.resolved_struct_signature(*def_id)
+            .is_some_and(|resolved| resolved.signature.fields.is_empty())
+    }
+
+    pub(crate) fn bracket_suffix_resolution(&self, span: Span) -> Option<BracketSuffixResolution> {
+        self.bracket_suffix_resolutions.get(&span).copied()
+    }
+
+    fn nominal_global_def(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::GlobalDefId> {
+        match self.interner.get(ty) {
+            Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn global_error_def(&self) -> nia_ids::GlobalDefId {
+        nia_ids::GlobalDefId {
+            module_id: self.defs.module_id,
+            def_id: nia_defs::DefId(u32::MAX),
+        }
+    }
+
+    pub(crate) fn field_def_for_struct_ty(
+        &self,
+        ty: nia_ids::InternedTyId,
+        name: &str,
+    ) -> Option<nia_ids::GlobalDefId> {
+        let def_id = self.nominal_global_def(ty)?;
+        self.field_def_for_nominal(def_id, name)
+    }
+
+    pub(crate) fn field_def_for_base_ty(
+        &self,
+        ty: nia_ids::InternedTyId,
+        name: &str,
+    ) -> Option<nia_ids::GlobalDefId> {
+        let base = self.receiver_base_type(ty)?;
+        self.field_def_for_nominal(base.def_id, name)
+    }
+
+    fn field_def_for_nominal(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        name: &str,
+    ) -> Option<nia_ids::GlobalDefId> {
+        let defs = self
+            .all_defs
+            .iter()
+            .find(|defs| defs.module_id == def_id.module_id)?;
+        defs.scopes
+            .struct_members
             .get(&def_id.def_id)
-            .is_some_and(|signature| signature.fields.is_empty())
+            .and_then(|members| members.fields.get(name))
+            .or_else(|| {
+                defs.scopes
+                    .union_members
+                    .get(&def_id.def_id)
+                    .and_then(|members| members.fields.get(name))
+            })
+            .map(|field| nia_ids::GlobalDefId {
+                module_id: def_id.module_id,
+                def_id: field,
+            })
+    }
+
+    fn qualified_enum_variant(&self, expr: &Expr) -> Option<nia_ids::GlobalDefId> {
+        self.values
+            .variant_enums
+            .contains_key(&expr.span)
+            .then(|| self.values.qualified_values.get(&expr.span).copied())
+            .flatten()
+    }
+
+    fn enum_variant_for_qualified(
+        &mut self,
+        lhs: &Expr,
+        name: &str,
+    ) -> Option<nia_ids::GlobalDefId> {
+        let enum_id = self.type_prefix_def_id(lhs)?;
+        if !self.is_enum_def(enum_id) {
+            return None;
+        }
+        let scope = self.enum_variant_scope(enum_id)?;
+        let variant_id = scope
+            .iter()
+            .find(|(variant_name, _)| variant_name == name)
+            .map(|(_, def_id)| *def_id)?;
+        Some(nia_ids::GlobalDefId {
+            module_id: enum_id.module_id,
+            def_id: variant_id,
+        })
     }
 
     fn lower_ident_expr(&self, expr: &Expr) -> TypedExprKind {
-        match self.input.locals.uses.get(&expr.span) {
+        match self.locals.uses.get(&expr.span) {
             Some(LocalUse::Local(local)) => {
                 if self
-                    .input
                     .locals
                     .locals
                     .get(*local)
@@ -589,33 +754,31 @@ impl<'a> ModuleLowerer<'a> {
                 TypedExprKind::Local(*local)
             }
             Some(LocalUse::ModuleValue) => {
-                if let Some(variant_id) =
-                    self.input.values.qualified_values.get(&expr.span).copied()
-                    && self.input.values.variant_enums.contains_key(&expr.span)
+                if let Some(variant_id) = self.values.qualified_values.get(&expr.span).copied()
+                    && self.values.variant_enums.contains_key(&expr.span)
                 {
                     return TypedExprKind::EnumVariant(variant_id);
                 }
-                if let Some(global_id) = self.input.values.qualified_values.get(&expr.span).copied()
-                {
-                    match self.def_kind_of(global_id) {
-                        Some(DefKind::Function | DefKind::Method) => {
+                if let Some(global_id) = self.values.qualified_values.get(&expr.span).copied() {
+                    match self.global_def_kind(global_id) {
+                        Some(nia_defs::DefKind::Function | nia_defs::DefKind::Method) => {
                             return TypedExprKind::Function(global_id);
                         }
-                        Some(DefKind::Global) => return TypedExprKind::Global(global_id),
-                        Some(DefKind::Comptime) => return TypedExprKind::Error,
+                        Some(nia_defs::DefKind::Global) => return TypedExprKind::Global(global_id),
+                        Some(nia_defs::DefKind::Comptime) => return TypedExprKind::Error,
                         _ => return TypedExprKind::Error,
                     }
                 }
-                match self.input.values.names.get(&expr.span) {
+                match self.values.names.get(&expr.span) {
                     Some(ValueNameResolution::Def(def_id)) => {
-                        match self.input.defs.defs.get(*def_id).map(|def| def.kind) {
-                            Some(DefKind::Function | DefKind::Method) => {
+                        match self.defs.defs.get(*def_id).map(|def| def.kind) {
+                            Some(nia_defs::DefKind::Function | nia_defs::DefKind::Method) => {
                                 TypedExprKind::Function(self.global_def_id(*def_id))
                             }
-                            Some(DefKind::Global) => {
+                            Some(nia_defs::DefKind::Global) => {
                                 TypedExprKind::Global(self.global_def_id(*def_id))
                             }
-                            Some(DefKind::Comptime) => TypedExprKind::Error,
+                            Some(nia_defs::DefKind::Comptime) => TypedExprKind::Error,
                             _ => TypedExprKind::Error,
                         }
                     }
@@ -627,7 +790,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_function_item_ref(&mut self, expr: &Expr) -> Option<TypedExprKind> {
-        let reference = self.input.body_check.function_references.get(&expr.span)?;
+        let reference = self.function_references.get(&expr.span)?;
         if reference.args.is_empty() {
             Some(TypedExprKind::Function(reference.def_id))
         } else {
@@ -662,35 +825,25 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn lower_array_repeat_count(&mut self, count: &Expr) -> u64 {
-        match nia_comptime_engine::eval_array_len_expr(count, self) {
-            Ok(value) => value,
-            Err(err) => {
-                self.diagnostics.push(Diagnostic::error(
-                    err.span,
-                    format!("invalid repeat count: {}", err.message),
-                ));
-                0
-            }
-        }
+        nia_comptime_engine::eval_array_len_expr(count, self).unwrap_or(0)
     }
 
     fn lower_callee(&mut self, call_span: Span, callee: &Expr) -> TypedCallee {
-        if let Some(resolved) = self.input.body_check.resolved_calls.get(&call_span) {
+        if let Some(resolved) = self.resolved_calls.get(&call_span).cloned() {
             return self.lower_resolved_callee(callee, resolved);
         }
         TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
     }
 
-    fn lower_resolved_callee(&mut self, callee: &Expr, resolved: &ResolvedCall) -> TypedCallee {
+    fn lower_resolved_callee(&mut self, callee: &Expr, resolved: ResolvedCall) -> TypedCallee {
         match resolved {
-            ResolvedCall::Function(def_id) => TypedCallee::Function(*def_id),
-            ResolvedCall::FunctionInstance { def_id, args } => TypedCallee::FunctionInstance {
-                def_id: *def_id,
-                args: args.clone(),
-            },
+            ResolvedCall::Function(def_id) => TypedCallee::Function(def_id),
+            ResolvedCall::FunctionInstance { def_id, args } => {
+                TypedCallee::FunctionInstance { def_id, args }
+            }
             ResolvedCall::Method { def_id, args } => TypedCallee::Method {
-                def_id: *def_id,
-                args: args.clone(),
+                def_id,
+                args,
                 receiver: Box::new(
                     self.lower_receiver_expr(callee)
                         .unwrap_or_else(|| self.lower_expr(callee)),
@@ -723,133 +876,12 @@ impl<'a> ModuleLowerer<'a> {
         Some(self.lower_expr(lhs))
     }
 
-    pub(crate) fn local_comptime_value(&self, expr: &Expr) -> Option<&Expr> {
-        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&expr.span) else {
-            return None;
-        };
-        let local = self.input.locals.locals.get(*local_id)?;
-        if local.kind != LocalKind::ComptimeBinding {
-            return None;
-        }
-        self.local_comptime_binding_value(*local_id, self.input.module)
-    }
-
-    fn local_comptime_id(&self, expr: &Expr) -> Option<LocalId> {
-        self.local_comptime_id_for_span(expr.span)
-    }
-
-    pub(crate) fn local_comptime_id_for_span(&self, span: Span) -> Option<LocalId> {
-        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&span) else {
-            return None;
-        };
-        let local = self.input.locals.locals.get(*local_id)?;
-        (local.kind == LocalKind::ComptimeBinding).then_some(*local_id)
-    }
-
-    fn local_comptime_binding_value<'b>(
-        &self,
-        local_id: LocalId,
-        module: &'b nia_ast::Module,
-    ) -> Option<&'b Expr> {
-        module.items.iter().find_map(|item| match &item.kind {
-            ItemKind::Function(function) => function
-                .body
-                .as_ref()
-                .and_then(|body| self.local_comptime_value_in_block(local_id, body)),
-            ItemKind::Extend(extend) => extend.methods.iter().find_map(|method| {
-                method
-                    .function
-                    .body
-                    .as_ref()
-                    .and_then(|body| self.local_comptime_value_in_block(local_id, body))
-            }),
-            _ => None,
-        })
-    }
-
-    fn local_comptime_value_in_block<'b>(
-        &self,
-        local_id: LocalId,
-        block: &'b Block,
-    ) -> Option<&'b Expr> {
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                StmtKind::Binding(binding)
-                    if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
-                {
-                    return binding.value.as_ref();
-                }
-                StmtKind::For(for_stmt) => {
-                    if let ForHeader::CStyle { init, .. } = &for_stmt.header
-                        && let Some(init) = init
-                        && let ForInit::Binding { span, binding } = &**init
-                        && self.input.locals.local_defs.get(span).copied() == Some(local_id)
-                    {
-                        return binding.value.as_ref();
-                    }
-                    if let Some(value) =
-                        self.local_comptime_value_in_block(local_id, &for_stmt.body)
-                    {
-                        return Some(value);
-                    }
-                }
-                StmtKind::Expr(expr) => {
-                    if let Some(value) = self.local_comptime_value_in_expr(local_id, expr) {
-                        return Some(value);
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    fn local_comptime_value_in_stmt<'b>(
-        &self,
-        local_id: LocalId,
-        stmt: &'b Stmt,
-    ) -> Option<&'b Expr> {
-        match &stmt.kind {
-            StmtKind::Binding(binding)
-                if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
-            {
-                binding.value.as_ref()
-            }
-            StmtKind::For(for_stmt) => self.local_comptime_value_in_block(local_id, &for_stmt.body),
-            StmtKind::Expr(expr) => self.local_comptime_value_in_expr(local_id, expr),
-            _ => None,
-        }
-    }
-
-    fn local_comptime_value_in_expr<'b>(
-        &self,
-        local_id: LocalId,
-        expr: &'b Expr,
-    ) -> Option<&'b Expr> {
-        match &expr.kind {
-            ExprKind::Block(block) => self.local_comptime_value_in_block(local_id, block),
-            ExprKind::If {
-                then_branch,
-                else_branch,
-                ..
-            } => self
-                .local_comptime_value_in_block(local_id, then_branch)
-                .or_else(|| {
-                    else_branch.as_ref().and_then(|else_branch| {
-                        self.local_comptime_value_in_expr(local_id, else_branch)
-                    })
-                }),
-            ExprKind::Switch(switch) => switch.arms.iter().find_map(|arm| match &arm.body {
-                SwitchArmBody::Block(block) => self.local_comptime_value_in_block(local_id, block),
-                SwitchArmBody::Stmt(stmt) => self.local_comptime_value_in_stmt(local_id, stmt),
-                SwitchArmBody::Expr(expr) => self.local_comptime_value_in_expr(local_id, expr),
-            }),
-            _ => None,
-        }
-    }
-
     pub(crate) fn lower_place(&mut self, expr: &Expr) -> TypedPlace {
-        let ty = self.expr_ty(expr).unwrap_or_else(|| self.error_ty());
+        let ty = self
+            .expr_types
+            .get(&expr.span)
+            .copied()
+            .unwrap_or_else(|| self.error());
         let mut elems = Vec::new();
         let base = self.lower_place_inner(expr, &mut elems);
         TypedPlace {
@@ -861,16 +893,16 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_place_inner(&mut self, expr: &Expr, elems: &mut Vec<PlaceElem>) -> PlaceBase {
-        if self.input.values.variant_enums.contains_key(&expr.span) {
+        if self.values.variant_enums.contains_key(&expr.span) {
             return PlaceBase::Local(LocalId(u32::MAX));
         }
-        if let Some(def_id) = self.input.values.qualified_values.get(&expr.span).copied() {
+        if let Some(def_id) = self.values.qualified_values.get(&expr.span).copied() {
             return PlaceBase::Global(def_id);
         }
         match &expr.kind {
-            ExprKind::Ident(_) => match self.input.locals.uses.get(&expr.span) {
+            ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
                 Some(LocalUse::Local(local)) => PlaceBase::Local(*local),
-                Some(LocalUse::ModuleValue) => match self.input.values.names.get(&expr.span) {
+                Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
                     Some(ValueNameResolution::Def(def_id)) => {
                         PlaceBase::Global(self.global_def_id(*def_id))
                     }
@@ -884,7 +916,11 @@ impl<'a> ModuleLowerer<'a> {
             } => PlaceBase::Deref(Box::new(self.lower_expr(expr))),
             ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name } => {
                 let base = self.lower_place_inner(lhs, elems);
-                let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error_ty());
+                let lhs_ty = self
+                    .expr_types
+                    .get(&lhs.span)
+                    .copied()
+                    .unwrap_or_else(|| self.error());
                 let field = self
                     .field_def_for_base_ty(lhs_ty, name)
                     .unwrap_or_else(|| self.global_error_def());
@@ -914,5 +950,33 @@ impl<'a> ModuleLowerer<'a> {
             }
             _ => PlaceBase::Local(LocalId(u32::MAX)),
         }
+    }
+}
+
+struct BirComptimeEnv<'a, 'b> {
+    checker: &'a BodyChecker<'a>,
+    module_id: nia_ids::ModuleId,
+    active: &'b mut Vec<nia_ids::GlobalDefId>,
+}
+
+impl nia_comptime_engine::ComptimeEnv for BirComptimeEnv<'_, '_> {
+    fn resolve_ident(
+        &mut self,
+        span: Span,
+        name: &str,
+    ) -> Result<nia_comptime_check::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        let def_id = self
+            .checker
+            .global_comptime_id_in_module(self.module_id, span)
+            .ok_or_else(|| nia_comptime_engine::ComptimeError {
+                span,
+                message: format!("comptime expression can only use comptime bindings: `{name}`"),
+            })?;
+        self.checker
+            .global_comptime_value_for_env(def_id, self.active)
+            .ok_or_else(|| nia_comptime_engine::ComptimeError {
+                span,
+                message: format!("failed to evaluate comptime value `{name}`"),
+            })
     }
 }

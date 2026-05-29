@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_abi_check::check_module_abi;
-use nia_backend_ir::{TypedArrayElements, TypedExprKind, TypedStmtKind};
 use nia_body_check::{
     BodyCheckInput, ProgramSignatureMaps, check_module_bodies_with_program_signatures_and_layouts,
 };
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
+use nia_function_ir::{FunctionArrayElements, FunctionExprKind, FunctionOp, FunctionTerminator};
 use nia_item_signatures::collect_item_signatures;
 use nia_local_resolve::resolve_module_locals;
 use nia_parser::parse_module;
@@ -102,6 +102,7 @@ fn main() i32 {
     );
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         module: &module,
+        all_modules: std::slice::from_ref(&module),
         defs: &defs,
         all_defs: std::slice::from_ref(&defs),
         values: &values,
@@ -121,6 +122,9 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
         },
+        program_comptime: nia_body_check::ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
+        },
     });
     assert!(
         body_check.diagnostics.is_empty(),
@@ -132,9 +136,7 @@ fn main() i32 {
         module_id: ModuleId(0),
         module_name: "main".to_string(),
         module: &module,
-        all_modules: std::slice::from_ref(&module),
         defs: &defs,
-        all_defs: std::slice::from_ref(&defs),
         values: &values,
         locals: &locals,
         type_lowering: &type_lowering,
@@ -182,9 +184,9 @@ fn main() i32 {
         .find(|function| function.name == "main")
         .expect("main function");
     assert!(
-        main.body
+        main.function_body
             .as_ref()
-            .expect("main body")
+            .expect("main function body")
             .locals
             .iter()
             .all(|local| local.name != "local")
@@ -207,18 +209,93 @@ fn main() i32 {
         .iter()
         .find(|function| function.name == "main")
         .expect("main function");
-    let body = main.body.as_ref().expect("main body");
-    let Some(TypedStmtKind::Binding(binding)) = body.stmts.first().map(|stmt| &stmt.kind) else {
+    let body = main.function_body.as_ref().expect("main function body");
+    let Some(FunctionOp::Binding(binding)) = body.blocks[0].ops.first() else {
         panic!("expected buffer binding");
     };
     let value = binding.value.as_ref().expect("buffer initializer");
-    let TypedExprKind::ArrayLiteral {
-        elems: TypedArrayElements::Repeat { count, .. },
+    let FunctionExprKind::ArrayLiteral {
+        elems: FunctionArrayElements::Repeat { count, .. },
     } = &value.kind
     else {
         panic!("expected repeat array initializer");
     };
     assert_eq!(*count, 1048576);
+}
+
+#[test]
+fn lowers_function_body_to_function_ir() {
+    let source = r#"
+fn main() i32 {
+    defer {
+    };
+    var value = 1;
+    return value;
+}
+"#;
+    let lowering = lower_source(source);
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let function_body = main.function_body.as_ref().expect("main function body");
+    assert_eq!(function_body.blocks.len(), 2);
+    assert!(matches!(
+        function_body.blocks[0].ops[0],
+        FunctionOp::Defer(_)
+    ));
+    assert!(matches!(
+        function_body.blocks[0].ops[1],
+        FunctionOp::Binding(_)
+    ));
+    let FunctionTerminator::Next { target, .. } = function_body.blocks[0].terminator else {
+        panic!("expected first block to continue to return terminator block");
+    };
+    assert!(matches!(
+        function_body
+            .block(target)
+            .expect("return terminator block")
+            .terminator,
+        FunctionTerminator::Return { value: Some(_), .. }
+    ));
+}
+
+#[test]
+fn lowers_loop_break_and_continue_to_function_ir_branches() {
+    let source = r#"
+fn main() i32 {
+    for {
+        continue;
+        break;
+    }
+    0
+}
+"#;
+    let lowering = lower_source(source);
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let function_body = main.function_body.as_ref().expect("main function body");
+    let FunctionTerminator::Next { target, .. } = function_body.blocks[0].terminator else {
+        panic!("expected entry branch to loop header");
+    };
+    let FunctionTerminator::Loop {
+        body,
+        continue_target,
+        ..
+    } = function_body.block(target).expect("loop header").terminator
+    else {
+        panic!("expected loop terminator");
+    };
+    let body = function_body
+        .blocks
+        .iter()
+        .find(|block| block.id == body)
+        .expect("loop body block");
+    assert_eq!(body.terminator.successors(), vec![continue_target]);
 }
 
 fn lower_source(source: &str) -> BackendLowering {
@@ -253,6 +330,7 @@ fn lower_source(source: &str) -> BackendLowering {
     let extensions = VisibleExtensionMethods::default();
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         module: &module,
+        all_modules: std::slice::from_ref(&module),
         defs: &defs,
         all_defs: std::slice::from_ref(&defs),
         values: &values,
@@ -272,6 +350,9 @@ fn lower_source(source: &str) -> BackendLowering {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
         },
+        program_comptime: nia_body_check::ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
+        },
     });
     assert!(
         body_check.diagnostics.is_empty(),
@@ -283,9 +364,7 @@ fn lower_source(source: &str) -> BackendLowering {
         module_id: ModuleId(0),
         module_name: "main".to_string(),
         module: &module,
-        all_modules: std::slice::from_ref(&module),
         defs: &defs,
-        all_defs: std::slice::from_ref(&defs),
         values: &values,
         locals: &locals,
         type_lowering: &type_lowering,
