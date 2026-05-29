@@ -145,6 +145,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 is_extern: instance.is_extern,
                 is_variadic: instance.is_variadic,
                 body: instance.body.clone(),
+                control_body: instance.control_body.clone(),
                 span: instance.span,
             };
             let ty = self.function_type_in(&function, &owner.interner, &owner.layouts)?;

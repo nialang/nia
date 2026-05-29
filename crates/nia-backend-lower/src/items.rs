@@ -137,6 +137,7 @@ impl<'a> ModuleLowerer<'a> {
             .function_bodies
             .get(&self.global_def_id(def_id))
             .cloned();
+        let control_body = body.as_ref().map(nia_control_ir::lower_control_body);
         Some(BackendFunction {
             def_id: self.global_def_id(def_id),
             name: function.name.clone(),
@@ -169,6 +170,7 @@ impl<'a> ModuleLowerer<'a> {
             is_extern: signature.is_extern,
             is_variadic: signature.is_variadic,
             body,
+            control_body,
             span,
         })
     }

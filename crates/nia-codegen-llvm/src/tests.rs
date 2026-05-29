@@ -325,6 +325,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
                     })),
                     ty: i32_ty,
                 }),
+                control_body: None,
                 span: Span::default(),
             }],
             function_instances: Vec::new(),
