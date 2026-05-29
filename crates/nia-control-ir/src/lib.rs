@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_body_ir::{
-    TypedBinding, TypedBody, TypedExpr, TypedForHeader, TypedForInit, TypedLocal, TypedStmtKind,
+    TypedBinding, TypedBody, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedLocal,
+    TypedStmtKind,
 };
 use nia_ids::InternedTyId;
 use nia_span::Span;
@@ -180,13 +181,7 @@ impl ControlLowerer {
         let entry = self.alloc_block();
         let mut blocks = Vec::new();
         let mut locals = Vec::new();
-        self.lower_body_into(
-            body,
-            entry,
-            root_scope,
-            &mut blocks,
-            Fallthrough::Tail,
-        );
+        self.lower_body_into(body, entry, root_scope, &mut blocks, Fallthrough::Tail);
         self.collect_body_locals(body, &mut locals);
         ControlBody {
             span: body.span,
@@ -211,7 +206,9 @@ impl ControlLowerer {
         for stmt in &body.stmts {
             match &stmt.kind {
                 TypedStmtKind::Binding(binding) => ops.push(ControlOp::Binding(binding.clone())),
-                TypedStmtKind::Expr(expr) => ops.push(ControlOp::Expr(expr.clone())),
+                TypedStmtKind::Expr(expr) => {
+                    self.lower_expr_stmt(stmt.span, expr, scope, &mut current, &mut ops, blocks);
+                }
                 TypedStmtKind::Defer(expr) => ops.push(ControlOp::Defer(expr.clone())),
                 TypedStmtKind::Return(value) => {
                     self.finish_block(
@@ -266,18 +263,60 @@ impl ControlLowerer {
                     return;
                 }
                 TypedStmtKind::For(for_stmt) => {
-                    self.lower_for_stmt(
-                        stmt.span,
-                        for_stmt,
-                        scope,
-                        &mut current,
-                        &mut ops,
-                        blocks,
-                    );
+                    self.lower_for_stmt(stmt.span, for_stmt, scope, &mut current, &mut ops, blocks);
                 }
             }
         }
         self.finish_fallthrough_block(blocks, current, scope, body, ops, fallthrough);
+    }
+
+    fn lower_expr_stmt(
+        &mut self,
+        span: Span,
+        expr: &TypedExpr,
+        scope: ControlScopeId,
+        current: &mut ControlBlockId,
+        ops: &mut Vec<ControlOp>,
+        blocks: &mut Vec<ControlBlock>,
+    ) {
+        if let TypedExprKind::Block(body) = &expr.kind {
+            self.lower_block_expr_stmt(span, body, scope, current, ops, blocks);
+        } else {
+            ops.push(ControlOp::Expr(expr.clone()));
+        }
+    }
+
+    fn lower_block_expr_stmt(
+        &mut self,
+        span: Span,
+        body: &TypedBody,
+        scope: ControlScopeId,
+        current: &mut ControlBlockId,
+        ops: &mut Vec<ControlOp>,
+        blocks: &mut Vec<ControlBlock>,
+    ) {
+        let body_entry = self.alloc_block();
+        let after_block = self.alloc_block();
+        self.finish_block(
+            blocks,
+            *current,
+            scope,
+            span,
+            std::mem::take(ops),
+            ControlTerminator::Next {
+                target: body_entry,
+                span,
+            },
+        );
+        let body_scope = self.alloc_scope(Some(scope), body.span);
+        self.lower_body_into(
+            body,
+            body_entry,
+            body_scope,
+            blocks,
+            Fallthrough::Branch(after_block),
+        );
+        *current = after_block;
     }
 
     fn lower_for_stmt(
@@ -473,13 +512,24 @@ impl ControlLowerer {
         for stmt in &body.stmts {
             match &stmt.kind {
                 TypedStmtKind::For(for_stmt) => self.collect_body_locals(&for_stmt.body, locals),
+                TypedStmtKind::Expr(expr) => self.collect_expr_locals(expr, locals),
+                TypedStmtKind::Return(Some(expr)) | TypedStmtKind::Defer(expr) => {
+                    self.collect_expr_locals(expr, locals)
+                }
                 TypedStmtKind::Binding(_)
-                | TypedStmtKind::Expr(_)
-                | TypedStmtKind::Return(_)
+                | TypedStmtKind::Return(None)
                 | TypedStmtKind::Break
-                | TypedStmtKind::Continue
-                | TypedStmtKind::Defer(_) => {}
+                | TypedStmtKind::Continue => {}
             }
+        }
+        if let Some(tail) = &body.tail {
+            self.collect_expr_locals(tail, locals);
+        }
+    }
+
+    fn collect_expr_locals(&self, expr: &TypedExpr, locals: &mut Vec<TypedLocal>) {
+        if let TypedExprKind::Block(body) = &expr.kind {
+            self.collect_body_locals(body, locals);
         }
     }
 
@@ -1092,9 +1142,7 @@ mod tests {
 
         let control = lower_control_body(&body);
         let ControlTerminator::Loop {
-            body,
-            break_target,
-            ..
+            body, break_target, ..
         } = control.blocks[0].terminator
         else {
             panic!("expected loop terminator");
@@ -1181,5 +1229,153 @@ mod tests {
             entry: ControlBlockId(0),
             ty,
         }
+    }
+
+    #[test]
+    fn lowers_statement_block_expression_into_child_scope() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let expr = TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Integer("1".to_string()),
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Block(TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: vec![TypedStmt {
+                            span,
+                            kind: TypedStmtKind::Defer(expr.clone()),
+                        }],
+                        tail: Some(Box::new(expr)),
+                        ty,
+                    }),
+                }),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(control.scopes[1].parent, Some(ControlScopeId(0)));
+        assert!(matches!(
+            control.blocks[0].terminator,
+            ControlTerminator::Next {
+                target: ControlBlockId(1),
+                ..
+            }
+        ));
+        assert_eq!(control.blocks[1].scope, ControlScopeId(1));
+        assert!(matches!(control.blocks[1].ops[0], ControlOp::Defer(_)));
+        assert!(matches!(control.blocks[1].ops[1], ControlOp::Expr(_)));
+        assert_eq!(
+            control.edge_exited_scopes(ControlBlockId(1), ControlBlockId(2)),
+            Some(vec![ControlScopeId(1)])
+        );
+        assert!(!control.blocks[0].ops.iter().any(|op| matches!(
+            op,
+            ControlOp::Expr(TypedExpr {
+                kind: TypedExprKind::Block(_),
+                ..
+            })
+        )));
+    }
+
+    #[test]
+    fn return_from_statement_block_exits_block_and_root_scopes() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let expr = TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Integer("1".to_string()),
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Block(TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: vec![TypedStmt {
+                            span,
+                            kind: TypedStmtKind::Return(Some(expr)),
+                        }],
+                        tail: None,
+                        ty,
+                    }),
+                }),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert!(matches!(
+            control.blocks[1].terminator,
+            ControlTerminator::Return { .. }
+        ));
+        assert_eq!(
+            control.return_exited_scopes(ControlBlockId(1)),
+            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+        );
+    }
+
+    #[test]
+    fn collects_unique_locals_from_statement_block_expressions() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let inner_local = TypedLocal {
+            id: LocalId(1),
+            name: "inner".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Block(TypedBody {
+                        span,
+                        locals: vec![inner_local],
+                        stmts: Vec::new(),
+                        tail: None,
+                        ty,
+                    }),
+                }),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(
+            control
+                .locals
+                .iter()
+                .map(|local| local.id)
+                .collect::<Vec<_>>(),
+            vec![LocalId(1)]
+        );
     }
 }
