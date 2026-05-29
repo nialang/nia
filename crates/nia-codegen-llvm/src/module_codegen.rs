@@ -222,32 +222,32 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if function.is_extern && function.body.is_none() {
                 continue;
             }
-            if let Some(body) = &function.body {
+            if function.body.is_some() {
                 let Some(llvm_function) = self.functions.get(&function.def_id).copied() else {
                     return Err(self.error(
                         function.span,
                         format!("missing function `{}`", function.name),
                     ));
                 };
+                let Some(control_body) = &function.control_body else {
+                    return Err(self.error(function.span, "missing function control body"));
+                };
                 let mut codegen = FunctionCodegen::new(self, function, llvm_function);
-                if let Some(control_body) = &function.control_body
-                    && FunctionCodegen::can_emit_control_body(control_body)
-                {
-                    codegen.emit_control_body(control_body)?;
-                } else {
-                    codegen.emit_body(body)?;
-                }
+                codegen.emit_control_body(control_body)?;
             }
         }
         for instance in &self.source.function_instances {
             if instance.is_extern && instance.body.is_none() {
                 continue;
             }
-            if let Some(body) = &instance.body {
+            if instance.body.is_some() {
                 let Some(llvm_function) =
                     self.function_instance_value(instance.def_id, &instance.args)
                 else {
                     return Err(self.error(instance.span, "missing function instance"));
+                };
+                let Some(control_body) = &instance.control_body else {
+                    return Err(self.error(instance.span, "missing function instance control body"));
                 };
                 let function = BackendFunction {
                     def_id: instance.def_id,
@@ -262,13 +262,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     span: instance.span,
                 };
                 let mut codegen = FunctionCodegen::new(self, &function, llvm_function);
-                if let Some(control_body) = &function.control_body
-                    && FunctionCodegen::can_emit_control_body(control_body)
-                {
-                    codegen.emit_control_body(control_body)?;
-                } else {
-                    codegen.emit_body(body)?;
-                }
+                codegen.emit_control_body(control_body)?;
             }
         }
         Ok(())
