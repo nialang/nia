@@ -136,17 +136,17 @@ impl FlowChecker<'_> {
     }
 
     fn switch_tail_covers_all_paths(&mut self, switch: &nia_ast::SwitchStmt) -> bool {
-        let mut has_default = false;
+        let mut seen_default = false;
         let mut seen_patterns = HashSet::new();
         let mut all_arms_produce = !switch.arms.is_empty();
         for arm in &switch.arms {
             match &arm.pattern {
                 SwitchPattern::Default => {
-                    if has_default {
+                    if seen_default {
                         self.diagnostics
                             .push(Diagnostic::error(arm.span, "duplicate switch default"));
                     }
-                    has_default = true;
+                    seen_default = true;
                 }
                 SwitchPattern::Expr(expr) => {
                     let key = format!("{:?}", expr.kind);
@@ -158,7 +158,7 @@ impl FlowChecker<'_> {
             }
             all_arms_produce &= self.switch_tail_arm_produces_value(&arm.body);
         }
-        has_default && all_arms_produce
+        all_arms_produce
     }
 
     fn switch_tail_arm_produces_value(&mut self, body: &SwitchArmBody) -> bool {
@@ -708,6 +708,32 @@ fn name(x: u32) &const u8 {
     switch x {
         1 => 0 as &const u8,
         _ => 1 as &const u8,
+    }
+}
+"#,
+        );
+        assert!(
+            !checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("does not return on all reachable paths")),
+            "{:?}",
+            checked.diagnostics
+        );
+    }
+
+    #[test]
+    fn exhaustive_switch_tail_without_default_satisfies_return_analysis() {
+        let checked = pipeline(
+            r#"
+enum Mode: u8 {
+    A,
+    B,
+}
+
+fn name(mode: Mode) u32 {
+    switch mode {
+        Mode::A => 1,
+        Mode::B => 2,
     }
 }
 "#,
