@@ -77,6 +77,70 @@ pub(super) fn numeric_literal_body(text: &str) -> &str {
     &text[..suffix_start]
 }
 
+pub(super) fn decode_char_literal(text: &str) -> Option<u32> {
+    let inner = text.strip_prefix('\'')?.strip_suffix('\'')?;
+    let scalars = decode_char_scalars(inner)?;
+    (scalars.len() == 1).then_some(scalars[0])
+}
+
+pub(super) fn decode_string_literal(literal: &StringLiteral) -> Option<Vec<u32>> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    let mut scalars = Vec::new();
+    for part in &literal.parts {
+        scalars.extend(decode_string_literal_part(part)?);
+    }
+    Some(scalars)
+}
+
+fn decode_string_literal_part(text: &str) -> Option<Vec<u32>> {
+    if strip_multiline_prefix(text).is_some() {
+        return decode_multiline_string_literal(text).map(bytes_to_scalars);
+    }
+    let inner = text.strip_prefix('"')?.strip_suffix('"')?;
+    decode_char_scalars(inner)
+}
+
+pub(super) fn decode_byte_string_literal(literal: &StringLiteral) -> Option<Vec<u8>> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    for part in &literal.parts {
+        bytes.extend(decode_byte_string_literal_part(part)?);
+    }
+    Some(bytes)
+}
+
+fn decode_byte_string_literal_part(text: &str) -> Option<Vec<u8>> {
+    if strip_multiline_prefix(text).is_some() {
+        return decode_multiline_string_literal(text);
+    }
+    let inner = text.strip_prefix("b\"")?.strip_suffix('"')?;
+    decode_char_inner(inner)
+}
+
+pub(super) fn decode_c_string_literal(literal: &StringLiteral) -> Option<Vec<u8>> {
+    if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    for part in &literal.parts {
+        bytes.extend(decode_c_string_literal_part(part)?);
+    }
+    bytes.push(0);
+    Some(bytes)
+}
+
+fn decode_c_string_literal_part(text: &str) -> Option<Vec<u8>> {
+    if strip_multiline_prefix(text).is_some() {
+        return decode_multiline_string_literal(text);
+    }
+    let inner = text.strip_prefix("c\"")?.strip_suffix('"')?;
+    decode_char_inner(inner)
+}
+
 pub(super) fn numeric_literal_suffix(text: &str) -> Option<&str> {
     let start = numeric_suffix_start(text)?;
     Some(&text[start..])
@@ -302,6 +366,71 @@ fn decoded_byte_len(inner: &str) -> Option<usize> {
     Some(bytes)
 }
 
+fn decode_char_inner(inner: &str) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            let mut buf = [0; 4];
+            bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+            continue;
+        }
+        match chars.next()? {
+            'n' => bytes.push(b'\n'),
+            'r' => bytes.push(b'\r'),
+            't' => bytes.push(b'\t'),
+            '\\' => bytes.push(b'\\'),
+            '\'' => bytes.push(b'\''),
+            '"' => bytes.push(b'"'),
+            '0' => bytes.push(0),
+            'x' => {
+                let hi = chars.next()?.to_digit(16)?;
+                let lo = chars.next()?.to_digit(16)?;
+                bytes.push(((hi << 4) | lo) as u8);
+            }
+            'u' => {
+                bytes.extend_from_slice(&decode_unicode_escape(&mut chars)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(bytes)
+}
+
+fn decode_char_scalars(inner: &str) -> Option<Vec<u32>> {
+    let mut scalars = Vec::new();
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            scalars.push(ch as u32);
+            continue;
+        }
+        let scalar = match chars.next()? {
+            'n' => '\n' as u32,
+            'r' => '\r' as u32,
+            't' => '\t' as u32,
+            '\\' => '\\' as u32,
+            '\'' => '\'' as u32,
+            '"' => '"' as u32,
+            '0' => 0,
+            'x' => {
+                let hi = chars.next()?.to_digit(16)?;
+                let lo = chars.next()?.to_digit(16)?;
+                (hi << 4) | lo
+            }
+            'u' => decode_unicode_escape_scalar(&mut chars)?,
+            _ => return None,
+        };
+        char::from_u32(scalar)?;
+        scalars.push(scalar);
+    }
+    Some(scalars)
+}
+
+fn bytes_to_scalars(bytes: Vec<u8>) -> Vec<u32> {
+    bytes.into_iter().map(u32::from).collect()
+}
+
 fn decoded_scalar_len(inner: &str) -> Option<usize> {
     let mut scalars = 0usize;
     let mut chars = inner.chars();
@@ -383,6 +512,34 @@ fn multiline_string_literal_byte_len(text: &str) -> Option<usize> {
     Some(bytes)
 }
 
+fn decode_multiline_string_literal(text: &str) -> Option<Vec<u8>> {
+    let source = strip_multiline_prefix(text)?;
+    let mut bytes = Vec::new();
+    let mut pos = 0usize;
+    loop {
+        if !source[pos..].starts_with("\\\\") {
+            return None;
+        }
+        pos += 2;
+
+        let content_start = pos;
+        while pos < source.len() && !matches!(source.as_bytes()[pos], b'\n' | b'\r') {
+            pos += 1;
+        }
+        bytes.extend_from_slice(&source.as_bytes()[content_start..pos]);
+
+        if pos == source.len() {
+            break;
+        }
+        bytes.push(b'\n');
+        pos = consume_newline(source, pos)?;
+        while matches!(source.as_bytes().get(pos), Some(b' ' | b'\t')) {
+            pos += 1;
+        }
+    }
+    Some(bytes)
+}
+
 fn strip_multiline_prefix(text: &str) -> Option<&str> {
     if text.starts_with("\\\\") {
         Some(text)
@@ -404,6 +561,39 @@ fn unicode_escape_byte_len(chars: &mut std::str::Chars<'_>) -> Option<usize> {
         if ch == '}' {
             let scalar = u32::from_str_radix(&value, 16).ok()?;
             return Some(char::from_u32(scalar)?.len_utf8());
+        }
+        value.push(ch);
+    }
+    None
+}
+
+fn decode_unicode_escape(chars: &mut std::str::Chars<'_>) -> Option<Vec<u8>> {
+    if chars.next()? != '{' {
+        return None;
+    }
+    let mut value = String::new();
+    for ch in chars.by_ref() {
+        if ch == '}' {
+            let scalar = u32::from_str_radix(&value, 16).ok()?;
+            let ch = char::from_u32(scalar)?;
+            let mut buf = [0; 4];
+            return Some(ch.encode_utf8(&mut buf).as_bytes().to_vec());
+        }
+        value.push(ch);
+    }
+    None
+}
+
+fn decode_unicode_escape_scalar(chars: &mut std::str::Chars<'_>) -> Option<u32> {
+    if chars.next()? != '{' {
+        return None;
+    }
+    let mut value = String::new();
+    for ch in chars.by_ref() {
+        if ch == '}' {
+            let scalar = u32::from_str_radix(&value, 16).ok()?;
+            char::from_u32(scalar)?;
+            return Some(scalar);
         }
         value.push(ch);
     }

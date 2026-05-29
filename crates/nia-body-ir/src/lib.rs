@@ -9,6 +9,7 @@ use nia_ty::TyInterner;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
     pub interner: TyInterner,
+    pub function_bodies: HashMap<GlobalDefId, TypedBody>,
     pub expr_types: HashMap<Span, InternedTyId>,
     pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
@@ -274,6 +275,7 @@ pub struct TypedSliceRange {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BuiltinConst {
     Usize(u64),
+    Int(i128),
 }
 
 #[derive(Debug, Clone, PartialEq)]

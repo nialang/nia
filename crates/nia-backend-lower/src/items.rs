@@ -127,14 +127,13 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendFunction> {
         let def_id = self.def_id_for_span_any_function(span)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
-        let previous_param_locals = std::mem::take(&mut self.current_param_locals);
-        self.current_param_locals = function
-            .params
-            .iter()
-            .filter_map(|param| self.input.locals.local_defs.get(&param.span).copied())
-            .collect();
-        let body = function.body.as_ref().map(|body| self.lower_body(body));
-        self.current_param_locals = previous_param_locals;
+        let body = self
+            .input
+            .body_check
+            .ir
+            .function_bodies
+            .get(&self.global_def_id(def_id))
+            .cloned();
         Some(BackendFunction {
             def_id: self.global_def_id(def_id),
             name: function.name.clone(),

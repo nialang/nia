@@ -308,6 +308,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .i64_type()
                 .const_int(*value, false)
                 .into()),
+            TypedExprKind::BuiltinValue(BuiltinConst::Int(value)) => {
+                let ty = self
+                    .module
+                    .llvm_basic_type(expr.ty, expr.span)?
+                    .into_int_type()?;
+                Ok(ty.const_u128(*value as u128).into())
+            }
             TypedExprKind::Len(inner) => self.emit_len(expr.span, inner),
             TypedExprKind::Ptr(inner) => self.emit_ptr(expr.span, inner),
             TypedExprKind::InlineAsm(asm) => {

@@ -2,6 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 mod aggregates;
+mod bir;
 mod calls;
 mod expr;
 mod helpers;
@@ -89,6 +90,7 @@ pub struct ProgramSignatureMaps<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckInput<'a> {
     pub module: &'a Module,
+    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
     pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
@@ -106,6 +108,7 @@ pub struct BodyCheckInput<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub module: &'a Module,
+    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
     pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
@@ -153,6 +156,7 @@ pub fn check_module_bodies(
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         module,
+        all_modules: std::slice::from_ref(module),
         defs,
         all_defs: std::slice::from_ref(defs),
         values,
@@ -194,6 +198,7 @@ pub fn check_module_bodies_with_program_signatures(
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         module: input.module,
+        all_modules: input.all_modules,
         defs: input.defs,
         all_defs: input.all_defs,
         values: input.values,
@@ -217,6 +222,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     let mut checker = BodyChecker {
         defs: input.defs,
         all_defs: input.all_defs,
+        all_modules: input.all_modules,
         values: input.values,
         locals: input.locals,
         interner: input
@@ -243,18 +249,21 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         resolved_calls: HashMap::new(),
         function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
+        function_bodies: HashMap::new(),
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         comptime_types: HashMap::new(),
         diagnostics: Vec::new(),
         current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
         current_def_id: None,
+        current_param_locals: Vec::new(),
     };
     checker.seed_global_types();
     checker.check_module(input.module);
     BodyCheck {
         ir: BodyIr {
             interner: checker.interner,
+            function_bodies: checker.function_bodies,
             expr_types: checker.expr_types,
             bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
             array_to_slice_coercions: checker.array_to_slice_coercions,
@@ -272,6 +281,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
 struct BodyChecker<'a> {
     defs: &'a DefCollection,
     all_defs: &'a [DefCollection],
+    all_modules: &'a [Module],
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     interner: TyInterner,
@@ -295,12 +305,14 @@ struct BodyChecker<'a> {
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
+    function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
     diagnostics: Vec<Diagnostic>,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
+    current_param_locals: Vec<LocalId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -459,6 +471,7 @@ impl<'a> BodyChecker<'a> {
         };
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
+        let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         self.current_return = signature.return_type;
         self.current_def_id = Some(self.global_def_id(def_id));
         let self_ty = self.method_self_type(def_id, signature);
@@ -474,9 +487,13 @@ impl<'a> BodyChecker<'a> {
             } else if self.is_void(signature.return_type) {
                 self.expect_type(body.span, signature.return_type, body_ty, "function body");
             }
+            let body = self.lower_body(body);
+            self.function_bodies
+                .insert(self.global_def_id(def_id), body);
         }
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
+        self.current_param_locals = previous_param_locals;
     }
 
     fn seed_param_types(
@@ -493,6 +510,7 @@ impl<'a> BodyChecker<'a> {
                     param_sig.ty
                 };
                 self.local_types.insert(local_id, ty);
+                self.current_param_locals.push(local_id);
             }
         }
     }
