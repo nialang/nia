@@ -476,7 +476,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn is_integer(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Primitive(
                 PrimitiveTy::I8
                     | PrimitiveTy::I16
@@ -498,39 +498,39 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn is_float(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
         )
     }
 
     fn is_pointer_like(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
         )
     }
 
     fn is_pointer_integer(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Primitive(PrimitiveTy::Usize | PrimitiveTy::Isize))
         )
     }
 
     fn is_enum(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Nominal { def_id, .. }) if self.module.program.enums.contains_key(def_id)
         )
     }
 
     fn integer_bits(&self, ty: InternedTyId, span: Span) -> Result<u32, Diagnostic> {
-        if let Some(TyKind::Nominal { def_id, .. }) = self.module.interner().get(ty)
+        if let Some(TyKind::Nominal { def_id, .. }) = self.module.ty_kind(ty)
             && let Some(item) = self.module.program.enums.get(def_id).copied()
         {
             return self.integer_bits(item.backing_type, span);
         }
-        let Some(TyKind::Primitive(primitive)) = self.module.interner().get(ty) else {
+        let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "expected integer type"));
         };
         Ok(match primitive {
@@ -570,7 +570,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn is_signed_integer(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Primitive(
                 PrimitiveTy::I8
                     | PrimitiveTy::I16
@@ -585,14 +585,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn is_void(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Primitive(PrimitiveTy::Void))
         )
     }
 
     fn is_never(&self, ty: InternedTyId) -> bool {
         matches!(
-            self.module.interner().get(ty),
+            self.module.ty_kind(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))
         )
     }

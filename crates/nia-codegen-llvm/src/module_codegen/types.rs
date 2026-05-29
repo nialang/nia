@@ -277,7 +277,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .map(|module| &module.layouts)
                     .unwrap_or(layouts);
                 let elem = self.llvm_basic_type_in(*elem, span, self.interner(), elem_layouts)?;
-                let len = self.array_len_in(len, span, layouts)?;
+                let len = self.array_len_in(len, span)?;
                 if len > u32::MAX as u64 {
                     return Err(
                         self.error(span, format!("array length {len} is too large for LLVM"))
@@ -342,12 +342,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Ok(ty)
     }
 
-    fn array_len_in(
-        &self,
-        len: &ArrayLenTy,
-        span: Span,
-        layouts: &BackendLayouts,
-    ) -> Result<u64, Diagnostic> {
+    fn array_len_in(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
@@ -360,7 +355,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .copied()
                 .ok_or_else(|| self.error(span, "array length was not evaluated by comptime")),
             ArrayLenTy::Builtin { name, ty } => {
-                let Some(layout) = layouts
+                let owner_layouts = self.layouts_for(*ty);
+                let Some(layout) = owner_layouts
                     .types
                     .iter()
                     .find_map(|(layout_ty, layout)| (*layout_ty == *ty).then_some(layout))
@@ -384,7 +380,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn array_len(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
-        self.array_len_in(len, span, &self.source.layouts)
+        self.array_len_in(len, span)
     }
 
     pub(crate) fn field_index(
@@ -441,6 +437,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .types
             .iter()
             .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
+    }
+
+    pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {
+        self.program
+            .module(ty.interner_id)
+            .map(|module| &module.layouts)
+            .unwrap_or(&self.source.layouts)
     }
 
     pub(crate) fn field_ty(

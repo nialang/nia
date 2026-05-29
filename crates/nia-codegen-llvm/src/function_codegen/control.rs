@@ -58,6 +58,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_binding(&mut self, span: Span, binding: &TypedBinding) -> Result<(), Diagnostic> {
         if let Some(value) = &binding.value {
+            if self.is_zero_sized(binding.ty) {
+                self.emit_zero_sized_expr(value)?;
+                return Ok(());
+            }
             if self.is_void_expr(value) {
                 self.emit_void_expr(value)?;
                 return Ok(());

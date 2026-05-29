@@ -209,7 +209,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .iter()
             .map(|scalar| self.static_char_init_value_in(interner, *elem, *scalar, span))
             .collect::<Result<Vec<_>, _>>()?;
-        self.const_array_from_values_in(*elem, &values, span, interner, &self.source.layouts)
+        self.const_array_from_values_in(*elem, &values, span, interner, self.layouts_for(*elem))
     }
 
     fn static_array_init_value_in(
@@ -368,7 +368,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             values,
             span,
             self.interner(),
-            &self.source.layouts,
+            self.layouts_for(elem_ty),
         )
     }
 }

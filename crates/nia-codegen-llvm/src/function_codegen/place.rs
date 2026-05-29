@@ -88,7 +88,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &self,
         ty: InternedTyId,
     ) -> Option<(nia_ids::GlobalDefId, Vec<InternedTyId>)> {
-        match self.module.interner().get(ty) {
+        match self.module.ty_kind(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.module_field_base_type(*elem),
             _ => None,
@@ -124,7 +124,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         index: &TypedExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let index_value = self.emit_usize_value(index)?;
-        match self.module.interner().get(lhs.ty) {
+        match self.module.ty_kind(lhs.ty) {
             Some(TyKind::Array { .. }) => {
                 let base_ptr = self.emit_addr_of(lhs)?;
                 let array_ty = self.module.llvm_basic_type(lhs.ty, span)?;
@@ -164,7 +164,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         lhs: &TypedExpr,
     ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>, InternedTyId), Diagnostic> {
         let one = self.module.context.i64_type().const_int(1, false);
-        match self.module.interner().get(lhs.ty) {
+        match self.module.ty_kind(lhs.ty) {
             Some(TyKind::Array { len, elem }) => {
                 let base_ptr = self.emit_array_base_addr(lhs)?;
                 let array_len = self.module.array_len(len, span)?;
@@ -212,7 +212,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         array: &TypedExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(TyKind::Array { .. }) = self.module.interner().get(array.ty) else {
+        let Some(TyKind::Array { .. }) = self.module.ty_kind(array.ty) else {
             return Err(self.error(span, "C string literal pointer source is not an array"));
         };
         let base_ptr = self.emit_array_temp_addr(array)?;
@@ -319,7 +319,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         inner: &TypedExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        match self.module.interner().get(inner.ty) {
+        match self.module.ty_kind(inner.ty) {
             Some(TyKind::Array { len, .. }) => {
                 let len = self.module.array_len(len, span)?;
                 Ok(self.module.context.i64_type().const_int(len, false).into())
@@ -413,9 +413,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         for elem in &place.elems {
             match elem {
                 nia_backend_ir::PlaceElem::Field(field) => {
-                    if let Some(TyKind::Pointer { elem, .. }) =
-                        self.module.interner().get(current_ty)
-                    {
+                    if let Some(TyKind::Pointer { elem, .. }) = self.module.ty_kind(current_ty) {
                         let ptr_ty = self.module.llvm_basic_type(current_ty, place.span)?;
                         ptr = self
                             .builder
@@ -449,7 +447,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         expr: &TypedExpr,
     ) -> Result<(BasicTypeEnum<'ctx>, PointerValue<'ctx>), Diagnostic> {
-        match self.module.interner().get(expr.ty) {
+        match self.module.ty_kind(expr.ty) {
             Some(TyKind::Pointer { elem, .. }) => {
                 let ptr = self.emit_expr(expr)?.into_pointer_value()?;
                 let ty = self.module.llvm_basic_type(*elem, expr.span)?;
@@ -475,7 +473,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .get(def_id)
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
-            nia_backend_ir::PlaceBase::Deref(expr) => match self.module.interner().get(expr.ty) {
+            nia_backend_ir::PlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {
                 Some(TyKind::Pointer { elem, .. }) => *elem,
                 _ => place.ty,
             },
@@ -495,7 +493,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         index: &TypedExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let index_value = self.emit_usize_value(index)?;
-        match self.module.interner().get(base_ty) {
+        match self.module.ty_kind(base_ty) {
             Some(TyKind::Array { .. }) => {
                 let array_ty = self.module.llvm_basic_type(base_ty, span)?;
                 let zero = self.module.context.i64_type().const_int(0, false);
