@@ -5,7 +5,7 @@ use nia_body_check::{
     BodyCheckInput, ProgramSignatureMaps, check_module_bodies_with_program_signatures_and_layouts,
 };
 use nia_body_ir::{TypedArrayElements, TypedExprKind, TypedStmtKind};
-use nia_control_ir::{ControlOp, ControlTerminator};
+use nia_control_ir::{ControlBlockId, ControlOp, ControlTerminator};
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
 use nia_item_signatures::collect_item_signatures;
@@ -238,11 +238,18 @@ fn main() i32 {
         .find(|function| function.name == "main")
         .expect("main function");
     let control = main.control_body.as_ref().expect("main control body");
-    assert_eq!(control.blocks.len(), 1);
+    assert_eq!(control.blocks.len(), 2);
     assert!(matches!(control.blocks[0].ops[0], ControlOp::Defer(_)));
     assert!(matches!(control.blocks[0].ops[1], ControlOp::Binding(_)));
     assert!(matches!(
         control.blocks[0].terminator,
+        ControlTerminator::Next {
+            target: ControlBlockId(1),
+            ..
+        }
+    ));
+    assert!(matches!(
+        control.blocks[1].terminator,
         ControlTerminator::Return { value: Some(_), .. }
     ));
 }
