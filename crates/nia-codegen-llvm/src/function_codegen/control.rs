@@ -340,7 +340,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
         self.builder.position_at_end(merge_block);
         let Some((first_value, _)) = incoming.first() else {
-            return Err(self.error(span, "value switch has no reachable value arms"));
+            self.builder
+                .build_unreachable()
+                .map_err(|_| self.error(span, "failed to build unreachable switch merge"))?;
+            return self
+                .module
+                .llvm_basic_type(ty, span)?
+                .const_zero()
+                .map_err(crate::module_codegen::ModuleCodegen::diagnostic_from_llvm_error);
         };
         let phi = self
             .builder
