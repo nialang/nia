@@ -638,6 +638,139 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_dynamic_index_assignment_into_struct_array_field() {
+    let root = temp_dir("emits_dynamic_index_assignment_into_struct_array_field");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct S {
+    x: i32,
+}
+
+struct T {
+    xs: [4]S,
+}
+
+extend S {
+    fn make(x: i32) S {
+        { x: x }
+    }
+}
+
+fn build() T {
+    var t: T = { xs: [S::make(0); 4] };
+
+    for var i: u16 = 0; i < 4; i += 1 {
+        t.xs[i as usize] = S::make(i as i32);
+    }
+
+    t
+}
+
+fn main() i32 {
+    var t = build();
+    t.xs[2].x
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("getelementptr"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
+fn emits_dynamic_index_assignment_into_struct_array_field_with_constant_rhs() {
+    let root = temp_dir("emits_dynamic_index_assignment_into_struct_array_field_with_constant_rhs");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct S {
+    x: i32,
+}
+
+struct T {
+    xs: [4]S,
+}
+
+extend S {
+    fn make(x: i32) S {
+        { x: x }
+    }
+}
+
+fn build() T {
+    var t: T = { xs: [S::make(0); 4] };
+
+    for var i: u16 = 0; i < 4; i += 1 {
+        t.xs[i as usize] = S::make(7);
+    }
+
+    t
+}
+
+fn main() i32 {
+    var t = build();
+    t.xs[2].x
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
+fn emits_dynamic_index_call_from_struct_function_pointer_array_field() {
+    let root = temp_dir("emits_dynamic_index_call_from_struct_function_pointer_array_field");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Table {
+    fns: [2]&const fn(i32) i32,
+}
+
+fn add1(x: i32) i32 {
+    x + 1
+}
+
+fn add2(x: i32) i32 {
+    x + 2
+}
+
+fn main() i32 {
+    var table: Table = { fns: [&const add1, &const add2] };
+    var i: usize = 1;
+    table.fns[i](40)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call i32"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
 fn emits_nia_structs_in_physical_layout_order() {
     let root = temp_dir("emits_nia_structs_in_physical_layout_order");
     let main = root.join("main.nia");

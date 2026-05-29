@@ -11,7 +11,7 @@ use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
     BackendStructInstanceKey,
 };
-use nia_body_check::BodyCheck;
+use nia_body_check::{BodyCheck, BracketSuffixResolution};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -471,6 +471,12 @@ impl<'a> ModuleLowerer<'a> {
 
     fn type_prefix_instance(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
+            if !matches!(
+                self.bracket_suffix_resolution(expr.span),
+                Some(BracketSuffixResolution::TypePrefixInstantiation)
+            ) {
+                return None;
+            }
             let (def_id, _) = self.type_prefix_instance(callee)?;
             let args = lowered_type_args(args, self.input.type_lowering);
             return Some((def_id, args));
@@ -507,6 +513,14 @@ impl<'a> ModuleLowerer<'a> {
             .types
             .get(name)
             .map(|def_id| (self.global_def_id(def_id), Vec::new()))
+    }
+
+    pub(crate) fn bracket_suffix_resolution(&self, span: Span) -> Option<BracketSuffixResolution> {
+        self.input
+            .body_check
+            .bracket_suffix_resolutions
+            .get(&span)
+            .copied()
     }
 
     fn enum_variant_for_qualified(&self, lhs: &Expr, name: &str) -> Option<GlobalDefId> {
@@ -577,13 +591,6 @@ impl ComptimeEnv for ModuleLowerer<'_> {
             span,
             message: format!("comptime expression can only use comptime bindings: `{name}`"),
         })
-    }
-}
-
-fn generic_inst_base(expr: &Expr) -> &Expr {
-    match &expr.kind {
-        ExprKind::BracketSuffix { callee, .. } => generic_inst_base(callee),
-        _ => expr,
     }
 }
 

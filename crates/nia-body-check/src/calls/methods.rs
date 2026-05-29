@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::{BodyChecker, ResolvedCall};
+use crate::{BodyChecker, BracketSuffixResolution, ResolvedCall};
 use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
@@ -344,6 +344,10 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
             let def_id = self.type_prefix_def_id(callee)?;
+            self.record_bracket_suffix_resolution(
+                expr.span,
+                BracketSuffixResolution::TypePrefixInstantiation,
+            );
             let args = self.lower_bracket_type_args(args);
             return Some((def_id, args));
         }

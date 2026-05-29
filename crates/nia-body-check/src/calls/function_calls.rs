@@ -2,7 +2,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    BodyChecker, FunctionReference, ResolvedCall, ResolvedFunctionSignature, generic_inst_base,
+    BodyChecker, BracketSuffixResolution, FunctionReference, ResolvedCall,
+    ResolvedFunctionSignature, generic_inst_base,
 };
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
@@ -87,6 +88,10 @@ impl<'a> BodyChecker<'a> {
         match &expr.kind {
             ExprKind::BracketSuffix { callee, args } => {
                 let mut item = self.function_item_ref(callee)?;
+                self.record_bracket_suffix_resolution(
+                    expr.span,
+                    BracketSuffixResolution::GenericCall,
+                );
                 let type_args = self.lower_bracket_type_args(args);
                 item.type_args.extend(type_args);
                 Some(item)
@@ -225,6 +230,7 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn check_explicit_generic_call(
         &mut self,
         span: Span,
+        callee_span: Span,
         callee: &Expr,
         type_args: &[BracketArg],
         args: &[Expr],
@@ -235,15 +241,27 @@ impl<'a> BodyChecker<'a> {
                 span, lhs, name, type_args, args, expected,
             )
         {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return return_type;
         }
         if let ExprKind::Qualified { lhs, name } = &callee.kind
             && let Some(return_type) = self
                 .check_explicit_generic_associated_call(span, lhs, name, type_args, args, expected)
         {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return return_type;
         }
         if let Some(resolved) = self.qualified_callee_signature(callee) {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return self.check_instantiated_function_call(
                 span,
                 resolved.def_id,
@@ -253,6 +271,10 @@ impl<'a> BodyChecker<'a> {
             );
         }
         if let Some(resolved) = self.direct_callee_signature(callee) {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return self.check_instantiated_function_call(
                 span,
                 resolved.def_id,
@@ -261,14 +283,43 @@ impl<'a> BodyChecker<'a> {
                 args,
             );
         }
-        self.diagnostics.push(Diagnostic::error(
-            callee.span,
-            "explicit generic instantiation requires a function callee",
-        ));
-        for arg in args {
-            self.check_expr(arg);
+        let callee_ty = self.check_bracket_suffix_expr(callee_span, callee, type_args, None);
+        self.expr_types.insert(callee_span, callee_ty);
+        self.check_function_pointer_call_with_callee_ty(span, callee_ty, args)
+    }
+
+    pub(super) fn check_function_pointer_call_with_callee_ty(
+        &mut self,
+        span: Span,
+        callee_ty: InternedTyId,
+        args: &[Expr],
+    ) -> InternedTyId {
+        match self.interner.get(callee_ty).cloned() {
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                self.check_direct_call_args(span, args, &params, is_variadic);
+                self.resolved_calls
+                    .insert(span, ResolvedCall::FunctionPointer);
+                return_type
+            }
+            Some(TyKind::Error) | None => {
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.error()
+            }
+            _ => {
+                self.diagnostics
+                    .push(Diagnostic::error(span, "callee is not callable"));
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.error()
+            }
         }
-        self.error()
     }
 
     fn check_instantiated_function_call(

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
+use crate::{BodyChecker, BracketSuffixResolution};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -548,7 +548,7 @@ impl<'a> BodyChecker<'a> {
         false
     }
 
-    fn check_bracket_suffix_expr(
+    pub(crate) fn check_bracket_suffix_expr(
         &mut self,
         span: Span,
         callee: &Expr,
@@ -559,6 +559,7 @@ impl<'a> BodyChecker<'a> {
             && let Some(arg) = args.first()
             && let Some(index) = &arg.expr
         {
+            self.record_bracket_suffix_resolution(span, BracketSuffixResolution::Index);
             let lhs_expected = self.array_expected_from_index_expected(expected);
             let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
             let index_ty = self.check_expr(index);
