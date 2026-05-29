@@ -34,24 +34,24 @@ pub enum ControlOp {
     For {
         header: TypedForHeader,
         body: Box<ControlBody>,
+        break_target: ControlBlockId,
+        continue_target: ControlBlockId,
         span: Span,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControlTerminator {
+    Branch {
+        target: ControlBlockId,
+        span: Span,
+    },
     Next {
         target: ControlBlockId,
         span: Span,
     },
     Return {
         value: Option<TypedExpr>,
-        span: Span,
-    },
-    Break {
-        span: Span,
-    },
-    Continue {
         span: Span,
     },
     Tail {
@@ -63,11 +63,10 @@ pub enum ControlTerminator {
 impl ControlTerminator {
     pub fn successors(&self) -> Vec<ControlBlockId> {
         match self {
-            ControlTerminator::Next { target, .. } => vec![*target],
-            ControlTerminator::Return { .. }
-            | ControlTerminator::Break { .. }
-            | ControlTerminator::Continue { .. }
-            | ControlTerminator::Tail { .. } => Vec::new(),
+            ControlTerminator::Branch { target, .. } | ControlTerminator::Next { target, .. } => {
+                vec![*target]
+            }
+            ControlTerminator::Return { .. } | ControlTerminator::Tail { .. } => Vec::new(),
         }
     }
 }
@@ -78,11 +77,21 @@ pub fn lower_control_body(body: &TypedBody) -> ControlBody {
 
 struct ControlLowerer {
     next_block: u32,
+    loop_targets: Vec<LoopTargetIds>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LoopTargetIds {
+    break_target: ControlBlockId,
+    continue_target: ControlBlockId,
 }
 
 impl ControlLowerer {
     fn new() -> Self {
-        Self { next_block: 0 }
+        Self {
+            next_block: 0,
+            loop_targets: Vec::new(),
+        }
     }
 
     fn lower_body(&mut self, body: &TypedBody) -> ControlBody {
@@ -199,12 +208,42 @@ impl ControlLowerer {
                 value: value.clone(),
                 span: stmt.span,
             }),
-            TypedStmtKind::Break => Some(ControlTerminator::Break { span: stmt.span }),
-            TypedStmtKind::Continue => Some(ControlTerminator::Continue { span: stmt.span }),
+            TypedStmtKind::Break => {
+                let target = self
+                    .loop_targets
+                    .last()
+                    .map(|targets| targets.break_target)
+                    .unwrap_or(ControlBlockId(u32::MAX));
+                Some(ControlTerminator::Branch {
+                    target,
+                    span: stmt.span,
+                })
+            }
+            TypedStmtKind::Continue => {
+                let target = self
+                    .loop_targets
+                    .last()
+                    .map(|targets| targets.continue_target)
+                    .unwrap_or(ControlBlockId(u32::MAX));
+                Some(ControlTerminator::Branch {
+                    target,
+                    span: stmt.span,
+                })
+            }
             TypedStmtKind::For(for_stmt) => {
+                let break_target = self.alloc_block();
+                let continue_target = self.alloc_block();
+                self.loop_targets.push(LoopTargetIds {
+                    break_target,
+                    continue_target,
+                });
+                let body = self.lower_body(&for_stmt.body);
+                self.loop_targets.pop();
                 ops.push(ControlOp::For {
                     header: self.lower_for_header(&for_stmt.header),
-                    body: Box::new(self.lower_body(&for_stmt.body)),
+                    body: Box::new(body),
+                    break_target,
+                    continue_target,
                     span: stmt.span,
                 });
                 None
@@ -349,6 +388,95 @@ mod tests {
         assert!(matches!(
             control.blocks[0].terminator,
             ControlTerminator::Return { value: Some(_), .. }
+        ));
+    }
+
+    #[test]
+    fn resolves_break_to_loop_exit_branch() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::Infinite,
+                    body: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: vec![TypedStmt {
+                            span,
+                            kind: TypedStmtKind::Break,
+                        }],
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlOp::For {
+            break_target, body, ..
+        } = &control.blocks[0].ops[0]
+        else {
+            panic!("expected for op");
+        };
+
+        assert_eq!(body.blocks[0].terminator.successors(), vec![*break_target]);
+        assert!(matches!(
+            body.blocks[0].terminator,
+            ControlTerminator::Branch { .. }
+        ));
+    }
+
+    #[test]
+    fn resolves_continue_to_loop_continue_branch() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::Infinite,
+                    body: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: vec![TypedStmt {
+                            span,
+                            kind: TypedStmtKind::Continue,
+                        }],
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlOp::For {
+            continue_target,
+            body,
+            ..
+        } = &control.blocks[0].ops[0]
+        else {
+            panic!("expected for op");
+        };
+
+        assert_eq!(
+            body.blocks[0].terminator.successors(),
+            vec![*continue_target]
+        );
+        assert!(matches!(
+            body.blocks[0].terminator,
+            ControlTerminator::Branch { .. }
         ));
     }
 }
