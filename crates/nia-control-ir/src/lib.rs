@@ -41,6 +41,9 @@ pub struct ControlBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControlOp {
     Binding(TypedBinding),
+    /// Effect-only expression. Statement-position block/if/switch expressions
+    /// are lowered to control blocks; value-position control expressions remain
+    /// inside `TypedExpr` until CIR grows explicit value merge nodes.
     Expr(TypedExpr),
     Defer(TypedExpr),
 }
