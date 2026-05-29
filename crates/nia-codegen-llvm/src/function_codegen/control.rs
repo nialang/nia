@@ -14,21 +14,6 @@ use nia_span::Span;
 use super::{FunctionCodegen, LoopTargets};
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
-    pub(crate) fn can_emit_control_body(body: &ControlBody) -> bool {
-        body.blocks.iter().all(|block| {
-            matches!(
-                block.terminator,
-                ControlTerminator::Next { .. }
-                    | ControlTerminator::Branch { .. }
-                    | ControlTerminator::If { .. }
-                    | ControlTerminator::Switch { .. }
-                    | ControlTerminator::Loop { .. }
-                    | ControlTerminator::Return { .. }
-                    | ControlTerminator::Tail { .. }
-            )
-        })
-    }
-
     pub(crate) fn emit_control_body(&mut self, body: &ControlBody) -> Result<(), Diagnostic> {
         let physical_entry = self
             .module

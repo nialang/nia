@@ -67,63 +67,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    pub(super) fn emit_body(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
-        let entry = self
-            .module
-            .context
-            .append_basic_block(self.llvm_function, "entry")?;
-        self.builder.position_at_end(entry);
-        self.out_ptr = self.function_out_ptr()?;
-        self.alloc_locals(body)?;
-        self.store_params()?;
-        let scope = self.push_defer_scope();
-        for stmt in &body.stmts {
-            self.emit_stmt(stmt)?;
-            if self.current_block_has_terminator() {
-                break;
-            }
-        }
-        if self.current_block_has_terminator() {
-            self.pop_defer_scope_to(scope, false)?;
-            return Ok(());
-        }
-        if let Some(tail) = &body.tail {
-            if self.is_zero_sized(tail.ty) {
-                self.emit_zero_sized_expr(tail)?;
-                self.pop_defer_scope_to(scope, true)?;
-                self.builder
-                    .build_return(None)
-                    .map_err(|_| self.error(tail.span, "failed to build void return"))?;
-                return Ok(());
-            }
-            let value = self.emit_expr(tail)?;
-            if self.current_block_has_terminator() {
-                self.pop_defer_scope_to(scope, false)?;
-                return Ok(());
-            }
-            self.pop_defer_scope_to(scope, true)?;
-            self.emit_return_value(tail.span, value)?;
-        } else if self.is_void(self.function.return_type) {
-            self.pop_defer_scope_to(scope, true)?;
-            self.builder
-                .build_return(None)
-                .map_err(|_| self.error(body.span, "failed to build void return"))?;
-        } else if self.is_never(self.function.return_type) {
-            self.pop_defer_scope_to(scope, true)?;
-            self.builder
-                .build_unreachable()
-                .map_err(|_| self.error(body.span, "failed to build never function unreachable"))?;
-        } else {
-            self.pop_defer_scope_to(scope, false)?;
-        }
-        Ok(())
-    }
-
     fn alloc_control_locals(&mut self, body: &ControlBody) -> Result<(), Diagnostic> {
-        self.alloc_local_list(&body.locals)
-    }
-
-    fn alloc_locals(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
         self.alloc_local_list(&body.locals)
     }
 

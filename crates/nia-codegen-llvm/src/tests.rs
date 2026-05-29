@@ -404,6 +404,31 @@ fn rejects_field_access_with_mismatched_base_struct() {
         def_id: point_id,
         args: Vec::new(),
     });
+    let body = TypedBody {
+        span: Span::default(),
+        locals: vec![TypedLocal {
+            id: LocalId(0),
+            name: "point".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty: point_ty,
+            span: Span::default(),
+        }],
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span: Span::default(),
+            ty: i32_ty,
+            kind: TypedExprKind::Field {
+                lhs: Box::new(TypedExpr {
+                    span: Span::default(),
+                    ty: point_ty,
+                    kind: TypedExprKind::Local(LocalId(0)),
+                }),
+                field: other_y,
+            },
+        })),
+        ty: i32_ty,
+    };
+    let control_body = nia_control_ir::lower_control_body(&body);
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),
@@ -484,31 +509,8 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
-                body: Some(TypedBody {
-                    span: Span::default(),
-                    locals: vec![TypedLocal {
-                        id: LocalId(0),
-                        name: "point".to_string(),
-                        kind: TypedLocalKind::Binding,
-                        ty: point_ty,
-                        span: Span::default(),
-                    }],
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(TypedExpr {
-                        span: Span::default(),
-                        ty: i32_ty,
-                        kind: TypedExprKind::Field {
-                            lhs: Box::new(TypedExpr {
-                                span: Span::default(),
-                                ty: point_ty,
-                                kind: TypedExprKind::Local(LocalId(0)),
-                            }),
-                            field: other_y,
-                        },
-                    })),
-                    ty: i32_ty,
-                }),
-                control_body: None,
+                body: Some(body),
+                control_body: Some(control_body),
                 span: Span::default(),
             }],
             function_instances: Vec::new(),
