@@ -128,6 +128,7 @@ impl FlowChecker<'_> {
                     .is_some_and(|else_branch| self.tail_expr_returns_on_all_paths(else_branch));
                 then_returns && else_returns
             }
+            ExprKind::Block(block) if block.stmts.is_empty() && block.tail.is_none() => true,
             ExprKind::Block(block) => self.block_returns_on_all_paths(block),
             ExprKind::Switch(switch) => self.switch_tail_covers_all_paths(switch),
             _ => true,
@@ -662,6 +663,20 @@ fn main(x: i32) {
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("duplicate switch default"))
         );
+    }
+
+    #[test]
+    fn accepts_empty_block_tail_for_empty_struct_return() {
+        let checked = pipeline(
+            r#"
+struct Empty {}
+
+fn make() Empty {
+    {}
+}
+"#,
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 
     #[test]
