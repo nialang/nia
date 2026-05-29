@@ -121,17 +121,32 @@ impl<'a> ModuleLowerer<'a> {
             .get(&span)
             .copied()
             .unwrap_or(LocalId(u32::MAX));
+        let ty = self.local_ty(local_id).unwrap_or_else(|| {
+            binding.ty.as_ref().map_or_else(
+                || {
+                    binding
+                        .value
+                        .as_ref()
+                        .and_then(|value| self.expr_ty(value))
+                        .unwrap_or_else(|| self.error_ty())
+                },
+                |ty| self.ty_for_type_span(ty.span),
+            )
+        });
         TypedBinding {
             local_id,
             name: binding.name.clone(),
-            ty: self.local_ty(local_id).unwrap_or_else(|| {
-                binding
-                    .value
-                    .as_ref()
-                    .and_then(|value| self.expr_ty(value))
-                    .unwrap_or_else(|| self.error_ty())
+            ty,
+            value: binding.value.as_ref().map(|value| {
+                if matches!(
+                    &value.kind,
+                    ExprKind::Block(block) if block.stmts.is_empty() && block.tail.is_none()
+                ) {
+                    self.lower_expr_with_ty(value, Some(ty))
+                } else {
+                    self.lower_expr(value)
+                }
             }),
-            value: binding.value.as_ref().map(|value| self.lower_expr(value)),
             is_const: binding.is_const,
         }
     }

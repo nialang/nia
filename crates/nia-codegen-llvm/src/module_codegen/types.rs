@@ -164,12 +164,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         ty: InternedTyId,
         _interner: &TyInterner,
-        layouts: &BackendLayouts,
+        _layouts: &BackendLayouts,
     ) -> AbiParam {
-        if self
-            .layout_of_in(ty, layouts)
-            .is_some_and(|layout| layout.size == 0)
-        {
+        if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
             return AbiParam::Omit;
         }
         match self.ty_kind(ty) {
@@ -191,17 +188,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         ty: InternedTyId,
         _interner: &TyInterner,
-        layouts: &BackendLayouts,
+        _layouts: &BackendLayouts,
     ) -> AbiReturn {
         match self.ty_kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => return AbiReturn::Never,
             Some(TyKind::Primitive(PrimitiveTy::Void)) => return AbiReturn::Void,
             _ => {}
         }
-        if self
-            .layout_of_in(ty, layouts)
-            .is_some_and(|layout| layout.size == 0)
-        {
+        if self.layout_of(ty).is_some_and(|layout| layout.size == 0) {
             return AbiReturn::Void;
         }
         match self.ty_kind(ty) {
@@ -720,7 +714,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             })
     }
 
-    fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
+    pub(super) fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
         left.len() == right.len()
             && left
                 .iter()
