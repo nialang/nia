@@ -8,6 +8,7 @@ mod expr;
 mod helpers;
 mod literals;
 mod places;
+mod static_init;
 mod type_support;
 
 pub use calls::import_type_into;
@@ -250,6 +251,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
         function_bodies: HashMap::new(),
+        global_inits: HashMap::new(),
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         comptime_types: HashMap::new(),
@@ -264,6 +266,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         ir: BodyIr {
             interner: checker.interner,
             function_bodies: checker.function_bodies,
+            global_inits: checker.global_inits,
             expr_types: checker.expr_types,
             bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
             array_to_slice_coercions: checker.array_to_slice_coercions,
@@ -306,6 +309,7 @@ struct BodyChecker<'a> {
     function_references: HashMap<Span, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
+    global_inits: HashMap<GlobalDefId, nia_body_ir::StaticInit>,
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
@@ -449,6 +453,8 @@ impl<'a> BodyChecker<'a> {
             }
         };
         self.global_types.insert(def_id, global_ty);
+        let init = self.lower_static_init(value);
+        self.global_inits.insert(self.global_def_id(def_id), init);
     }
 
     fn check_function_item(&mut self, item_span: Span, function: &FunctionItem) {

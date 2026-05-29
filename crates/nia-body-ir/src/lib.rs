@@ -10,6 +10,7 @@ use nia_ty::TyInterner;
 pub struct BodyIr {
     pub interner: TyInterner,
     pub function_bodies: HashMap<GlobalDefId, TypedBody>,
+    pub global_inits: HashMap<GlobalDefId, StaticInit>,
     pub expr_types: HashMap<Span, InternedTyId>,
     pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
@@ -354,4 +355,37 @@ pub enum PlaceBase {
 pub enum PlaceElem {
     Field(GlobalDefId),
     Index(Box<TypedExpr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StaticInit {
+    Zero,
+    Int(i128),
+    Float(String),
+    Bool(bool),
+    Char(u32),
+    Byte(u8),
+    Chars(Vec<u32>),
+    Bytes(Vec<u8>),
+    Array(Vec<StaticInit>),
+    Repeat {
+        value: Box<StaticInit>,
+        count: u64,
+    },
+    Struct(Vec<StaticFieldInit>),
+    NullPtr,
+    AddrOfGlobal {
+        global: GlobalDefId,
+        path: Vec<PlaceElem>,
+    },
+    AddrOfFunction {
+        function: GlobalDefId,
+        args: Vec<InternedTyId>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaticFieldInit {
+    pub field: GlobalDefId,
+    pub value: StaticInit,
 }
