@@ -1,12 +1,13 @@
 [package]
-name = "nia-function-ir"
+name = "nia-function-lower"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-ast.workspace = true
+nia-body-ir.workspace = true
+nia-function-ir.workspace = true
 nia-ids.workspace = true
 nia-span.workspace = true
 

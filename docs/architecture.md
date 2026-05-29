@@ -318,9 +318,9 @@ monomorphization, and backend phases.
 
 ### 9.4 `nia-function-ir`
 
-Defines lowered function bodies for backend codegen. It consumes `nia-body-ir`
-typed bodies and produces explicit function-level blocks, scopes, operations,
-terminators, places, callees, and runtime expressions.
+Defines the lowered function body IR used by backend codegen: function-level
+blocks, scopes, operations, terminators, places, callees, locals, builtin
+values, inline assembly, and runtime expressions.
 
 Function IR is the current function backend boundary. It removes source-shaped
 control expressions from runtime expression trees: block, if, switch, for,
@@ -328,14 +328,26 @@ return, break, continue, and defer behavior is represented through blocks,
 terminators, scope edges, and defer bodies. LLVM codegen consumes this IR rather
 than rediscovering control-flow or place semantics from typed AST-shaped nodes.
 
-`nia-function-ir` also owns structural validation for function bodies. The
+`nia-function-ir` is a data and validation crate. It does not depend on
+`nia-body-ir` and does not own the lowering pass from checked body IR. Its
 validator checks IR invariants such as unique ids, valid block/scope/local
 references, valid terminator successors, and recursively valid defer bodies.
-This catches broken lowering before backend codegen starts emitting LLVM.
+This catches broken lowerers before backend codegen starts emitting LLVM.
 
 Function IR is deliberately separate from static/global initialization. Static
 initializers describe compile-time data for storage; function IR describes
 runtime executable control and value flow.
+
+### 9.5 `nia-function-lower`
+
+Lowers `nia-body-ir::TypedBody` into `nia-function-ir::FunctionBody`. This crate
+owns the translation from source-shaped checked bodies into explicit function
+blocks, scope edges, terminators, defer bodies, locals, builtin values, and
+inline assembly options.
+
+This split keeps the Function IR data model reusable by validation, analyses,
+backend lowering, and codegen without making the IR crate depend on the
+source-shaped body IR that currently feeds it.
 
 ## 10. Monomorphization And Symbols
 

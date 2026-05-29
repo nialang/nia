@@ -4,6 +4,7 @@ use nia_body_ir::{
     TypedBody, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedLocal, TypedLocalKind,
     TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };
+use nia_function_ir::*;
 use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
 use nia_span::Span;
 

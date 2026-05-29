@@ -420,7 +420,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
         })),
         ty: i32_ty,
     };
-    let function_body = nia_function_ir::lower_function_body(&body);
+    let function_body = nia_function_lower::lower_function_body(&body);
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),

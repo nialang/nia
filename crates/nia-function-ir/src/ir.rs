@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_body_ir::{AsmOption, BuiltinConst, TypedLocal};
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;
 
@@ -13,11 +12,27 @@ pub struct FunctionScopeId(pub u32);
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionBody {
     pub span: Span,
-    pub locals: Vec<TypedLocal>,
+    pub locals: Vec<FunctionLocal>,
     pub scopes: Vec<FunctionScope>,
     pub blocks: Vec<FunctionBlock>,
     pub entry: FunctionBlockId,
     pub ty: InternedTyId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionLocal {
+    pub id: LocalId,
+    pub name: String,
+    pub kind: FunctionLocalKind,
+    pub ty: InternedTyId,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionLocalKind {
+    Param,
+    Binding,
+    ConstBinding,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -143,7 +158,7 @@ pub enum FunctionExprKind {
         args: Vec<InternedTyId>,
     },
     EnumVariant(nia_ids::GlobalDefId),
-    BuiltinValue(BuiltinConst),
+    BuiltinValue(FunctionBuiltinValue),
     Len(Box<FunctionExpr>),
     Ptr(Box<FunctionExpr>),
     InlineAsm(FunctionInlineAsm),
@@ -213,7 +228,18 @@ pub struct FunctionInlineAsm {
     pub inputs: Vec<FunctionAsmInput>,
     pub outputs: Vec<FunctionAsmOutput>,
     pub clobbers: Vec<String>,
-    pub options: Vec<AsmOption>,
+    pub options: Vec<FunctionAsmOption>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionBuiltinValue {
+    Usize(u64),
+    Int(i128),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionAsmOption {
+    Volatile,
 }
 
 #[derive(Debug, Clone, PartialEq)]
