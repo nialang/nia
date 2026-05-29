@@ -126,8 +126,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .find(|variant| variant.def_id == def_id)
             .and_then(|variant| variant.value)
             .unwrap_or(variant_index as i128);
-        let Some(TyKind::Primitive(primitive)) = self.module.interner().get(enum_item.backing_type)
-        else {
+        let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(enum_item.backing_type) else {
             return Err(self.error(expr.span, "enum backing type is not primitive"));
         };
         let ty = self.integer_llvm_type(*primitive, expr.span)?;

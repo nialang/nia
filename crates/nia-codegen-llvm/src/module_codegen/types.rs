@@ -271,7 +271,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
             Some(TyKind::Array { len, elem }) => {
-                let elem = self.llvm_basic_type_in(*elem, span, self.interner(), layouts)?;
+                let elem_layouts = self
+                    .program
+                    .module(elem.interner_id)
+                    .map(|module| &module.layouts)
+                    .unwrap_or(layouts);
+                let elem = self.llvm_basic_type_in(*elem, span, self.interner(), elem_layouts)?;
                 let len = self.array_len_in(len, span, layouts)?;
                 if len > u32::MAX as u64 {
                     return Err(
@@ -294,7 +299,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return Ok(union_ty.into());
                 }
                 if let Some(item) = self.program.enums.get(def_id).copied() {
-                    return self.llvm_basic_type(item.backing_type, item.span);
+                    let owner = self
+                        .program
+                        .module(item.backing_type.interner_id)
+                        .ok_or_else(|| self.error(item.span, "missing enum owner module"))?;
+                    return self.llvm_basic_type_in(
+                        item.backing_type,
+                        item.span,
+                        &owner.interner,
+                        &owner.layouts,
+                    );
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
             }
@@ -337,7 +351,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
-                .source
+                .program
+                .module(id.module_id)
+                .ok_or_else(|| self.error(span, "missing array length owner module"))?
                 .comptime
                 .array_lengths
                 .get(id)
@@ -785,15 +801,23 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
             | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
-                .source
-                .comptime
+                .program
+                .module(right.module_id)
+                .map(|module| &module.comptime)
+                .unwrap_or(&self.source.comptime)
                 .array_lengths
                 .get(right)
                 .is_some_and(|right| left == right),
             (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {
                 left == right || {
-                    let left = self.source.comptime.array_lengths.get(left);
-                    let right = self.source.comptime.array_lengths.get(right);
+                    let left = self
+                        .program
+                        .module(left.module_id)
+                        .and_then(|module| module.comptime.array_lengths.get(left));
+                    let right = self
+                        .program
+                        .module(right.module_id)
+                        .and_then(|module| module.comptime.array_lengths.get(right));
                     left.is_some() && left == right
                 }
             }

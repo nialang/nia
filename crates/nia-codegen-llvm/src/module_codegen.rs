@@ -127,7 +127,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
-        self.source
+        let owner = self.program.module(ty.interner_id)?;
+        owner
             .layouts
             .types
             .iter()
