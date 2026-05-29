@@ -35,7 +35,7 @@ Before submitting compiler changes, run:
 
 ```sh
 cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
