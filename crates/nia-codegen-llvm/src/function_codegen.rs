@@ -4,6 +4,7 @@ mod asm;
 mod call;
 mod control;
 mod defer;
+mod expr_control;
 mod literals;
 mod ops;
 mod place;
@@ -14,7 +15,7 @@ use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
 use nia_backend_ir::BackendFunction;
-use nia_body_ir::{BuiltinConst, TypedBody, TypedExpr, TypedExprKind, TypedLocalKind};
+use nia_body_ir::{BuiltinConst, TypedExpr, TypedExprKind, TypedLocalKind};
 use nia_control_ir::{ControlBody, ControlScopeId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
@@ -334,35 +335,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_block_expr(&mut self, body: &TypedBody) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        if self.is_zero_sized(body.ty) {
-            self.emit_zero_sized_body(body)?;
-            return Err(self.error(body.span, "zero-sized block has no runtime value"));
-        }
-        let scope = self.push_defer_scope();
-        for stmt in &body.stmts {
-            self.emit_stmt(stmt)?;
-            if self.current_block_has_terminator() {
-                break;
-            }
-        }
-        if let Some(tail) = &body.tail {
-            let value = self.emit_expr(tail)?;
-            if self.current_block_has_terminator() {
-                self.pop_defer_scope_to(scope, false)?;
-                return Ok(value);
-            }
-            self.pop_defer_scope_to(scope, true)?;
-            Ok(value)
-        } else {
-            self.pop_defer_scope_to(scope, false)?;
-            Err(self.error(
-                body.span,
-                "void block cannot be used as a value in LLVM codegen",
-            ))
-        }
-    }
-
     fn field_index(
         &self,
         base_ty: InternedTyId,
@@ -392,39 +364,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
     ) -> Result<bool, Diagnostic> {
         Ok(self.module.llvm_basic_type(lhs, span)? == self.module.llvm_basic_type(rhs, span)?)
-    }
-
-    pub(super) fn emit_zero_sized_expr(&mut self, expr: &TypedExpr) -> Result<(), Diagnostic> {
-        match &expr.kind {
-            TypedExprKind::Block(body) => self.emit_zero_sized_body(body),
-            TypedExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => self.emit_void_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
-            TypedExprKind::Switch(switch) => self.emit_void_switch_expr(expr.span, switch),
-            TypedExprKind::StructLiteral { .. } => Ok(()),
-            TypedExprKind::Local(_) | TypedExprKind::Global(_) => Ok(()),
-            TypedExprKind::CStringPointer { .. } => Ok(()),
-            _ => self.emit_void_expr(expr),
-        }
-    }
-
-    pub(super) fn emit_zero_sized_body(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
-        let scope = self.push_defer_scope();
-        for stmt in &body.stmts {
-            self.emit_stmt(stmt)?;
-            if self.current_block_has_terminator() {
-                break;
-            }
-        }
-        if !self.current_block_has_terminator()
-            && let Some(tail) = &body.tail
-        {
-            self.emit_zero_sized_expr(tail)?;
-        }
-        self.pop_defer_scope_to(scope, !self.current_block_has_terminator())?;
-        Ok(())
     }
 
     fn is_zero_sized(&self, ty: InternedTyId) -> bool {
