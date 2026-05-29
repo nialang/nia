@@ -262,17 +262,14 @@ impl<'a> ValueResolver<'a> {
         if let Some(scope) = self.using_scope
             && let Some(entry) = scope.lookup_type(segment.name)
         {
-            self.names.insert(
-                segment.span,
-                ValueNameResolution::External(GlobalDefId {
-                    module_id: entry.target_module,
-                    def_id: entry.target_def_id,
-                }),
-            );
-            return Some(ResolvedNamespace::Type(GlobalDefId {
+            let type_id = GlobalDefId {
                 module_id: entry.target_module,
                 def_id: entry.target_def_id,
-            }));
+            };
+            self.names
+                .insert(segment.span, ValueNameResolution::External(type_id));
+            self.qualified_type_prefixes.insert(segment.span, type_id);
+            return Some(ResolvedNamespace::Type(type_id));
         }
         None
     }

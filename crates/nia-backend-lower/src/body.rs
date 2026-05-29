@@ -470,13 +470,12 @@ impl<'a> ModuleLowerer<'a> {
                 ty: self.ty_for_type_span(ty.span),
             },
             ExprKind::Call { callee, args } => {
-                if let ExprKind::Builtin { name, .. } = &callee.kind
-                    && args.len() == 1
-                {
-                    match name.as_str() {
-                        "len" => TypedExprKind::Len(Box::new(self.lower_expr(&args[0]))),
-                        "ptr" => TypedExprKind::Ptr(Box::new(self.lower_expr(&args[0]))),
-                        "asm" => self.lower_inline_asm(&args[0]),
+                if let ExprKind::Builtin { name, .. } = &callee.kind {
+                    match (name.as_str(), args.as_slice()) {
+                        (_, []) => self.lower_expr(callee).kind,
+                        ("len", [arg]) => TypedExprKind::Len(Box::new(self.lower_expr(arg))),
+                        ("ptr", [arg]) => TypedExprKind::Ptr(Box::new(self.lower_expr(arg))),
+                        ("asm", [arg]) => self.lower_inline_asm(arg),
                         _ => TypedExprKind::Call {
                             callee: self.lower_callee(expr.span, callee),
                             args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
