@@ -101,7 +101,7 @@ Before committing a pull-request-ready change, run:
 
 ```sh
 cargo fmt --check
-cargo check --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
@@ -109,10 +109,10 @@ These checks are mandatory for compiler changes.
 
 ## 6. Clippy Without Allows
 
-Run Clippy as a separate quality gate:
+Clippy is part of the local release gate:
 
 ```sh
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
 Do not add `allow`, `expect`, or broad lint suppression attributes only to pass
@@ -165,9 +165,8 @@ Closes #1
 
 ## Tests
 - cargo fmt --check
-- cargo check --workspace
+- cargo clippy --workspace --all-targets --all-features -- -D warnings
 - cargo test --workspace
-- cargo clippy --workspace --all-targets -- -D warnings
 
 ## Notes
 - empty unions remain unsupported
@@ -185,6 +184,11 @@ Review the pull request on GitHub before merging:
 - verify CI or local check results;
 - confirm tests cover the intended behavior;
 - confirm the version was bumped if this pull request is a release point.
+
+For compiler-facing changes, especially changes touching `check`, `emit`,
+lowering, or codegen, prefer at least one emit-level regression test when the
+accepted program should lower successfully. A check-only test is enough only
+when the behavior is intentionally limited to diagnostics or typed IR.
 
 For one-feature branches, prefer squash merge to keep `main` readable. If the
 branch has multiple meaningful commits, a normal merge is acceptable.
@@ -249,8 +253,7 @@ Issue
 -> branch from main
 -> implementation, tests, and docs
 -> version bump if this is a release point
--> fmt/check/test
--> clippy without allows
+-> fmt/clippy/test
 -> commit and push
 -> GitHub pull request with Closes/Refs issue link
 -> review

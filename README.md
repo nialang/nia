@@ -79,16 +79,21 @@ Module aliases can be supplied with `-M name=path`.
 
 ## Testing
 
-Run the full test suite with:
-
-```sh
-cargo test --workspace
-```
-
-Check formatting with:
+Before opening or merging compiler changes, run the local release gate:
 
 ```sh
 cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
+```
+
+Do not add lint suppressions just to pass Clippy. Fix the code instead, or
+document and review a narrow exception.
+
+For a release point, also confirm the CLI version:
+
+```sh
+cargo run -p nia-cli -- --version
 ```
 
 ## License
