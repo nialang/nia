@@ -1,122 +1,305 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_body_ir::{
-    TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind,
-    TypedFieldInit, TypedForHeader, TypedForInit, TypedLocal, TypedLocalKind, TypedPlace,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
+    AsmOption, BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody,
+    TypedCallee, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedInlineAsm,
+    TypedLocal, TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
+    TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ControlBlockId(pub u32);
+pub struct FunctionBlockId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ControlScopeId(pub u32);
+pub struct FunctionScopeId(pub u32);
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ControlBody {
+pub struct FunctionBody {
     pub span: Span,
     pub locals: Vec<TypedLocal>,
-    pub scopes: Vec<ControlScope>,
-    pub blocks: Vec<ControlBlock>,
-    pub entry: ControlBlockId,
+    pub scopes: Vec<FunctionScope>,
+    pub blocks: Vec<FunctionBlock>,
+    pub entry: FunctionBlockId,
     pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ControlScope {
-    pub id: ControlScopeId,
-    pub parent: Option<ControlScopeId>,
+pub struct FunctionScope {
+    pub id: FunctionScopeId,
+    pub parent: Option<FunctionScopeId>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ControlBlock {
-    pub id: ControlBlockId,
-    pub scope: ControlScopeId,
+pub struct FunctionBlock {
+    pub id: FunctionBlockId,
+    pub scope: FunctionScopeId,
     pub span: Span,
-    pub ops: Vec<ControlOp>,
-    pub terminator: ControlTerminator,
+    pub ops: Vec<FunctionOp>,
+    pub terminator: FunctionTerminator,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ControlOp {
-    Binding(TypedBinding),
+pub enum FunctionOp {
+    Binding(FunctionBinding),
     StoreLocal {
         local_id: LocalId,
-        value: TypedExpr,
+        value: FunctionExpr,
         span: Span,
     },
-    Expr(TypedExpr),
-    Defer(ControlDeferBody),
+    Expr(FunctionExpr),
+    Defer(FunctionDeferBody),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ControlDeferBody {
+pub struct FunctionBinding {
+    pub local_id: LocalId,
+    pub name: String,
+    pub ty: InternedTyId,
+    pub value: Option<FunctionExpr>,
+    pub is_const: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionDeferBody {
     pub span: Span,
-    pub scopes: Vec<ControlScope>,
-    pub blocks: Vec<ControlBlock>,
-    pub entry: ControlBlockId,
+    pub scopes: Vec<FunctionScope>,
+    pub blocks: Vec<FunctionBlock>,
+    pub entry: FunctionBlockId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ControlTerminator {
+pub enum FunctionTerminator {
     Branch {
-        target: ControlBlockId,
+        target: FunctionBlockId,
         span: Span,
     },
     Next {
-        target: ControlBlockId,
+        target: FunctionBlockId,
         span: Span,
     },
     If {
-        cond: TypedExpr,
-        then_target: ControlBlockId,
-        else_target: ControlBlockId,
+        cond: FunctionExpr,
+        then_target: FunctionBlockId,
+        else_target: FunctionBlockId,
         span: Span,
     },
     Switch {
-        target: TypedExpr,
-        arms: Vec<ControlSwitchArm>,
-        default: Option<ControlBlockId>,
-        fallback: ControlBlockId,
+        target: FunctionExpr,
+        arms: Vec<FunctionSwitchArm>,
+        default: Option<FunctionBlockId>,
+        fallback: FunctionBlockId,
         span: Span,
     },
     Loop {
-        header: TypedForHeader,
-        body: ControlBlockId,
-        continue_target: ControlBlockId,
-        break_target: ControlBlockId,
+        header: FunctionForHeader,
+        body: FunctionBlockId,
+        continue_target: FunctionBlockId,
+        break_target: FunctionBlockId,
         span: Span,
     },
     Return {
-        value: Option<TypedExpr>,
+        value: Option<FunctionExpr>,
         span: Span,
     },
     Tail {
-        value: Option<TypedExpr>,
+        value: Option<FunctionExpr>,
         span: Span,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ControlSwitchArm {
-    pub pattern: TypedExpr,
-    pub target: ControlBlockId,
+pub struct FunctionSwitchArm {
+    pub pattern: FunctionExpr,
+    pub target: FunctionBlockId,
 }
 
-impl ControlTerminator {
-    pub fn successors(&self) -> Vec<ControlBlockId> {
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionForHeader {
+    Infinite,
+    Condition(FunctionExpr),
+    CStyle { cond: Option<Box<FunctionExpr>> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionExpr {
+    pub span: Span,
+    pub ty: InternedTyId,
+    pub kind: FunctionExprKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionExprKind {
+    Error,
+    Integer(String),
+    Float(String),
+    String(Vec<u32>),
+    ByteString(Vec<u8>),
+    Char(u32),
+    ByteChar(String),
+    Bool(bool),
+    Local(LocalId),
+    Global(nia_ids::GlobalDefId),
+    Function(nia_ids::GlobalDefId),
+    FunctionInstance {
+        def_id: nia_ids::GlobalDefId,
+        args: Vec<InternedTyId>,
+    },
+    EnumVariant(nia_ids::GlobalDefId),
+    BuiltinValue(BuiltinConst),
+    Len(Box<FunctionExpr>),
+    Ptr(Box<FunctionExpr>),
+    InlineAsm(FunctionInlineAsm),
+    CStringPointer {
+        array: Box<FunctionExpr>,
+        is_const: bool,
+    },
+    ArrayLiteral {
+        elems: FunctionArrayElements,
+    },
+    StructLiteral {
+        def_id: nia_ids::GlobalDefId,
+        fields: Vec<FunctionFieldInit>,
+    },
+    UnionLiteral {
+        def_id: nia_ids::GlobalDefId,
+        field: Box<FunctionFieldInit>,
+    },
+    Unary {
+        op: UnaryOp,
+        expr: Box<FunctionExpr>,
+    },
+    Binary {
+        lhs: Box<FunctionExpr>,
+        op: BinaryOp,
+        rhs: Box<FunctionExpr>,
+    },
+    Assign {
+        place: FunctionPlace,
+        op: AssignOp,
+        rhs: Box<FunctionExpr>,
+    },
+    Discard(Box<FunctionExpr>),
+    Cast {
+        expr: Box<FunctionExpr>,
+        ty: InternedTyId,
+    },
+    Call {
+        callee: FunctionCallee,
+        args: Vec<FunctionExpr>,
+    },
+    Field {
+        lhs: Box<FunctionExpr>,
+        field: nia_ids::GlobalDefId,
+    },
+    Index {
+        lhs: Box<FunctionExpr>,
+        index: Box<FunctionExpr>,
+    },
+    Slice {
+        lhs: Box<FunctionExpr>,
+        range: FunctionSliceRange,
+        is_const: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionSliceRange {
+    pub start: Option<Box<FunctionExpr>>,
+    pub end: Option<Box<FunctionExpr>>,
+    pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionInlineAsm {
+    pub code: String,
+    pub inputs: Vec<FunctionAsmInput>,
+    pub outputs: Vec<FunctionAsmOutput>,
+    pub clobbers: Vec<String>,
+    pub options: Vec<AsmOption>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionAsmInput {
+    pub constraint: String,
+    pub value: FunctionExpr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionAsmOutput {
+    pub constraint: String,
+    pub place: FunctionPlace,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionArrayElements {
+    List(Vec<FunctionExpr>),
+    Repeat {
+        value: Box<FunctionExpr>,
+        count: u64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionFieldInit {
+    pub field: nia_ids::GlobalDefId,
+    pub name: String,
+    pub value: FunctionExpr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionCallee {
+    Function(nia_ids::GlobalDefId),
+    FunctionInstance {
+        def_id: nia_ids::GlobalDefId,
+        args: Vec<InternedTyId>,
+    },
+    Method {
+        def_id: nia_ids::GlobalDefId,
+        args: Vec<InternedTyId>,
+        receiver: Box<FunctionExpr>,
+    },
+    FunctionPointer(Box<FunctionExpr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionPlace {
+    pub span: Span,
+    pub ty: InternedTyId,
+    pub base: FunctionPlaceBase,
+    pub elems: Vec<FunctionPlaceElem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionPlaceBase {
+    Local(LocalId),
+    Global(nia_ids::GlobalDefId),
+    Deref(Box<FunctionExpr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionPlaceElem {
+    Field(nia_ids::GlobalDefId),
+    Index(Box<FunctionExpr>),
+}
+
+impl FunctionTerminator {
+    pub fn successors(&self) -> Vec<FunctionBlockId> {
         match self {
-            ControlTerminator::Branch { target, .. } | ControlTerminator::Next { target, .. } => {
+            FunctionTerminator::Branch { target, .. } | FunctionTerminator::Next { target, .. } => {
                 vec![*target]
             }
-            ControlTerminator::If {
+            FunctionTerminator::If {
                 then_target,
                 else_target,
                 ..
             } => vec![*then_target, *else_target],
-            ControlTerminator::Switch {
+            FunctionTerminator::Switch {
                 arms,
                 default,
                 fallback,
@@ -126,43 +309,43 @@ impl ControlTerminator {
                 .map(|arm| arm.target)
                 .chain(default.or(Some(*fallback)))
                 .collect(),
-            ControlTerminator::Loop {
+            FunctionTerminator::Loop {
                 body, break_target, ..
             } => vec![*body, *break_target],
-            ControlTerminator::Return { .. } | ControlTerminator::Tail { .. } => Vec::new(),
+            FunctionTerminator::Return { .. } | FunctionTerminator::Tail { .. } => Vec::new(),
         }
     }
 }
 
-impl ControlBody {
-    pub fn block(&self, id: ControlBlockId) -> Option<&ControlBlock> {
+impl FunctionBody {
+    pub fn block(&self, id: FunctionBlockId) -> Option<&FunctionBlock> {
         self.blocks.iter().find(|block| block.id == id)
     }
 
-    pub fn scope(&self, id: ControlScopeId) -> Option<&ControlScope> {
+    pub fn scope(&self, id: FunctionScopeId) -> Option<&FunctionScope> {
         self.scopes.iter().find(|scope| scope.id == id)
     }
 
     pub fn edge_exited_scopes(
         &self,
-        from: ControlBlockId,
-        to: ControlBlockId,
-    ) -> Option<Vec<ControlScopeId>> {
+        from: FunctionBlockId,
+        to: FunctionBlockId,
+    ) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         let to = self.block(to)?.scope;
         self.exited_scopes_between(from, Some(to))
     }
 
-    pub fn return_exited_scopes(&self, from: ControlBlockId) -> Option<Vec<ControlScopeId>> {
+    pub fn return_exited_scopes(&self, from: FunctionBlockId) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         self.exited_scopes_between(from, None)
     }
 
     pub fn exited_scopes_between(
         &self,
-        from: ControlScopeId,
-        to: Option<ControlScopeId>,
-    ) -> Option<Vec<ControlScopeId>> {
+        from: FunctionScopeId,
+        to: Option<FunctionScopeId>,
+    ) -> Option<Vec<FunctionScopeId>> {
         let from_chain = self.scope_chain_to_root(from)?;
         let to_chain = match to {
             Some(scope) => self.scope_chain_to_root(scope)?,
@@ -180,7 +363,7 @@ impl ControlBody {
         )
     }
 
-    fn scope_chain_to_root(&self, scope: ControlScopeId) -> Option<Vec<ControlScopeId>> {
+    fn scope_chain_to_root(&self, scope: FunctionScopeId) -> Option<Vec<FunctionScopeId>> {
         let mut chain = Vec::new();
         let mut current = Some(scope);
         while let Some(scope) = current {
@@ -191,35 +374,35 @@ impl ControlBody {
     }
 }
 
-impl ControlDeferBody {
-    pub fn block(&self, id: ControlBlockId) -> Option<&ControlBlock> {
+impl FunctionDeferBody {
+    pub fn block(&self, id: FunctionBlockId) -> Option<&FunctionBlock> {
         self.blocks.iter().find(|block| block.id == id)
     }
 
-    pub fn scope(&self, id: ControlScopeId) -> Option<&ControlScope> {
+    pub fn scope(&self, id: FunctionScopeId) -> Option<&FunctionScope> {
         self.scopes.iter().find(|scope| scope.id == id)
     }
 
     pub fn edge_exited_scopes(
         &self,
-        from: ControlBlockId,
-        to: ControlBlockId,
-    ) -> Option<Vec<ControlScopeId>> {
+        from: FunctionBlockId,
+        to: FunctionBlockId,
+    ) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         let to = self.block(to)?.scope;
         self.exited_scopes_between(from, Some(to))
     }
 
-    pub fn return_exited_scopes(&self, from: ControlBlockId) -> Option<Vec<ControlScopeId>> {
+    pub fn return_exited_scopes(&self, from: FunctionBlockId) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         self.exited_scopes_between(from, None)
     }
 
     pub fn exited_scopes_between(
         &self,
-        from: ControlScopeId,
-        to: Option<ControlScopeId>,
-    ) -> Option<Vec<ControlScopeId>> {
+        from: FunctionScopeId,
+        to: Option<FunctionScopeId>,
+    ) -> Option<Vec<FunctionScopeId>> {
         let from_chain = self.scope_chain_to_root(from)?;
         let to_chain = match to {
             Some(scope) => self.scope_chain_to_root(scope)?,
@@ -237,7 +420,7 @@ impl ControlDeferBody {
         )
     }
 
-    fn scope_chain_to_root(&self, scope: ControlScopeId) -> Option<Vec<ControlScopeId>> {
+    fn scope_chain_to_root(&self, scope: FunctionScopeId) -> Option<Vec<FunctionScopeId>> {
         let mut chain = Vec::new();
         let mut current = Some(scope);
         while let Some(scope) = current {
@@ -248,36 +431,36 @@ impl ControlDeferBody {
     }
 }
 
-pub fn lower_control_body(body: &TypedBody) -> ControlBody {
-    ControlLowerer::new().lower_body(body)
+pub fn lower_function_body(body: &TypedBody) -> FunctionBody {
+    FunctionLowerer::new().lower_body(body)
 }
 
-struct ControlLowerer {
+struct FunctionLowerer {
     next_block: u32,
     next_scope: u32,
     next_temp_local: u32,
     temp_locals: Vec<TypedLocal>,
-    scopes: Vec<ControlScope>,
+    scopes: Vec<FunctionScope>,
     loop_targets: Vec<LoopTargetIds>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct LoopTargetIds {
-    break_target: ControlBlockId,
-    continue_target: ControlBlockId,
+    break_target: FunctionBlockId,
+    continue_target: FunctionBlockId,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum Fallthrough {
     Tail,
-    Branch(ControlBlockId),
+    Branch(FunctionBlockId),
     StoreThenBranch {
         local_id: LocalId,
-        target: ControlBlockId,
+        target: FunctionBlockId,
     },
 }
 
-impl ControlLowerer {
+impl FunctionLowerer {
     fn new() -> Self {
         Self {
             next_block: 0,
@@ -289,7 +472,7 @@ impl ControlLowerer {
         }
     }
 
-    fn lower_body(&mut self, body: &TypedBody) -> ControlBody {
+    fn lower_body(&mut self, body: &TypedBody) -> FunctionBody {
         self.next_temp_local = self.next_available_local(body);
         let root_scope = self.alloc_scope(None, body.span);
         let entry = self.alloc_block();
@@ -298,7 +481,7 @@ impl ControlLowerer {
         self.lower_body_into(body, entry, root_scope, &mut blocks, Fallthrough::Tail);
         self.collect_body_locals(body, &mut locals);
         locals.extend(self.temp_locals.clone());
-        ControlBody {
+        FunctionBody {
             span: body.span,
             locals,
             scopes: self.scopes.clone(),
@@ -311,9 +494,9 @@ impl ControlLowerer {
     fn lower_body_into(
         &mut self,
         body: &TypedBody,
-        entry: ControlBlockId,
-        scope: ControlScopeId,
-        blocks: &mut Vec<ControlBlock>,
+        entry: FunctionBlockId,
+        scope: FunctionScopeId,
+        blocks: &mut Vec<FunctionBlock>,
         fallthrough: Fallthrough,
     ) {
         let mut current = entry;
@@ -329,24 +512,21 @@ impl ControlLowerer {
     fn lower_stmt_into(
         &mut self,
         stmt: &TypedStmt,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) -> bool {
         match &stmt.kind {
             TypedStmtKind::Binding(binding) => {
-                let mut binding = binding.clone();
-                if let Some(value) = &binding.value {
-                    binding.value = Some(self.lower_value_expr(value, scope, current, ops, blocks));
-                }
-                ops.push(ControlOp::Binding(binding));
+                let binding = self.lower_binding(binding, scope, current, ops, blocks);
+                ops.push(FunctionOp::Binding(binding));
             }
             TypedStmtKind::Expr(expr) => {
                 self.lower_expr_stmt(stmt.span, expr, scope, current, ops, blocks);
             }
             TypedStmtKind::Defer(expr) => {
-                ops.push(ControlOp::Defer(self.lower_defer_expr(expr)));
+                ops.push(FunctionOp::Defer(self.lower_defer_expr(expr)));
             }
             TypedStmtKind::Return(value) => {
                 let value = value
@@ -358,7 +538,7 @@ impl ControlLowerer {
                     scope,
                     stmt.span,
                     std::mem::take(ops),
-                    ControlTerminator::Return {
+                    FunctionTerminator::Return {
                         value,
                         span: stmt.span,
                     },
@@ -370,14 +550,14 @@ impl ControlLowerer {
                     .loop_targets
                     .last()
                     .map(|targets| targets.break_target)
-                    .unwrap_or(ControlBlockId(u32::MAX));
+                    .unwrap_or(FunctionBlockId(u32::MAX));
                 self.finish_block(
                     blocks,
                     *current,
                     scope,
                     stmt.span,
                     std::mem::take(ops),
-                    ControlTerminator::Branch {
+                    FunctionTerminator::Branch {
                         target,
                         span: stmt.span,
                     },
@@ -389,14 +569,14 @@ impl ControlLowerer {
                     .loop_targets
                     .last()
                     .map(|targets| targets.continue_target)
-                    .unwrap_or(ControlBlockId(u32::MAX));
+                    .unwrap_or(FunctionBlockId(u32::MAX));
                 self.finish_block(
                     blocks,
                     *current,
                     scope,
                     stmt.span,
                     std::mem::take(ops),
-                    ControlTerminator::Branch {
+                    FunctionTerminator::Branch {
                         target,
                         span: stmt.span,
                     },
@@ -414,10 +594,10 @@ impl ControlLowerer {
         &mut self,
         span: Span,
         expr: &TypedExpr,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         match &expr.kind {
             TypedExprKind::Block(body) => {
@@ -444,7 +624,7 @@ impl ControlLowerer {
             }
             _ => {
                 let expr = self.lower_value_expr(expr, scope, current, ops, blocks);
-                ops.push(ControlOp::Expr(expr));
+                ops.push(FunctionOp::Expr(expr));
             }
         }
     }
@@ -453,10 +633,10 @@ impl ControlLowerer {
         &mut self,
         span: Span,
         body: &TypedBody,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         let body_entry = self.alloc_block();
         let after_block = self.alloc_block();
@@ -466,7 +646,7 @@ impl ControlLowerer {
             scope,
             span,
             std::mem::take(ops),
-            ControlTerminator::Next {
+            FunctionTerminator::Next {
                 target: body_entry,
                 span,
             },
@@ -488,10 +668,10 @@ impl ControlLowerer {
         cond: &TypedExpr,
         then_branch: &TypedBody,
         else_branch: Option<&TypedExpr>,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         let cond = self.lower_value_expr(cond, scope, current, ops, blocks);
         let then_target = self.alloc_block();
@@ -503,7 +683,7 @@ impl ControlLowerer {
             scope,
             span,
             std::mem::take(ops),
-            ControlTerminator::If {
+            FunctionTerminator::If {
                 cond,
                 then_target,
                 else_target: else_target.unwrap_or(merge_target),
@@ -537,7 +717,7 @@ impl ControlLowerer {
                 scope,
                 else_branch.span,
                 else_ops,
-                ControlTerminator::Branch {
+                FunctionTerminator::Branch {
                     target: merge_target,
                     span: else_branch.span,
                 },
@@ -551,10 +731,10 @@ impl ControlLowerer {
         &mut self,
         span: Span,
         switch: &TypedSwitch,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
         let merge_target = self.alloc_block();
@@ -564,8 +744,8 @@ impl ControlLowerer {
         for arm in &switch.arms {
             let arm_target = self.alloc_block();
             match &arm.pattern {
-                TypedSwitchPattern::Expr(pattern) => arms.push(ControlSwitchArm {
-                    pattern: pattern.clone(),
+                TypedSwitchPattern::Expr(pattern) => arms.push(FunctionSwitchArm {
+                    pattern: self.lower_value_expr(pattern, scope, current, ops, blocks),
                     target: arm_target,
                 }),
                 TypedSwitchPattern::Default => default = Some(arm_target),
@@ -579,7 +759,7 @@ impl ControlLowerer {
             scope,
             span,
             std::mem::take(ops),
-            ControlTerminator::Switch {
+            FunctionTerminator::Switch {
                 target,
                 arms,
                 default,
@@ -607,10 +787,10 @@ impl ControlLowerer {
         &mut self,
         span: Span,
         body: &TypedSwitchArmBody,
-        scope: ControlScopeId,
-        entry: ControlBlockId,
-        merge_target: ControlBlockId,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        entry: FunctionBlockId,
+        merge_target: FunctionBlockId,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         match body {
             TypedSwitchArmBody::Expr(expr) => {
@@ -623,7 +803,7 @@ impl ControlLowerer {
                     scope,
                     span,
                     ops,
-                    ControlTerminator::Branch {
+                    FunctionTerminator::Branch {
                         target: merge_target,
                         span,
                     },
@@ -639,7 +819,7 @@ impl ControlLowerer {
                         scope,
                         span,
                         ops,
-                        ControlTerminator::Branch {
+                        FunctionTerminator::Branch {
                             target: merge_target,
                             span,
                         },
@@ -662,10 +842,10 @@ impl ControlLowerer {
         &mut self,
         span: Span,
         for_stmt: &nia_body_ir::TypedFor,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         self.push_for_init_ops(&for_stmt.header, scope, current, ops, blocks);
         let loop_header = self.alloc_block();
@@ -675,7 +855,7 @@ impl ControlLowerer {
             scope,
             span,
             std::mem::take(ops),
-            ControlTerminator::Next {
+            FunctionTerminator::Next {
                 target: loop_header,
                 span,
             },
@@ -699,7 +879,7 @@ impl ControlLowerer {
             scope,
             span,
             header_ops,
-            ControlTerminator::Loop {
+            FunctionTerminator::Loop {
                 header,
                 body: body_entry,
                 continue_target,
@@ -735,15 +915,15 @@ impl ControlLowerer {
 
     fn finish_block(
         &mut self,
-        blocks: &mut Vec<ControlBlock>,
-        current: ControlBlockId,
-        scope: ControlScopeId,
+        blocks: &mut Vec<FunctionBlock>,
+        current: FunctionBlockId,
+        scope: FunctionScopeId,
         span: Span,
-        ops: Vec<ControlOp>,
-        terminator: ControlTerminator,
+        ops: Vec<FunctionOp>,
+        terminator: FunctionTerminator,
     ) {
         if ops.is_empty() {
-            blocks.push(ControlBlock {
+            blocks.push(FunctionBlock {
                 id: current,
                 scope,
                 span,
@@ -752,17 +932,17 @@ impl ControlLowerer {
             });
         } else {
             let term_block = self.alloc_block();
-            blocks.push(ControlBlock {
+            blocks.push(FunctionBlock {
                 id: current,
                 scope,
                 span,
                 ops,
-                terminator: ControlTerminator::Next {
+                terminator: FunctionTerminator::Next {
                     target: term_block,
                     span,
                 },
             });
-            blocks.push(ControlBlock {
+            blocks.push(FunctionBlock {
                 id: term_block,
                 scope,
                 span,
@@ -774,11 +954,11 @@ impl ControlLowerer {
 
     fn finish_fallthrough_block(
         &mut self,
-        blocks: &mut Vec<ControlBlock>,
-        mut current: ControlBlockId,
-        scope: ControlScopeId,
+        blocks: &mut Vec<FunctionBlock>,
+        mut current: FunctionBlockId,
+        scope: FunctionScopeId,
         body: &TypedBody,
-        mut ops: Vec<ControlOp>,
+        mut ops: Vec<FunctionOp>,
         fallthrough: Fallthrough,
     ) {
         let span = body
@@ -787,7 +967,7 @@ impl ControlLowerer {
             .map(|tail| tail.span)
             .unwrap_or(body.span);
         let terminator = match fallthrough {
-            Fallthrough::Tail => ControlTerminator::Tail {
+            Fallthrough::Tail => FunctionTerminator::Tail {
                 value: body
                     .tail
                     .as_ref()
@@ -797,20 +977,20 @@ impl ControlLowerer {
             Fallthrough::Branch(target) => {
                 if let Some(tail) = &body.tail {
                     let tail = self.lower_value_expr(tail, scope, &mut current, &mut ops, blocks);
-                    ops.push(ControlOp::Expr(tail));
+                    ops.push(FunctionOp::Expr(tail));
                 }
-                ControlTerminator::Branch { target, span }
+                FunctionTerminator::Branch { target, span }
             }
             Fallthrough::StoreThenBranch { local_id, target } => {
                 if let Some(tail) = &body.tail {
                     let value = self.lower_value_expr(tail, scope, &mut current, &mut ops, blocks);
-                    ops.push(ControlOp::StoreLocal {
+                    ops.push(FunctionOp::StoreLocal {
                         local_id,
                         value,
                         span: tail.span,
                     });
                 }
-                ControlTerminator::Branch { target, span }
+                FunctionTerminator::Branch { target, span }
             }
         };
         self.finish_block(blocks, current, scope, span, ops, terminator);
@@ -819,11 +999,11 @@ impl ControlLowerer {
     fn lower_value_expr(
         &mut self,
         expr: &TypedExpr,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedExpr {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionExpr {
         let kind = match &expr.kind {
             TypedExprKind::Block(body) => {
                 return self.lower_value_block_expr(expr, body, scope, current, ops, blocks);
@@ -847,24 +1027,24 @@ impl ControlLowerer {
             TypedExprKind::Switch(switch) => {
                 return self.lower_value_switch_expr(expr, switch, scope, current, ops, blocks);
             }
-            TypedExprKind::Len(inner) => TypedExprKind::Len(Box::new(
+            TypedExprKind::Len(inner) => FunctionExprKind::Len(Box::new(
                 self.lower_value_expr(inner, scope, current, ops, blocks),
             )),
-            TypedExprKind::Ptr(inner) => TypedExprKind::Ptr(Box::new(
+            TypedExprKind::Ptr(inner) => FunctionExprKind::Ptr(Box::new(
                 self.lower_value_expr(inner, scope, current, ops, blocks),
             )),
-            TypedExprKind::CStringPointer { array, is_const } => TypedExprKind::CStringPointer {
+            TypedExprKind::CStringPointer { array, is_const } => FunctionExprKind::CStringPointer {
                 array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
                 is_const: *is_const,
             },
-            TypedExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
+            TypedExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, scope, current, ops, blocks),
             },
-            TypedExprKind::StructLiteral { def_id, fields } => TypedExprKind::StructLiteral {
+            TypedExprKind::StructLiteral { def_id, fields } => FunctionExprKind::StructLiteral {
                 def_id: *def_id,
                 fields: fields
                     .iter()
-                    .map(|field| TypedFieldInit {
+                    .map(|field| FunctionFieldInit {
                         field: field.field,
                         name: field.name.clone(),
                         value: self.lower_value_expr(&field.value, scope, current, ops, blocks),
@@ -872,48 +1052,48 @@ impl ControlLowerer {
                     })
                     .collect(),
             },
-            TypedExprKind::UnionLiteral { def_id, field } => TypedExprKind::UnionLiteral {
+            TypedExprKind::UnionLiteral { def_id, field } => FunctionExprKind::UnionLiteral {
                 def_id: *def_id,
-                field: Box::new(TypedFieldInit {
+                field: Box::new(FunctionFieldInit {
                     field: field.field,
                     name: field.name.clone(),
                     value: self.lower_value_expr(&field.value, scope, current, ops, blocks),
                     span: field.span,
                 }),
             },
-            TypedExprKind::Unary { op, expr: inner } => TypedExprKind::Unary {
+            TypedExprKind::Unary { op, expr: inner } => FunctionExprKind::Unary {
                 op: *op,
                 expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
             },
-            TypedExprKind::Binary { lhs, op, rhs } => TypedExprKind::Binary {
+            TypedExprKind::Binary { lhs, op, rhs } => FunctionExprKind::Binary {
                 lhs: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
                 op: *op,
                 rhs: Box::new(self.lower_value_expr(rhs, scope, current, ops, blocks)),
             },
-            TypedExprKind::Assign { place, op, rhs } => TypedExprKind::Assign {
+            TypedExprKind::Assign { place, op, rhs } => FunctionExprKind::Assign {
                 place: self.lower_place(place, scope, current, ops, blocks),
                 op: *op,
                 rhs: Box::new(self.lower_value_expr(rhs, scope, current, ops, blocks)),
             },
-            TypedExprKind::Discard(inner) => TypedExprKind::Discard(Box::new(
+            TypedExprKind::Discard(inner) => FunctionExprKind::Discard(Box::new(
                 self.lower_value_expr(inner, scope, current, ops, blocks),
             )),
-            TypedExprKind::Cast { expr: inner, ty } => TypedExprKind::Cast {
+            TypedExprKind::Cast { expr: inner, ty } => FunctionExprKind::Cast {
                 expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
                 ty: *ty,
             },
-            TypedExprKind::Call { callee, args } => TypedExprKind::Call {
+            TypedExprKind::Call { callee, args } => FunctionExprKind::Call {
                 callee: self.lower_callee(callee, scope, current, ops, blocks),
                 args: args
                     .iter()
                     .map(|arg| self.lower_value_expr(arg, scope, current, ops, blocks))
                     .collect(),
             },
-            TypedExprKind::Field { lhs, field } => TypedExprKind::Field {
+            TypedExprKind::Field { lhs, field } => FunctionExprKind::Field {
                 lhs: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
                 field: *field,
             },
-            TypedExprKind::Index { lhs, index } => TypedExprKind::Index {
+            TypedExprKind::Index { lhs, index } => FunctionExprKind::Index {
                 lhs: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
                 index: Box::new(self.lower_value_expr(index, scope, current, ops, blocks)),
             },
@@ -921,59 +1101,42 @@ impl ControlLowerer {
                 lhs,
                 range,
                 is_const,
-            } => TypedExprKind::Slice {
+            } => FunctionExprKind::Slice {
                 lhs: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
                 range: self.lower_slice_range(range, scope, current, ops, blocks),
                 is_const: *is_const,
             },
             TypedExprKind::InlineAsm(asm) => {
-                TypedExprKind::InlineAsm(nia_body_ir::TypedInlineAsm {
-                    code: asm.code.clone(),
-                    inputs: asm
-                        .inputs
-                        .iter()
-                        .map(|input| nia_body_ir::TypedAsmInput {
-                            constraint: input.constraint.clone(),
-                            value: self.lower_value_expr(&input.value, scope, current, ops, blocks),
-                            span: input.span,
-                        })
-                        .collect(),
-                    outputs: asm
-                        .outputs
-                        .iter()
-                        .map(|output| nia_body_ir::TypedAsmOutput {
-                            constraint: output.constraint.clone(),
-                            place: self.lower_place(&output.place, scope, current, ops, blocks),
-                            span: output.span,
-                        })
-                        .collect(),
-                    clobbers: asm.clobbers.clone(),
-                    options: asm.options.clone(),
-                })
+                FunctionExprKind::InlineAsm(self.lower_inline_asm(asm, scope, current, ops, blocks))
             }
-            TypedExprKind::Error
-            | TypedExprKind::Integer(_)
-            | TypedExprKind::Float(_)
-            | TypedExprKind::String(_)
-            | TypedExprKind::ByteString(_)
-            | TypedExprKind::Char(_)
-            | TypedExprKind::ByteChar(_)
-            | TypedExprKind::Bool(_)
-            | TypedExprKind::Local(_)
-            | TypedExprKind::Global(_)
-            | TypedExprKind::Function(_)
-            | TypedExprKind::FunctionInstance { .. }
-            | TypedExprKind::EnumVariant(_)
-            | TypedExprKind::BuiltinValue(_) => expr.kind.clone(),
+            TypedExprKind::Error => FunctionExprKind::Error,
+            TypedExprKind::Integer(text) => FunctionExprKind::Integer(text.clone()),
+            TypedExprKind::Float(text) => FunctionExprKind::Float(text.clone()),
+            TypedExprKind::String(scalars) => FunctionExprKind::String(scalars.clone()),
+            TypedExprKind::ByteString(bytes) => FunctionExprKind::ByteString(bytes.clone()),
+            TypedExprKind::Char(value) => FunctionExprKind::Char(*value),
+            TypedExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text.clone()),
+            TypedExprKind::Bool(value) => FunctionExprKind::Bool(*value),
+            TypedExprKind::Local(local_id) => FunctionExprKind::Local(*local_id),
+            TypedExprKind::Global(def_id) => FunctionExprKind::Global(*def_id),
+            TypedExprKind::Function(def_id) => FunctionExprKind::Function(*def_id),
+            TypedExprKind::FunctionInstance { def_id, args } => {
+                FunctionExprKind::FunctionInstance {
+                    def_id: *def_id,
+                    args: args.clone(),
+                }
+            }
+            TypedExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(*def_id),
+            TypedExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value.clone()),
         };
-        TypedExpr {
+        FunctionExpr {
             span: expr.span,
             ty: expr.ty,
             kind,
         }
     }
 
-    fn lower_defer_expr(&mut self, expr: &TypedExpr) -> ControlDeferBody {
+    fn lower_defer_expr(&mut self, expr: &TypedExpr) -> FunctionDeferBody {
         let scope_start = self.scopes.len();
         let root_scope = self.alloc_scope(None, expr.span);
         let entry = self.alloc_block();
@@ -987,14 +1150,14 @@ impl ControlLowerer {
             root_scope,
             expr.span,
             ops,
-            ControlTerminator::Tail {
+            FunctionTerminator::Tail {
                 value: None,
                 span: expr.span,
             },
         );
         let scopes = self.scopes[scope_start..].to_vec();
         self.scopes.truncate(scope_start);
-        ControlDeferBody {
+        FunctionDeferBody {
             span: expr.span,
             scopes,
             blocks,
@@ -1005,10 +1168,10 @@ impl ControlLowerer {
     fn lower_effect_expr(
         &mut self,
         expr: &TypedExpr,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         match &expr.kind {
             TypedExprKind::Block(body) => {
@@ -1020,7 +1183,7 @@ impl ControlLowerer {
                     scope,
                     expr.span,
                     std::mem::take(ops),
-                    ControlTerminator::Next {
+                    FunctionTerminator::Next {
                         target: body_entry,
                         span: expr.span,
                     },
@@ -1054,7 +1217,7 @@ impl ControlLowerer {
             }
             _ => {
                 let expr = self.lower_value_expr(expr, scope, current, ops, blocks);
-                ops.push(ControlOp::Expr(expr));
+                ops.push(FunctionOp::Expr(expr));
             }
         }
     }
@@ -1063,11 +1226,11 @@ impl ControlLowerer {
         &mut self,
         expr: &TypedExpr,
         body: &TypedBody,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedExpr {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionExpr {
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let body_entry = self.alloc_block();
         let merge_target = self.alloc_block();
@@ -1077,7 +1240,7 @@ impl ControlLowerer {
             scope,
             expr.span,
             std::mem::take(ops),
-            ControlTerminator::Next {
+            FunctionTerminator::Next {
                 target: body_entry,
                 span: expr.span,
             },
@@ -1094,10 +1257,10 @@ impl ControlLowerer {
             },
         );
         *current = merge_target;
-        TypedExpr {
+        FunctionExpr {
             span: expr.span,
             ty: expr.ty,
-            kind: TypedExprKind::Local(local),
+            kind: FunctionExprKind::Local(local),
         }
     }
 
@@ -1108,11 +1271,11 @@ impl ControlLowerer {
         cond: &TypedExpr,
         then_branch: &TypedBody,
         else_branch: Option<&TypedExpr>,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedExpr {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionExpr {
         let cond = self.lower_value_expr(cond, scope, current, ops, blocks);
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let then_target = self.alloc_block();
@@ -1124,7 +1287,7 @@ impl ControlLowerer {
             scope,
             expr.span,
             std::mem::take(ops),
-            ControlTerminator::If {
+            FunctionTerminator::If {
                 cond,
                 then_target,
                 else_target,
@@ -1149,7 +1312,7 @@ impl ControlLowerer {
         if let Some(else_branch) = else_branch {
             let value =
                 self.lower_value_expr(else_branch, scope, &mut else_current, &mut else_ops, blocks);
-            else_ops.push(ControlOp::StoreLocal {
+            else_ops.push(FunctionOp::StoreLocal {
                 local_id: local,
                 value,
                 span: else_branch.span,
@@ -1161,17 +1324,17 @@ impl ControlLowerer {
             scope,
             else_branch.map(|expr| expr.span).unwrap_or(expr.span),
             else_ops,
-            ControlTerminator::Branch {
+            FunctionTerminator::Branch {
                 target: merge_target,
                 span: else_branch.map(|expr| expr.span).unwrap_or(expr.span),
             },
         );
 
         *current = merge_target;
-        TypedExpr {
+        FunctionExpr {
             span: expr.span,
             ty: expr.ty,
-            kind: TypedExprKind::Local(local),
+            kind: FunctionExprKind::Local(local),
         }
     }
 
@@ -1179,11 +1342,11 @@ impl ControlLowerer {
         &mut self,
         expr: &TypedExpr,
         switch: &TypedSwitch,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedExpr {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionExpr {
         let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let merge_target = self.alloc_block();
@@ -1193,7 +1356,7 @@ impl ControlLowerer {
         for arm in &switch.arms {
             let arm_target = self.alloc_block();
             match &arm.pattern {
-                TypedSwitchPattern::Expr(pattern) => arms.push(ControlSwitchArm {
+                TypedSwitchPattern::Expr(pattern) => arms.push(FunctionSwitchArm {
                     pattern: self.lower_value_expr(pattern, scope, current, ops, blocks),
                     target: arm_target,
                 }),
@@ -1208,7 +1371,7 @@ impl ControlLowerer {
             scope,
             expr.span,
             std::mem::take(ops),
-            ControlTerminator::Switch {
+            FunctionTerminator::Switch {
                 target,
                 arms,
                 default,
@@ -1231,10 +1394,10 @@ impl ControlLowerer {
         }
 
         *current = merge_target;
-        TypedExpr {
+        FunctionExpr {
             span: expr.span,
             ty: expr.ty,
-            kind: TypedExprKind::Local(local),
+            kind: FunctionExprKind::Local(local),
         }
     }
 
@@ -1243,18 +1406,18 @@ impl ControlLowerer {
         &mut self,
         span: Span,
         body: &TypedSwitchArmBody,
-        scope: ControlScopeId,
-        entry: ControlBlockId,
+        scope: FunctionScopeId,
+        entry: FunctionBlockId,
         local_id: LocalId,
-        merge_target: ControlBlockId,
-        blocks: &mut Vec<ControlBlock>,
+        merge_target: FunctionBlockId,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         match body {
             TypedSwitchArmBody::Expr(expr) => {
                 let mut current = entry;
                 let mut ops = Vec::new();
                 let value = self.lower_value_expr(expr, scope, &mut current, &mut ops, blocks);
-                ops.push(ControlOp::StoreLocal {
+                ops.push(FunctionOp::StoreLocal {
                     local_id,
                     value,
                     span: expr.span,
@@ -1265,7 +1428,7 @@ impl ControlLowerer {
                     scope,
                     span,
                     ops,
-                    ControlTerminator::Branch {
+                    FunctionTerminator::Branch {
                         target: merge_target,
                         span,
                     },
@@ -1281,7 +1444,7 @@ impl ControlLowerer {
                         scope,
                         span,
                         ops,
-                        ControlTerminator::Branch {
+                        FunctionTerminator::Branch {
                             target: merge_target,
                             span,
                         },
@@ -1306,19 +1469,19 @@ impl ControlLowerer {
     fn lower_array_elements(
         &mut self,
         elems: &TypedArrayElements,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedArrayElements {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionArrayElements {
         match elems {
-            TypedArrayElements::List(elems) => TypedArrayElements::List(
+            TypedArrayElements::List(elems) => FunctionArrayElements::List(
                 elems
                     .iter()
                     .map(|elem| self.lower_value_expr(elem, scope, current, ops, blocks))
                     .collect(),
             ),
-            TypedArrayElements::Repeat { value, count } => TypedArrayElements::Repeat {
+            TypedArrayElements::Repeat { value, count } => FunctionArrayElements::Repeat {
                 value: Box::new(self.lower_value_expr(value, scope, current, ops, blocks)),
                 count: *count,
             },
@@ -1328,14 +1491,14 @@ impl ControlLowerer {
     fn lower_callee(
         &mut self,
         callee: &TypedCallee,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedCallee {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionCallee {
         match callee {
-            TypedCallee::Function(def_id) => TypedCallee::Function(*def_id),
-            TypedCallee::FunctionInstance { def_id, args } => TypedCallee::FunctionInstance {
+            TypedCallee::Function(def_id) => FunctionCallee::Function(*def_id),
+            TypedCallee::FunctionInstance { def_id, args } => FunctionCallee::FunctionInstance {
                 def_id: *def_id,
                 args: args.clone(),
             },
@@ -1343,12 +1506,12 @@ impl ControlLowerer {
                 def_id,
                 args,
                 receiver,
-            } => TypedCallee::Method {
+            } => FunctionCallee::Method {
                 def_id: *def_id,
                 args: args.clone(),
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
-            TypedCallee::FunctionPointer(expr) => TypedCallee::FunctionPointer(Box::new(
+            TypedCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.lower_value_expr(expr, scope, current, ops, blocks),
             )),
         }
@@ -1357,12 +1520,12 @@ impl ControlLowerer {
     fn lower_slice_range(
         &mut self,
         range: &TypedSliceRange,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedSliceRange {
-        TypedSliceRange {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionSliceRange {
+        FunctionSliceRange {
             start: range
                 .start
                 .as_ref()
@@ -1375,21 +1538,54 @@ impl ControlLowerer {
         }
     }
 
+    fn lower_inline_asm(
+        &mut self,
+        asm: &TypedInlineAsm,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionInlineAsm {
+        FunctionInlineAsm {
+            code: asm.code.clone(),
+            inputs: asm
+                .inputs
+                .iter()
+                .map(|input| FunctionAsmInput {
+                    constraint: input.constraint.clone(),
+                    value: self.lower_value_expr(&input.value, scope, current, ops, blocks),
+                    span: input.span,
+                })
+                .collect(),
+            outputs: asm
+                .outputs
+                .iter()
+                .map(|output| FunctionAsmOutput {
+                    constraint: output.constraint.clone(),
+                    place: self.lower_place(&output.place, scope, current, ops, blocks),
+                    span: output.span,
+                })
+                .collect(),
+            clobbers: asm.clobbers.clone(),
+            options: asm.options.clone(),
+        }
+    }
+
     fn lower_place(
         &mut self,
         place: &TypedPlace,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedPlace {
-        TypedPlace {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionPlace {
+        FunctionPlace {
             span: place.span,
             ty: place.ty,
             base: match &place.base {
-                nia_body_ir::PlaceBase::Local(local_id) => nia_body_ir::PlaceBase::Local(*local_id),
-                nia_body_ir::PlaceBase::Global(def_id) => nia_body_ir::PlaceBase::Global(*def_id),
-                nia_body_ir::PlaceBase::Deref(expr) => nia_body_ir::PlaceBase::Deref(Box::new(
+                PlaceBase::Local(local_id) => FunctionPlaceBase::Local(*local_id),
+                PlaceBase::Global(def_id) => FunctionPlaceBase::Global(*def_id),
+                PlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.lower_value_expr(expr, scope, current, ops, blocks),
                 )),
             },
@@ -1397,22 +1593,42 @@ impl ControlLowerer {
                 .elems
                 .iter()
                 .map(|elem| match elem {
-                    nia_body_ir::PlaceElem::Field(field) => nia_body_ir::PlaceElem::Field(*field),
-                    nia_body_ir::PlaceElem::Index(index) => nia_body_ir::PlaceElem::Index(
-                        Box::new(self.lower_value_expr(index, scope, current, ops, blocks)),
-                    ),
+                    PlaceElem::Field(field) => FunctionPlaceElem::Field(*field),
+                    PlaceElem::Index(index) => FunctionPlaceElem::Index(Box::new(
+                        self.lower_value_expr(index, scope, current, ops, blocks),
+                    )),
                 })
                 .collect(),
+        }
+    }
+
+    fn lower_binding(
+        &mut self,
+        binding: &TypedBinding,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionBinding {
+        FunctionBinding {
+            local_id: binding.local_id,
+            name: binding.name.clone(),
+            ty: binding.ty,
+            value: binding
+                .value
+                .as_ref()
+                .map(|value| self.lower_value_expr(value, scope, current, ops, blocks)),
+            is_const: binding.is_const,
         }
     }
 
     fn push_for_init_ops(
         &mut self,
         header: &TypedForHeader,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         if let TypedForHeader::CStyle {
             init: Some(init), ..
@@ -1420,16 +1636,12 @@ impl ControlLowerer {
         {
             match &**init {
                 TypedForInit::Binding(binding) => {
-                    let mut binding = binding.clone();
-                    if let Some(value) = &binding.value {
-                        binding.value =
-                            Some(self.lower_value_expr(value, scope, current, ops, blocks));
-                    }
-                    ops.push(ControlOp::Binding(binding));
+                    let binding = self.lower_binding(binding, scope, current, ops, blocks);
+                    ops.push(FunctionOp::Binding(binding));
                 }
                 TypedForInit::Expr(expr) => {
                     let expr = self.lower_value_expr(expr, scope, current, ops, blocks);
-                    ops.push(ControlOp::Expr(expr));
+                    ops.push(FunctionOp::Expr(expr));
                 }
             }
         }
@@ -1438,11 +1650,11 @@ impl ControlLowerer {
     fn lower_for_step(
         &mut self,
         header: &TypedForHeader,
-        scope: ControlScopeId,
-        entry: ControlBlockId,
-        loop_header: ControlBlockId,
+        scope: FunctionScopeId,
+        entry: FunctionBlockId,
+        loop_header: FunctionBlockId,
         span: Span,
-        blocks: &mut Vec<ControlBlock>,
+        blocks: &mut Vec<FunctionBlock>,
     ) {
         let mut current = entry;
         let mut ops = Vec::new();
@@ -1451,7 +1663,7 @@ impl ControlLowerer {
         } = header
         {
             let step = self.lower_value_expr(step, scope, &mut current, &mut ops, blocks);
-            ops.push(ControlOp::Expr(step));
+            ops.push(FunctionOp::Expr(step));
         }
         self.finish_block(
             blocks,
@@ -1459,7 +1671,7 @@ impl ControlLowerer {
             scope,
             span,
             ops,
-            ControlTerminator::Branch {
+            FunctionTerminator::Branch {
                 target: loop_header,
                 span,
             },
@@ -1469,22 +1681,20 @@ impl ControlLowerer {
     fn lower_loop_header(
         &mut self,
         header: &TypedForHeader,
-        scope: ControlScopeId,
-        current: &mut ControlBlockId,
-        ops: &mut Vec<ControlOp>,
-        blocks: &mut Vec<ControlBlock>,
-    ) -> TypedForHeader {
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionForHeader {
         match header {
-            TypedForHeader::Infinite => TypedForHeader::Infinite,
-            TypedForHeader::Condition(cond) => {
-                TypedForHeader::Condition(self.lower_value_expr(cond, scope, current, ops, blocks))
-            }
-            TypedForHeader::CStyle { cond, .. } => TypedForHeader::CStyle {
-                init: None,
+            TypedForHeader::Infinite => FunctionForHeader::Infinite,
+            TypedForHeader::Condition(cond) => FunctionForHeader::Condition(
+                self.lower_value_expr(cond, scope, current, ops, blocks),
+            ),
+            TypedForHeader::CStyle { cond, .. } => FunctionForHeader::CStyle {
                 cond: cond
                     .as_ref()
                     .map(|cond| Box::new(self.lower_value_expr(cond, scope, current, ops, blocks))),
-                step: None,
             },
         }
     }
@@ -1494,7 +1704,7 @@ impl ControlLowerer {
         self.next_temp_local += 1;
         self.temp_locals.push(TypedLocal {
             id,
-            name: format!("cir.tmp.{}", id.0),
+            name: format!("fir.tmp.{}", id.0),
             kind: TypedLocalKind::Binding,
             ty,
             span,
@@ -1502,16 +1712,16 @@ impl ControlLowerer {
         id
     }
 
-    fn alloc_block(&mut self) -> ControlBlockId {
-        let id = ControlBlockId(self.next_block);
+    fn alloc_block(&mut self) -> FunctionBlockId {
+        let id = FunctionBlockId(self.next_block);
         self.next_block += 1;
         id
     }
 
-    fn alloc_scope(&mut self, parent: Option<ControlScopeId>, span: Span) -> ControlScopeId {
-        let id = ControlScopeId(self.next_scope);
+    fn alloc_scope(&mut self, parent: Option<FunctionScopeId>, span: Span) -> FunctionScopeId {
+        let id = FunctionScopeId(self.next_scope);
         self.next_scope += 1;
-        self.scopes.push(ControlScope { id, parent, span });
+        self.scopes.push(FunctionScope { id, parent, span });
         id
     }
 
@@ -1727,14 +1937,14 @@ impl ControlLowerer {
         }
 
         fn visit_place(place: &TypedPlace, max_id: &mut u32) {
-            if let nia_body_ir::PlaceBase::Local(local_id) = place.base {
+            if let PlaceBase::Local(local_id) = place.base {
                 *max_id = (*max_id).max(local_id.0.saturating_add(1));
             }
-            if let nia_body_ir::PlaceBase::Deref(expr) = &place.base {
+            if let PlaceBase::Deref(expr) = &place.base {
                 visit_expr(expr, max_id);
             }
             for elem in &place.elems {
-                if let nia_body_ir::PlaceElem::Index(index) = elem {
+                if let PlaceElem::Index(index) = elem {
                     visit_expr(index, max_id);
                 }
             }
@@ -1752,9 +1962,11 @@ mod tests {
     use nia_body_ir::{TypedExprKind, TypedLocalKind, TypedStmt};
     use nia_ids::{LocalId, ModuleId, TyInternerIndex};
 
-    fn only_next_target(control: &ControlBody, block: ControlBlockId) -> ControlBlockId {
-        let ControlTerminator::Next { target, .. } =
-            control.block(block).expect("control block").terminator
+    fn only_next_target(function_body: &FunctionBody, block: FunctionBlockId) -> FunctionBlockId {
+        let FunctionTerminator::Next { target, .. } = function_body
+            .block(block)
+            .expect("function block")
+            .terminator
         else {
             panic!("expected next terminator");
         };
@@ -1783,14 +1995,14 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
-        assert_eq!(control.entry, ControlBlockId(0));
-        assert_eq!(control.blocks.len(), 1);
-        assert!(control.blocks[0].ops.is_empty());
+        assert_eq!(function_body.entry, FunctionBlockId(0));
+        assert_eq!(function_body.blocks.len(), 1);
+        assert!(function_body.blocks[0].ops.is_empty());
         assert!(matches!(
-            control.blocks[0].terminator,
-            ControlTerminator::Tail { value: Some(_), .. }
+            function_body.blocks[0].terminator,
+            FunctionTerminator::Tail { value: Some(_), .. }
         ));
     }
 
@@ -1814,24 +2026,24 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
-        assert_eq!(control.blocks.len(), 2);
-        assert_eq!(control.blocks[0].ops.len(), 1);
+        assert_eq!(function_body.blocks.len(), 2);
+        assert_eq!(function_body.blocks[0].ops.len(), 1);
         assert!(matches!(
-            control.blocks[0].terminator,
-            ControlTerminator::Next {
-                target: ControlBlockId(1),
+            function_body.blocks[0].terminator,
+            FunctionTerminator::Next {
+                target: FunctionBlockId(1),
                 ..
             }
         ));
         assert_eq!(
-            control.blocks[0].terminator.successors(),
-            vec![ControlBlockId(1)]
+            function_body.blocks[0].terminator.successors(),
+            vec![FunctionBlockId(1)]
         );
         assert!(matches!(
-            control.blocks[1].terminator,
-            ControlTerminator::Tail { value: Some(_), .. }
+            function_body.blocks[1].terminator,
+            FunctionTerminator::Tail { value: Some(_), .. }
         ));
     }
 
@@ -1861,13 +2073,13 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
-        assert_eq!(control.blocks.len(), 1);
-        assert!(control.blocks[0].ops.is_empty());
+        assert_eq!(function_body.blocks.len(), 1);
+        assert!(function_body.blocks[0].ops.is_empty());
         assert!(matches!(
-            control.blocks[0].terminator,
-            ControlTerminator::Return { value: Some(_), .. }
+            function_body.blocks[0].terminator,
+            FunctionTerminator::Return { value: Some(_), .. }
         ));
     }
 
@@ -1898,19 +2110,19 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::Next { target, .. } = control.blocks[0].terminator else {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::Next { target, .. } = function_body.blocks[0].terminator else {
             panic!("expected entry branch to loop header");
         };
-        let ControlTerminator::Loop {
+        let FunctionTerminator::Loop {
             body: loop_body,
             break_target,
             ..
-        } = control.block(target).expect("loop header").terminator
+        } = function_body.block(target).expect("loop header").terminator
         else {
             panic!("expected loop terminator");
         };
-        let loop_body = control
+        let loop_body = function_body
             .blocks
             .iter()
             .find(|block| block.id == loop_body)
@@ -1919,7 +2131,7 @@ mod tests {
         assert_eq!(loop_body.terminator.successors(), vec![break_target]);
         assert!(matches!(
             loop_body.terminator,
-            ControlTerminator::Branch { .. }
+            FunctionTerminator::Branch { .. }
         ));
     }
 
@@ -1950,19 +2162,19 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::Next { target, .. } = control.blocks[0].terminator else {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::Next { target, .. } = function_body.blocks[0].terminator else {
             panic!("expected entry branch to loop header");
         };
-        let ControlTerminator::Loop {
+        let FunctionTerminator::Loop {
             body: loop_body,
             continue_target,
             ..
-        } = control.block(target).expect("loop header").terminator
+        } = function_body.block(target).expect("loop header").terminator
         else {
             panic!("expected loop terminator");
         };
-        let loop_body = control
+        let loop_body = function_body
             .blocks
             .iter()
             .find(|block| block.id == loop_body)
@@ -1971,7 +2183,7 @@ mod tests {
         assert_eq!(loop_body.terminator.successors(), vec![continue_target]);
         assert!(matches!(
             loop_body.terminator,
-            ControlTerminator::Branch { .. }
+            FunctionTerminator::Branch { .. }
         ));
     }
 
@@ -2008,17 +2220,20 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
-        assert!(matches!(control.blocks[0].ops[0], ControlOp::Expr(_)));
         assert!(matches!(
-            control.blocks[0].terminator,
-            ControlTerminator::Next { .. }
+            function_body.blocks[0].ops[0],
+            FunctionOp::Expr(_)
         ));
-        let loop_target = only_next_target(&control, control.blocks[0].id);
-        let loop_target = only_next_target(&control, loop_target);
-        let loop_block = control.block(loop_target).expect("loop header");
-        let ControlTerminator::Loop {
+        assert!(matches!(
+            function_body.blocks[0].terminator,
+            FunctionTerminator::Next { .. }
+        ));
+        let loop_target = only_next_target(&function_body, function_body.blocks[0].id);
+        let loop_target = only_next_target(&function_body, loop_target);
+        let loop_block = function_body.block(loop_target).expect("loop header");
+        let FunctionTerminator::Loop {
             body,
             continue_target,
             break_target,
@@ -2028,15 +2243,15 @@ mod tests {
             panic!("expected loop terminator");
         };
         assert_eq!(loop_block.terminator.successors(), vec![body, break_target]);
-        let continue_block = control
+        let continue_block = function_body
             .blocks
             .iter()
             .find(|block| block.id == continue_target)
             .expect("continue block");
-        assert!(matches!(continue_block.ops[0], ControlOp::Expr(_)));
-        let step_branch = only_next_target(&control, continue_block.id);
+        assert!(matches!(continue_block.ops[0], FunctionOp::Expr(_)));
+        let step_branch = only_next_target(&function_body, continue_block.id);
         assert_eq!(
-            control
+            function_body
                 .block(step_branch)
                 .expect("step branch block")
                 .terminator
@@ -2069,40 +2284,43 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let root_scope = ControlScopeId(0);
-        let loop_scope = ControlScopeId(1);
-        let loop_target = only_next_target(&control, control.blocks[0].id);
-        let ControlTerminator::Loop {
+        let function_body = lower_function_body(&body);
+        let root_scope = FunctionScopeId(0);
+        let loop_scope = FunctionScopeId(1);
+        let loop_target = only_next_target(&function_body, function_body.blocks[0].id);
+        let FunctionTerminator::Loop {
             body,
             continue_target,
             break_target,
             ..
-        } = control.block(loop_target).expect("loop header").terminator
+        } = function_body
+            .block(loop_target)
+            .expect("loop header")
+            .terminator
         else {
             panic!("expected loop terminator");
         };
-        let body_block = control
+        let body_block = function_body
             .blocks
             .iter()
             .find(|block| block.id == body)
             .expect("loop body block");
-        let continue_block = control
+        let continue_block = function_body
             .blocks
             .iter()
             .find(|block| block.id == continue_target)
             .expect("continue block");
-        let break_block = control
+        let break_block = function_body
             .blocks
             .iter()
             .find(|block| block.id == break_target)
             .expect("break block");
 
-        assert_eq!(control.scopes[0].parent, None);
-        assert_eq!(control.scopes[1].parent, Some(root_scope));
-        assert_eq!(control.blocks[0].scope, root_scope);
+        assert_eq!(function_body.scopes[0].parent, None);
+        assert_eq!(function_body.scopes[1].parent, Some(root_scope));
+        assert_eq!(function_body.blocks[0].scope, root_scope);
         assert_eq!(
-            control.block(loop_target).expect("loop header").scope,
+            function_body.block(loop_target).expect("loop header").scope,
             root_scope
         );
         assert_eq!(body_block.scope, loop_scope);
@@ -2148,10 +2366,10 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
         assert_eq!(
-            control
+            function_body
                 .locals
                 .iter()
                 .map(|local| local.id)
@@ -2216,33 +2434,36 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let outer_loop = only_next_target(&control, control.blocks[0].id);
-        let ControlTerminator::Loop {
+        let function_body = lower_function_body(&body);
+        let outer_loop = only_next_target(&function_body, function_body.blocks[0].id);
+        let FunctionTerminator::Loop {
             body: outer_body, ..
-        } = control.block(outer_loop).expect("outer loop").terminator
+        } = function_body
+            .block(outer_loop)
+            .expect("outer loop")
+            .terminator
         else {
             panic!("expected outer loop");
         };
-        let outer_body = control
+        let outer_body = function_body
             .blocks
             .iter()
             .find(|block| block.id == outer_body)
             .expect("outer body block");
-        let first_inner_loop = only_next_target(&control, outer_body.id);
-        let ControlTerminator::Loop {
+        let first_inner_loop = only_next_target(&function_body, outer_body.id);
+        let FunctionTerminator::Loop {
             body: inner_body,
             continue_target: inner_continue,
             break_target: first_inner_break,
             ..
-        } = control
+        } = function_body
             .block(first_inner_loop)
             .expect("first inner loop")
             .terminator
         else {
             panic!("expected first inner loop");
         };
-        let inner_body = control
+        let inner_body = function_body
             .blocks
             .iter()
             .find(|block| block.id == inner_body)
@@ -2250,9 +2471,11 @@ mod tests {
 
         assert_eq!(inner_body.terminator.successors(), vec![inner_continue]);
 
-        let second_inner_loop = only_next_target(&control, first_inner_break);
-        let second_inner_loop = control.block(second_inner_loop).expect("second inner loop");
-        let ControlTerminator::Loop {
+        let second_inner_loop = only_next_target(&function_body, first_inner_break);
+        let second_inner_loop = function_body
+            .block(second_inner_loop)
+            .expect("second inner loop");
+        let FunctionTerminator::Loop {
             body: inner_body,
             break_target: inner_break,
             ..
@@ -2260,7 +2483,7 @@ mod tests {
         else {
             panic!("expected second inner loop");
         };
-        let inner_body = control
+        let inner_body = function_body
             .blocks
             .iter()
             .find(|block| block.id == inner_body)
@@ -2305,18 +2528,18 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
         assert_eq!(
-            control
+            function_body
                 .scopes
                 .iter()
                 .map(|scope| (scope.id, scope.parent))
                 .collect::<Vec<_>>(),
             vec![
-                (ControlScopeId(0), None),
-                (ControlScopeId(1), Some(ControlScopeId(0))),
-                (ControlScopeId(2), Some(ControlScopeId(1))),
+                (FunctionScopeId(0), None),
+                (FunctionScopeId(1), Some(FunctionScopeId(0))),
+                (FunctionScopeId(2), Some(FunctionScopeId(1))),
             ]
         );
     }
@@ -2341,10 +2564,10 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
         assert_eq!(
-            control.edge_exited_scopes(ControlBlockId(0), ControlBlockId(1)),
+            function_body.edge_exited_scopes(FunctionBlockId(0), FunctionBlockId(1)),
             Some(Vec::new())
         );
     }
@@ -2376,94 +2599,97 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let loop_target = only_next_target(&control, control.blocks[0].id);
-        let ControlTerminator::Loop {
+        let function_body = lower_function_body(&body);
+        let loop_target = only_next_target(&function_body, function_body.blocks[0].id);
+        let FunctionTerminator::Loop {
             body, break_target, ..
-        } = control.block(loop_target).expect("loop header").terminator
+        } = function_body
+            .block(loop_target)
+            .expect("loop header")
+            .terminator
         else {
             panic!("expected loop terminator");
         };
 
         assert_eq!(
-            control.edge_exited_scopes(body, break_target),
-            Some(vec![ControlScopeId(1)])
+            function_body.edge_exited_scopes(body, break_target),
+            Some(vec![FunctionScopeId(1)])
         );
     }
 
     #[test]
     fn sibling_scope_edge_exits_only_source_scope() {
-        let body = manual_control_body_for_scope_edges();
+        let body = manual_function_body_for_scope_edges();
 
         assert_eq!(
-            body.exited_scopes_between(ControlScopeId(1), Some(ControlScopeId(2))),
-            Some(vec![ControlScopeId(1)])
+            body.exited_scopes_between(FunctionScopeId(1), Some(FunctionScopeId(2))),
+            Some(vec![FunctionScopeId(1)])
         );
     }
 
     #[test]
     fn return_edge_exits_scope_chain_to_function_boundary() {
-        let body = manual_control_body_for_scope_edges();
+        let body = manual_function_body_for_scope_edges();
 
         assert_eq!(
-            body.return_exited_scopes(ControlBlockId(1)),
-            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+            body.return_exited_scopes(FunctionBlockId(1)),
+            Some(vec![FunctionScopeId(1), FunctionScopeId(0)])
         );
     }
 
-    fn manual_control_body_for_scope_edges() -> ControlBody {
+    fn manual_function_body_for_scope_edges() -> FunctionBody {
         let span = Span::default();
         let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
-        ControlBody {
+        FunctionBody {
             span,
             locals: Vec::new(),
             scopes: vec![
-                ControlScope {
-                    id: ControlScopeId(0),
+                FunctionScope {
+                    id: FunctionScopeId(0),
                     parent: None,
                     span,
                 },
-                ControlScope {
-                    id: ControlScopeId(1),
-                    parent: Some(ControlScopeId(0)),
+                FunctionScope {
+                    id: FunctionScopeId(1),
+                    parent: Some(FunctionScopeId(0)),
                     span,
                 },
-                ControlScope {
-                    id: ControlScopeId(2),
-                    parent: Some(ControlScopeId(0)),
+                FunctionScope {
+                    id: FunctionScopeId(2),
+                    parent: Some(FunctionScopeId(0)),
                     span,
                 },
             ],
             blocks: vec![
-                ControlBlock {
-                    id: ControlBlockId(0),
-                    scope: ControlScopeId(0),
+                FunctionBlock {
+                    id: FunctionBlockId(0),
+                    scope: FunctionScopeId(0),
                     span,
                     ops: Vec::new(),
-                    terminator: ControlTerminator::Branch {
-                        target: ControlBlockId(1),
+                    terminator: FunctionTerminator::Branch {
+                        target: FunctionBlockId(1),
                         span,
                     },
                 },
-                ControlBlock {
-                    id: ControlBlockId(1),
-                    scope: ControlScopeId(1),
+                FunctionBlock {
+                    id: FunctionBlockId(1),
+                    scope: FunctionScopeId(1),
                     span,
                     ops: Vec::new(),
-                    terminator: ControlTerminator::Branch {
-                        target: ControlBlockId(2),
+                    terminator: FunctionTerminator::Branch {
+                        target: FunctionBlockId(2),
                         span,
                     },
                 },
-                ControlBlock {
-                    id: ControlBlockId(2),
-                    scope: ControlScopeId(2),
+                FunctionBlock {
+                    id: FunctionBlockId(2),
+                    scope: FunctionScopeId(2),
                     span,
                     ops: Vec::new(),
-                    terminator: ControlTerminator::Tail { value: None, span },
+                    terminator: FunctionTerminator::Tail { value: None, span },
                 },
             ],
-            entry: ControlBlockId(0),
+            entry: FunctionBlockId(0),
             ty,
         }
     }
@@ -2501,27 +2727,33 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
-        assert_eq!(control.scopes[1].parent, Some(ControlScopeId(0)));
+        assert_eq!(function_body.scopes[1].parent, Some(FunctionScopeId(0)));
         assert!(matches!(
-            control.blocks[0].terminator,
-            ControlTerminator::Next {
-                target: ControlBlockId(1),
+            function_body.blocks[0].terminator,
+            FunctionTerminator::Next {
+                target: FunctionBlockId(1),
                 ..
             }
         ));
-        assert_eq!(control.blocks[1].scope, ControlScopeId(1));
-        assert!(matches!(control.blocks[1].ops[0], ControlOp::Defer(_)));
-        assert!(matches!(control.blocks[1].ops[1], ControlOp::Expr(_)));
+        assert_eq!(function_body.blocks[1].scope, FunctionScopeId(1));
+        assert!(matches!(
+            function_body.blocks[1].ops[0],
+            FunctionOp::Defer(_)
+        ));
+        assert!(matches!(
+            function_body.blocks[1].ops[1],
+            FunctionOp::Expr(_)
+        ));
         assert_eq!(
-            control.edge_exited_scopes(ControlBlockId(1), ControlBlockId(2)),
-            Some(vec![ControlScopeId(1)])
+            function_body.edge_exited_scopes(FunctionBlockId(1), FunctionBlockId(2)),
+            Some(vec![FunctionScopeId(1)])
         );
-        assert!(!control.blocks[0].ops.iter().any(|op| matches!(
+        assert!(!function_body.blocks[0].ops.iter().any(|op| matches!(
             op,
-            ControlOp::Expr(TypedExpr {
-                kind: TypedExprKind::Block(_),
+            FunctionOp::Expr(FunctionExpr {
+                kind: FunctionExprKind::Local(_),
                 ..
             })
         )));
@@ -2560,15 +2792,15 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
         assert!(matches!(
-            control.blocks[1].terminator,
-            ControlTerminator::Return { .. }
+            function_body.blocks[1].terminator,
+            FunctionTerminator::Return { .. }
         ));
         assert_eq!(
-            control.return_exited_scopes(ControlBlockId(1)),
-            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+            function_body.return_exited_scopes(FunctionBlockId(1)),
+            Some(vec![FunctionScopeId(1), FunctionScopeId(0)])
         );
     }
 
@@ -2604,10 +2836,10 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
         assert_eq!(
-            control
+            function_body
                 .locals
                 .iter()
                 .map(|local| local.id)
@@ -2669,10 +2901,10 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
         assert_eq!(
-            control
+            function_body
                 .locals
                 .iter()
                 .map(|local| local.id)
@@ -2713,32 +2945,32 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::If {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::If {
             then_target,
             else_target,
             ..
-        } = control.blocks[0].terminator
+        } = function_body.blocks[0].terminator
         else {
             panic!("expected if terminator");
         };
 
         assert_eq!(
-            control.blocks[0].terminator.successors(),
+            function_body.blocks[0].terminator.successors(),
             vec![then_target, else_target]
         );
-        assert_eq!(then_target, ControlBlockId(1));
-        assert_eq!(else_target, ControlBlockId(2));
+        assert_eq!(then_target, FunctionBlockId(1));
+        assert_eq!(else_target, FunctionBlockId(2));
         assert_eq!(
-            control
-                .scope(control.block(then_target).expect("then block").scope)
+            function_body
+                .scope(function_body.block(then_target).expect("then block").scope)
                 .unwrap()
                 .parent,
-            Some(ControlScopeId(0))
+            Some(FunctionScopeId(0))
         );
         assert!(matches!(
-            control.block(then_target).expect("then block").ops[0],
-            ControlOp::Defer(_)
+            function_body.block(then_target).expect("then block").ops[0],
+            FunctionOp::Defer(_)
         ));
     }
 
@@ -2771,14 +3003,14 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::If { else_target, .. } = control.blocks[0].terminator else {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::If { else_target, .. } = function_body.blocks[0].terminator else {
             panic!("expected if terminator");
         };
-        let merge = control.block(else_target).expect("merge block");
+        let merge = function_body.block(else_target).expect("merge block");
 
-        assert_eq!(merge.scope, ControlScopeId(0));
-        assert!(matches!(merge.ops[0], ControlOp::Expr(_)));
+        assert_eq!(merge.scope, FunctionScopeId(0));
+        assert!(matches!(merge.ops[0], FunctionOp::Expr(_)));
     }
 
     #[test]
@@ -2817,28 +3049,28 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::If { else_target, .. } = control.blocks[0].terminator else {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::If { else_target, .. } = function_body.blocks[0].terminator else {
             panic!("expected if terminator");
         };
-        let else_entry = control.block(else_target).expect("else entry block");
-        let ControlTerminator::Next {
+        let else_entry = function_body.block(else_target).expect("else entry block");
+        let FunctionTerminator::Next {
             target: else_body, ..
         } = else_entry.terminator
         else {
             panic!("expected else block jump");
         };
-        let else_body = control.block(else_body).expect("else body block");
-        let merge = control
+        let else_body = function_body.block(else_body).expect("else body block");
+        let merge = function_body
             .blocks
             .iter()
-            .find(|block| block.scope == ControlScopeId(0) && block.id.0 > else_body.id.0)
+            .find(|block| block.scope == FunctionScopeId(0) && block.id.0 > else_body.id.0)
             .expect("merge block");
 
-        assert_eq!(else_body.scope, ControlScopeId(2));
+        assert_eq!(else_body.scope, FunctionScopeId(2));
         assert_eq!(
-            control.edge_exited_scopes(else_body.id, merge.id),
-            Some(vec![ControlScopeId(2)])
+            function_body.edge_exited_scopes(else_body.id, merge.id),
+            Some(vec![FunctionScopeId(2)])
         );
     }
 
@@ -2874,18 +3106,21 @@ mod tests {
             ty,
         };
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::If { then_target, .. } = control.blocks[0].terminator else {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::If { then_target, .. } = function_body.blocks[0].terminator else {
             panic!("expected if terminator");
         };
 
         assert!(matches!(
-            control.block(then_target).expect("then block").terminator,
-            ControlTerminator::Return { .. }
+            function_body
+                .block(then_target)
+                .expect("then block")
+                .terminator,
+            FunctionTerminator::Return { .. }
         ));
         assert_eq!(
-            control.return_exited_scopes(then_target),
-            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+            function_body.return_exited_scopes(then_target),
+            Some(vec![FunctionScopeId(1), FunctionScopeId(0)])
         );
     }
 
@@ -2897,39 +3132,42 @@ mod tests {
             switch_default_arm(TypedSwitchArmBody::Expr(int_expr(20))),
         ]);
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::Switch {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::Switch {
             arms,
             default,
             fallback,
             ..
-        } = &control.blocks[0].terminator
+        } = &function_body.blocks[0].terminator
         else {
             panic!("expected switch terminator");
         };
 
         assert_eq!(arms.len(), 1);
-        assert_eq!(arms[0].target, ControlBlockId(2));
-        assert_eq!(*default, Some(ControlBlockId(3)));
-        assert_eq!(*fallback, ControlBlockId(1));
+        assert_eq!(arms[0].target, FunctionBlockId(2));
+        assert_eq!(*default, Some(FunctionBlockId(3)));
+        assert_eq!(*fallback, FunctionBlockId(1));
         assert_eq!(
-            control.blocks[0].terminator.successors(),
-            vec![ControlBlockId(2), ControlBlockId(3)]
+            function_body.blocks[0].terminator.successors(),
+            vec![FunctionBlockId(2), FunctionBlockId(3)]
         );
         assert_eq!(
-            control.block(arms[0].target).expect("case block").scope,
-            ControlScopeId(1)
+            function_body
+                .block(arms[0].target)
+                .expect("case block")
+                .scope,
+            FunctionScopeId(1)
         );
         assert_eq!(
-            control
+            function_body
                 .block(default.unwrap())
                 .expect("default block")
                 .scope,
-            ControlScopeId(2)
+            FunctionScopeId(2)
         );
         assert_eq!(
-            control.block(*fallback).expect("merge block").scope,
-            ControlScopeId(0)
+            function_body.block(*fallback).expect("merge block").scope,
+            FunctionScopeId(0)
         );
         assert_eq!(body.ty, ty);
     }
@@ -2941,22 +3179,22 @@ mod tests {
             TypedSwitchArmBody::Expr(int_expr(10)),
         )]);
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::Switch {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::Switch {
             default, fallback, ..
-        } = control.blocks[0].terminator
+        } = function_body.blocks[0].terminator
         else {
             panic!("expected switch terminator");
         };
 
         assert_eq!(default, None);
         assert_eq!(
-            control.blocks[0].terminator.successors(),
-            vec![ControlBlockId(2), fallback]
+            function_body.blocks[0].terminator.successors(),
+            vec![FunctionBlockId(2), fallback]
         );
         assert_eq!(
-            control.block(fallback).expect("merge block").scope,
-            ControlScopeId(0)
+            function_body.block(fallback).expect("merge block").scope,
+            FunctionScopeId(0)
         );
     }
 
@@ -2976,17 +3214,18 @@ mod tests {
             })),
         )]);
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::Switch { arms, fallback, .. } = &control.blocks[0].terminator else {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::Switch { arms, fallback, .. } = &function_body.blocks[0].terminator
+        else {
             panic!("expected switch terminator");
         };
-        let arm = control.block(arms[0].target).expect("arm block");
+        let arm = function_body.block(arms[0].target).expect("arm block");
 
-        assert_eq!(arm.scope, ControlScopeId(1));
-        assert!(matches!(arm.ops[0], ControlOp::Defer(_)));
+        assert_eq!(arm.scope, FunctionScopeId(1));
+        assert!(matches!(arm.ops[0], FunctionOp::Defer(_)));
         assert_eq!(
-            control.edge_exited_scopes(arm.id, *fallback),
-            Some(vec![ControlScopeId(1)])
+            function_body.edge_exited_scopes(arm.id, *fallback),
+            Some(vec![FunctionScopeId(1)])
         );
     }
 
@@ -3000,18 +3239,21 @@ mod tests {
             })),
         )]);
 
-        let control = lower_control_body(&body);
-        let ControlTerminator::Switch { arms, .. } = &control.blocks[0].terminator else {
+        let function_body = lower_function_body(&body);
+        let FunctionTerminator::Switch { arms, .. } = &function_body.blocks[0].terminator else {
             panic!("expected switch terminator");
         };
 
         assert!(matches!(
-            control.block(arms[0].target).expect("arm block").terminator,
-            ControlTerminator::Return { .. }
+            function_body
+                .block(arms[0].target)
+                .expect("arm block")
+                .terminator,
+            FunctionTerminator::Return { .. }
         ));
         assert_eq!(
-            control.return_exited_scopes(arms[0].target),
-            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+            function_body.return_exited_scopes(arms[0].target),
+            Some(vec![FunctionScopeId(1), FunctionScopeId(0)])
         );
     }
 
@@ -3037,10 +3279,10 @@ mod tests {
             })),
         )]);
 
-        let control = lower_control_body(&body);
+        let function_body = lower_function_body(&body);
 
         assert_eq!(
-            control
+            function_body
                 .locals
                 .iter()
                 .map(|local| local.id)

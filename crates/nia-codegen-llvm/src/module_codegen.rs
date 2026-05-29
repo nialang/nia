@@ -219,9 +219,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn emit_function_bodies(&mut self) -> Result<(), Diagnostic> {
         for function in &self.source.functions {
-            let Some(control_body) = &function.control_body else {
+            let Some(function_body) = &function.function_body else {
                 if !function.is_extern {
-                    return Err(self.error(function.span, "missing function control body"));
+                    return Err(self.error(function.span, "missing function body"));
                 }
                 continue;
             };
@@ -232,12 +232,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 ));
             };
             let mut codegen = FunctionCodegen::new(self, function, llvm_function);
-            codegen.emit_control_body(control_body)?;
+            codegen.emit_function_body(function_body)?;
         }
         for instance in &self.source.function_instances {
-            let Some(control_body) = &instance.control_body else {
+            let Some(function_body) = &instance.function_body else {
                 if !instance.is_extern {
-                    return Err(self.error(instance.span, "missing function instance control body"));
+                    return Err(self.error(instance.span, "missing function instance body"));
                 }
                 continue;
             };
@@ -253,12 +253,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 return_type: instance.return_type,
                 is_extern: instance.is_extern,
                 is_variadic: instance.is_variadic,
-                body: instance.body.clone(),
-                control_body: instance.control_body.clone(),
+                function_body: instance.function_body.clone(),
                 span: instance.span,
             };
             let mut codegen = FunctionCodegen::new(self, &function, llvm_function);
-            codegen.emit_control_body(control_body)?;
+            codegen.emit_function_body(function_body)?;
         }
         Ok(())
     }

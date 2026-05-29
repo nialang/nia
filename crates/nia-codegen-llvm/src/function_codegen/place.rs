@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::AssignOp;
-use nia_body_ir::{PlaceBase, PlaceElem, TypedExpr, TypedExprKind, TypedPlace, TypedSliceRange};
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::{
+    FunctionExpr, FunctionExprKind, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
+    FunctionSliceRange,
+};
 use nia_ids::{InternedTyId, LocalId};
 use nia_llvm::{
     types::BasicTypeEnum,
@@ -15,18 +18,18 @@ use super::FunctionCodegen;
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_addr_of(
         &mut self,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         match &expr.kind {
-            TypedExprKind::Global(_)
-            | TypedExprKind::Local(_)
-            | TypedExprKind::Unary {
+            FunctionExprKind::Global(_)
+            | FunctionExprKind::Local(_)
+            | FunctionExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 ..
             }
-            | TypedExprKind::Field { .. }
-            | TypedExprKind::Index { .. } => self.emit_place_addr(expr.span, expr),
-            TypedExprKind::CStringPointer { array, .. } => self
+            | FunctionExprKind::Field { .. }
+            | FunctionExprKind::Index { .. } => self.emit_place_addr(expr.span, expr),
+            FunctionExprKind::CStringPointer { array, .. } => self
                 .emit_c_string_pointer(expr.span, array)
                 .map(|value| value.into_pointer_value().expect("C string pointer value")),
             _ => Err(self.error(expr.span, "expression is not a place")),
@@ -36,25 +39,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_place_addr(
         &mut self,
         span: Span,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         match &expr.kind {
-            TypedExprKind::Global(def_id) => self
+            FunctionExprKind::Global(def_id) => self
                 .module
                 .globals
                 .get(def_id)
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(span, "missing global value")),
-            TypedExprKind::Local(local_id) => self
+            FunctionExprKind::Local(local_id) => self
                 .locals
                 .get(local_id)
                 .copied()
                 .ok_or_else(|| self.error(span, "missing local storage")),
-            TypedExprKind::Unary {
+            FunctionExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 expr,
             } => Ok(self.emit_expr(expr)?.into_pointer_value()?),
-            TypedExprKind::Field { lhs, field } => {
+            FunctionExprKind::Field { lhs, field } => {
                 let (base_ty, base_ptr) = self.emit_struct_base_addr(lhs)?;
                 if let Some((def_id, _)) = self.module_field_base_type(lhs.ty)
                     && self.module.is_union_def(def_id)
@@ -66,12 +69,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_struct_gep(base_ty, base_ptr, field_index, "fieldptr")
                     .map_err(|_| self.error(span, "failed to build field address"))
             }
-            TypedExprKind::Index { lhs, index } => self.emit_index_expr_addr(span, lhs, index),
+            FunctionExprKind::Index { lhs, index } => self.emit_index_expr_addr(span, lhs, index),
             _ => Err(self.error(span, "expression is not a place")),
         }
     }
 
-    fn emit_array_temp_addr(&mut self, expr: &TypedExpr) -> Result<PointerValue<'ctx>, Diagnostic> {
+    fn emit_array_temp_addr(
+        &mut self,
+        expr: &FunctionExpr,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         let ptr = self
             .builder
@@ -98,8 +104,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_slice(
         &mut self,
         span: Span,
-        lhs: &TypedExpr,
-        range: &TypedSliceRange,
+        lhs: &FunctionExpr,
+        range: &FunctionSliceRange,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let (base_ptr, base_len, elem_ty) = self.emit_slice_base(span, lhs)?;
         let start = self.emit_range_start(range)?;
@@ -120,8 +126,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_index_expr_addr(
         &mut self,
         span: Span,
-        lhs: &TypedExpr,
-        index: &TypedExpr,
+        lhs: &FunctionExpr,
+        index: &FunctionExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let index_value = self.emit_usize_value(index)?;
         match self.module.ty_kind(lhs.ty) {
@@ -161,7 +167,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_slice_base(
         &mut self,
         span: Span,
-        lhs: &TypedExpr,
+        lhs: &FunctionExpr,
     ) -> Result<(PointerValue<'ctx>, IntValue<'ctx>, InternedTyId), Diagnostic> {
         let one = self.module.context.i64_type().const_int(1, false);
         match self.module.ty_kind(lhs.ty) {
@@ -193,16 +199,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_array_base_addr(&mut self, lhs: &TypedExpr) -> Result<PointerValue<'ctx>, Diagnostic> {
+    fn emit_array_base_addr(
+        &mut self,
+        lhs: &FunctionExpr,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
         match &lhs.kind {
-            TypedExprKind::Global(_)
-            | TypedExprKind::Local(_)
-            | TypedExprKind::Unary {
+            FunctionExprKind::Global(_)
+            | FunctionExprKind::Local(_)
+            | FunctionExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 ..
             }
-            | TypedExprKind::Field { .. }
-            | TypedExprKind::Index { .. } => self.emit_place_addr(lhs.span, lhs),
+            | FunctionExprKind::Field { .. }
+            | FunctionExprKind::Index { .. } => self.emit_place_addr(lhs.span, lhs),
             _ => self.emit_array_temp_addr(lhs),
         }
     }
@@ -210,7 +219,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_c_string_pointer(
         &mut self,
         span: Span,
-        array: &TypedExpr,
+        array: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let Some(TyKind::Array { .. }) = self.module.ty_kind(array.ty) else {
             return Err(self.error(span, "C string literal pointer source is not an array"));
@@ -226,7 +235,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(ptr.into())
     }
 
-    fn emit_range_start(&mut self, range: &TypedSliceRange) -> Result<IntValue<'ctx>, Diagnostic> {
+    fn emit_range_start(
+        &mut self,
+        range: &FunctionSliceRange,
+    ) -> Result<IntValue<'ctx>, Diagnostic> {
         if let Some(start) = &range.start {
             self.emit_usize_value(start)
         } else {
@@ -236,7 +248,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_range_end(
         &mut self,
-        range: &TypedSliceRange,
+        range: &FunctionSliceRange,
         base_len: IntValue<'ctx>,
     ) -> Result<IntValue<'ctx>, Diagnostic> {
         let end = if let Some(end) = &range.end {
@@ -257,7 +269,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn emit_usize_value(&mut self, expr: &TypedExpr) -> Result<IntValue<'ctx>, Diagnostic> {
+    fn emit_usize_value(&mut self, expr: &FunctionExpr) -> Result<IntValue<'ctx>, Diagnostic> {
         let value = self.emit_expr(expr)?.into_int_value()?;
         let target = self.module.context.i64_type();
         let bits = value.get_type().bit_width();
@@ -317,7 +329,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_len(
         &mut self,
         span: Span,
-        inner: &TypedExpr,
+        inner: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match self.module.ty_kind(inner.ty) {
             Some(TyKind::Array { len, .. }) => {
@@ -335,7 +347,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_ptr(
         &mut self,
         span: Span,
-        inner: &TypedExpr,
+        inner: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let slice = self.emit_expr(inner)?.into_struct_value()?;
         self.extract_slice_ptr(span, slice).map(Into::into)
@@ -344,11 +356,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_assign(
         &mut self,
         span: Span,
-        place: &TypedPlace,
+        place: &FunctionPlace,
         op: AssignOp,
         value: BasicValueEnum<'ctx>,
     ) -> Result<(), Diagnostic> {
-        let PlaceBase::Local(LocalId(id)) = place.base else {
+        let FunctionPlaceBase::Local(LocalId(id)) = place.base else {
             let ptr = self.emit_typed_place_addr(place)?;
             let stored = if op == AssignOp::Assign {
                 value
@@ -393,26 +405,26 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_typed_place_addr(
         &mut self,
-        place: &TypedPlace,
+        place: &FunctionPlace,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let mut ptr = match &place.base {
-            PlaceBase::Local(local_id) => self
+            FunctionPlaceBase::Local(local_id) => self
                 .locals
                 .get(local_id)
                 .copied()
                 .ok_or_else(|| self.error(place.span, "missing local storage"))?,
-            PlaceBase::Global(def_id) => self
+            FunctionPlaceBase::Global(def_id) => self
                 .module
                 .globals
                 .get(def_id)
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(place.span, "missing global value"))?,
-            PlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
+            FunctionPlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
         };
         let mut current_ty = self.place_base_ty(place);
         for elem in &place.elems {
             match elem {
-                PlaceElem::Field(field) => {
+                FunctionPlaceElem::Field(field) => {
                     if let Some(TyKind::Pointer { elem, .. }) = self.module.ty_kind(current_ty) {
                         let ptr_ty = self.module.llvm_basic_type(current_ty, place.span)?;
                         ptr = self
@@ -434,7 +446,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     }
                     current_ty = self.field_ty(current_ty, *field, place.span)?;
                 }
-                PlaceElem::Index(index) => {
+                FunctionPlaceElem::Index(index) => {
                     ptr = self.emit_index_addr(place.span, current_ty, ptr, index)?;
                     current_ty = self.array_elem_ty(current_ty, place.span)?;
                 }
@@ -445,7 +457,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_struct_base_addr(
         &mut self,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
     ) -> Result<(BasicTypeEnum<'ctx>, PointerValue<'ctx>), Diagnostic> {
         match self.module.ty_kind(expr.ty) {
             Some(TyKind::Pointer { elem, .. }) => {
@@ -461,17 +473,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
-    fn place_base_ty(&self, place: &TypedPlace) -> InternedTyId {
+    fn place_base_ty(&self, place: &FunctionPlace) -> InternedTyId {
         match &place.base {
-            PlaceBase::Local(local_id) => self.local_tys.get(local_id).copied().unwrap_or(place.ty),
-            PlaceBase::Global(def_id) => self
+            FunctionPlaceBase::Local(local_id) => {
+                self.local_tys.get(local_id).copied().unwrap_or(place.ty)
+            }
+            FunctionPlaceBase::Global(def_id) => self
                 .module
                 .program
                 .globals
                 .get(def_id)
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
-            PlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {
+            FunctionPlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {
                 Some(TyKind::Pointer { elem, .. }) => *elem,
                 _ => place.ty,
             },
@@ -488,7 +502,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         base_ty: InternedTyId,
         base_ptr: PointerValue<'ctx>,
-        index: &TypedExpr,
+        index: &FunctionExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let index_value = self.emit_usize_value(index)?;
         match self.module.ty_kind(base_ty) {

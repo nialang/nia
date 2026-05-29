@@ -86,7 +86,7 @@ dependencies = [
  "nia-ast",
  "nia-body-ir",
  "nia-comptime-check",
- "nia-control-ir",
+ "nia-function-ir",
  "nia-ids",
  "nia-layout",
  "nia-span",
@@ -104,10 +104,10 @@ dependencies = [
  "nia-body-ir",
  "nia-comptime-check",
  "nia-comptime-engine",
- "nia-control-ir",
  "nia-defs",
  "nia-diagnostic",
  "nia-flow-check",
+ "nia-function-ir",
  "nia-ids",
  "nia-item-signatures",
  "nia-layout",
@@ -179,9 +179,9 @@ dependencies = [
  "nia-body-ir",
  "nia-comptime-check",
  "nia-comptime-engine",
- "nia-control-ir",
  "nia-diagnostic",
  "nia-driver",
+ "nia-function-ir",
  "nia-ice",
  "nia-ids",
  "nia-layout",
@@ -217,15 +217,6 @@ dependencies = [
  "nia-ast",
  "nia-diagnostic",
  "nia-parser",
- "nia-span",
-]
-
-[[package]]
-name = "nia-control-ir"
-version = "0.1.19"
-dependencies = [
- "nia-body-ir",
- "nia-ids",
  "nia-span",
 ]
 
@@ -289,6 +280,16 @@ dependencies = [
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
+]
+
+[[package]]
+name = "nia-function-ir"
+version = "0.1.19"
+dependencies = [
+ "nia-ast",
+ "nia-body-ir",
+ "nia-ids",
+ "nia-span",
 ]
 
 [[package]]

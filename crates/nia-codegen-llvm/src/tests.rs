@@ -4,8 +4,9 @@ use nia_backend_ir::{
     BackendField, BackendFunction, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
 };
 use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
-use nia_control_ir::{
-    ControlBlock, ControlBlockId, ControlBody, ControlScope, ControlScopeId, ControlTerminator,
+use nia_function_ir::{
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionExpr, FunctionExprKind, FunctionScope,
+    FunctionScopeId, FunctionTerminator,
 };
 use nia_ids::{DefId, GlobalDefId, LocalId, ModuleId};
 use nia_layout::{FieldLayout, StructLayout, TypeLayout};
@@ -127,7 +128,7 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
-fn emits_function_body_from_control_ir_when_available() {
+fn emits_function_body_from_function_ir_when_available() {
     let interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let span = Span::default();
@@ -161,40 +162,29 @@ fn emits_function_body_from_control_ir_when_available() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
-                body: Some(TypedBody {
+                function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(TypedExpr {
-                        span,
-                        ty: i32_ty,
-                        kind: TypedExprKind::Integer("1".to_string()),
-                    })),
-                    ty: i32_ty,
-                }),
-                control_body: Some(ControlBody {
-                    span,
-                    locals: Vec::new(),
-                    scopes: vec![ControlScope {
-                        id: ControlScopeId(0),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
                         parent: None,
                         span,
                     }],
-                    blocks: vec![ControlBlock {
-                        id: ControlBlockId(0),
-                        scope: ControlScopeId(0),
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
                         span,
                         ops: Vec::new(),
-                        terminator: ControlTerminator::Tail {
-                            value: Some(TypedExpr {
+                        terminator: FunctionTerminator::Tail {
+                            value: Some(FunctionExpr {
                                 span,
                                 ty: i32_ty,
-                                kind: TypedExprKind::Integer("2".to_string()),
+                                kind: FunctionExprKind::Integer("2".to_string()),
                             }),
                             span,
                         },
                     }],
-                    entry: ControlBlockId(0),
+                    entry: FunctionBlockId(0),
                     ty: i32_ty,
                 }),
                 span,
@@ -209,78 +199,11 @@ fn emits_function_body_from_control_ir_when_available() {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("ret i32 2"), "{ir}");
-    assert!(!ir.contains("ret i32 1"), "{ir}");
 }
 
 #[test]
-fn rejects_typed_function_body_without_control_ir() {
-    let interner = nia_ty::TyInterner::new(ModuleId(0));
-    let i32_ty = interner.primitive(PrimitiveTy::I32);
-    let span = Span::default();
-    let program = BackendProgram {
-        modules: vec![BackendModule {
-            id: ModuleId(0),
-            name: "main".to_string(),
-            interner,
-            comptime: Default::default(),
-            layouts: BackendLayouts {
-                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
-                structs: Vec::new(),
-                unions: Vec::new(),
-                struct_instances: Vec::new(),
-                union_instances: Vec::new(),
-            },
-            structs: Vec::new(),
-            struct_instances: Vec::new(),
-            unions: Vec::new(),
-            union_instances: Vec::new(),
-            enums: Vec::new(),
-            globals: Vec::new(),
-            functions: vec![BackendFunction {
-                def_id: GlobalDefId {
-                    module_id: ModuleId(0),
-                    def_id: DefId(0),
-                },
-                name: "main".to_string(),
-                generics: Vec::new(),
-                params: Vec::new(),
-                return_type: i32_ty,
-                is_extern: false,
-                is_variadic: false,
-                body: Some(TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: Vec::new(),
-                    tail: Some(Box::new(TypedExpr {
-                        span,
-                        ty: i32_ty,
-                        kind: TypedExprKind::Integer("1".to_string()),
-                    })),
-                    ty: i32_ty,
-                }),
-                control_body: None,
-                span,
-            }],
-            function_instances: Vec::new(),
-            generic_instantiations: Vec::new(),
-        }],
-    };
-
-    let output = emit_llvm_ir(&program);
-
-    assert!(
-        output
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("missing function control body")),
-        "{:?}",
-        output.diagnostics
-    );
-}
-
-#[test]
-fn emits_statement_if_from_control_ir_with_defer_cleanup() {
-    let root = temp_dir("emits_statement_if_from_control_ir_with_defer_cleanup");
+fn emits_statement_if_from_function_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_if_from_function_ir_with_defer_cleanup");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -303,14 +226,14 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("if.then") || ir.contains("cir.bb"), "{ir}");
+    assert!(ir.contains("if.then") || ir.contains("fir.bb"), "{ir}");
     assert!(ir.contains("call void @log(i32 1)"));
     assert!(ir.contains("ret i32 0"));
 }
 
 #[test]
-fn emits_statement_switch_from_control_ir_with_defer_cleanup() {
-    let root = temp_dir("emits_statement_switch_from_control_ir_with_defer_cleanup");
+fn emits_statement_switch_from_function_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_switch_from_function_ir_with_defer_cleanup");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -345,8 +268,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_statement_loop_from_control_ir_with_defer_cleanup() {
-    let root = temp_dir("emits_statement_loop_from_control_ir_with_defer_cleanup");
+fn emits_statement_loop_from_function_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_loop_from_function_ir_with_defer_cleanup");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -370,7 +293,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("cir.bb"), "{ir}");
+    assert!(ir.contains("fir.bb"), "{ir}");
     assert!(ir.contains("call void @log(i32 1)"));
     assert!(ir.contains("ret i32 0"));
 }
@@ -497,7 +420,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
         })),
         ty: i32_ty,
     };
-    let control_body = nia_control_ir::lower_control_body(&body);
+    let function_body = nia_function_ir::lower_function_body(&body);
     let program = BackendProgram {
         modules: vec![BackendModule {
             id: ModuleId(0),
@@ -578,8 +501,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
-                body: Some(body),
-                control_body: Some(control_body),
+                function_body: Some(function_body),
                 span: Span::default(),
             }],
             function_instances: Vec::new(),
@@ -803,8 +725,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_if_expression_from_control_ir() {
-    let root = temp_dir("emits_if_expression_from_control_ir");
+fn emits_if_expression_from_function_ir() {
+    let root = temp_dir("emits_if_expression_from_function_ir");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -824,7 +746,7 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("br i1"));
-    assert!(ir.contains("cir.bb"));
+    assert!(ir.contains("fir.bb"));
     assert!(ir.contains("store i32 40"));
     assert!(ir.contains("store i32 2"));
     assert!(!ir.contains("phi i32"));
@@ -832,8 +754,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_nested_value_control_from_control_ir() {
-    let root = temp_dir("emits_nested_value_control_from_control_ir");
+fn emits_nested_value_function_flow_from_function_ir() {
+    let root = temp_dir("emits_nested_value_function_flow_from_function_ir");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -863,15 +785,15 @@ fn main(flag: bool) i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("cir.tmp"), "{ir}");
+    assert!(ir.contains("fir.tmp"), "{ir}");
     assert!(ir.contains("switch i32"), "{ir}");
     assert!(ir.contains("call i32 @"));
-    assert!(!ir.contains("control expression was not lowered"));
+    assert!(!ir.contains("function expression was not lowered"));
 }
 
 #[test]
-fn emits_deferred_control_body_from_control_ir() {
-    let root = temp_dir("emits_deferred_control_body_from_control_ir");
+fn emits_deferred_function_body_from_function_ir() {
+    let root = temp_dir("emits_deferred_function_body_from_function_ir");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -910,8 +832,8 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
-fn emits_for_header_value_control_from_control_ir() {
-    let root = temp_dir("emits_for_header_value_control_from_control_ir");
+fn emits_for_header_value_flow_from_function_ir() {
+    let root = temp_dir("emits_for_header_value_flow_from_function_ir");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -933,7 +855,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("cir.tmp"), "{ir}");
+    assert!(ir.contains("fir.tmp"), "{ir}");
     assert!(ir.contains("br i1"), "{ir}");
     assert!(ir.contains("ret i32"));
 }
@@ -1890,7 +1812,7 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("cir.bb"));
+    assert!(ir.contains("fir.bb"));
     assert!(ir.contains("br i1"));
     assert!(ir.contains("br label"));
     assert!(ir.contains("ret i32"));
@@ -2117,7 +2039,7 @@ fn main(c: Color) i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i8"));
-    assert!(ir.contains("cir.bb"));
+    assert!(ir.contains("fir.bb"));
     assert!(ir.contains("ret i32 1"));
     assert!(ir.contains("ret i32 2"));
     assert!(ir.contains("ret i32 3"));
@@ -3264,7 +3186,7 @@ struct EmitSmokeCase {
 fn emit_smoke_cases() -> &'static [EmitSmokeCase] {
     &[
         EmitSmokeCase {
-            name: "control_flow_defer_switch",
+            name: "function_flow_defer_switch",
             root: "main.nia",
             files: &[(
                 "main.nia",
