@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::module_codegen::{AbiParam, AbiReturn};
-use nia_backend_ir::{TypedCallee, TypedExpr, TypedExprKind};
+use nia_body_ir::{TypedCallee, TypedExpr, TypedExprKind};
 use nia_diagnostic::Diagnostic;
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;

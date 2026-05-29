@@ -4,13 +4,13 @@ use nia_ast::{
     ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg,
     ItemKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
-use nia_backend_ir::{
-    BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody, TypedCallee,
-    TypedExpr, TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal,
-    TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
-    TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+use nia_body_ir::{
+    BracketSuffixResolution, BuiltinConst, BuiltinValue, PlaceBase, PlaceElem, ResolvedCall,
+    TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind,
+    TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal, TypedLocalKind, TypedPlace,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
+    TypedSwitchPattern,
 };
-use nia_body_check::{BracketSuffixResolution, BuiltinValue, ResolvedCall};
 use nia_defs::DefKind;
 use nia_diagnostic::Diagnostic;
 use nia_ids::LocalId;
@@ -221,6 +221,7 @@ impl<'a> ModuleLowerer<'a> {
             && let Some(coercion) = self
                 .input
                 .body_check
+                .ir
                 .c_string_pointer_coercions
                 .get(&expr.span)
                 .copied()
@@ -238,6 +239,7 @@ impl<'a> ModuleLowerer<'a> {
             && let Some(coercion) = self
                 .input
                 .body_check
+                .ir
                 .array_to_slice_coercions
                 .get(&expr.span)
                 .copied()
@@ -341,7 +343,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.lower_ident_expr(expr)
             }
             ExprKind::Builtin { .. } => {
-                match self.input.body_check.builtin_values.get(&expr.span) {
+                match self.input.body_check.ir.builtin_values.get(&expr.span) {
                     Some(BuiltinValue::Usize(value)) => {
                         TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
                     }
@@ -363,7 +365,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                     Some(BracketSuffixResolution::GenericCall) => {
                         if let Some(reference) =
-                            self.input.body_check.function_references.get(&expr.span)
+                            self.input.body_check.ir.function_references.get(&expr.span)
                         {
                             TypedExprKind::FunctionInstance {
                                 def_id: reference.def_id,
@@ -564,7 +566,7 @@ impl<'a> ModuleLowerer<'a> {
         if !block.stmts.is_empty() || block.tail.is_some() {
             return false;
         }
-        let Some(TyKind::Nominal { def_id, .. }) = self.input.body_check.interner.get(ty) else {
+        let Some(TyKind::Nominal { def_id, .. }) = self.input.body_check.ir.interner.get(ty) else {
             return false;
         };
         self.input
@@ -627,7 +629,12 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_function_item_ref(&mut self, expr: &Expr) -> Option<TypedExprKind> {
-        let reference = self.input.body_check.function_references.get(&expr.span)?;
+        let reference = self
+            .input
+            .body_check
+            .ir
+            .function_references
+            .get(&expr.span)?;
         if reference.args.is_empty() {
             Some(TypedExprKind::Function(reference.def_id))
         } else {
@@ -675,7 +682,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn lower_callee(&mut self, call_span: Span, callee: &Expr) -> TypedCallee {
-        if let Some(resolved) = self.input.body_check.resolved_calls.get(&call_span) {
+        if let Some(resolved) = self.input.body_check.ir.resolved_calls.get(&call_span) {
             return self.lower_resolved_callee(callee, resolved);
         }
         TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))

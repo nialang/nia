@@ -5,8 +5,8 @@ use crate::literals::{
     decode_string_literal, numeric_literal_body, parse_int_literal,
 };
 use nia_ast::{ArrayElements, Expr, ExprKind};
-use nia_backend_ir::{PlaceBase, StaticFieldInit, StaticInit};
-use nia_body_check::BuiltinValue;
+use nia_backend_ir::{StaticFieldInit, StaticInit};
+use nia_body_ir::{BuiltinValue, PlaceBase};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 
@@ -72,7 +72,7 @@ impl<'a> ModuleLowerer<'a> {
                     StaticInit::Byte(0)
                 }),
             ExprKind::Builtin { .. } => {
-                match self.input.body_check.builtin_values.get(&expr.span) {
+                match self.input.body_check.ir.builtin_values.get(&expr.span) {
                     Some(BuiltinValue::Usize(value)) => StaticInit::Int(*value as i128),
                     None => {
                         self.diagnostics.push(Diagnostic::error(
@@ -187,6 +187,7 @@ impl<'a> ModuleLowerer<'a> {
     fn static_function_address(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         self.input
             .body_check
+            .ir
             .function_references
             .get(&expr.span)
             .map(|reference| (reference.def_id, reference.args.clone()))

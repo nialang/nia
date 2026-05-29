@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_body_check::GenericInstantiation;
+use nia_body_ir::GenericInstantiation;
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -377,7 +377,7 @@ fn collect_recorded_generics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_body_check::GenericInstantiation;
+    use nia_body_ir::GenericInstantiation;
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_parser::parse_module;
     use nia_span::Span;

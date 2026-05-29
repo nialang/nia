@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use crate::BodyChecker;
 use crate::literals::{
     byte_string_literal_len, c_string_literal_len, float_literal_text, has_numeric_literal_suffix,
     integer_literal_value, integer_range, numeric_literal_suffix, parse_float_literal,
     string_literal_char_len,
 };
-use crate::{ArrayToSliceCoercion, BodyChecker, CStringPointerCoercion};
 use nia_ast::{Expr, ExprKind, UnaryOp};
+use nia_body_ir::{ArrayToSliceCoercion, CStringPointerCoercion};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;

@@ -4,8 +4,11 @@ use std::collections::HashSet;
 use crate::ModuleLowerer;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendStructInstance,
-    BackendUnionInstance, TypedArrayElements, TypedBody, TypedExpr, TypedExprKind, TypedForHeader,
-    TypedForInit, TypedStmt, TypedStmtKind, TypedSwitchArmBody, TypedSwitchPattern,
+    BackendUnionInstance,
+};
+use nia_body_ir::{
+    TypedArrayElements, TypedBody, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit,
+    TypedStmt, TypedStmtKind, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};

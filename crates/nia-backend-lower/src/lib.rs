@@ -11,7 +11,8 @@ use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
     BackendStructInstanceKey,
 };
-use nia_body_check::{BodyCheck, BracketSuffixResolution};
+use nia_body_check::BodyCheck;
+use nia_body_ir::BracketSuffixResolution;
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -89,7 +90,7 @@ impl<'a> ModuleLowerer<'a> {
         Self {
             input,
             monomorphization,
-            interner: input.body_check.interner.clone(),
+            interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
             current_param_locals: Vec::new(),
             comptime_global_stack: Vec::new(),
@@ -231,6 +232,7 @@ impl<'a> ModuleLowerer<'a> {
             generic_instantiations: self
                 .input
                 .body_check
+                .ir
                 .generic_instantiations
                 .iter()
                 .map(|inst| nia_backend_ir::BackendGenericInstantiation {
@@ -334,11 +336,11 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn local_ty(&self, local_id: LocalId) -> Option<InternedTyId> {
-        self.input.body_check.local_types.get(&local_id).copied()
+        self.input.body_check.ir.local_types.get(&local_id).copied()
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
-        self.input.body_check.expr_types.get(&expr.span).copied()
+        self.input.body_check.ir.expr_types.get(&expr.span).copied()
     }
 
     fn ty_for_type_span(&self, span: Span) -> InternedTyId {
@@ -390,16 +392,20 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn error_ty(&self) -> InternedTyId {
-        self.input.body_check.interner.error()
+        self.input.body_check.ir.interner.error()
     }
 
     fn void_ty(&self) -> InternedTyId {
-        self.input.body_check.interner.primitive(PrimitiveTy::Void)
+        self.input
+            .body_check
+            .ir
+            .interner
+            .primitive(PrimitiveTy::Void)
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        if ty.interner_id == self.input.body_check.interner.interner_id() {
-            return self.input.body_check.interner.get(ty);
+        if ty.interner_id == self.input.body_check.ir.interner.interner_id() {
+            return self.input.body_check.ir.interner.get(ty);
         }
         if let Some(extension_interner) = self.input.extension_interner
             && ty.interner_id == extension_interner.interner_id()
@@ -410,7 +416,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn nominal_global_def(&self, ty: InternedTyId) -> Option<GlobalDefId> {
-        match self.input.body_check.interner.get(ty) {
+        match self.input.body_check.ir.interner.get(ty) {
             Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
             _ => None,
         }
@@ -455,7 +461,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn receiver_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        match self.input.body_check.interner.get(ty) {
+        match self.input.body_check.ir.interner.get(ty) {
             Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
             Some(TyKind::Pointer { elem, .. }) => self.receiver_base_type(*elem),
             _ => None,
@@ -494,7 +500,8 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         if let Some(ty) = self.expr_ty(expr)
-            && let Some(TyKind::Nominal { def_id, args }) = self.input.body_check.interner.get(ty)
+            && let Some(TyKind::Nominal { def_id, args }) =
+                self.input.body_check.ir.interner.get(ty)
         {
             return Some((*def_id, args.clone()));
         }
@@ -518,6 +525,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn bracket_suffix_resolution(&self, span: Span) -> Option<BracketSuffixResolution> {
         self.input
             .body_check
+            .ir
             .bracket_suffix_resolutions
             .get(&span)
             .copied()

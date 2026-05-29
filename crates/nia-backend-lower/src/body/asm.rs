@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use crate::literals::decode_byte_string_literal;
-use nia_backend_ir::{AsmOption, TypedAsmInput, TypedAsmOutput, TypedInlineAsm};
+use nia_body_ir::{AsmOption, TypedAsmInput, TypedAsmOutput, TypedInlineAsm};
 
 impl<'a> ModuleLowerer<'a> {
     pub(super) fn lower_inline_asm(&mut self, config: &Expr) -> TypedExprKind {

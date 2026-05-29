@@ -274,9 +274,9 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
             .map(|module| MonomorphizeModuleInput {
                 module_id: module.id,
                 defs: &module.defs,
-                interner: &module.body_check.interner,
+                interner: &module.body_check.ir.interner,
                 comptime: &module.comptime,
-                instantiations: &module.body_check.generic_instantiations,
+                instantiations: &module.body_check.ir.generic_instantiations,
             })
             .collect::<Vec<_>>(),
     );
@@ -347,6 +347,7 @@ fn path_for_diagnostic_span(modules: &[CheckedModule], span: Span) -> nia_import
         .find(|module| {
             module
                 .body_check
+                .ir
                 .generic_instantiations
                 .iter()
                 .any(|instantiation| instantiation.span == span)
