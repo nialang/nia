@@ -5,7 +5,7 @@ use nia_body_check::{
     BodyCheckInput, ProgramSignatureMaps, check_module_bodies_with_program_signatures_and_layouts,
 };
 use nia_body_ir::{TypedArrayElements, TypedExprKind, TypedStmtKind};
-use nia_control_ir::{ControlBlockId, ControlOp, ControlTerminator};
+use nia_control_ir::{ControlOp, ControlTerminator};
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
 use nia_item_signatures::collect_item_signatures;
@@ -241,15 +241,14 @@ fn main() i32 {
     assert_eq!(control.blocks.len(), 2);
     assert!(matches!(control.blocks[0].ops[0], ControlOp::Defer(_)));
     assert!(matches!(control.blocks[0].ops[1], ControlOp::Binding(_)));
+    let ControlTerminator::Next { target, .. } = control.blocks[0].terminator else {
+        panic!("expected first block to continue to return terminator block");
+    };
     assert!(matches!(
-        control.blocks[0].terminator,
-        ControlTerminator::Next {
-            target: ControlBlockId(1),
-            ..
-        }
-    ));
-    assert!(matches!(
-        control.blocks[1].terminator,
+        control
+            .block(target)
+            .expect("return terminator block")
+            .terminator,
         ControlTerminator::Return { value: Some(_), .. }
     ));
 }
@@ -272,11 +271,14 @@ fn main() i32 {
         .find(|function| function.name == "main")
         .expect("main function");
     let control = main.control_body.as_ref().expect("main control body");
+    let ControlTerminator::Next { target, .. } = control.blocks[0].terminator else {
+        panic!("expected entry branch to loop header");
+    };
     let ControlTerminator::Loop {
         body,
         continue_target,
         ..
-    } = control.blocks[0].terminator
+    } = control.block(target).expect("loop header").terminator
     else {
         panic!("expected loop terminator");
     };

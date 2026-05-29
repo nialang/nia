@@ -4,7 +4,6 @@ mod asm;
 mod call;
 mod control;
 mod defer;
-mod expr_control;
 mod literals;
 mod ops;
 mod place;
@@ -20,7 +19,6 @@ use nia_control_ir::{ControlBody, ControlScopeId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
-    basic_block::BasicBlock,
     builder::Builder,
     values::{BasicValueEnum, FunctionValue, PointerValue},
 };
@@ -35,16 +33,9 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     locals: HashMap<LocalId, PointerValue<'ctx>>,
     local_tys: HashMap<LocalId, InternedTyId>,
     out_ptr: Option<PointerValue<'ctx>>,
-    loops: Vec<LoopTargets<'ctx>>,
     defer_scopes: Vec<DeferScope>,
     control_defer_scopes: HashMap<ControlScopeId, usize>,
     active_control_scope: Option<ControlScopeId>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct LoopTargets<'ctx> {
-    break_block: BasicBlock<'ctx>,
-    continue_block: BasicBlock<'ctx>,
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
@@ -61,7 +52,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             locals: HashMap::new(),
             local_tys: HashMap::new(),
             out_ptr: None,
-            loops: Vec::new(),
             defer_scopes: Vec::new(),
             control_defer_scopes: HashMap::new(),
             active_control_scope: None,
@@ -314,13 +304,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_load(ty, ptr, "loadtmp")
                     .map_err(|_| self.error(expr.span, "failed to load place"))
             }
-            TypedExprKind::Block(body) => self.emit_block_expr(body),
-            TypedExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => self.emit_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
-            TypedExprKind::Switch(switch) => self.emit_switch_expr(expr.span, expr.ty, switch),
+            TypedExprKind::Block(_) | TypedExprKind::If { .. } | TypedExprKind::Switch(_) => {
+                Err(self.error(
+                    expr.span,
+                    "control expression was not lowered to control IR",
+                ))
+            }
             TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. } => Err(self.error(
                 expr.span,
                 "function item cannot be emitted as a runtime value",
