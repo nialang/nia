@@ -30,7 +30,7 @@ Nia provides:
 - host execution by default, with object/LLVM output available for bare or
   custom build flows.
 
-The current core language keeps these systems outside the 0.1 surface:
+The current core language keeps these systems outside the language surface:
 
 - garbage collection;
 - exceptions;
@@ -1867,7 +1867,7 @@ provide `run`; use `emit exe` and execute the result.
 
 ## 14. Reserved Future Design Areas
 
-The following areas are intentionally outside the stable 0.1 language surface.
+The following areas are intentionally outside the current language surface.
 They are reserved for future design and should not be treated as specified by
 this document:
 

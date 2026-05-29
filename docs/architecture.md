@@ -475,8 +475,8 @@ Implementation bugs may panic in tests, but normal invalid Nia programs should
 flow through diagnostic reporting.
 
 Diagnostics should describe current language rules. The compiler should not keep
-special migration diagnostics for syntax that only existed during pre-release
-development.
+special migration diagnostics for syntax that only existed during earlier
+experimental development.
 
 ## 15. File And Module Granularity
 
@@ -495,7 +495,7 @@ for their owning phases.
 
 ## 16. Evolution Rules
 
-Nia is pre-public-release, so temporary historical forms are not compatibility
+Nia is pre-1.0, so temporary historical forms are not compatibility
 requirements. Once behavior is removed, tests and diagnostics should either
 delete it or treat it as ordinary invalid syntax.
 

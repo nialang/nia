@@ -7,9 +7,9 @@ project is intentionally narrow: the main repository contains the compiler
 implementation and the language documentation. The standard library, package
 manager, and build system are expected to live as separate projects.
 
-Nia is currently unreleased and under active design. The implementation favors
-clear semantics, predictable compilation phases, and a compact language surface
-over compatibility with earlier experimental syntax.
+Nia is pre-1.0 and under active design. The implementation favors clear
+semantics, predictable compilation phases, and a compact language surface over
+compatibility with earlier experimental syntax.
 
 ## Goals
 

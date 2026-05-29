@@ -1,13 +1,14 @@
 # Nia Project Conventions
 
-This document records repository-level conventions for the first public Nia
-release. It is about how the project is maintained, not about user-facing
-language syntax.
+This document records repository-level conventions for Nia's pre-1.0 releases.
+It is about how the project is maintained, not about user-facing language
+syntax.
 
 ## No Historical Compatibility Surface
 
-Nia has not had a public release yet. Temporary syntax and behavior that existed
-during development are not part of the language contract.
+Nia is pre-1.0 and still changing. Temporary syntax and behavior that existed
+during development are not part of the language contract unless they are present
+in the current language specification.
 
 Do not keep special parser paths, diagnostics, examples, or tests whose main
 purpose is to explain an old Nia spelling. If a removed spelling is written
