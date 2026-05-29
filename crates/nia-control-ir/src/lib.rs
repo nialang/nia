@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_body_ir::{
     TypedBinding, TypedBody, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedLocal,
-    TypedStmtKind,
+    TypedStmtKind, TypedSwitchArmBody,
 };
 use nia_ids::InternedTyId;
 use nia_span::Span;
@@ -55,6 +55,12 @@ pub enum ControlTerminator {
         target: ControlBlockId,
         span: Span,
     },
+    If {
+        cond: TypedExpr,
+        then_target: ControlBlockId,
+        else_target: ControlBlockId,
+        span: Span,
+    },
     Loop {
         header: TypedForHeader,
         body: ControlBlockId,
@@ -78,6 +84,11 @@ impl ControlTerminator {
             ControlTerminator::Branch { target, .. } | ControlTerminator::Next { target, .. } => {
                 vec![*target]
             }
+            ControlTerminator::If {
+                then_target,
+                else_target,
+                ..
+            } => vec![*then_target, *else_target],
             ControlTerminator::Loop {
                 body, break_target, ..
             } => vec![*body, *break_target],
@@ -279,10 +290,27 @@ impl ControlLowerer {
         ops: &mut Vec<ControlOp>,
         blocks: &mut Vec<ControlBlock>,
     ) {
-        if let TypedExprKind::Block(body) = &expr.kind {
-            self.lower_block_expr_stmt(span, body, scope, current, ops, blocks);
-        } else {
-            ops.push(ControlOp::Expr(expr.clone()));
+        match &expr.kind {
+            TypedExprKind::Block(body) => {
+                self.lower_block_expr_stmt(span, body, scope, current, ops, blocks);
+            }
+            TypedExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.lower_if_expr_stmt(
+                    span,
+                    cond,
+                    then_branch,
+                    else_branch.as_deref(),
+                    scope,
+                    current,
+                    ops,
+                    blocks,
+                );
+            }
+            _ => ops.push(ControlOp::Expr(expr.clone())),
         }
     }
 
@@ -317,6 +345,70 @@ impl ControlLowerer {
             Fallthrough::Branch(after_block),
         );
         *current = after_block;
+    }
+
+    fn lower_if_expr_stmt(
+        &mut self,
+        span: Span,
+        cond: &TypedExpr,
+        then_branch: &TypedBody,
+        else_branch: Option<&TypedExpr>,
+        scope: ControlScopeId,
+        current: &mut ControlBlockId,
+        ops: &mut Vec<ControlOp>,
+        blocks: &mut Vec<ControlBlock>,
+    ) {
+        let then_target = self.alloc_block();
+        let else_target = else_branch.map(|_| self.alloc_block());
+        let merge_target = self.alloc_block();
+        self.finish_block(
+            blocks,
+            *current,
+            scope,
+            span,
+            std::mem::take(ops),
+            ControlTerminator::If {
+                cond: cond.clone(),
+                then_target,
+                else_target: else_target.unwrap_or(merge_target),
+                span,
+            },
+        );
+
+        let then_scope = self.alloc_scope(Some(scope), then_branch.span);
+        self.lower_body_into(
+            then_branch,
+            then_target,
+            then_scope,
+            blocks,
+            Fallthrough::Branch(merge_target),
+        );
+
+        if let (Some(else_branch), Some(else_target)) = (else_branch, else_target) {
+            let mut else_current = else_target;
+            let mut else_ops = Vec::new();
+            self.lower_expr_stmt(
+                else_branch.span,
+                else_branch,
+                scope,
+                &mut else_current,
+                &mut else_ops,
+                blocks,
+            );
+            self.finish_block(
+                blocks,
+                else_current,
+                scope,
+                else_branch.span,
+                else_ops,
+                ControlTerminator::Branch {
+                    target: merge_target,
+                    span: else_branch.span,
+                },
+            );
+        }
+
+        *current = merge_target;
     }
 
     fn lower_for_stmt(
@@ -528,8 +620,32 @@ impl ControlLowerer {
     }
 
     fn collect_expr_locals(&self, expr: &TypedExpr, locals: &mut Vec<TypedLocal>) {
-        if let TypedExprKind::Block(body) = &expr.kind {
-            self.collect_body_locals(body, locals);
+        match &expr.kind {
+            TypedExprKind::Block(body) => self.collect_body_locals(body, locals),
+            TypedExprKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.collect_body_locals(then_branch, locals);
+                if let Some(else_branch) = else_branch {
+                    self.collect_expr_locals(else_branch, locals);
+                }
+            }
+            TypedExprKind::Switch(switch) => {
+                for arm in &switch.arms {
+                    match &arm.body {
+                        TypedSwitchArmBody::Expr(expr) => self.collect_expr_locals(expr, locals),
+                        TypedSwitchArmBody::Stmt(stmt) => {
+                            if let TypedStmtKind::Expr(expr) = &stmt.kind {
+                                self.collect_expr_locals(expr, locals);
+                            }
+                        }
+                        TypedSwitchArmBody::Block(body) => self.collect_body_locals(body, locals),
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1377,5 +1493,308 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![LocalId(1)]
         );
+    }
+
+    #[test]
+    fn collects_unique_locals_from_statement_if_arms() {
+        let span = Span::default();
+        let ty = test_ty();
+        let then_local = TypedLocal {
+            id: LocalId(1),
+            name: "then_local".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        };
+        let else_local = TypedLocal {
+            id: LocalId(2),
+            name: "else_local".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::If {
+                        cond: Box::new(bool_expr(true)),
+                        then_branch: TypedBody {
+                            span,
+                            locals: vec![then_local],
+                            stmts: Vec::new(),
+                            tail: None,
+                            ty,
+                        },
+                        else_branch: Some(Box::new(TypedExpr {
+                            span,
+                            ty,
+                            kind: TypedExprKind::Block(TypedBody {
+                                span,
+                                locals: vec![else_local],
+                                stmts: Vec::new(),
+                                tail: None,
+                                ty,
+                            }),
+                        })),
+                    },
+                }),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(
+            control
+                .locals
+                .iter()
+                .map(|local| local.id)
+                .collect::<Vec<_>>(),
+            vec![LocalId(1), LocalId(2)]
+        );
+    }
+
+    #[test]
+    fn lowers_statement_if_into_if_terminator_and_child_scope() {
+        let span = Span::default();
+        let ty = test_ty();
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::If {
+                        cond: Box::new(bool_expr(true)),
+                        then_branch: TypedBody {
+                            span,
+                            locals: Vec::new(),
+                            stmts: vec![TypedStmt {
+                                span,
+                                kind: TypedStmtKind::Defer(int_expr(1)),
+                            }],
+                            tail: None,
+                            ty,
+                        },
+                        else_branch: None,
+                    },
+                }),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::If {
+            then_target,
+            else_target,
+            ..
+        } = control.blocks[0].terminator
+        else {
+            panic!("expected if terminator");
+        };
+
+        assert_eq!(
+            control.blocks[0].terminator.successors(),
+            vec![then_target, else_target]
+        );
+        assert_eq!(then_target, ControlBlockId(1));
+        assert_eq!(else_target, ControlBlockId(2));
+        assert_eq!(
+            control
+                .scope(control.block(then_target).expect("then block").scope)
+                .unwrap()
+                .parent,
+            Some(ControlScopeId(0))
+        );
+        assert!(matches!(
+            control.block(then_target).expect("then block").ops[0],
+            ControlOp::Defer(_)
+        ));
+    }
+
+    #[test]
+    fn statement_if_without_else_uses_merge_as_false_edge() {
+        let span = Span::default();
+        let ty = test_ty();
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![
+                TypedStmt {
+                    span,
+                    kind: TypedStmtKind::Expr(TypedExpr {
+                        span,
+                        ty,
+                        kind: TypedExprKind::If {
+                            cond: Box::new(bool_expr(true)),
+                            then_branch: empty_body(ty),
+                            else_branch: None,
+                        },
+                    }),
+                },
+                TypedStmt {
+                    span,
+                    kind: TypedStmtKind::Expr(int_expr(1)),
+                },
+            ],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::If { else_target, .. } = control.blocks[0].terminator else {
+            panic!("expected if terminator");
+        };
+        let merge = control.block(else_target).expect("merge block");
+
+        assert_eq!(merge.scope, ControlScopeId(0));
+        assert!(matches!(merge.ops[0], ControlOp::Expr(_)));
+    }
+
+    #[test]
+    fn statement_if_with_else_block_exits_else_scope_to_merge() {
+        let span = Span::default();
+        let ty = test_ty();
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::If {
+                        cond: Box::new(bool_expr(true)),
+                        then_branch: empty_body(ty),
+                        else_branch: Some(Box::new(TypedExpr {
+                            span,
+                            ty,
+                            kind: TypedExprKind::Block(TypedBody {
+                                span,
+                                locals: Vec::new(),
+                                stmts: vec![TypedStmt {
+                                    span,
+                                    kind: TypedStmtKind::Defer(int_expr(2)),
+                                }],
+                                tail: None,
+                                ty,
+                            }),
+                        })),
+                    },
+                }),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::If { else_target, .. } = control.blocks[0].terminator else {
+            panic!("expected if terminator");
+        };
+        let else_entry = control.block(else_target).expect("else entry block");
+        let ControlTerminator::Next {
+            target: else_body, ..
+        } = else_entry.terminator
+        else {
+            panic!("expected else block jump");
+        };
+        let else_body = control.block(else_body).expect("else body block");
+        let merge = control
+            .blocks
+            .iter()
+            .find(|block| block.scope == ControlScopeId(0) && block.id.0 > else_body.id.0)
+            .expect("merge block");
+
+        assert_eq!(else_body.scope, ControlScopeId(2));
+        assert_eq!(
+            control.edge_exited_scopes(else_body.id, merge.id),
+            Some(vec![ControlScopeId(2)])
+        );
+    }
+
+    #[test]
+    fn return_from_statement_if_arm_exits_arm_and_root_scopes() {
+        let span = Span::default();
+        let ty = test_ty();
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::If {
+                        cond: Box::new(bool_expr(true)),
+                        then_branch: TypedBody {
+                            span,
+                            locals: Vec::new(),
+                            stmts: vec![TypedStmt {
+                                span,
+                                kind: TypedStmtKind::Return(Some(int_expr(1))),
+                            }],
+                            tail: None,
+                            ty,
+                        },
+                        else_branch: None,
+                    },
+                }),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::If { then_target, .. } = control.blocks[0].terminator else {
+            panic!("expected if terminator");
+        };
+
+        assert!(matches!(
+            control.block(then_target).expect("then block").terminator,
+            ControlTerminator::Return { .. }
+        ));
+        assert_eq!(
+            control.return_exited_scopes(then_target),
+            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+        );
+    }
+
+    fn test_ty() -> InternedTyId {
+        InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0))
+    }
+
+    fn int_expr(value: i32) -> TypedExpr {
+        TypedExpr {
+            span: Span::default(),
+            ty: test_ty(),
+            kind: TypedExprKind::Integer(value.to_string()),
+        }
+    }
+
+    fn bool_expr(value: bool) -> TypedExpr {
+        TypedExpr {
+            span: Span::default(),
+            ty: test_ty(),
+            kind: TypedExprKind::Bool(value),
+        }
+    }
+
+    fn empty_body(ty: InternedTyId) -> TypedBody {
+        TypedBody {
+            span: Span::default(),
+            locals: Vec::new(),
+            stmts: Vec::new(),
+            tail: None,
+            ty,
+        }
     }
 }
