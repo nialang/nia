@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::BodyChecker;
-use nia_ast::{BracketArg, Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
+use crate::{BodyChecker, BracketSuffixResolution};
+use nia_ast::{Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
@@ -44,7 +44,7 @@ impl<'a> BodyChecker<'a> {
                 IndexArg::Expr(_) => self.not_addressable_reason(lhs),
                 IndexArg::Range(_) => Some("range index must be borrowed as a slice"),
             },
-            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(args) => {
+            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr.span) => {
                 self.not_addressable_reason(callee)
             }
             ExprKind::Unary {
@@ -83,10 +83,11 @@ impl<'a> BodyChecker<'a> {
                     .or_else(|| self.auto_deref_not_assignable_reason(lhs))
                     .or_else(|| self.slice_not_assignable_reason(lhs)),
             },
-            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(args) => self
-                .not_assignable_reason(callee)
-                .or_else(|| self.auto_deref_not_assignable_reason(callee))
-                .or_else(|| self.slice_not_assignable_reason(callee)),
+            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr.span) => {
+                self.not_assignable_reason(callee)
+                    .or_else(|| self.auto_deref_not_assignable_reason(callee))
+                    .or_else(|| self.slice_not_assignable_reason(callee))
+            }
             ExprKind::Unary {
                 op: UnaryOp::Deref,
                 expr: inner,
@@ -309,7 +310,7 @@ impl<'a> BodyChecker<'a> {
                 lhs,
                 index: IndexArg::Expr(_),
             } => self.is_place_expr(lhs),
-            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(args) => {
+            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr.span) => {
                 self.is_place_expr(callee)
             }
             ExprKind::Unary {
@@ -319,7 +320,10 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn bracket_suffix_is_index(&self, args: &[BracketArg]) -> bool {
-        args.len() == 1 && args.first().is_some_and(|arg| arg.expr.is_some())
+    fn bracket_suffix_is_index(&self, span: Span) -> bool {
+        matches!(
+            self.bracket_suffix_resolutions.get(&span),
+            Some(BracketSuffixResolution::Index)
+        )
     }
 }

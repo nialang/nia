@@ -2,7 +2,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    BodyChecker, FunctionReference, ResolvedCall, ResolvedFunctionSignature, generic_inst_base,
+    BodyChecker, BracketSuffixResolution, FunctionReference, ResolvedCall,
+    ResolvedFunctionSignature, generic_inst_base,
 };
 use nia_ast::{BracketArg, Expr, ExprKind};
 use nia_diagnostic::Diagnostic;
@@ -87,6 +88,10 @@ impl<'a> BodyChecker<'a> {
         match &expr.kind {
             ExprKind::BracketSuffix { callee, args } => {
                 let mut item = self.function_item_ref(callee)?;
+                self.record_bracket_suffix_resolution(
+                    expr.span,
+                    BracketSuffixResolution::GenericCall,
+                );
                 let type_args = self.lower_bracket_type_args(args);
                 item.type_args.extend(type_args);
                 Some(item)
@@ -236,15 +241,27 @@ impl<'a> BodyChecker<'a> {
                 span, lhs, name, type_args, args, expected,
             )
         {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return return_type;
         }
         if let ExprKind::Qualified { lhs, name } = &callee.kind
             && let Some(return_type) = self
                 .check_explicit_generic_associated_call(span, lhs, name, type_args, args, expected)
         {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return return_type;
         }
         if let Some(resolved) = self.qualified_callee_signature(callee) {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return self.check_instantiated_function_call(
                 span,
                 resolved.def_id,
@@ -254,6 +271,10 @@ impl<'a> BodyChecker<'a> {
             );
         }
         if let Some(resolved) = self.direct_callee_signature(callee) {
+            self.record_bracket_suffix_resolution(
+                callee_span,
+                BracketSuffixResolution::GenericCall,
+            );
             return self.check_instantiated_function_call(
                 span,
                 resolved.def_id,

@@ -875,6 +875,47 @@ fn main() i32 {
 }
 
 #[test]
+fn records_bracket_suffix_resolution_kinds() {
+    let checked = pipeline(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn make(value: T) Box[T] {
+        { value: value }
+    }
+}
+
+fn id[T](value: T) T { value }
+
+fn main() i32 {
+    var xs: [3]i32 = [10, 20, 30];
+    var i32: usize = 1;
+    var indexed = xs[i32];
+    var called: i32 = id[i32](indexed);
+    var boxed = Box[i32]::make(called);
+    indexed + boxed.value
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let counts = checked.bracket_suffix_resolutions.values().fold(
+        (0usize, 0usize, 0usize),
+        |(indexes, generic_calls, type_prefixes), resolution| match resolution {
+            BracketSuffixResolution::Index => (indexes + 1, generic_calls, type_prefixes),
+            BracketSuffixResolution::GenericCall => (indexes, generic_calls + 1, type_prefixes),
+            BracketSuffixResolution::TypePrefixInstantiation => {
+                (indexes, generic_calls, type_prefixes + 1)
+            }
+        },
+    );
+    assert_eq!(counts, (1, 1, 1));
+}
+
+#[test]
 fn infers_generic_function_type_arguments_from_call_arguments() {
     let checked = pipeline(
         r#"
