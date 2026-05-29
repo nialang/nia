@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_body_ir::TypedExpr;
+use nia_control_ir::ControlScopeId;
 use nia_diagnostic::Diagnostic;
 use nia_span::Span;
 
@@ -7,6 +8,7 @@ use super::FunctionCodegen;
 
 #[derive(Debug, Clone)]
 pub(super) struct DeferScope {
+    pub(super) control_scope: Option<ControlScopeId>,
     pub(super) loop_depth: usize,
     pub(super) exprs: Vec<TypedExpr>,
 }
@@ -15,6 +17,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn push_defer_scope(&mut self) -> usize {
         let index = self.defer_scopes.len();
         self.defer_scopes.push(DeferScope {
+            control_scope: None,
+            loop_depth: self.loops.len(),
+            exprs: Vec::new(),
+        });
+        index
+    }
+
+    pub(super) fn push_control_defer_scope(&mut self, scope: ControlScopeId) -> usize {
+        let index = self.defer_scopes.len();
+        self.defer_scopes.push(DeferScope {
+            control_scope: Some(scope),
             loop_depth: self.loops.len(),
             exprs: Vec::new(),
         });
@@ -38,6 +51,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
+    pub(super) fn emit_control_scope_defers(
+        &mut self,
+        span: Span,
+        scope: ControlScopeId,
+    ) -> Result<(), Diagnostic> {
+        let Some(scope) = self
+            .defer_scopes
+            .iter()
+            .rev()
+            .find(|defer_scope| defer_scope.control_scope == Some(scope))
+            .cloned()
+        else {
+            return Err(self.error(span, "missing control defer scope"));
+        };
+        self.emit_defer_scope(scope)
+    }
+
     fn emit_defer_scope(&mut self, scope: DeferScope) -> Result<(), Diagnostic> {
         for expr in scope.exprs.into_iter().rev() {
             self.emit_void_expr(&expr)?;
@@ -50,6 +80,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         expr: &TypedExpr,
     ) -> Result<(), Diagnostic> {
+        if let Some(control_scope) = self.active_control_scope {
+            let Some(index) = self.control_defer_scopes.get(&control_scope).copied() else {
+                return Err(self.error(span, "missing active control defer scope"));
+            };
+            let Some(scope) = self.defer_scopes.get_mut(index) else {
+                return Err(self.error(span, "missing active control defer storage"));
+            };
+            scope.exprs.push(expr.clone());
+            return Ok(());
+        }
         let Some(scope) = self.defer_scopes.last_mut() else {
             return Err(self.error(span, "`defer` is not inside a block"));
         };

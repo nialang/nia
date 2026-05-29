@@ -15,7 +15,7 @@ use defer::DeferScope;
 use nia_ast::BinaryOp;
 use nia_backend_ir::BackendFunction;
 use nia_body_ir::{BuiltinConst, TypedBody, TypedExpr, TypedExprKind, TypedLocalKind};
-use nia_control_ir::ControlBody;
+use nia_control_ir::{ControlBody, ControlScopeId};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -36,6 +36,8 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     out_ptr: Option<PointerValue<'ctx>>,
     loops: Vec<LoopTargets<'ctx>>,
     defer_scopes: Vec<DeferScope>,
+    control_defer_scopes: HashMap<ControlScopeId, usize>,
+    active_control_scope: Option<ControlScopeId>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -60,6 +62,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             out_ptr: None,
             loops: Vec::new(),
             defer_scopes: Vec::new(),
+            control_defer_scopes: HashMap::new(),
+            active_control_scope: None,
         }
     }
 
