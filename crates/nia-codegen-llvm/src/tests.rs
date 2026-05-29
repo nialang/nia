@@ -304,7 +304,8 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("if.then") || ir.contains("cir.bb"), "{ir}");
-    assert_substrings_in_order(ir, &["call void @log(i32 1)", "ret i32 0"]);
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("ret i32 0"));
 }
 
 #[test]
@@ -338,8 +339,9 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i32"), "{ir}");
-    assert_substrings_in_order(ir, &["call void @log(i32 1)", "ret i32 0"]);
-    assert_substrings_in_order(ir, &["call void @log(i32 2)", "ret i32 0"]);
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("call void @log(i32 2)"));
+    assert!(ir.contains("ret i32 0"));
 }
 
 #[test]
@@ -369,7 +371,8 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("cir.bb"), "{ir}");
-    assert_substrings_in_order(ir, &["call void @log(i32 1)", "ret i32 0"]);
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("ret i32 0"));
 }
 
 #[test]
@@ -800,8 +803,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_if_expression_with_phi() {
-    let root = temp_dir("emits_if_expression_with_phi");
+fn emits_if_expression_from_control_ir() {
+    let root = temp_dir("emits_if_expression_from_control_ir");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -821,9 +824,117 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("br i1"));
-    assert!(ir.contains("if.then"));
-    assert!(ir.contains("if.else"));
-    assert!(ir.contains("phi i32"));
+    assert!(ir.contains("cir.bb"));
+    assert!(ir.contains("store i32 40"));
+    assert!(ir.contains("store i32 2"));
+    assert!(!ir.contains("phi i32"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_nested_value_control_from_control_ir() {
+    let root = temp_dir("emits_nested_value_control_from_control_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn take(x: i32, y: i32) i32 {
+    x + y
+}
+
+fn main(flag: bool) i32 {
+    var values = [
+        if flag { 1 } else { 2 },
+        { var tmp = 3; tmp },
+        switch 1 {
+            0 => 4,
+            _ => 5,
+        },
+    ];
+    take(values[if flag { 0usize } else { 1usize }], if flag { 10 } else { 20 })
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("cir.tmp"), "{ir}");
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert!(ir.contains("call i32 @"));
+    assert!(!ir.contains("control expression was not lowered"));
+}
+
+#[test]
+fn emits_deferred_control_body_from_control_ir() {
+    let root = temp_dir("emits_deferred_control_body_from_control_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main(flag: bool) i32 {
+    defer {
+        if flag {
+            log(1);
+        } else {
+            switch 2 {
+                1 => log(2),
+                _ => log(3),
+            };
+        };
+    };
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("defer.entry"), "{ir}");
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("call void @log(i32 2)"));
+    assert!(ir.contains("call void @log(i32 3)"));
+    assert!(ir.contains("ret i32 0"));
+}
+
+#[test]
+fn emits_for_header_value_control_from_control_ir() {
+    let root = temp_dir("emits_for_header_value_control_from_control_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    var i = 0;
+    for ; { i < 2 }; i += if i == 0 { 1 } else { 2 } {
+        i += 1;
+    }
+    i
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("cir.tmp"), "{ir}");
+    assert!(ir.contains("br i1"), "{ir}");
     assert!(ir.contains("ret i32"));
 }
 
@@ -2048,8 +2159,11 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i32"));
-    assert!(ir.contains("switchtmp"));
-    assert!(ir.contains("phi i32"));
+    assert!(ir.contains("store i32 10"));
+    assert!(ir.contains("store i32 20"));
+    assert!(ir.contains("store i32 30"));
+    assert!(!ir.contains("switchtmp"));
+    assert!(!ir.contains("phi i32"));
     assert!(ir.contains("ret i32 1"));
 }
 

@@ -212,7 +212,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 AbiParam::IndirectReadonly(_) => {
                     llvm_args.push(self.emit_arg_address(span, arg)?.into())
                 }
-                AbiParam::Omit => self.emit_zero_sized_expr(arg)?,
+                AbiParam::Omit => self.emit_effect_expr(arg)?,
             }
         }
         Ok(llvm_args)
