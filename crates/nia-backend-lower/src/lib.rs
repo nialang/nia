@@ -241,6 +241,11 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             };
             let substitutions = self.effective_generic_substitutions(base.def_id, &instance.args);
+            let body = base
+                .body
+                .clone()
+                .map(|body| self.instantiate_body(body, &substitutions));
+            let control_body = body.as_ref().map(nia_control_ir::lower_control_body);
             instances.push(BackendFunctionInstance {
                 def_id: instance.def_id,
                 name: base.name.clone(),
@@ -251,10 +256,8 @@ impl<'a> ModuleLowerer<'a> {
                 return_type: self.instantiate_ty(base.return_type, &substitutions),
                 is_extern: base.is_extern,
                 is_variadic: base.is_variadic,
-                body: base
-                    .body
-                    .clone()
-                    .map(|body| self.instantiate_body(body, &substitutions)),
+                body,
+                control_body,
                 span: base.span,
             });
         }

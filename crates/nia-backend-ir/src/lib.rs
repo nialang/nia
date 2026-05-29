@@ -2,6 +2,7 @@
 use nia_ast::ReceiverKind;
 use nia_body_ir::{StaticInit, TypedBody};
 use nia_comptime_check::ComptimeCheck;
+use nia_control_ir::ControlBody;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
@@ -203,6 +204,7 @@ pub struct BackendFunction {
     pub is_extern: bool,
     pub is_variadic: bool,
     pub body: Option<TypedBody>,
+    pub control_body: Option<ControlBody>,
     pub span: Span,
 }
 
@@ -218,6 +220,7 @@ pub struct BackendFunctionInstance {
     pub is_extern: bool,
     pub is_variadic: bool,
     pub body: Option<TypedBody>,
+    pub control_body: Option<ControlBody>,
     pub span: Span,
 }
 

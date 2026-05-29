@@ -251,6 +251,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     is_extern: instance.is_extern,
                     is_variadic: instance.is_variadic,
                     body: instance.body.clone(),
+                    control_body: instance.control_body.clone(),
                     span: instance.span,
                 };
                 FunctionCodegen::new(self, &function, llvm_function).emit_body(body)?;
