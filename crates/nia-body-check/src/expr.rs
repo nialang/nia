@@ -548,7 +548,7 @@ impl<'a> BodyChecker<'a> {
         false
     }
 
-    fn check_bracket_suffix_expr(
+    pub(crate) fn check_bracket_suffix_expr(
         &mut self,
         span: Span,
         callee: &Expr,

@@ -305,7 +305,7 @@ impl<'a> LocalResolver<'a> {
             | ExprKind::Error => {}
             ExprKind::BracketSuffix { callee, args } => {
                 self.resolve_callee(callee);
-                if !self.bracket_suffix_can_be_generic(callee) {
+                if self.should_resolve_expr_bracket_args(callee, args) {
                     for arg in args {
                         if let Some(expr) = &arg.expr {
                             self.resolve_expr(expr);
@@ -410,7 +410,7 @@ impl<'a> LocalResolver<'a> {
     fn resolve_callee(&mut self, callee: &Expr) {
         if let ExprKind::BracketSuffix { callee, args } = &callee.kind {
             self.resolve_callee(callee);
-            if !self.bracket_suffix_can_be_generic(callee) {
+            if self.should_resolve_callee_bracket_args(callee, args) {
                 for arg in args {
                     if let Some(expr) = &arg.expr {
                         self.resolve_expr(expr);
@@ -465,6 +465,24 @@ impl<'a> LocalResolver<'a> {
         false
     }
 
+    fn should_resolve_expr_bracket_args(
+        &self,
+        callee: &Expr,
+        args: &[nia_ast::BracketArg],
+    ) -> bool {
+        self.bracket_suffix_can_be_index(args) || !self.bracket_suffix_can_be_generic(callee)
+    }
+
+    fn should_resolve_callee_bracket_args(
+        &self,
+        callee: &Expr,
+        args: &[nia_ast::BracketArg],
+    ) -> bool {
+        self.bracket_suffix_is_unambiguous_index(args)
+            || (self.bracket_suffix_can_be_index(args) && self.callee_is_indexable_expr(callee))
+            || !self.bracket_suffix_can_be_generic(callee)
+    }
+
     fn bracket_suffix_can_be_generic(&self, callee: &Expr) -> bool {
         match &callee.kind {
             ExprKind::Ident(name) => {
@@ -486,6 +504,45 @@ impl<'a> LocalResolver<'a> {
             ExprKind::BracketSuffix { callee, .. } => self.bracket_suffix_can_be_generic(callee),
             _ => false,
         }
+    }
+
+    fn bracket_suffix_can_be_index(&self, args: &[nia_ast::BracketArg]) -> bool {
+        let [
+            nia_ast::BracketArg {
+                expr: Some(expr),
+                ty,
+                ..
+            },
+        ] = args
+        else {
+            return false;
+        };
+        ty.is_none() || self.expr_is_known_local(expr)
+    }
+
+    fn bracket_suffix_is_unambiguous_index(&self, args: &[nia_ast::BracketArg]) -> bool {
+        matches!(
+            args,
+            [nia_ast::BracketArg {
+                expr: Some(_),
+                ty: None,
+                ..
+            },]
+        )
+    }
+
+    fn expr_is_known_local(&self, expr: &Expr) -> bool {
+        let ExprKind::Ident(name) = &expr.kind else {
+            return false;
+        };
+        self.lookup(name).is_some()
+    }
+
+    fn callee_is_indexable_expr(&self, callee: &Expr) -> bool {
+        matches!(
+            callee.kind,
+            ExprKind::Field { .. } | ExprKind::Index { .. } | ExprKind::BracketSuffix { .. }
+        )
     }
 
     fn resolve_ident(&mut self, name: &str, span: Span) {
@@ -677,6 +734,86 @@ fn main() Point {
                 .uses
                 .values()
                 .any(|use_kind| matches!(use_kind, LocalUse::TypePrefix))
+        );
+    }
+
+    #[test]
+    fn resolves_index_expr_inside_field_bracket_suffix() {
+        let (module, errors) = parse_module(
+            r#"
+struct S {
+    x: i32,
+}
+
+struct T {
+    xs: [4]S,
+}
+
+fn main() i32 {
+    var t: T = { xs: [{ x: 0 }; 4] };
+    for var i: u16 = 0; i < 4; i += 1 {
+        t.xs[i as usize] = { x: i as i32 };
+    }
+    t.xs[2].x
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let values = resolve_module_values(&module, &defs);
+        let locals = resolve_module_locals(&module, &defs, &values);
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+        let i_id = locals
+            .locals
+            .iter()
+            .find_map(|(id, local)| (local.name == "i").then_some(id))
+            .expect("expected loop local");
+        assert!(
+            locals
+                .uses
+                .values()
+                .any(|use_kind| *use_kind == LocalUse::Local(i_id)),
+            "{:?}",
+            locals.uses
+        );
+    }
+
+    #[test]
+    fn resolves_local_named_like_type_inside_field_bracket_suffix() {
+        let (module, errors) = parse_module(
+            r#"
+struct S {
+    x: i32,
+}
+
+struct T {
+    xs: [4]S,
+}
+
+fn main() i32 {
+    var t: T = { xs: [{ x: 0 }; 4] };
+    var i32: usize = 2;
+    t.xs[i32].x
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let values = resolve_module_values(&module, &defs);
+        let locals = resolve_module_locals(&module, &defs, &values);
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+        let i32_id = locals
+            .locals
+            .iter()
+            .find_map(|(id, local)| (local.name == "i32").then_some(id))
+            .expect("expected local named i32");
+        assert!(
+            locals
+                .uses
+                .values()
+                .any(|use_kind| *use_kind == LocalUse::Local(i32_id)),
+            "{:?}",
+            locals.uses
         );
     }
 }

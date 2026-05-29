@@ -679,8 +679,22 @@ impl<'a> ModuleLowerer<'a> {
                 ),
             },
             ResolvedCall::FunctionPointer => {
-                TypedCallee::FunctionPointer(Box::new(self.lower_expr(generic_inst_base(callee))))
+                TypedCallee::FunctionPointer(Box::new(self.lower_function_pointer_callee(callee)))
             }
+        }
+    }
+
+    fn lower_function_pointer_callee(&mut self, callee: &Expr) -> TypedExpr {
+        if matches!(
+            callee.kind,
+            ExprKind::BracketSuffix { .. }
+                | ExprKind::Field { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::Ident(_)
+        ) {
+            self.lower_expr(callee)
+        } else {
+            self.lower_expr(generic_inst_base(callee))
         }
     }
 
