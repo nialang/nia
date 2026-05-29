@@ -15,6 +15,7 @@ use defer::DeferScope;
 use nia_ast::BinaryOp;
 use nia_backend_ir::BackendFunction;
 use nia_body_ir::{BuiltinConst, TypedBody, TypedExpr, TypedExprKind, TypedLocalKind};
+use nia_control_ir::ControlBody;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -114,8 +115,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
+    fn alloc_control_locals(&mut self, body: &ControlBody) -> Result<(), Diagnostic> {
+        self.alloc_local_list(&body.locals)
+    }
+
     fn alloc_locals(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
-        for local in &body.locals {
+        self.alloc_local_list(&body.locals)
+    }
+
+    fn alloc_local_list(&mut self, locals: &[nia_body_ir::TypedLocal]) -> Result<(), Diagnostic> {
+        for local in locals {
             if matches!(
                 local.kind,
                 TypedLocalKind::Param | TypedLocalKind::Binding | TypedLocalKind::ConstBinding

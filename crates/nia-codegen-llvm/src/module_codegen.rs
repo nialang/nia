@@ -229,7 +229,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         format!("missing function `{}`", function.name),
                     ));
                 };
-                FunctionCodegen::new(self, function, llvm_function).emit_body(body)?;
+                let mut codegen = FunctionCodegen::new(self, function, llvm_function);
+                if let Some(control_body) = &function.control_body
+                    && FunctionCodegen::can_emit_control_body(control_body)
+                {
+                    codegen.emit_control_body(control_body)?;
+                } else {
+                    codegen.emit_body(body)?;
+                }
             }
         }
         for instance in &self.source.function_instances {
@@ -254,7 +261,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     control_body: instance.control_body.clone(),
                     span: instance.span,
                 };
-                FunctionCodegen::new(self, &function, llvm_function).emit_body(body)?;
+                let mut codegen = FunctionCodegen::new(self, &function, llvm_function);
+                if let Some(control_body) = &function.control_body
+                    && FunctionCodegen::can_emit_control_body(control_body)
+                {
+                    codegen.emit_control_body(control_body)?;
+                } else {
+                    codegen.emit_body(body)?;
+                }
             }
         }
         Ok(())

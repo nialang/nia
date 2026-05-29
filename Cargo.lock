@@ -179,6 +179,7 @@ dependencies = [
  "nia-body-ir",
  "nia-comptime-check",
  "nia-comptime-engine",
+ "nia-control-ir",
  "nia-diagnostic",
  "nia-driver",
  "nia-ice",

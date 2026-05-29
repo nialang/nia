@@ -4,6 +4,9 @@ use nia_backend_ir::{
     BackendField, BackendFunction, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
 };
 use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
+use nia_control_ir::{
+    ControlBlock, ControlBlockId, ControlBody, ControlScope, ControlScopeId, ControlTerminator,
+};
 use nia_ids::{DefId, GlobalDefId, LocalId, ModuleId};
 use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 use nia_span::Span;
@@ -121,6 +124,92 @@ fn main(flag: bool) i32 {
         "{:?}",
         output.diagnostics
     );
+}
+
+#[test]
+fn emits_function_body_from_control_ir_when_available() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: Default::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                body: Some(TypedBody {
+                    span,
+                    locals: Vec::new(),
+                    stmts: Vec::new(),
+                    tail: Some(Box::new(TypedExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: TypedExprKind::Integer("1".to_string()),
+                    })),
+                    ty: i32_ty,
+                }),
+                control_body: Some(ControlBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![ControlScope {
+                        id: ControlScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![ControlBlock {
+                        id: ControlBlockId(0),
+                        scope: ControlScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: ControlTerminator::Tail {
+                            value: Some(TypedExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: TypedExprKind::Integer("2".to_string()),
+                            }),
+                            span,
+                        },
+                    }],
+                    entry: ControlBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("ret i32 2"), "{ir}");
+    assert!(!ir.contains("ret i32 1"), "{ir}");
 }
 
 #[test]
