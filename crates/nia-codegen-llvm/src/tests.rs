@@ -213,6 +213,72 @@ fn emits_function_body_from_control_ir_when_available() {
 }
 
 #[test]
+fn rejects_typed_function_body_without_control_ir() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: Default::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                body: Some(TypedBody {
+                    span,
+                    locals: Vec::new(),
+                    stmts: Vec::new(),
+                    tail: Some(Box::new(TypedExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: TypedExprKind::Integer("1".to_string()),
+                    })),
+                    ty: i32_ty,
+                }),
+                control_body: None,
+                span,
+            }],
+            function_instances: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("missing function control body")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
 fn emits_statement_if_from_control_ir_with_defer_cleanup() {
     let root = temp_dir("emits_statement_if_from_control_ir_with_defer_cleanup");
     let main = root.join("main.nia");

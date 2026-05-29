@@ -219,51 +219,46 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     fn emit_function_bodies(&mut self) -> Result<(), Diagnostic> {
         for function in &self.source.functions {
-            if function.is_extern && function.body.is_none() {
-                continue;
-            }
-            if function.body.is_some() {
-                let Some(llvm_function) = self.functions.get(&function.def_id).copied() else {
-                    return Err(self.error(
-                        function.span,
-                        format!("missing function `{}`", function.name),
-                    ));
-                };
-                let Some(control_body) = &function.control_body else {
+            let Some(control_body) = &function.control_body else {
+                if !function.is_extern {
                     return Err(self.error(function.span, "missing function control body"));
-                };
-                let mut codegen = FunctionCodegen::new(self, function, llvm_function);
-                codegen.emit_control_body(control_body)?;
-            }
+                }
+                continue;
+            };
+            let Some(llvm_function) = self.functions.get(&function.def_id).copied() else {
+                return Err(self.error(
+                    function.span,
+                    format!("missing function `{}`", function.name),
+                ));
+            };
+            let mut codegen = FunctionCodegen::new(self, function, llvm_function);
+            codegen.emit_control_body(control_body)?;
         }
         for instance in &self.source.function_instances {
-            if instance.is_extern && instance.body.is_none() {
-                continue;
-            }
-            if instance.body.is_some() {
-                let Some(llvm_function) =
-                    self.function_instance_value(instance.def_id, &instance.args)
-                else {
-                    return Err(self.error(instance.span, "missing function instance"));
-                };
-                let Some(control_body) = &instance.control_body else {
+            let Some(control_body) = &instance.control_body else {
+                if !instance.is_extern {
                     return Err(self.error(instance.span, "missing function instance control body"));
-                };
-                let function = BackendFunction {
-                    def_id: instance.def_id,
-                    name: instance.name.clone(),
-                    generics: Vec::new(),
-                    params: instance.params.clone(),
-                    return_type: instance.return_type,
-                    is_extern: instance.is_extern,
-                    is_variadic: instance.is_variadic,
-                    body: instance.body.clone(),
-                    control_body: instance.control_body.clone(),
-                    span: instance.span,
-                };
-                let mut codegen = FunctionCodegen::new(self, &function, llvm_function);
-                codegen.emit_control_body(control_body)?;
-            }
+                }
+                continue;
+            };
+            let Some(llvm_function) = self.function_instance_value(instance.def_id, &instance.args)
+            else {
+                return Err(self.error(instance.span, "missing function instance"));
+            };
+            let function = BackendFunction {
+                def_id: instance.def_id,
+                name: instance.name.clone(),
+                generics: Vec::new(),
+                params: instance.params.clone(),
+                return_type: instance.return_type,
+                is_extern: instance.is_extern,
+                is_variadic: instance.is_variadic,
+                body: instance.body.clone(),
+                control_body: instance.control_body.clone(),
+                span: instance.span,
+            };
+            let mut codegen = FunctionCodegen::new(self, &function, llvm_function);
+            codegen.emit_control_body(control_body)?;
         }
         Ok(())
     }
