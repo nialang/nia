@@ -242,6 +242,41 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_statement_switch_from_control_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_switch_from_control_ir_with_defer_cleanup");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main() i32 {
+    switch 1 {
+        1 => {
+            defer log(1);
+        },
+        _ => {
+            defer log(2);
+        },
+    }
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert_substrings_in_order(ir, &["call void @log(i32 1)", "ret i32 0"]);
+    assert_substrings_in_order(ir, &["call void @log(i32 2)", "ret i32 0"]);
+}
+
+#[test]
 fn emits_literals_with_expected_context_types() {
     let root = temp_dir("emits_literals_with_expected_context_types");
     let main = root.join("main.nia");
@@ -1875,8 +1910,7 @@ fn main(c: Color) i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("switch i8"));
-    assert!(ir.contains("switch.arm.0"));
-    assert!(ir.contains("switch.default"));
+    assert!(ir.contains("cir.bb"));
     assert!(ir.contains("ret i32 1"));
     assert!(ir.contains("ret i32 2"));
     assert!(ir.contains("ret i32 3"));

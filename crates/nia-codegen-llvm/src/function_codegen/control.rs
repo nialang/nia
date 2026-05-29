@@ -21,6 +21,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 ControlTerminator::Next { .. }
                     | ControlTerminator::Branch { .. }
                     | ControlTerminator::If { .. }
+                    | ControlTerminator::Switch { .. }
                     | ControlTerminator::Return { .. }
                     | ControlTerminator::Tail { .. }
             )
@@ -137,8 +138,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_conditional_branch(cond, then_block, else_block)
                     .map_err(|_| self.error(*span, "failed to build control if branch"))?;
             }
-            ControlTerminator::Switch { span, .. } => {
-                return Err(self.error(*span, "control-ir switch codegen is not implemented"));
+            ControlTerminator::Switch {
+                target,
+                arms,
+                default,
+                fallback,
+                span,
+            } => {
+                let target = self.emit_expr(target)?.into_int_value()?;
+                let default = default.unwrap_or(*fallback);
+                let default_block = self.llvm_control_block(*span, default, llvm_blocks)?;
+                let mut cases = Vec::new();
+                for arm in arms {
+                    let value = self.emit_switch_pattern_value(&arm.pattern)?;
+                    let block = self.llvm_control_block(*span, arm.target, llvm_blocks)?;
+                    cases.push((value, block));
+                }
+                self.builder
+                    .build_switch(target, default_block, &cases)
+                    .map_err(|_| self.error(*span, "failed to build control switch"))?;
             }
             ControlTerminator::Loop { span, .. } => {
                 return Err(self.error(*span, "control-ir loop codegen is not implemented"));
