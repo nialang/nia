@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::ReceiverKind;
-use nia_body_ir::{StaticInit, TypedBody};
+use nia_body_ir::StaticInit;
 use nia_comptime_check::ComptimeCheck;
-use nia_control_ir::ControlBody;
+use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
@@ -203,8 +203,7 @@ pub struct BackendFunction {
     pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
-    pub body: Option<TypedBody>,
-    pub control_body: Option<ControlBody>,
+    pub function_body: Option<FunctionBody>,
     pub span: Span,
 }
 
@@ -219,8 +218,7 @@ pub struct BackendFunctionInstance {
     pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
-    pub body: Option<TypedBody>,
-    pub control_body: Option<ControlBody>,
+    pub function_body: Option<FunctionBody>,
     pub span: Span,
 }
 

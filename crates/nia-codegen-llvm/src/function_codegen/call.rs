@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::module_codegen::{AbiParam, AbiReturn};
-use nia_body_ir::{TypedCallee, TypedExpr, TypedExprKind};
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::{FunctionCallee, FunctionExpr, FunctionExprKind};
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::TyKind;
@@ -12,16 +12,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_function_pointer(
         &mut self,
         span: Span,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match &expr.kind {
-            TypedExprKind::Function(def_id) => {
+            FunctionExprKind::Function(def_id) => {
                 let Some(function) = self.module.function(*def_id) else {
                     return Err(self.error(span, "missing function item"));
                 };
                 Ok(function.as_global_value().as_pointer_value().into())
             }
-            TypedExprKind::FunctionInstance { def_id, args } => {
+            FunctionExprKind::FunctionInstance { def_id, args } => {
                 let Some(instance) = self.module.function_instance_item(*def_id, args) else {
                     return Err(self.error(span, "missing function instance item"));
                 };
@@ -39,9 +39,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_call(
         &mut self,
-        expr: &TypedExpr,
-        callee: &TypedCallee,
-        args: &[TypedExpr],
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match self.module.classify_function_return(expr.ty) {
             AbiReturn::IndirectOut(ty) => {
@@ -71,22 +71,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     pub(super) fn emit_call_raw(
         &mut self,
-        expr: &TypedExpr,
-        callee: &TypedCallee,
-        args: &[TypedExpr],
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
     ) -> Result<nia_llvm::values::CallSiteValue<'ctx>, Diagnostic> {
         self.emit_call_raw_with_out(expr, callee, args, None)
     }
 
     fn emit_call_raw_with_out(
         &mut self,
-        expr: &TypedExpr,
-        callee: &TypedCallee,
-        args: &[TypedExpr],
+        expr: &FunctionExpr,
+        callee: &FunctionCallee,
+        args: &[FunctionExpr],
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<CallSiteValue<'ctx>, Diagnostic> {
         match callee {
-            TypedCallee::Function(def_id) => {
+            FunctionCallee::Function(def_id) => {
                 let Some(function) = self.module.function(*def_id) else {
                     return Err(self.error(expr.span, "missing callee function"));
                 };
@@ -103,7 +103,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_call(function, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build call"))
             }
-            TypedCallee::FunctionInstance {
+            FunctionCallee::FunctionInstance {
                 def_id,
                 args: type_args,
             } => {
@@ -128,7 +128,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     )
                     .map_err(|_| self.error(expr.span, "failed to build call"))
             }
-            TypedCallee::Method {
+            FunctionCallee::Method {
                 def_id,
                 args: type_args,
                 receiver,
@@ -165,7 +165,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_call(function, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build method call"))
             }
-            TypedCallee::FunctionPointer(callee) => {
+            FunctionCallee::FunctionPointer(callee) => {
                 let Some(TyKind::FunctionPointer {
                     params,
                     return_type,
@@ -195,7 +195,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_call_args(
         &mut self,
         span: Span,
-        args: &[&TypedExpr],
+        args: &[&FunctionExpr],
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
         let mut llvm_args = Vec::new();
@@ -220,7 +220,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_c_call_args(
         &mut self,
-        args: &[TypedExpr],
+        args: &[FunctionExpr],
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
         let args = args.iter().collect::<Vec<_>>();
         self.emit_c_call_args_refs(&args)
@@ -228,7 +228,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn emit_c_call_args_refs(
         &mut self,
-        args: &[&TypedExpr],
+        args: &[&FunctionExpr],
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
         args.iter().map(|arg| self.emit_expr(arg)).collect()
     }
@@ -236,17 +236,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn emit_arg_address(
         &mut self,
         span: Span,
-        arg: &TypedExpr,
+        arg: &FunctionExpr,
     ) -> Result<nia_llvm::values::PointerValue<'ctx>, Diagnostic> {
         match &arg.kind {
-            TypedExprKind::Global(_)
-            | TypedExprKind::Local(_)
-            | TypedExprKind::Unary {
+            FunctionExprKind::Global(_)
+            | FunctionExprKind::Local(_)
+            | FunctionExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 ..
             }
-            | TypedExprKind::Field { .. }
-            | TypedExprKind::Index { .. } => self.emit_addr_of(arg),
+            | FunctionExprKind::Field { .. }
+            | FunctionExprKind::Index { .. } => self.emit_addr_of(arg),
             _ => {
                 let ty = self.module.llvm_basic_type(arg.ty, span)?;
                 let ptr = self

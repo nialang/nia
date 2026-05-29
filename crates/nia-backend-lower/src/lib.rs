@@ -9,6 +9,7 @@ use nia_backend_ir::{
     BackendStructInstanceKey,
 };
 use nia_body_check::BodyCheck;
+use nia_body_ir::TypedBody;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
@@ -73,6 +74,9 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
+    function_bodies: std::collections::HashMap<GlobalDefId, TypedBody>,
+    function_instance_bodies:
+        std::collections::HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), TypedBody>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -82,6 +86,8 @@ impl<'a> ModuleLowerer<'a> {
             monomorphization,
             interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
+            function_bodies: std::collections::HashMap::new(),
+            function_instance_bodies: std::collections::HashMap::new(),
         }
     }
 
@@ -241,11 +247,22 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             };
             let substitutions = self.effective_generic_substitutions(base.def_id, &instance.args);
-            let body = base
-                .body
-                .clone()
+            let body = self
+                .function_bodies
+                .get(&base.def_id)
+                .cloned()
                 .map(|body| self.instantiate_body(body, &substitutions));
-            let control_body = body.as_ref().map(nia_control_ir::lower_control_body);
+            let function_body = body.as_ref().map(nia_function_ir::lower_function_body);
+            if let Some(body) = &body {
+                self.function_instance_bodies.insert(
+                    (
+                        instance.def_id,
+                        instance.arg_module_id,
+                        instance.args.clone(),
+                    ),
+                    body.clone(),
+                );
+            }
             instances.push(BackendFunctionInstance {
                 def_id: instance.def_id,
                 name: base.name.clone(),
@@ -256,8 +273,7 @@ impl<'a> ModuleLowerer<'a> {
                 return_type: self.instantiate_ty(base.return_type, &substitutions),
                 is_extern: base.is_extern,
                 is_variadic: base.is_variadic,
-                body,
-                control_body,
+                function_body,
                 span: base.span,
             });
         }

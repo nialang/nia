@@ -139,9 +139,9 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instance_ty(param.ty, &mut seen, struct_instances);
                 self.collect_union_instance_ty(param.ty, &mut seen_unions, union_instances);
             }
-            if let Some(body) = &function.body {
-                self.collect_struct_instances_body(body, &mut seen, struct_instances);
-                self.collect_union_instances_body(body, &mut seen_unions, union_instances);
+            if let Some(body) = self.function_bodies.get(&function.def_id).cloned() {
+                self.collect_struct_instances_body(&body, &mut seen, struct_instances);
+                self.collect_union_instances_body(&body, &mut seen_unions, union_instances);
             }
         }
         for function in function_instances {
@@ -151,9 +151,17 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instance_ty(param.ty, &mut seen, struct_instances);
                 self.collect_union_instance_ty(param.ty, &mut seen_unions, union_instances);
             }
-            if let Some(body) = &function.body {
-                self.collect_struct_instances_body(body, &mut seen, struct_instances);
-                self.collect_union_instances_body(body, &mut seen_unions, union_instances);
+            if let Some(body) = self
+                .function_instance_bodies
+                .get(&(
+                    function.def_id,
+                    function.arg_module_id,
+                    function.args.clone(),
+                ))
+                .cloned()
+            {
+                self.collect_struct_instances_body(&body, &mut seen, struct_instances);
+                self.collect_union_instances_body(&body, &mut seen_unions, union_instances);
             }
         }
     }

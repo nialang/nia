@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_body_ir::{AsmOption, TypedInlineAsm};
+use nia_body_ir::AsmOption;
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::FunctionInlineAsm;
 use nia_llvm::{
     InlineAsmDialect, InlineAsmOptions,
     types::{BasicMetadataTypeEnum, BasicTypeEnum},
@@ -10,7 +11,7 @@ use nia_llvm::{
 use super::FunctionCodegen;
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
-    pub(super) fn emit_inline_asm(&mut self, asm: &TypedInlineAsm) -> Result<(), Diagnostic> {
+    pub(super) fn emit_inline_asm(&mut self, asm: &FunctionInlineAsm) -> Result<(), Diagnostic> {
         let mut input_values = Vec::with_capacity(asm.inputs.len());
         for input in &asm.inputs {
             input_values.push(self.emit_expr(&input.value)?);
