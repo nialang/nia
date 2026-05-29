@@ -22,6 +22,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     | ControlTerminator::Branch { .. }
                     | ControlTerminator::If { .. }
                     | ControlTerminator::Switch { .. }
+                    | ControlTerminator::Loop { .. }
                     | ControlTerminator::Return { .. }
                     | ControlTerminator::Tail { .. }
             )
@@ -29,10 +30,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     pub(crate) fn emit_control_body(&mut self, body: &ControlBody) -> Result<(), Diagnostic> {
+        let physical_entry = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "entry")?;
         let mut llvm_blocks = std::collections::HashMap::new();
         for block in &body.blocks {
             let name = if block.id == body.entry {
-                "entry".to_string()
+                "cir.entry".to_string()
             } else {
                 format!("cir.bb{}", block.id.0)
             };
@@ -46,7 +51,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let Some(entry) = llvm_blocks.get(&body.entry).copied() else {
             return Err(self.error(body.span, "control body has no entry block"));
         };
-        self.builder.position_at_end(entry);
+        self.builder.position_at_end(physical_entry);
         self.out_ptr = self.function_out_ptr()?;
         self.alloc_control_locals(body)?;
         self.store_params()?;
@@ -55,6 +60,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.ensure_control_defer_scope(scope.id);
             }
         }
+        self.builder
+            .build_unconditional_branch(entry)
+            .map_err(|_| self.error(body.span, "failed to branch to control entry"))?;
 
         for block in &body.blocks {
             let Some(llvm_block) = llvm_blocks.get(&block.id).copied() else {
@@ -158,8 +166,47 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_switch(target, default_block, &cases)
                     .map_err(|_| self.error(*span, "failed to build control switch"))?;
             }
-            ControlTerminator::Loop { span, .. } => {
-                return Err(self.error(*span, "control-ir loop codegen is not implemented"));
+            ControlTerminator::Loop {
+                header,
+                body: loop_body,
+                break_target,
+                span,
+                ..
+            } => {
+                let body_block = self.llvm_control_block(*span, *loop_body, llvm_blocks)?;
+                let break_block = self.llvm_control_block(*span, *break_target, llvm_blocks)?;
+                self.emit_control_loop_header(*span, header, body_block, break_block)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_control_loop_header(
+        &mut self,
+        span: Span,
+        header: &TypedForHeader,
+        body_block: BasicBlock<'ctx>,
+        break_block: BasicBlock<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        match header {
+            TypedForHeader::Infinite | TypedForHeader::CStyle { cond: None, .. } => {
+                self.builder
+                    .build_unconditional_branch(body_block)
+                    .map_err(|_| self.error(span, "failed to build control loop branch"))?;
+            }
+            TypedForHeader::Condition(cond) => {
+                let cond = self.emit_expr(cond)?.into_int_value()?;
+                self.builder
+                    .build_conditional_branch(cond, body_block, break_block)
+                    .map_err(|_| self.error(span, "failed to build control loop branch"))?;
+            }
+            TypedForHeader::CStyle {
+                cond: Some(cond), ..
+            } => {
+                let cond = self.emit_expr(cond)?.into_int_value()?;
+                self.builder
+                    .build_conditional_branch(cond, body_block, break_block)
+                    .map_err(|_| self.error(span, "failed to build control loop branch"))?;
             }
         }
         Ok(())
