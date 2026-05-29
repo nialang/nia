@@ -263,6 +263,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-monomorphize",
  "nia-parser",
+ "nia-query",
  "nia-span",
  "nia-static-check",
  "nia-ty",
@@ -426,6 +427,10 @@ dependencies = [
  "nia-lexer",
  "nia-span",
 ]
+
+[[package]]
+name = "nia-query"
+version = "0.2.0"
 
 [[package]]
 name = "nia-span"
