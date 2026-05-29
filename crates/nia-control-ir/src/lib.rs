@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_body_ir::{
-    TypedBinding, TypedBody, TypedExpr, TypedForHeader, TypedForInit, TypedLocal, TypedStmt,
-    TypedStmtKind,
+    TypedBinding, TypedBody, TypedExpr, TypedForHeader, TypedForInit, TypedLocal, TypedStmtKind,
 };
 use nia_ids::InternedTyId;
 use nia_span::Span;
@@ -31,13 +30,6 @@ pub enum ControlOp {
     Binding(TypedBinding),
     Expr(TypedExpr),
     Defer(TypedExpr),
-    For {
-        header: TypedForHeader,
-        body: Box<ControlBody>,
-        break_target: ControlBlockId,
-        continue_target: ControlBlockId,
-        span: Span,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +40,13 @@ pub enum ControlTerminator {
     },
     Next {
         target: ControlBlockId,
+        span: Span,
+    },
+    Loop {
+        header: TypedForHeader,
+        body: ControlBlockId,
+        continue_target: ControlBlockId,
+        break_target: ControlBlockId,
         span: Span,
     },
     Return {
@@ -66,6 +65,9 @@ impl ControlTerminator {
             ControlTerminator::Branch { target, .. } | ControlTerminator::Next { target, .. } => {
                 vec![*target]
             }
+            ControlTerminator::Loop {
+                body, break_target, ..
+            } => vec![*body, *break_target],
             ControlTerminator::Return { .. } | ControlTerminator::Tail { .. } => Vec::new(),
         }
     }
@@ -86,6 +88,12 @@ struct LoopTargetIds {
     continue_target: ControlBlockId,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Fallthrough {
+    Tail,
+    Branch(ControlBlockId),
+}
+
 impl ControlLowerer {
     fn new() -> Self {
         Self {
@@ -97,86 +105,7 @@ impl ControlLowerer {
     fn lower_body(&mut self, body: &TypedBody) -> ControlBody {
         let entry = self.alloc_block();
         let mut blocks = Vec::new();
-        let mut ops = Vec::new();
-        let current = entry;
-        for stmt in &body.stmts {
-            if let Some(term) = self.lower_stmt(stmt, &mut ops) {
-                if ops.is_empty() {
-                    blocks.push(ControlBlock {
-                        id: current,
-                        span: stmt.span,
-                        ops,
-                        terminator: term,
-                    });
-                } else {
-                    let term_block = self.alloc_block();
-                    blocks.push(ControlBlock {
-                        id: current,
-                        span: body.span,
-                        ops,
-                        terminator: ControlTerminator::Next {
-                            target: term_block,
-                            span: stmt.span,
-                        },
-                    });
-                    blocks.push(ControlBlock {
-                        id: term_block,
-                        span: stmt.span,
-                        ops: Vec::new(),
-                        terminator: term,
-                    });
-                }
-                return ControlBody {
-                    span: body.span,
-                    locals: body.locals.clone(),
-                    blocks,
-                    entry,
-                    ty: body.ty,
-                };
-            }
-        }
-
-        let tail = ControlTerminator::Tail {
-            value: body.tail.as_ref().map(|tail| (**tail).clone()),
-            span: body
-                .tail
-                .as_ref()
-                .map(|tail| tail.span)
-                .unwrap_or(body.span),
-        };
-        if ops.is_empty() {
-            blocks.push(ControlBlock {
-                id: current,
-                span: body.span,
-                ops,
-                terminator: tail,
-            });
-        } else {
-            let tail_block = self.alloc_block();
-            blocks.push(ControlBlock {
-                id: current,
-                span: body.span,
-                ops,
-                terminator: ControlTerminator::Next {
-                    target: tail_block,
-                    span: body
-                        .tail
-                        .as_ref()
-                        .map(|tail| tail.span)
-                        .unwrap_or(body.span),
-                },
-            });
-            blocks.push(ControlBlock {
-                id: tail_block,
-                span: body
-                    .tail
-                    .as_ref()
-                    .map(|tail| tail.span)
-                    .unwrap_or(body.span),
-                ops: Vec::new(),
-                terminator: tail,
-            });
-        }
+        self.lower_body_into(body, entry, &mut blocks, Fallthrough::Tail);
         ControlBody {
             span: body.span,
             locals: body.locals.clone(),
@@ -186,84 +115,233 @@ impl ControlLowerer {
         }
     }
 
-    fn lower_stmt(
+    fn lower_body_into(
         &mut self,
-        stmt: &TypedStmt,
+        body: &TypedBody,
+        entry: ControlBlockId,
+        blocks: &mut Vec<ControlBlock>,
+        fallthrough: Fallthrough,
+    ) {
+        let mut current = entry;
+        let mut ops = Vec::new();
+        for stmt in &body.stmts {
+            match &stmt.kind {
+                TypedStmtKind::Binding(binding) => ops.push(ControlOp::Binding(binding.clone())),
+                TypedStmtKind::Expr(expr) => ops.push(ControlOp::Expr(expr.clone())),
+                TypedStmtKind::Defer(expr) => ops.push(ControlOp::Defer(expr.clone())),
+                TypedStmtKind::Return(value) => {
+                    self.finish_block(
+                        blocks,
+                        current,
+                        stmt.span,
+                        ops,
+                        ControlTerminator::Return {
+                            value: value.clone(),
+                            span: stmt.span,
+                        },
+                    );
+                    return;
+                }
+                TypedStmtKind::Break => {
+                    let target = self
+                        .loop_targets
+                        .last()
+                        .map(|targets| targets.break_target)
+                        .unwrap_or(ControlBlockId(u32::MAX));
+                    self.finish_block(
+                        blocks,
+                        current,
+                        stmt.span,
+                        ops,
+                        ControlTerminator::Branch {
+                            target,
+                            span: stmt.span,
+                        },
+                    );
+                    return;
+                }
+                TypedStmtKind::Continue => {
+                    let target = self
+                        .loop_targets
+                        .last()
+                        .map(|targets| targets.continue_target)
+                        .unwrap_or(ControlBlockId(u32::MAX));
+                    self.finish_block(
+                        blocks,
+                        current,
+                        stmt.span,
+                        ops,
+                        ControlTerminator::Branch {
+                            target,
+                            span: stmt.span,
+                        },
+                    );
+                    return;
+                }
+                TypedStmtKind::For(for_stmt) => {
+                    self.lower_for_stmt(stmt.span, for_stmt, &mut current, &mut ops, blocks);
+                }
+            }
+        }
+        self.finish_fallthrough_block(blocks, current, body, ops, fallthrough);
+    }
+
+    fn lower_for_stmt(
+        &mut self,
+        span: Span,
+        for_stmt: &nia_body_ir::TypedFor,
+        current: &mut ControlBlockId,
         ops: &mut Vec<ControlOp>,
-    ) -> Option<ControlTerminator> {
-        match &stmt.kind {
-            TypedStmtKind::Binding(binding) => {
-                ops.push(ControlOp::Binding(binding.clone()));
-                None
+        blocks: &mut Vec<ControlBlock>,
+    ) {
+        self.push_for_init_ops(&for_stmt.header, ops);
+        let loop_header = if ops.is_empty() {
+            *current
+        } else {
+            let loop_header = self.alloc_block();
+            blocks.push(ControlBlock {
+                id: *current,
+                span,
+                ops: std::mem::take(ops),
+                terminator: ControlTerminator::Next {
+                    target: loop_header,
+                    span,
+                },
+            });
+            loop_header
+        };
+        let body_entry = self.alloc_block();
+        let continue_target = self.alloc_block();
+        let break_target = self.alloc_block();
+        blocks.push(ControlBlock {
+            id: loop_header,
+            span,
+            ops: Vec::new(),
+            terminator: ControlTerminator::Loop {
+                header: self.lower_loop_header(&for_stmt.header),
+                body: body_entry,
+                continue_target,
+                break_target,
+                span,
+            },
+        });
+
+        self.loop_targets.push(LoopTargetIds {
+            break_target,
+            continue_target,
+        });
+        self.lower_body_into(
+            &for_stmt.body,
+            body_entry,
+            blocks,
+            Fallthrough::Branch(continue_target),
+        );
+        self.loop_targets.pop();
+
+        blocks.push(ControlBlock {
+            id: continue_target,
+            span,
+            ops: self.for_step_ops(&for_stmt.header),
+            terminator: ControlTerminator::Branch {
+                target: loop_header,
+                span,
+            },
+        });
+        *current = break_target;
+    }
+
+    fn finish_block(
+        &mut self,
+        blocks: &mut Vec<ControlBlock>,
+        current: ControlBlockId,
+        span: Span,
+        ops: Vec<ControlOp>,
+        terminator: ControlTerminator,
+    ) {
+        if ops.is_empty() {
+            blocks.push(ControlBlock {
+                id: current,
+                span,
+                ops,
+                terminator,
+            });
+        } else {
+            let term_block = self.alloc_block();
+            blocks.push(ControlBlock {
+                id: current,
+                span,
+                ops,
+                terminator: ControlTerminator::Next {
+                    target: term_block,
+                    span,
+                },
+            });
+            blocks.push(ControlBlock {
+                id: term_block,
+                span,
+                ops: Vec::new(),
+                terminator,
+            });
+        }
+    }
+
+    fn finish_fallthrough_block(
+        &mut self,
+        blocks: &mut Vec<ControlBlock>,
+        current: ControlBlockId,
+        body: &TypedBody,
+        mut ops: Vec<ControlOp>,
+        fallthrough: Fallthrough,
+    ) {
+        let span = body
+            .tail
+            .as_ref()
+            .map(|tail| tail.span)
+            .unwrap_or(body.span);
+        let terminator = match fallthrough {
+            Fallthrough::Tail => ControlTerminator::Tail {
+                value: body.tail.as_ref().map(|tail| (**tail).clone()),
+                span,
+            },
+            Fallthrough::Branch(target) => {
+                if let Some(tail) = &body.tail {
+                    ops.push(ControlOp::Expr((**tail).clone()));
+                }
+                ControlTerminator::Branch { target, span }
             }
-            TypedStmtKind::Expr(expr) => {
-                ops.push(ControlOp::Expr(expr.clone()));
-                None
-            }
-            TypedStmtKind::Defer(expr) => {
-                ops.push(ControlOp::Defer(expr.clone()));
-                None
-            }
-            TypedStmtKind::Return(value) => Some(ControlTerminator::Return {
-                value: value.clone(),
-                span: stmt.span,
-            }),
-            TypedStmtKind::Break => {
-                let target = self
-                    .loop_targets
-                    .last()
-                    .map(|targets| targets.break_target)
-                    .unwrap_or(ControlBlockId(u32::MAX));
-                Some(ControlTerminator::Branch {
-                    target,
-                    span: stmt.span,
-                })
-            }
-            TypedStmtKind::Continue => {
-                let target = self
-                    .loop_targets
-                    .last()
-                    .map(|targets| targets.continue_target)
-                    .unwrap_or(ControlBlockId(u32::MAX));
-                Some(ControlTerminator::Branch {
-                    target,
-                    span: stmt.span,
-                })
-            }
-            TypedStmtKind::For(for_stmt) => {
-                let break_target = self.alloc_block();
-                let continue_target = self.alloc_block();
-                self.loop_targets.push(LoopTargetIds {
-                    break_target,
-                    continue_target,
-                });
-                let body = self.lower_body(&for_stmt.body);
-                self.loop_targets.pop();
-                ops.push(ControlOp::For {
-                    header: self.lower_for_header(&for_stmt.header),
-                    body: Box::new(body),
-                    break_target,
-                    continue_target,
-                    span: stmt.span,
-                });
-                None
+        };
+        self.finish_block(blocks, current, span, ops, terminator);
+    }
+
+    fn push_for_init_ops(&self, header: &TypedForHeader, ops: &mut Vec<ControlOp>) {
+        if let TypedForHeader::CStyle {
+            init: Some(init), ..
+        } = header
+        {
+            match &**init {
+                TypedForInit::Binding(binding) => ops.push(ControlOp::Binding(binding.clone())),
+                TypedForInit::Expr(expr) => ops.push(ControlOp::Expr(expr.clone())),
             }
         }
     }
 
-    fn lower_for_header(&self, header: &TypedForHeader) -> TypedForHeader {
+    fn for_step_ops(&self, header: &TypedForHeader) -> Vec<ControlOp> {
+        match header {
+            TypedForHeader::CStyle {
+                step: Some(step), ..
+            } => vec![ControlOp::Expr((**step).clone())],
+            _ => Vec::new(),
+        }
+    }
+
+    fn lower_loop_header(&self, header: &TypedForHeader) -> TypedForHeader {
         match header {
             TypedForHeader::Infinite => TypedForHeader::Infinite,
             TypedForHeader::Condition(cond) => TypedForHeader::Condition(cond.clone()),
-            TypedForHeader::CStyle { init, cond, step } => TypedForHeader::CStyle {
-                init: init.as_ref().map(|init| {
-                    Box::new(match &**init {
-                        TypedForInit::Binding(binding) => TypedForInit::Binding(binding.clone()),
-                        TypedForInit::Expr(expr) => TypedForInit::Expr(expr.clone()),
-                    })
-                }),
+            TypedForHeader::CStyle { cond, .. } => TypedForHeader::CStyle {
+                init: None,
                 cond: cond.as_ref().map(|cond| Box::new((**cond).clone())),
-                step: step.as_ref().map(|step| Box::new((**step).clone())),
+                step: None,
             },
         }
     }
@@ -278,7 +356,7 @@ impl ControlLowerer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_body_ir::{TypedExprKind, TypedLocalKind};
+    use nia_body_ir::{TypedExprKind, TypedLocalKind, TypedStmt};
     use nia_ids::{LocalId, ModuleId, TyInternerIndex};
 
     #[test]
@@ -419,16 +497,23 @@ mod tests {
         };
 
         let control = lower_control_body(&body);
-        let ControlOp::For {
-            break_target, body, ..
-        } = &control.blocks[0].ops[0]
+        let ControlTerminator::Loop {
+            body: loop_body,
+            break_target,
+            ..
+        } = control.blocks[0].terminator
         else {
-            panic!("expected for op");
+            panic!("expected loop terminator");
         };
+        let loop_body = control
+            .blocks
+            .iter()
+            .find(|block| block.id == loop_body)
+            .expect("loop body block");
 
-        assert_eq!(body.blocks[0].terminator.successors(), vec![*break_target]);
+        assert_eq!(loop_body.terminator.successors(), vec![break_target]);
         assert!(matches!(
-            body.blocks[0].terminator,
+            loop_body.terminator,
             ControlTerminator::Branch { .. }
         ));
     }
@@ -461,22 +546,84 @@ mod tests {
         };
 
         let control = lower_control_body(&body);
-        let ControlOp::For {
+        let ControlTerminator::Loop {
+            body: loop_body,
             continue_target,
-            body,
             ..
-        } = &control.blocks[0].ops[0]
+        } = control.blocks[0].terminator
         else {
-            panic!("expected for op");
+            panic!("expected loop terminator");
         };
+        let loop_body = control
+            .blocks
+            .iter()
+            .find(|block| block.id == loop_body)
+            .expect("loop body block");
 
-        assert_eq!(
-            body.blocks[0].terminator.successors(),
-            vec![*continue_target]
-        );
+        assert_eq!(loop_body.terminator.successors(), vec![continue_target]);
         assert!(matches!(
-            body.blocks[0].terminator,
+            loop_body.terminator,
             ControlTerminator::Branch { .. }
         ));
+    }
+
+    #[test]
+    fn lowers_c_style_for_init_step_and_edges() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let expr = TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Integer("1".to_string()),
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::CStyle {
+                        init: Some(Box::new(TypedForInit::Expr(expr.clone()))),
+                        cond: Some(Box::new(expr.clone())),
+                        step: Some(Box::new(expr)),
+                    },
+                    body: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: Vec::new(),
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert!(matches!(control.blocks[0].ops[0], ControlOp::Expr(_)));
+        assert!(matches!(
+            control.blocks[0].terminator,
+            ControlTerminator::Next { .. }
+        ));
+        let loop_block = &control.blocks[1];
+        let ControlTerminator::Loop {
+            body,
+            continue_target,
+            break_target,
+            ..
+        } = loop_block.terminator
+        else {
+            panic!("expected loop terminator");
+        };
+        assert_eq!(loop_block.terminator.successors(), vec![body, break_target]);
+        let continue_block = control
+            .blocks
+            .iter()
+            .find(|block| block.id == continue_target)
+            .expect("continue block");
+        assert!(matches!(continue_block.ops[0], ControlOp::Expr(_)));
+        assert_eq!(continue_block.terminator.successors(), vec![loop_block.id]);
     }
 }

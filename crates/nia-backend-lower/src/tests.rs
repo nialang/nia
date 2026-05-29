@@ -272,18 +272,20 @@ fn main() i32 {
         .find(|function| function.name == "main")
         .expect("main function");
     let control = main.control_body.as_ref().expect("main control body");
-    let ControlOp::For {
-        continue_target,
+    let ControlTerminator::Loop {
         body,
+        continue_target,
         ..
-    } = &control.blocks[0].ops[0]
+    } = control.blocks[0].terminator
     else {
-        panic!("expected for op");
+        panic!("expected loop terminator");
     };
-    assert_eq!(
-        body.blocks[0].terminator.successors(),
-        vec![*continue_target]
-    );
+    let body = control
+        .blocks
+        .iter()
+        .find(|block| block.id == body)
+        .expect("loop body block");
+    assert_eq!(body.terminator.successors(), vec![continue_target]);
 }
 
 fn lower_source(source: &str) -> BackendLowering {
