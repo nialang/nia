@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_body_ir::{
     TypedBinding, TypedBody, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedLocal,
-    TypedStmtKind, TypedSwitchArmBody,
+    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::InternedTyId;
 use nia_span::Span;
@@ -61,6 +61,13 @@ pub enum ControlTerminator {
         else_target: ControlBlockId,
         span: Span,
     },
+    Switch {
+        target: TypedExpr,
+        arms: Vec<ControlSwitchArm>,
+        default: Option<ControlBlockId>,
+        fallback: ControlBlockId,
+        span: Span,
+    },
     Loop {
         header: TypedForHeader,
         body: ControlBlockId,
@@ -78,6 +85,12 @@ pub enum ControlTerminator {
     },
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ControlSwitchArm {
+    pub pattern: TypedExpr,
+    pub target: ControlBlockId,
+}
+
 impl ControlTerminator {
     pub fn successors(&self) -> Vec<ControlBlockId> {
         match self {
@@ -89,6 +102,16 @@ impl ControlTerminator {
                 else_target,
                 ..
             } => vec![*then_target, *else_target],
+            ControlTerminator::Switch {
+                arms,
+                default,
+                fallback,
+                ..
+            } => arms
+                .iter()
+                .map(|arm| arm.target)
+                .chain(default.or(Some(*fallback)))
+                .collect(),
             ControlTerminator::Loop {
                 body, break_target, ..
             } => vec![*body, *break_target],
@@ -215,70 +238,84 @@ impl ControlLowerer {
         let mut current = entry;
         let mut ops = Vec::new();
         for stmt in &body.stmts {
-            match &stmt.kind {
-                TypedStmtKind::Binding(binding) => ops.push(ControlOp::Binding(binding.clone())),
-                TypedStmtKind::Expr(expr) => {
-                    self.lower_expr_stmt(stmt.span, expr, scope, &mut current, &mut ops, blocks);
-                }
-                TypedStmtKind::Defer(expr) => ops.push(ControlOp::Defer(expr.clone())),
-                TypedStmtKind::Return(value) => {
-                    self.finish_block(
-                        blocks,
-                        current,
-                        scope,
-                        stmt.span,
-                        ops,
-                        ControlTerminator::Return {
-                            value: value.clone(),
-                            span: stmt.span,
-                        },
-                    );
-                    return;
-                }
-                TypedStmtKind::Break => {
-                    let target = self
-                        .loop_targets
-                        .last()
-                        .map(|targets| targets.break_target)
-                        .unwrap_or(ControlBlockId(u32::MAX));
-                    self.finish_block(
-                        blocks,
-                        current,
-                        scope,
-                        stmt.span,
-                        ops,
-                        ControlTerminator::Branch {
-                            target,
-                            span: stmt.span,
-                        },
-                    );
-                    return;
-                }
-                TypedStmtKind::Continue => {
-                    let target = self
-                        .loop_targets
-                        .last()
-                        .map(|targets| targets.continue_target)
-                        .unwrap_or(ControlBlockId(u32::MAX));
-                    self.finish_block(
-                        blocks,
-                        current,
-                        scope,
-                        stmt.span,
-                        ops,
-                        ControlTerminator::Branch {
-                            target,
-                            span: stmt.span,
-                        },
-                    );
-                    return;
-                }
-                TypedStmtKind::For(for_stmt) => {
-                    self.lower_for_stmt(stmt.span, for_stmt, scope, &mut current, &mut ops, blocks);
-                }
+            if self.lower_stmt_into(stmt, scope, &mut current, &mut ops, blocks) {
+                return;
             }
         }
         self.finish_fallthrough_block(blocks, current, scope, body, ops, fallthrough);
+    }
+
+    fn lower_stmt_into(
+        &mut self,
+        stmt: &TypedStmt,
+        scope: ControlScopeId,
+        current: &mut ControlBlockId,
+        ops: &mut Vec<ControlOp>,
+        blocks: &mut Vec<ControlBlock>,
+    ) -> bool {
+        match &stmt.kind {
+            TypedStmtKind::Binding(binding) => ops.push(ControlOp::Binding(binding.clone())),
+            TypedStmtKind::Expr(expr) => {
+                self.lower_expr_stmt(stmt.span, expr, scope, current, ops, blocks);
+            }
+            TypedStmtKind::Defer(expr) => ops.push(ControlOp::Defer(expr.clone())),
+            TypedStmtKind::Return(value) => {
+                self.finish_block(
+                    blocks,
+                    *current,
+                    scope,
+                    stmt.span,
+                    std::mem::take(ops),
+                    ControlTerminator::Return {
+                        value: value.clone(),
+                        span: stmt.span,
+                    },
+                );
+                return true;
+            }
+            TypedStmtKind::Break => {
+                let target = self
+                    .loop_targets
+                    .last()
+                    .map(|targets| targets.break_target)
+                    .unwrap_or(ControlBlockId(u32::MAX));
+                self.finish_block(
+                    blocks,
+                    *current,
+                    scope,
+                    stmt.span,
+                    std::mem::take(ops),
+                    ControlTerminator::Branch {
+                        target,
+                        span: stmt.span,
+                    },
+                );
+                return true;
+            }
+            TypedStmtKind::Continue => {
+                let target = self
+                    .loop_targets
+                    .last()
+                    .map(|targets| targets.continue_target)
+                    .unwrap_or(ControlBlockId(u32::MAX));
+                self.finish_block(
+                    blocks,
+                    *current,
+                    scope,
+                    stmt.span,
+                    std::mem::take(ops),
+                    ControlTerminator::Branch {
+                        target,
+                        span: stmt.span,
+                    },
+                );
+                return true;
+            }
+            TypedStmtKind::For(for_stmt) => {
+                self.lower_for_stmt(stmt.span, for_stmt, scope, current, ops, blocks);
+            }
+        }
+        false
     }
 
     fn lower_expr_stmt(
@@ -309,6 +346,9 @@ impl ControlLowerer {
                     ops,
                     blocks,
                 );
+            }
+            TypedExprKind::Switch(switch) => {
+                self.lower_switch_expr_stmt(span, switch, scope, current, ops, blocks);
             }
             _ => ops.push(ControlOp::Expr(expr.clone())),
         }
@@ -409,6 +449,116 @@ impl ControlLowerer {
         }
 
         *current = merge_target;
+    }
+
+    fn lower_switch_expr_stmt(
+        &mut self,
+        span: Span,
+        switch: &TypedSwitch,
+        scope: ControlScopeId,
+        current: &mut ControlBlockId,
+        ops: &mut Vec<ControlOp>,
+        blocks: &mut Vec<ControlBlock>,
+    ) {
+        let merge_target = self.alloc_block();
+        let mut arms = Vec::new();
+        let mut lowered_arms = Vec::new();
+        let mut default = None;
+        for arm in &switch.arms {
+            let arm_target = self.alloc_block();
+            match &arm.pattern {
+                TypedSwitchPattern::Expr(pattern) => arms.push(ControlSwitchArm {
+                    pattern: pattern.clone(),
+                    target: arm_target,
+                }),
+                TypedSwitchPattern::Default => default = Some(arm_target),
+            }
+            lowered_arms.push((arm_target, arm));
+        }
+
+        self.finish_block(
+            blocks,
+            *current,
+            scope,
+            span,
+            std::mem::take(ops),
+            ControlTerminator::Switch {
+                target: switch.target.clone(),
+                arms,
+                default,
+                fallback: merge_target,
+                span,
+            },
+        );
+
+        for (arm_target, arm) in lowered_arms {
+            let arm_scope = self.alloc_scope(Some(scope), arm.span);
+            self.lower_switch_arm_body(
+                arm.span,
+                &arm.body,
+                arm_scope,
+                arm_target,
+                merge_target,
+                blocks,
+            );
+        }
+
+        *current = merge_target;
+    }
+
+    fn lower_switch_arm_body(
+        &mut self,
+        span: Span,
+        body: &TypedSwitchArmBody,
+        scope: ControlScopeId,
+        entry: ControlBlockId,
+        merge_target: ControlBlockId,
+        blocks: &mut Vec<ControlBlock>,
+    ) {
+        match body {
+            TypedSwitchArmBody::Expr(expr) => {
+                let mut current = entry;
+                let mut ops = Vec::new();
+                self.lower_expr_stmt(span, expr, scope, &mut current, &mut ops, blocks);
+                self.finish_block(
+                    blocks,
+                    current,
+                    scope,
+                    span,
+                    ops,
+                    ControlTerminator::Branch {
+                        target: merge_target,
+                        span,
+                    },
+                );
+            }
+            TypedSwitchArmBody::Stmt(stmt) => {
+                let mut current = entry;
+                let mut ops = Vec::new();
+                if !self.lower_stmt_into(stmt, scope, &mut current, &mut ops, blocks) {
+                    self.finish_block(
+                        blocks,
+                        current,
+                        scope,
+                        span,
+                        ops,
+                        ControlTerminator::Branch {
+                            target: merge_target,
+                            span,
+                        },
+                    );
+                }
+            }
+            TypedSwitchArmBody::Block(body) => {
+                self.lower_body_into(
+                    body,
+                    entry,
+                    scope,
+                    blocks,
+                    Fallthrough::Branch(merge_target),
+                );
+            }
+        }
     }
 
     fn lower_for_stmt(
@@ -1768,6 +1918,166 @@ mod tests {
         );
     }
 
+    #[test]
+    fn lowers_statement_switch_into_switch_terminator() {
+        let ty = test_ty();
+        let body = switch_stmt_body(vec![
+            switch_expr_arm(1, TypedSwitchArmBody::Expr(int_expr(10))),
+            switch_default_arm(TypedSwitchArmBody::Expr(int_expr(20))),
+        ]);
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::Switch {
+            arms,
+            default,
+            fallback,
+            ..
+        } = &control.blocks[0].terminator
+        else {
+            panic!("expected switch terminator");
+        };
+
+        assert_eq!(arms.len(), 1);
+        assert_eq!(arms[0].target, ControlBlockId(2));
+        assert_eq!(*default, Some(ControlBlockId(3)));
+        assert_eq!(*fallback, ControlBlockId(1));
+        assert_eq!(
+            control.blocks[0].terminator.successors(),
+            vec![ControlBlockId(2), ControlBlockId(3)]
+        );
+        assert_eq!(
+            control.block(arms[0].target).expect("case block").scope,
+            ControlScopeId(1)
+        );
+        assert_eq!(
+            control
+                .block(default.unwrap())
+                .expect("default block")
+                .scope,
+            ControlScopeId(2)
+        );
+        assert_eq!(
+            control.block(*fallback).expect("merge block").scope,
+            ControlScopeId(0)
+        );
+        assert_eq!(body.ty, ty);
+    }
+
+    #[test]
+    fn statement_switch_without_default_falls_back_to_merge() {
+        let body = switch_stmt_body(vec![switch_expr_arm(
+            1,
+            TypedSwitchArmBody::Expr(int_expr(10)),
+        )]);
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::Switch {
+            default, fallback, ..
+        } = control.blocks[0].terminator
+        else {
+            panic!("expected switch terminator");
+        };
+
+        assert_eq!(default, None);
+        assert_eq!(
+            control.blocks[0].terminator.successors(),
+            vec![ControlBlockId(2), fallback]
+        );
+        assert_eq!(
+            control.block(fallback).expect("merge block").scope,
+            ControlScopeId(0)
+        );
+    }
+
+    #[test]
+    fn statement_switch_arm_block_exits_arm_scope_to_merge() {
+        let body = switch_stmt_body(vec![switch_expr_arm(
+            1,
+            TypedSwitchArmBody::Block(Box::new(TypedBody {
+                span: Span::default(),
+                locals: Vec::new(),
+                stmts: vec![TypedStmt {
+                    span: Span::default(),
+                    kind: TypedStmtKind::Defer(int_expr(1)),
+                }],
+                tail: None,
+                ty: test_ty(),
+            })),
+        )]);
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::Switch { arms, fallback, .. } = &control.blocks[0].terminator else {
+            panic!("expected switch terminator");
+        };
+        let arm = control.block(arms[0].target).expect("arm block");
+
+        assert_eq!(arm.scope, ControlScopeId(1));
+        assert!(matches!(arm.ops[0], ControlOp::Defer(_)));
+        assert_eq!(
+            control.edge_exited_scopes(arm.id, *fallback),
+            Some(vec![ControlScopeId(1)])
+        );
+    }
+
+    #[test]
+    fn return_from_statement_switch_arm_exits_arm_and_root_scopes() {
+        let body = switch_stmt_body(vec![switch_expr_arm(
+            1,
+            TypedSwitchArmBody::Stmt(Box::new(TypedStmt {
+                span: Span::default(),
+                kind: TypedStmtKind::Return(Some(int_expr(1))),
+            })),
+        )]);
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::Switch { arms, .. } = &control.blocks[0].terminator else {
+            panic!("expected switch terminator");
+        };
+
+        assert!(matches!(
+            control.block(arms[0].target).expect("arm block").terminator,
+            ControlTerminator::Return { .. }
+        ));
+        assert_eq!(
+            control.return_exited_scopes(arms[0].target),
+            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+        );
+    }
+
+    #[test]
+    fn collects_unique_locals_from_statement_switch_arms() {
+        let span = Span::default();
+        let ty = test_ty();
+        let arm_local = TypedLocal {
+            id: LocalId(1),
+            name: "arm_local".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        };
+        let body = switch_stmt_body(vec![switch_expr_arm(
+            1,
+            TypedSwitchArmBody::Block(Box::new(TypedBody {
+                span,
+                locals: vec![arm_local],
+                stmts: Vec::new(),
+                tail: None,
+                ty,
+            })),
+        )]);
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(
+            control
+                .locals
+                .iter()
+                .map(|local| local.id)
+                .collect::<Vec<_>>(),
+            vec![LocalId(1)]
+        );
+    }
+
     fn test_ty() -> InternedTyId {
         InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0))
     }
@@ -1795,6 +2105,44 @@ mod tests {
             stmts: Vec::new(),
             tail: None,
             ty,
+        }
+    }
+
+    fn switch_stmt_body(arms: Vec<nia_body_ir::TypedSwitchArm>) -> TypedBody {
+        let span = Span::default();
+        let ty = test_ty();
+        TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Switch(Box::new(TypedSwitch {
+                        target: int_expr(1),
+                        arms,
+                    })),
+                }),
+            }],
+            tail: None,
+            ty,
+        }
+    }
+
+    fn switch_expr_arm(value: i32, body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
+        nia_body_ir::TypedSwitchArm {
+            pattern: TypedSwitchPattern::Expr(int_expr(value)),
+            body,
+            span: Span::default(),
+        }
+    }
+
+    fn switch_default_arm(body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
+        nia_body_ir::TypedSwitchArm {
+            pattern: TypedSwitchPattern::Default,
+            body,
+            span: Span::default(),
         }
     }
 }
