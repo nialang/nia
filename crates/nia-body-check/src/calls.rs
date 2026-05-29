@@ -9,12 +9,10 @@ mod signature_import;
 
 pub use signature_import::import_type_into;
 
-use crate::{BodyChecker, ResolvedCall};
+use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind};
-use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_span::Span;
-use nia_ty::TyKind;
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn check_call(
@@ -34,6 +32,7 @@ impl<'a> BodyChecker<'a> {
         {
             return self.check_explicit_generic_call(
                 span,
+                callee.span,
                 generic_callee,
                 type_args,
                 args,
@@ -57,31 +56,6 @@ impl<'a> BodyChecker<'a> {
             return self.check_function_signature_call(span, &resolved, args, expected);
         }
         let callee_ty = self.check_expr(callee);
-        match self.interner.get(callee_ty).cloned() {
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                is_variadic,
-            }) => {
-                self.check_direct_call_args(span, args, &params, is_variadic);
-                self.resolved_calls
-                    .insert(span, ResolvedCall::FunctionPointer);
-                return_type
-            }
-            Some(TyKind::Error) | None => {
-                for arg in args {
-                    self.check_expr(arg);
-                }
-                self.error()
-            }
-            _ => {
-                for arg in args {
-                    self.check_expr(arg);
-                }
-                self.diagnostics
-                    .push(Diagnostic::error(callee.span, "callee is not a function"));
-                self.error()
-            }
-        }
+        self.check_function_pointer_call_with_callee_ty(span, callee_ty, args)
     }
 }

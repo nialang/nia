@@ -225,6 +225,7 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn check_explicit_generic_call(
         &mut self,
         span: Span,
+        callee_span: Span,
         callee: &Expr,
         type_args: &[BracketArg],
         args: &[Expr],
@@ -261,14 +262,43 @@ impl<'a> BodyChecker<'a> {
                 args,
             );
         }
-        self.diagnostics.push(Diagnostic::error(
-            callee.span,
-            "explicit generic instantiation requires a function callee",
-        ));
-        for arg in args {
-            self.check_expr(arg);
+        let callee_ty = self.check_bracket_suffix_expr(callee_span, callee, type_args, None);
+        self.expr_types.insert(callee_span, callee_ty);
+        self.check_function_pointer_call_with_callee_ty(span, callee_ty, args)
+    }
+
+    pub(super) fn check_function_pointer_call_with_callee_ty(
+        &mut self,
+        span: Span,
+        callee_ty: InternedTyId,
+        args: &[Expr],
+    ) -> InternedTyId {
+        match self.interner.get(callee_ty).cloned() {
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                self.check_direct_call_args(span, args, &params, is_variadic);
+                self.resolved_calls
+                    .insert(span, ResolvedCall::FunctionPointer);
+                return_type
+            }
+            Some(TyKind::Error) | None => {
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.error()
+            }
+            _ => {
+                self.diagnostics
+                    .push(Diagnostic::error(span, "callee is not callable"));
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.error()
+            }
         }
-        self.error()
     }
 
     fn check_instantiated_function_call(
