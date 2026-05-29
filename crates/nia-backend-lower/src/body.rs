@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{ModuleLowerer, generic_inst_base};
+use crate::ModuleLowerer;
 use nia_ast::{
     ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg,
     ItemKind, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
@@ -10,7 +10,7 @@ use nia_backend_ir::{
     TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
     TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
 };
-use nia_body_check::{BuiltinValue, ResolvedCall};
+use nia_body_check::{BracketSuffixResolution, BuiltinValue, ResolvedCall};
 use nia_defs::DefKind;
 use nia_diagnostic::Diagnostic;
 use nia_ids::LocalId;
@@ -335,28 +335,32 @@ impl<'a> ModuleLowerer<'a> {
             }
             ExprKind::TypeTarget { .. } => TypedExprKind::Error,
             ExprKind::BracketSuffix { callee, args } => {
-                let base = generic_inst_base(callee);
-                if let Some(def_id) = self.input.values.qualified_values.get(&base.span).copied() {
-                    TypedExprKind::FunctionInstance {
-                        def_id,
-                        args: args
-                            .iter()
-                            .filter_map(|arg| {
-                                arg.ty.as_ref().map(|ty| self.ty_for_type_span(ty.span))
-                            })
-                            .collect(),
-                    }
-                } else if args.len() == 1 {
-                    if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
-                        TypedExprKind::Index {
-                            lhs: Box::new(self.lower_expr(callee)),
-                            index: Box::new(self.lower_expr(index)),
+                match self.bracket_suffix_resolution(expr.span) {
+                    Some(BracketSuffixResolution::Index) => {
+                        if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
+                            TypedExprKind::Index {
+                                lhs: Box::new(self.lower_expr(callee)),
+                                index: Box::new(self.lower_expr(index)),
+                            }
+                        } else {
+                            TypedExprKind::Error
                         }
-                    } else {
+                    }
+                    Some(BracketSuffixResolution::GenericCall) => {
+                        if let Some(reference) =
+                            self.input.body_check.function_references.get(&expr.span)
+                        {
+                            TypedExprKind::FunctionInstance {
+                                def_id: reference.def_id,
+                                args: reference.args.clone(),
+                            }
+                        } else {
+                            TypedExprKind::Error
+                        }
+                    }
+                    Some(BracketSuffixResolution::TypePrefixInstantiation) | None => {
                         TypedExprKind::Error
                     }
-                } else {
-                    TypedExprKind::Error
                 }
             }
             ExprKind::Field { lhs, name } => {
@@ -679,29 +683,24 @@ impl<'a> ModuleLowerer<'a> {
                 ),
             },
             ResolvedCall::FunctionPointer => {
-                TypedCallee::FunctionPointer(Box::new(self.lower_function_pointer_callee(callee)))
+                TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
             }
-        }
-    }
-
-    fn lower_function_pointer_callee(&mut self, callee: &Expr) -> TypedExpr {
-        if matches!(
-            callee.kind,
-            ExprKind::BracketSuffix { .. }
-                | ExprKind::Field { .. }
-                | ExprKind::Index { .. }
-                | ExprKind::Ident(_)
-        ) {
-            self.lower_expr(callee)
-        } else {
-            self.lower_expr(generic_inst_base(callee))
         }
     }
 
     fn lower_receiver_expr(&mut self, callee: &Expr) -> Option<TypedExpr> {
         let field_callee = match &callee.kind {
             ExprKind::Field { .. } => callee,
-            ExprKind::BracketSuffix { callee, .. } => callee.as_ref(),
+            ExprKind::BracketSuffix {
+                callee: generic_callee,
+                ..
+            } if matches!(
+                self.bracket_suffix_resolution(callee.span),
+                Some(BracketSuffixResolution::GenericCall)
+            ) =>
+            {
+                generic_callee.as_ref()
+            }
             _ => return None,
         };
         let ExprKind::Field { lhs, .. } = &field_callee.kind else {
@@ -886,13 +885,18 @@ impl<'a> ModuleLowerer<'a> {
                 base
             }
             ExprKind::BracketSuffix { callee, args } => {
-                let base = self.lower_place_inner(callee, elems);
-                if args.len() == 1
-                    && let Some(index) = args.first().and_then(|arg| arg.expr.as_ref())
-                {
-                    elems.push(PlaceElem::Index(Box::new(self.lower_expr(index))));
+                if matches!(
+                    self.bracket_suffix_resolution(expr.span),
+                    Some(BracketSuffixResolution::Index)
+                ) {
+                    let base = self.lower_place_inner(callee, elems);
+                    if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
+                        elems.push(PlaceElem::Index(Box::new(self.lower_expr(index))));
+                    }
+                    base
+                } else {
+                    PlaceBase::Local(LocalId(u32::MAX))
                 }
-                base
             }
             _ => PlaceBase::Local(LocalId(u32::MAX)),
         }
