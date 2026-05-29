@@ -277,6 +277,36 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_statement_loop_from_control_ir_with_defer_cleanup() {
+    let root = temp_dir("emits_statement_loop_from_control_ir_with_defer_cleanup");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main() i32 {
+    for {
+        defer log(1);
+        break;
+    }
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("cir.bb"), "{ir}");
+    assert_substrings_in_order(ir, &["call void @log(i32 1)", "ret i32 0"]);
+}
+
+#[test]
 fn emits_literals_with_expected_context_types() {
     let root = temp_dir("emits_literals_with_expected_context_types");
     let main = root.join("main.nia");
@@ -1681,10 +1711,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("for.cond"));
-    assert!(ir.contains("for.body"));
-    assert!(ir.contains("for.step"));
-    assert!(ir.contains("for.end"));
+    assert!(ir.contains("cir.bb"));
+    assert!(ir.contains("br i1"));
     assert!(ir.contains("br label"));
     assert!(ir.contains("ret i32"));
 }
