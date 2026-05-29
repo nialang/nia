@@ -2163,6 +2163,98 @@ pub fn make_box() Box {
 }
 
 #[test]
+fn emits_enum_switch_with_only_returning_arms() {
+    let root = temp_dir("emits_enum_switch_with_only_returning_arms");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .module_enum_defs;
+
+fn main() i32 {
+    var box = module_enum_defs::make_box();
+    switch box.mode {
+        module_enum_defs::Mode::A => return 1,
+        module_enum_defs::Mode::B => return 2,
+        _ => return 3,
+    }
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("module_enum_defs.nia"),
+        r#"
+pub enum Mode: u8 {
+    A,
+    B,
+}
+
+pub struct Box {
+    mode: Mode,
+}
+
+pub fn make_box() Box {
+    { mode: Mode::A }
+}
+"#,
+    )
+    .expect("write module source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let main_ir = output
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module IR");
+    assert!(main_ir.ir.contains("switch i8"), "{}", main_ir.ir);
+    assert!(main_ir.ir.contains("ret i32 1"), "{}", main_ir.ir);
+    assert!(main_ir.ir.contains("ret i32 2"), "{}", main_ir.ir);
+    assert!(main_ir.ir.contains("ret i32 3"), "{}", main_ir.ir);
+}
+
+#[test]
+fn emits_exhaustive_local_enum_switch_with_only_returning_arms() {
+    let root = temp_dir("emits_exhaustive_local_enum_switch_with_only_returning_arms");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Mode: u8 {
+    A,
+    B,
+}
+
+fn mode() Mode {
+    Mode::A
+}
+
+fn main() i32 {
+    switch mode() {
+        Mode::A => return 10,
+        Mode::B => return 20,
+    }
+}
+"#,
+    )
+    .expect("write main source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("switch i8"), "{}", ir);
+    assert!(ir.contains("ret i32 10"), "{}", ir);
+    assert!(ir.contains("ret i32 20"), "{}", ir);
+}
+
+#[test]
 fn emits_imported_enum_variant_widening_cast() {
     let root = temp_dir("emits_imported_enum_variant_widening_cast");
     let main = root.join("main.nia");
