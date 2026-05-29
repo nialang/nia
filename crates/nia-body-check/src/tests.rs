@@ -113,6 +113,9 @@ fn pipeline(source: &str) -> BodyCheck {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
         },
+        program_comptime: ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
+        },
     })
 }
 

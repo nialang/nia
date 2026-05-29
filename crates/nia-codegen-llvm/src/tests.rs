@@ -3105,6 +3105,69 @@ pub comptime width: usize = 4;
 }
 
 #[test]
+fn emits_imported_struct_array_field_repeat_literals() {
+    let root = temp_dir("emits_imported_struct_array_field_repeat_literals");
+    let main = root.join("main.nia");
+    std::fs::write(
+        root.join("defs.nia"),
+        r#"
+pub comptime N: usize = 4;
+
+pub struct Item {
+    value: u32,
+}
+
+pub struct Boxed {
+    items: [N]Item,
+}
+
+extend Item {
+    pub fn zero() Item {
+        { value: 0 }
+    }
+}
+"#,
+    )
+    .expect("write defs source");
+    std::fs::write(
+        &main,
+        r#"
+import .defs;
+using defs::*;
+
+fn literal_count() Boxed {
+    {
+        items: [Item::zero(); 4],
+    }
+}
+
+fn imported_count() Boxed {
+    {
+        items: [Item::zero(); defs::N],
+    }
+}
+
+fn main() i32 {
+    var a = literal_count();
+    var b = imported_count();
+    a.items[0].value as i32 + b.items[0].value as i32
+}
+"#,
+    )
+    .expect("write main source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(
+        output.modules[0].ir.contains("[4 x %"),
+        "{:?}",
+        output.modules[0].ir
+    );
+}
+
+#[test]
 fn emits_large_array_repeat_count_from_comptime_binding() {
     let root = temp_dir("emits_large_array_repeat_count_from_comptime_binding");
     let main = root.join("main.nia");

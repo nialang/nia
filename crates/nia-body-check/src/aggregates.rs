@@ -624,10 +624,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         }
         if let Some(global_id) = self.global_comptime_use(span) {
             return self
-                .comptime
-                .values
-                .get(&nia_comptime_check::ComptimeKey::Global(global_id))
-                .cloned()
+                .global_comptime_value(global_id)
                 .ok_or_else(|| ComptimeError {
                     span,
                     message: format!("failed to evaluate comptime value `{name}`"),
