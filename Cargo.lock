@@ -109,6 +109,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-flow-check",
  "nia-function-ir",
+ "nia-function-lower",
  "nia-ids",
  "nia-item-signatures",
  "nia-layout",
@@ -185,6 +186,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-driver",
  "nia-function-ir",
+ "nia-function-lower",
  "nia-ice",
  "nia-ids",
  "nia-layout",
@@ -291,7 +293,16 @@ name = "nia-function-ir"
 version = "0.1.19"
 dependencies = [
  "nia-ast",
+ "nia-ids",
+ "nia-span",
+]
+
+[[package]]
+name = "nia-function-lower"
+version = "0.1.19"
+dependencies = [
  "nia-body-ir",
+ "nia-function-ir",
  "nia-ids",
  "nia-span",
 ]

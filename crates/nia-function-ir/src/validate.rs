@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashSet;
 
-use nia_body_ir::TypedLocal;
 use nia_ids::LocalId;
 use nia_span::Span;
 
 use crate::{
     FunctionArrayElements, FunctionBinding, FunctionBlock, FunctionBlockId, FunctionBody,
     FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionForHeader,
-    FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionScope,
+    FunctionLocal, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionScope,
     FunctionScopeId, FunctionTerminator,
 };
 
@@ -41,7 +40,7 @@ pub fn validate_function_body(body: &FunctionBody) -> Result<(), FunctionIrError
 }
 
 pub fn validate_function_defer_body(
-    enclosing_locals: &[TypedLocal],
+    enclosing_locals: &[FunctionLocal],
     body: &FunctionDeferBody,
 ) -> Result<(), FunctionIrError> {
     FunctionIrValidator::new(enclosing_locals, &body.scopes, &body.blocks, body.entry)
@@ -57,7 +56,7 @@ pub fn validate_function_defer_body(
 }
 
 struct FunctionIrValidator<'a> {
-    locals: &'a [TypedLocal],
+    locals: &'a [FunctionLocal],
     scopes: &'a [FunctionScope],
     blocks: &'a [FunctionBlock],
     entry: FunctionBlockId,
@@ -68,7 +67,7 @@ struct FunctionIrValidator<'a> {
 
 impl<'a> FunctionIrValidator<'a> {
     fn new(
-        locals: &'a [TypedLocal],
+        locals: &'a [FunctionLocal],
         scopes: &'a [FunctionScope],
         blocks: &'a [FunctionBlock],
         entry: FunctionBlockId,

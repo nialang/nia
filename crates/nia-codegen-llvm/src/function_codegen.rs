@@ -14,9 +14,11 @@ use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
 use nia_backend_ir::BackendFunction;
-use nia_body_ir::{BuiltinConst, TypedLocalKind};
 use nia_diagnostic::Diagnostic;
-use nia_function_ir::{FunctionBody, FunctionExpr, FunctionExprKind, FunctionScopeId};
+use nia_function_ir::{
+    FunctionBody, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionLocal,
+    FunctionLocalKind, FunctionScopeId,
+};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
     builder::Builder,
@@ -62,11 +64,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.alloc_local_list(&body.locals)
     }
 
-    fn alloc_local_list(&mut self, locals: &[nia_body_ir::TypedLocal]) -> Result<(), Diagnostic> {
+    fn alloc_local_list(&mut self, locals: &[FunctionLocal]) -> Result<(), Diagnostic> {
         for local in locals {
             if matches!(
                 local.kind,
-                TypedLocalKind::Param | TypedLocalKind::Binding | TypedLocalKind::ConstBinding
+                FunctionLocalKind::Param
+                    | FunctionLocalKind::Binding
+                    | FunctionLocalKind::ConstBinding
             ) {
                 if self.is_zero_sized(local.ty) {
                     self.local_tys.insert(local.id, local.ty);
@@ -254,13 +258,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .build_load(ty, global.as_pointer_value(), "loadglobal")
                         .map_err(|_| self.error(expr.span, "failed to load global"))
                 }),
-            FunctionExprKind::BuiltinValue(BuiltinConst::Usize(value)) => Ok(self
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Usize(value)) => Ok(self
                 .module
                 .context
                 .i64_type()
                 .const_int(*value, false)
                 .into()),
-            FunctionExprKind::BuiltinValue(BuiltinConst::Int(value)) => {
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
                 let ty = self
                     .module
                     .llvm_basic_type(expr.ty, expr.span)?

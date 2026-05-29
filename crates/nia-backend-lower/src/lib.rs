@@ -252,7 +252,7 @@ impl<'a> ModuleLowerer<'a> {
                 .get(&base.def_id)
                 .cloned()
                 .map(|body| self.instantiate_body(body, &substitutions));
-            let function_body = body.as_ref().map(nia_function_ir::lower_function_body);
+            let function_body = body.as_ref().map(nia_function_lower::lower_function_body);
             if let Some(body) = &body {
                 self.function_instance_bodies.insert(
                     (

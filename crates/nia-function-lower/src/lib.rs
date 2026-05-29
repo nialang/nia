@@ -1,20 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_body_ir::{
-    PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedForHeader, TypedForInit, TypedInlineAsm, TypedLocal, TypedLocalKind,
-    TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
-    TypedSwitchPattern,
+    AsmOption, BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody,
+    TypedCallee, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedInlineAsm,
+    TypedLocal, TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
+    TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;
 
-use crate::{
-    FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBlock,
-    FunctionBlockId, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
-    FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm, FunctionOp,
-    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionScope, FunctionScopeId,
-    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
+use nia_function_ir::{
+    FunctionArrayElements, FunctionAsmInput, FunctionAsmOption, FunctionAsmOutput, FunctionBinding,
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinValue, FunctionCallee,
+    FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
+    FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace,
+    FunctionPlaceBase, FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionSliceRange,
+    FunctionSwitchArm, FunctionTerminator,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub fn lower_function_body(body: &TypedBody) -> FunctionBody {
     FunctionLowerer::new().lower_body(body)
@@ -24,7 +28,7 @@ struct FunctionLowerer {
     next_block: u32,
     next_scope: u32,
     next_temp_local: u32,
-    temp_locals: Vec<TypedLocal>,
+    temp_locals: Vec<FunctionLocal>,
     scopes: Vec<FunctionScope>,
     loop_targets: Vec<LoopTargetIds>,
 }
@@ -712,7 +716,9 @@ impl FunctionLowerer {
                 }
             }
             TypedExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(*def_id),
-            TypedExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value.clone()),
+            TypedExprKind::BuiltinValue(value) => {
+                FunctionExprKind::BuiltinValue(Self::lower_builtin_value(value))
+            }
         };
         FunctionExpr {
             span: expr.span,
@@ -1152,7 +1158,7 @@ impl FunctionLowerer {
                 })
                 .collect(),
             clobbers: asm.clobbers.clone(),
-            options: asm.options.clone(),
+            options: asm.options.iter().map(Self::lower_asm_option).collect(),
         }
     }
 
@@ -1287,10 +1293,10 @@ impl FunctionLowerer {
     fn alloc_temp_local(&mut self, span: Span, ty: InternedTyId) -> LocalId {
         let id = LocalId(self.next_temp_local);
         self.next_temp_local += 1;
-        self.temp_locals.push(TypedLocal {
+        self.temp_locals.push(FunctionLocal {
             id,
             name: format!("fir.tmp.{}", id.0),
-            kind: TypedLocalKind::Binding,
+            kind: FunctionLocalKind::Binding,
             ty,
             span,
         });
@@ -1310,12 +1316,12 @@ impl FunctionLowerer {
         id
     }
 
-    fn collect_body_locals(&self, body: &TypedBody, locals: &mut Vec<TypedLocal>) {
+    fn collect_body_locals(&self, body: &TypedBody, locals: &mut Vec<FunctionLocal>) {
         self.extend_unique_locals(&body.locals, locals);
         self.collect_nested_body_locals(body, locals);
     }
 
-    fn collect_nested_body_locals(&self, body: &TypedBody, locals: &mut Vec<TypedLocal>) {
+    fn collect_nested_body_locals(&self, body: &TypedBody, locals: &mut Vec<FunctionLocal>) {
         for stmt in &body.stmts {
             match &stmt.kind {
                 TypedStmtKind::For(for_stmt) => self.collect_body_locals(&for_stmt.body, locals),
@@ -1334,7 +1340,7 @@ impl FunctionLowerer {
         }
     }
 
-    fn collect_expr_locals(&self, expr: &TypedExpr, locals: &mut Vec<TypedLocal>) {
+    fn collect_expr_locals(&self, expr: &TypedExpr, locals: &mut Vec<FunctionLocal>) {
         match &expr.kind {
             TypedExprKind::Block(body) => self.collect_body_locals(body, locals),
             TypedExprKind::If {
@@ -1364,11 +1370,42 @@ impl FunctionLowerer {
         }
     }
 
-    fn extend_unique_locals(&self, source: &[TypedLocal], target: &mut Vec<TypedLocal>) {
+    fn extend_unique_locals(&self, source: &[TypedLocal], target: &mut Vec<FunctionLocal>) {
         for local in source {
             if !target.iter().any(|existing| existing.id == local.id) {
-                target.push(local.clone());
+                target.push(Self::lower_local(local));
             }
+        }
+    }
+
+    fn lower_local(local: &TypedLocal) -> FunctionLocal {
+        FunctionLocal {
+            id: local.id,
+            name: local.name.clone(),
+            kind: Self::lower_local_kind(local.kind),
+            ty: local.ty,
+            span: local.span,
+        }
+    }
+
+    fn lower_local_kind(kind: TypedLocalKind) -> FunctionLocalKind {
+        match kind {
+            TypedLocalKind::Param => FunctionLocalKind::Param,
+            TypedLocalKind::Binding => FunctionLocalKind::Binding,
+            TypedLocalKind::ConstBinding => FunctionLocalKind::ConstBinding,
+        }
+    }
+
+    fn lower_builtin_value(value: &BuiltinConst) -> FunctionBuiltinValue {
+        match value {
+            BuiltinConst::Usize(value) => FunctionBuiltinValue::Usize(*value),
+            BuiltinConst::Int(value) => FunctionBuiltinValue::Int(*value),
+        }
+    }
+
+    fn lower_asm_option(option: &AsmOption) -> FunctionAsmOption {
+        match option {
+            AsmOption::Volatile => FunctionAsmOption::Volatile,
         }
     }
 
