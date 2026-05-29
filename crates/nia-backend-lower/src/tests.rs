@@ -254,6 +254,38 @@ fn main() i32 {
     ));
 }
 
+#[test]
+fn lowers_loop_break_and_continue_to_control_ir_branches() {
+    let source = r#"
+fn main() i32 {
+    for {
+        continue;
+        break;
+    }
+    0
+}
+"#;
+    let lowering = lower_source(source);
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let control = main.control_body.as_ref().expect("main control body");
+    let ControlOp::For {
+        continue_target,
+        body,
+        ..
+    } = &control.blocks[0].ops[0]
+    else {
+        panic!("expected for op");
+    };
+    assert_eq!(
+        body.blocks[0].terminator.successors(),
+        vec![*continue_target]
+    );
+}
+
 fn lower_source(source: &str) -> BackendLowering {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
