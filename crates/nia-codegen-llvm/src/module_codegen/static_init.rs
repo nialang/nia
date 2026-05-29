@@ -296,6 +296,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .and_then(|value| u64::try_from(value).ok())
                 .ok_or_else(|| self.error(span, "static address index is not a valid usize")),
             TypedExprKind::BuiltinValue(BuiltinConst::Usize(value)) => Ok(*value),
+            TypedExprKind::BuiltinValue(BuiltinConst::Int(value)) => u64::try_from(*value)
+                .map_err(|_| self.error(span, "static address index is not a valid usize")),
             _ => Err(self.error(span, "static address index is not a supported constant")),
         }
     }

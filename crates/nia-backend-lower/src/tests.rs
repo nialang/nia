@@ -102,6 +102,7 @@ fn main() i32 {
     );
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         module: &module,
+        all_modules: std::slice::from_ref(&module),
         defs: &defs,
         all_defs: std::slice::from_ref(&defs),
         values: &values,
@@ -253,6 +254,7 @@ fn lower_source(source: &str) -> BackendLowering {
     let extensions = VisibleExtensionMethods::default();
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         module: &module,
+        all_modules: std::slice::from_ref(&module),
         defs: &defs,
         all_defs: std::slice::from_ref(&defs),
         values: &values,

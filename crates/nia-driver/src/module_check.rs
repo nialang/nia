@@ -109,6 +109,7 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
     let body_check = nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
         nia_body_check::BodyCheckInput {
             module: &loaded_module.module,
+            all_modules,
             defs: &defs,
             all_defs,
             values: &value_resolution,

@@ -6,23 +6,22 @@ mod literals;
 mod static_init;
 mod struct_instances;
 
-use nia_ast::{BindingItem, BracketArg, Expr, ExprKind, ItemKind, Module};
+use nia_ast::{BindingItem, Expr, ItemKind, Module};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
     BackendStructInstanceKey,
 };
 use nia_body_check::BodyCheck;
-use nia_body_ir::BracketSuffixResolution;
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId, ModuleId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_layout::Layouts;
-use nia_local_resolve::{LocalResolution, LocalUse};
+use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -80,9 +79,7 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
-    pub(crate) current_param_locals: Vec<LocalId>,
     pub(crate) comptime_global_stack: Vec<GlobalDefId>,
-    pub(crate) comptime_local_stack: Vec<LocalId>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -92,9 +89,7 @@ impl<'a> ModuleLowerer<'a> {
             monomorphization,
             interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
-            current_param_locals: Vec::new(),
             comptime_global_stack: Vec::new(),
-            comptime_local_stack: Vec::new(),
         }
     }
 
@@ -335,21 +330,8 @@ impl<'a> ModuleLowerer<'a> {
             .unwrap_or_else(|| format!("def{}", def_id.0))
     }
 
-    fn local_ty(&self, local_id: LocalId) -> Option<InternedTyId> {
-        self.input.body_check.ir.local_types.get(&local_id).copied()
-    }
-
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
         self.input.body_check.ir.expr_types.get(&expr.span).copied()
-    }
-
-    fn ty_for_type_span(&self, span: Span) -> InternedTyId {
-        self.input
-            .type_lowering
-            .type_uses
-            .get(&span)
-            .copied()
-            .unwrap_or_else(|| self.error_ty())
     }
 
     fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {
@@ -393,14 +375,6 @@ impl<'a> ModuleLowerer<'a> {
 
     fn error_ty(&self) -> InternedTyId {
         self.input.body_check.ir.interner.error()
-    }
-
-    fn void_ty(&self) -> InternedTyId {
-        self.input
-            .body_check
-            .ir
-            .interner
-            .primitive(PrimitiveTy::Void)
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
@@ -475,90 +449,6 @@ impl<'a> ModuleLowerer<'a> {
             .find(|defs| defs.module_id == module_id)
     }
 
-    fn type_prefix_instance(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
-            if !matches!(
-                self.bracket_suffix_resolution(expr.span),
-                Some(BracketSuffixResolution::TypePrefixInstantiation)
-            ) {
-                return None;
-            }
-            let (def_id, _) = self.type_prefix_instance(callee)?;
-            let args = lowered_type_args(args, self.input.type_lowering);
-            return Some((def_id, args));
-        }
-        if let ExprKind::Qualified { .. } = &expr.kind {
-            if let Some(def_id) = self
-                .input
-                .values
-                .qualified_type_prefixes
-                .get(&expr.span)
-                .copied()
-            {
-                return Some((def_id, Vec::new()));
-            }
-            return None;
-        }
-        if let Some(ty) = self.expr_ty(expr)
-            && let Some(TyKind::Nominal { def_id, args }) =
-                self.input.body_check.ir.interner.get(ty)
-        {
-            return Some((*def_id, args.clone()));
-        }
-        let ExprKind::Ident(name) = &expr.kind else {
-            return None;
-        };
-        if !matches!(
-            self.input.locals.uses.get(&expr.span),
-            Some(LocalUse::TypePrefix)
-        ) {
-            return None;
-        }
-        self.input
-            .defs
-            .module_scope
-            .types
-            .get(name)
-            .map(|def_id| (self.global_def_id(def_id), Vec::new()))
-    }
-
-    pub(crate) fn bracket_suffix_resolution(&self, span: Span) -> Option<BracketSuffixResolution> {
-        self.input
-            .body_check
-            .ir
-            .bracket_suffix_resolutions
-            .get(&span)
-            .copied()
-    }
-
-    fn enum_variant_for_qualified(&self, lhs: &Expr, name: &str) -> Option<GlobalDefId> {
-        let (enum_id, _) = self.type_prefix_instance(lhs)?;
-        let target_defs = self
-            .input
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == enum_id.module_id)?;
-        let variant_id = target_defs
-            .scopes
-            .enum_members
-            .get(&enum_id.def_id)?
-            .variants
-            .get(name)?;
-        Some(GlobalDefId {
-            module_id: enum_id.module_id,
-            def_id: variant_id,
-        })
-    }
-
-    fn qualified_enum_variant(&self, expr: &Expr) -> Option<GlobalDefId> {
-        self.input
-            .values
-            .variant_enums
-            .contains_key(&expr.span)
-            .then(|| self.input.values.qualified_values.get(&expr.span).copied())
-            .flatten()
-    }
-
     pub(crate) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
         self.input
             .all_defs
@@ -600,19 +490,6 @@ impl ComptimeEnv for ModuleLowerer<'_> {
             message: format!("comptime expression can only use comptime bindings: `{name}`"),
         })
     }
-}
-
-pub(crate) fn lowered_type_args(
-    args: &[BracketArg],
-    type_lowering: &TypeLowering,
-) -> Vec<InternedTyId> {
-    args.iter()
-        .filter_map(|arg| {
-            arg.ty
-                .as_ref()
-                .and_then(|ty| type_lowering.type_uses.get(&ty.span).copied())
-        })
-        .collect()
 }
 
 #[cfg(test)]

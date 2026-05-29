@@ -96,8 +96,10 @@ impl<'a> ModuleLowerer<'a> {
                     self.comptime_global_stack.pop();
                     return init;
                 }
-                if let Some(value) = self.local_comptime_value(expr).cloned() {
-                    return self.lower_static_init(&value);
+                if let Some(value) = self.local_comptime_value(expr) {
+                    return match value {
+                        nia_comptime_check::ComptimeValue::Int(value) => StaticInit::Int(value),
+                    };
                 }
                 StaticInit::Zero
             }
