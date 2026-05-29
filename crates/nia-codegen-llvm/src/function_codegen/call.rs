@@ -170,7 +170,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     params,
                     return_type,
                     is_variadic,
-                }) = self.module.interner().get(callee.ty)
+                }) = self.module.ty_kind(callee.ty)
                 else {
                     return Err(self.error(callee.span, "callee is not a function pointer"));
                 };

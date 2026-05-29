@@ -18,7 +18,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = parse_float_literal(text)
             .ok_or_else(|| self.error(span, format!("invalid float literal `{text}`")))?;
-        match self.module.interner().get(ty) {
+        match self.module.ty_kind(ty) {
             Some(TyKind::Primitive(PrimitiveTy::F32)) => {
                 Ok(self.module.context.f32_type().const_float(value).into())
             }
@@ -37,7 +37,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = parse_int_literal(text)
             .ok_or_else(|| self.error(span, format!("invalid integer literal `{text}`")))?;
-        let Some(TyKind::Primitive(primitive)) = self.module.interner().get(ty) else {
+        let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "integer literal target type is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
@@ -50,7 +50,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         scalars: &[u32],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(TyKind::Array { elem, .. }) = self.module.interner().get(ty) else {
+        let Some(TyKind::Array { elem, .. }) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "string literal target type is not an array"));
         };
         let values = scalars
@@ -70,7 +70,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         bytes: &[u8],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(TyKind::Array { elem, .. }) = self.module.interner().get(ty) else {
+        let Some(TyKind::Array { elem, .. }) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "byte string literal target type is not an array"));
         };
         let values = bytes
@@ -90,7 +90,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         value: u32,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(TyKind::Primitive(primitive)) = self.module.interner().get(ty) else {
+        let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "char literal target type is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;
@@ -105,7 +105,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = decode_byte_char_literal(text)
             .ok_or_else(|| self.error(span, format!("invalid byte char literal `{text}`")))?;
-        let Some(TyKind::Primitive(primitive)) = self.module.interner().get(ty) else {
+        let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "byte char literal target type is not primitive"));
         };
         let int_ty = self.integer_llvm_type(*primitive, span)?;

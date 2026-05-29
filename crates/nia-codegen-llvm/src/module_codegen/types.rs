@@ -271,8 +271,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
             Some(TyKind::Array { len, elem }) => {
-                let elem = self.llvm_basic_type_in(*elem, span, self.interner(), layouts)?;
-                let len = self.array_len_in(len, span, layouts)?;
+                let elem_layouts = self
+                    .program
+                    .module(elem.interner_id)
+                    .map(|module| &module.layouts)
+                    .unwrap_or(layouts);
+                let elem = self.llvm_basic_type_in(*elem, span, self.interner(), elem_layouts)?;
+                let len = self.array_len_in(len, span)?;
                 if len > u32::MAX as u64 {
                     return Err(
                         self.error(span, format!("array length {len} is too large for LLVM"))
@@ -294,7 +299,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     return Ok(union_ty.into());
                 }
                 if let Some(item) = self.program.enums.get(def_id).copied() {
-                    return self.llvm_basic_type(item.backing_type, item.span);
+                    let owner = self
+                        .program
+                        .module(item.backing_type.interner_id)
+                        .ok_or_else(|| self.error(item.span, "missing enum owner module"))?;
+                    return self.llvm_basic_type_in(
+                        item.backing_type,
+                        item.span,
+                        &owner.interner,
+                        &owner.layouts,
+                    );
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
             }
@@ -328,23 +342,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Ok(ty)
     }
 
-    fn array_len_in(
-        &self,
-        len: &ArrayLenTy,
-        span: Span,
-        layouts: &BackendLayouts,
-    ) -> Result<u64, Diagnostic> {
+    fn array_len_in(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
-                .source
+                .program
+                .module(id.module_id)
+                .ok_or_else(|| self.error(span, "missing array length owner module"))?
                 .comptime
                 .array_lengths
                 .get(id)
                 .copied()
                 .ok_or_else(|| self.error(span, "array length was not evaluated by comptime")),
             ArrayLenTy::Builtin { name, ty } => {
-                let Some(layout) = layouts
+                let owner_layouts = self.layouts_for(*ty);
+                let Some(layout) = owner_layouts
                     .types
                     .iter()
                     .find_map(|(layout_ty, layout)| (*layout_ty == *ty).then_some(layout))
@@ -368,7 +380,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(crate) fn array_len(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
-        self.array_len_in(len, span, &self.source.layouts)
+        self.array_len_in(len, span)
     }
 
     pub(crate) fn field_index(
@@ -425,6 +437,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .types
             .iter()
             .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
+    }
+
+    pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {
+        self.program
+            .module(ty.interner_id)
+            .map(|module| &module.layouts)
+            .unwrap_or(&self.source.layouts)
     }
 
     pub(crate) fn field_ty(
@@ -785,15 +804,23 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstValue(right)) => left == right,
             (ArrayLenTy::ConstValue(left), ArrayLenTy::ConstExpr(right))
             | (ArrayLenTy::ConstExpr(right), ArrayLenTy::ConstValue(left)) => self
-                .source
-                .comptime
+                .program
+                .module(right.module_id)
+                .map(|module| &module.comptime)
+                .unwrap_or(&self.source.comptime)
                 .array_lengths
                 .get(right)
                 .is_some_and(|right| left == right),
             (ArrayLenTy::ConstExpr(left), ArrayLenTy::ConstExpr(right)) => {
                 left == right || {
-                    let left = self.source.comptime.array_lengths.get(left);
-                    let right = self.source.comptime.array_lengths.get(right);
+                    let left = self
+                        .program
+                        .module(left.module_id)
+                        .and_then(|module| module.comptime.array_lengths.get(left));
+                    let right = self
+                        .program
+                        .module(right.module_id)
+                        .and_then(|module| module.comptime.array_lengths.get(right));
                     left.is_some() && left == right
                 }
             }
