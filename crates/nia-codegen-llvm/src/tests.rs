@@ -1957,6 +1957,200 @@ pub struct Point {
 }
 
 #[test]
+fn emits_local_struct_array_field_when_module_has_import() {
+    let root = temp_dir("emits_local_struct_array_field_when_module_has_import");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .empty;
+
+struct S {
+    x: i32,
+}
+
+struct T {
+    xs: [256]S,
+}
+
+fn main() i32 {
+    var t: T = { xs: [{ x: 0 }; 256] };
+    t.xs[255].x
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("empty.nia"),
+        r#"
+pub fn value() i32 {
+    0
+}
+"#,
+    )
+    .expect("write empty source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let main_ir = output
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module IR");
+    assert!(main_ir.ir.contains("[256 x %nia__m0__d"), "{}", main_ir.ir);
+}
+
+#[test]
+fn emits_imported_enum_variant_values_and_switch_patterns() {
+    let root = temp_dir("emits_imported_enum_variant_values_and_switch_patterns");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .module_enum_defs;
+
+using module_enum_defs::Mode;
+
+fn main() i32 {
+    var box = module_enum_defs::make_box();
+    switch box.mode {
+        module_enum_defs::Mode::A => Mode::A as u8 as i32,
+        module_enum_defs::Mode::B => 2,
+        _ => 3,
+    }
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("module_enum_defs.nia"),
+        r#"
+pub enum Mode: u8 {
+    A,
+    B,
+}
+
+pub struct Box {
+    mode: Mode,
+}
+
+pub fn make_box() Box {
+    { mode: Mode::A }
+}
+"#,
+    )
+    .expect("write module source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let main_ir = output
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module IR");
+    assert!(main_ir.ir.contains("switch i8"), "{}", main_ir.ir);
+}
+
+#[test]
+fn emits_using_imported_type_associated_function_call() {
+    let root = temp_dir("emits_using_imported_type_associated_function_call");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .module_assoc_defs;
+
+using module_assoc_defs::Box;
+
+fn main() i32 {
+    var box = Box::make(42);
+    box.value
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("module_assoc_defs.nia"),
+        r#"
+pub struct Box {
+    value: i32,
+}
+
+extend Box {
+    pub fn make(value: i32) Box {
+        { value: value }
+    }
+}
+"#,
+    )
+    .expect("write module source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let main_ir = output
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module IR");
+    assert!(
+        main_ir.ir.contains("call void @nia__m1__"),
+        "{}",
+        main_ir.ir
+    );
+}
+
+#[test]
+fn emits_size_builtin_when_module_has_import() {
+    let root = temp_dir("emits_size_builtin_when_module_has_import");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .empty;
+
+struct S {
+    x: i32,
+}
+
+fn main() i32 {
+    @size[S]() as i32
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("empty.nia"),
+        r#"
+pub fn value() i32 {
+    0
+}
+"#,
+    )
+    .expect("write empty source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let main_ir = output
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module IR");
+    assert!(main_ir.ir.contains("ret i32 4"), "{}", main_ir.ir);
+}
+
+#[test]
 fn emits_void_values_and_empty_structs() {
     let root = temp_dir("emits_void_values_and_empty_structs");
     let main = root.join("main.nia");

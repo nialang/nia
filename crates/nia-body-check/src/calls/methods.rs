@@ -365,6 +365,9 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Ident(name) = &expr.kind else {
             return None;
         };
+        if let Some(def_id) = self.values.qualified_type_prefixes.get(&expr.span).copied() {
+            return Some((def_id, Vec::new()));
+        }
         matches!(
             self.locals.uses.get(&expr.span),
             Some(nia_local_resolve::LocalUse::TypePrefix)

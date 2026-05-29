@@ -455,9 +455,10 @@ impl<'a> LocalResolver<'a> {
         };
         if matches!(
             self.values.names.get(&expr.span),
-            None | Some(ValueNameResolution::LocalDeferred)
+            None | Some(ValueNameResolution::LocalDeferred | ValueNameResolution::External(_))
         ) && self.lookup(name).is_none()
-            && self.defs.module_scope.types.get(name).is_some()
+            && (self.defs.module_scope.types.get(name).is_some()
+                || self.values.qualified_type_prefixes.contains_key(&expr.span))
         {
             self.uses.insert(expr.span, LocalUse::TypePrefix);
             return true;
@@ -490,7 +491,11 @@ impl<'a> LocalResolver<'a> {
                     self.values.names.get(&callee.span),
                     Some(ValueNameResolution::Def(_))
                 ) || (self.lookup(name).is_none()
-                    && self.defs.module_scope.types.get(name).is_some())
+                    && (self.defs.module_scope.types.get(name).is_some()
+                        || self
+                            .values
+                            .qualified_type_prefixes
+                            .contains_key(&callee.span)))
             }
             ExprKind::Qualified { .. } => {
                 self.values.qualified_values.contains_key(&callee.span)

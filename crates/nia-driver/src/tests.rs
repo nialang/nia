@@ -1828,6 +1828,46 @@ fn main() palette::Color {
 }
 
 #[test]
+fn using_imported_type_supports_enum_variants_and_associated_functions() {
+    let root = temp_dir("using_imported_type_supports_enum_variants_and_associated_functions");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .defs;
+
+using defs::{Box, Mode};
+
+fn main() i32 {
+    var box = Box::make(Mode::A);
+    box.mode as u8 as i32
+}
+"#,
+    );
+    write(
+        &root.join("defs.nia"),
+        r#"
+pub enum Mode: u8 {
+    A,
+    B,
+}
+
+pub struct Box {
+    mode: Mode,
+}
+
+extend Box {
+    pub fn make(mode: Mode) Box {
+        { mode: mode }
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn switch_exhaustive_over_cross_module_enum() {
     let root = temp_dir("switch_exhaustive_over_cross_module_enum");
     write(
