@@ -8,18 +8,30 @@ use nia_span::Span;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ControlBlockId(pub u32);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ControlScopeId(pub u32);
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ControlBody {
     pub span: Span,
     pub locals: Vec<TypedLocal>,
+    pub scopes: Vec<ControlScope>,
     pub blocks: Vec<ControlBlock>,
     pub entry: ControlBlockId,
     pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ControlScope {
+    pub id: ControlScopeId,
+    pub parent: Option<ControlScopeId>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ControlBlock {
     pub id: ControlBlockId,
+    pub scope: ControlScopeId,
     pub span: Span,
     pub ops: Vec<ControlOp>,
     pub terminator: ControlTerminator,
@@ -79,6 +91,8 @@ pub fn lower_control_body(body: &TypedBody) -> ControlBody {
 
 struct ControlLowerer {
     next_block: u32,
+    next_scope: u32,
+    scopes: Vec<ControlScope>,
     loop_targets: Vec<LoopTargetIds>,
 }
 
@@ -98,19 +112,29 @@ impl ControlLowerer {
     fn new() -> Self {
         Self {
             next_block: 0,
+            next_scope: 0,
+            scopes: Vec::new(),
             loop_targets: Vec::new(),
         }
     }
 
     fn lower_body(&mut self, body: &TypedBody) -> ControlBody {
+        let root_scope = self.alloc_scope(None, body.span);
         let entry = self.alloc_block();
         let mut blocks = Vec::new();
         let mut locals = Vec::new();
-        self.lower_body_into(body, entry, &mut blocks, Fallthrough::Tail);
+        self.lower_body_into(
+            body,
+            entry,
+            root_scope,
+            &mut blocks,
+            Fallthrough::Tail,
+        );
         self.collect_body_locals(body, &mut locals);
         ControlBody {
             span: body.span,
             locals,
+            scopes: self.scopes.clone(),
             blocks,
             entry,
             ty: body.ty,
@@ -121,6 +145,7 @@ impl ControlLowerer {
         &mut self,
         body: &TypedBody,
         entry: ControlBlockId,
+        scope: ControlScopeId,
         blocks: &mut Vec<ControlBlock>,
         fallthrough: Fallthrough,
     ) {
@@ -135,6 +160,7 @@ impl ControlLowerer {
                     self.finish_block(
                         blocks,
                         current,
+                        scope,
                         stmt.span,
                         ops,
                         ControlTerminator::Return {
@@ -153,6 +179,7 @@ impl ControlLowerer {
                     self.finish_block(
                         blocks,
                         current,
+                        scope,
                         stmt.span,
                         ops,
                         ControlTerminator::Branch {
@@ -171,6 +198,7 @@ impl ControlLowerer {
                     self.finish_block(
                         blocks,
                         current,
+                        scope,
                         stmt.span,
                         ops,
                         ControlTerminator::Branch {
@@ -181,17 +209,25 @@ impl ControlLowerer {
                     return;
                 }
                 TypedStmtKind::For(for_stmt) => {
-                    self.lower_for_stmt(stmt.span, for_stmt, &mut current, &mut ops, blocks);
+                    self.lower_for_stmt(
+                        stmt.span,
+                        for_stmt,
+                        scope,
+                        &mut current,
+                        &mut ops,
+                        blocks,
+                    );
                 }
             }
         }
-        self.finish_fallthrough_block(blocks, current, body, ops, fallthrough);
+        self.finish_fallthrough_block(blocks, current, scope, body, ops, fallthrough);
     }
 
     fn lower_for_stmt(
         &mut self,
         span: Span,
         for_stmt: &nia_body_ir::TypedFor,
+        scope: ControlScopeId,
         current: &mut ControlBlockId,
         ops: &mut Vec<ControlOp>,
         blocks: &mut Vec<ControlBlock>,
@@ -203,6 +239,7 @@ impl ControlLowerer {
             let loop_header = self.alloc_block();
             blocks.push(ControlBlock {
                 id: *current,
+                scope,
                 span,
                 ops: std::mem::take(ops),
                 terminator: ControlTerminator::Next {
@@ -217,6 +254,7 @@ impl ControlLowerer {
         let break_target = self.alloc_block();
         blocks.push(ControlBlock {
             id: loop_header,
+            scope,
             span,
             ops: Vec::new(),
             terminator: ControlTerminator::Loop {
@@ -232,9 +270,11 @@ impl ControlLowerer {
             break_target,
             continue_target,
         });
+        let body_scope = self.alloc_scope(Some(scope), for_stmt.body.span);
         self.lower_body_into(
             &for_stmt.body,
             body_entry,
+            body_scope,
             blocks,
             Fallthrough::Branch(continue_target),
         );
@@ -242,6 +282,7 @@ impl ControlLowerer {
 
         blocks.push(ControlBlock {
             id: continue_target,
+            scope,
             span,
             ops: self.for_step_ops(&for_stmt.header),
             terminator: ControlTerminator::Branch {
@@ -256,6 +297,7 @@ impl ControlLowerer {
         &mut self,
         blocks: &mut Vec<ControlBlock>,
         current: ControlBlockId,
+        scope: ControlScopeId,
         span: Span,
         ops: Vec<ControlOp>,
         terminator: ControlTerminator,
@@ -263,6 +305,7 @@ impl ControlLowerer {
         if ops.is_empty() {
             blocks.push(ControlBlock {
                 id: current,
+                scope,
                 span,
                 ops,
                 terminator,
@@ -271,6 +314,7 @@ impl ControlLowerer {
             let term_block = self.alloc_block();
             blocks.push(ControlBlock {
                 id: current,
+                scope,
                 span,
                 ops,
                 terminator: ControlTerminator::Next {
@@ -280,6 +324,7 @@ impl ControlLowerer {
             });
             blocks.push(ControlBlock {
                 id: term_block,
+                scope,
                 span,
                 ops: Vec::new(),
                 terminator,
@@ -291,6 +336,7 @@ impl ControlLowerer {
         &mut self,
         blocks: &mut Vec<ControlBlock>,
         current: ControlBlockId,
+        scope: ControlScopeId,
         body: &TypedBody,
         mut ops: Vec<ControlOp>,
         fallthrough: Fallthrough,
@@ -312,7 +358,7 @@ impl ControlLowerer {
                 ControlTerminator::Branch { target, span }
             }
         };
-        self.finish_block(blocks, current, span, ops, terminator);
+        self.finish_block(blocks, current, scope, span, ops, terminator);
     }
 
     fn push_for_init_ops(&self, header: &TypedForHeader, ops: &mut Vec<ControlOp>) {
@@ -351,6 +397,13 @@ impl ControlLowerer {
     fn alloc_block(&mut self) -> ControlBlockId {
         let id = ControlBlockId(self.next_block);
         self.next_block += 1;
+        id
+    }
+
+    fn alloc_scope(&mut self, parent: Option<ControlScopeId>, span: Span) -> ControlScopeId {
+        let id = ControlScopeId(self.next_scope);
+        self.next_scope += 1;
+        self.scopes.push(ControlScope { id, parent, span });
         id
     }
 
@@ -657,6 +710,66 @@ mod tests {
     }
 
     #[test]
+    fn loop_body_gets_child_scope_with_parent_loop_edges() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::Infinite,
+                    body: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: Vec::new(),
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let root_scope = ControlScopeId(0);
+        let loop_scope = ControlScopeId(1);
+        let ControlTerminator::Loop {
+            body,
+            continue_target,
+            break_target,
+            ..
+        } = control.blocks[0].terminator
+        else {
+            panic!("expected loop terminator");
+        };
+        let body_block = control
+            .blocks
+            .iter()
+            .find(|block| block.id == body)
+            .expect("loop body block");
+        let continue_block = control
+            .blocks
+            .iter()
+            .find(|block| block.id == continue_target)
+            .expect("continue block");
+        let break_block = control
+            .blocks
+            .iter()
+            .find(|block| block.id == break_target)
+            .expect("break block");
+
+        assert_eq!(control.scopes[0].parent, None);
+        assert_eq!(control.scopes[1].parent, Some(root_scope));
+        assert_eq!(control.blocks[0].scope, root_scope);
+        assert_eq!(body_block.scope, loop_scope);
+        assert_eq!(continue_block.scope, root_scope);
+        assert_eq!(break_block.scope, root_scope);
+    }
+
+    #[test]
     fn preserves_unique_locals_from_flattened_loop_bodies() {
         let span = Span::default();
         let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
@@ -811,5 +924,57 @@ mod tests {
             .expect("second inner body block");
 
         assert_eq!(inner_body.terminator.successors(), vec![inner_break]);
+    }
+
+    #[test]
+    fn nested_loop_scopes_preserve_parent_chain() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::Infinite,
+                    body: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: vec![TypedStmt {
+                            span,
+                            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                                header: TypedForHeader::Infinite,
+                                body: TypedBody {
+                                    span,
+                                    locals: Vec::new(),
+                                    stmts: Vec::new(),
+                                    tail: None,
+                                    ty,
+                                },
+                            })),
+                        }],
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(
+            control
+                .scopes
+                .iter()
+                .map(|scope| (scope.id, scope.parent))
+                .collect::<Vec<_>>(),
+            vec![
+                (ControlScopeId(0), None),
+                (ControlScopeId(1), Some(ControlScopeId(0))),
+                (ControlScopeId(2), Some(ControlScopeId(1))),
+            ]
+        );
     }
 }
