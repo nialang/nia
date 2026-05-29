@@ -85,6 +85,63 @@ impl ControlTerminator {
     }
 }
 
+impl ControlBody {
+    pub fn block(&self, id: ControlBlockId) -> Option<&ControlBlock> {
+        self.blocks.iter().find(|block| block.id == id)
+    }
+
+    pub fn scope(&self, id: ControlScopeId) -> Option<&ControlScope> {
+        self.scopes.iter().find(|scope| scope.id == id)
+    }
+
+    pub fn edge_exited_scopes(
+        &self,
+        from: ControlBlockId,
+        to: ControlBlockId,
+    ) -> Option<Vec<ControlScopeId>> {
+        let from = self.block(from)?.scope;
+        let to = self.block(to)?.scope;
+        self.exited_scopes_between(from, Some(to))
+    }
+
+    pub fn return_exited_scopes(&self, from: ControlBlockId) -> Option<Vec<ControlScopeId>> {
+        let from = self.block(from)?.scope;
+        self.exited_scopes_between(from, None)
+    }
+
+    pub fn exited_scopes_between(
+        &self,
+        from: ControlScopeId,
+        to: Option<ControlScopeId>,
+    ) -> Option<Vec<ControlScopeId>> {
+        let from_chain = self.scope_chain_to_root(from)?;
+        let to_chain = match to {
+            Some(scope) => self.scope_chain_to_root(scope)?,
+            None => Vec::new(),
+        };
+        let lca = from_chain
+            .iter()
+            .find(|scope| to_chain.contains(scope))
+            .copied();
+        Some(
+            from_chain
+                .into_iter()
+                .take_while(|scope| Some(*scope) != lca)
+                .collect(),
+        )
+    }
+
+    fn scope_chain_to_root(&self, scope: ControlScopeId) -> Option<Vec<ControlScopeId>> {
+        let mut chain = Vec::new();
+        let mut current = Some(scope);
+        while let Some(scope) = current {
+            chain.push(scope);
+            current = self.scope(scope)?.parent;
+        }
+        Some(chain)
+    }
+}
+
 pub fn lower_control_body(body: &TypedBody) -> ControlBody {
     ControlLowerer::new().lower_body(body)
 }
@@ -976,5 +1033,153 @@ mod tests {
                 (ControlScopeId(2), Some(ControlScopeId(1))),
             ]
         );
+    }
+
+    #[test]
+    fn same_scope_edges_exit_no_scopes() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let expr = TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Integer("1".to_string()),
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(expr),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(
+            control.edge_exited_scopes(ControlBlockId(0), ControlBlockId(1)),
+            Some(Vec::new())
+        );
+    }
+
+    #[test]
+    fn loop_body_break_edge_exits_loop_scope() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
+                    header: TypedForHeader::Infinite,
+                    body: TypedBody {
+                        span,
+                        locals: Vec::new(),
+                        stmts: vec![TypedStmt {
+                            span,
+                            kind: TypedStmtKind::Break,
+                        }],
+                        tail: None,
+                        ty,
+                    },
+                })),
+            }],
+            tail: None,
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+        let ControlTerminator::Loop {
+            body,
+            break_target,
+            ..
+        } = control.blocks[0].terminator
+        else {
+            panic!("expected loop terminator");
+        };
+
+        assert_eq!(
+            control.edge_exited_scopes(body, break_target),
+            Some(vec![ControlScopeId(1)])
+        );
+    }
+
+    #[test]
+    fn sibling_scope_edge_exits_only_source_scope() {
+        let body = manual_control_body_for_scope_edges();
+
+        assert_eq!(
+            body.exited_scopes_between(ControlScopeId(1), Some(ControlScopeId(2))),
+            Some(vec![ControlScopeId(1)])
+        );
+    }
+
+    #[test]
+    fn return_edge_exits_scope_chain_to_function_boundary() {
+        let body = manual_control_body_for_scope_edges();
+
+        assert_eq!(
+            body.return_exited_scopes(ControlBlockId(1)),
+            Some(vec![ControlScopeId(1), ControlScopeId(0)])
+        );
+    }
+
+    fn manual_control_body_for_scope_edges() -> ControlBody {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        ControlBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![
+                ControlScope {
+                    id: ControlScopeId(0),
+                    parent: None,
+                    span,
+                },
+                ControlScope {
+                    id: ControlScopeId(1),
+                    parent: Some(ControlScopeId(0)),
+                    span,
+                },
+                ControlScope {
+                    id: ControlScopeId(2),
+                    parent: Some(ControlScopeId(0)),
+                    span,
+                },
+            ],
+            blocks: vec![
+                ControlBlock {
+                    id: ControlBlockId(0),
+                    scope: ControlScopeId(0),
+                    span,
+                    ops: Vec::new(),
+                    terminator: ControlTerminator::Branch {
+                        target: ControlBlockId(1),
+                        span,
+                    },
+                },
+                ControlBlock {
+                    id: ControlBlockId(1),
+                    scope: ControlScopeId(1),
+                    span,
+                    ops: Vec::new(),
+                    terminator: ControlTerminator::Branch {
+                        target: ControlBlockId(2),
+                        span,
+                    },
+                },
+                ControlBlock {
+                    id: ControlBlockId(2),
+                    scope: ControlScopeId(2),
+                    span,
+                    ops: Vec::new(),
+                    terminator: ControlTerminator::Tail { value: None, span },
+                },
+            ],
+            entry: ControlBlockId(0),
+            ty,
+        }
     }
 }
