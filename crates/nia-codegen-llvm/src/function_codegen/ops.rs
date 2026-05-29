@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::literals::assign_to_binary_op;
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_backend_ir::{TypedExpr, TypedExprKind};
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::{FunctionExpr, FunctionExprKind};
 use nia_ids::InternedTyId;
 use nia_llvm::{FloatPredicate, IntPredicate, values::BasicValueEnum};
 use nia_span::Span;
@@ -15,13 +15,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
         ty: InternedTyId,
         op: UnaryOp,
-        inner: &TypedExpr,
+        inner: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match op {
             UnaryOp::Ref | UnaryOp::RefConst
                 if matches!(
                     inner.kind,
-                    TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. }
+                    FunctionExprKind::Function(_) | FunctionExprKind::FunctionInstance { .. }
                 ) =>
             {
                 self.emit_function_pointer(span, inner)
@@ -167,9 +167,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_short_circuit(
         &mut self,
         span: Span,
-        lhs: &TypedExpr,
+        lhs: &FunctionExpr,
         op: BinaryOp,
-        rhs: &TypedExpr,
+        rhs: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let lhs_value = self.emit_expr(lhs)?.into_int_value()?;
         let rhs_block = self

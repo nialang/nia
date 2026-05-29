@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 nia-ast.workspace = true
+nia-body-ir.workspace = true
 nia-comptime-check.workspace = true
 nia-comptime-engine.workspace = true
 nia-defs.workspace = true
@@ -16,6 +17,7 @@ nia-item-signatures.workspace = true
 nia-layout.workspace = true
 nia-local-resolve.workspace = true
 nia-span.workspace = true
+nia-static-ir.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true

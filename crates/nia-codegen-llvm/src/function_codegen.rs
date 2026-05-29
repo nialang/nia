@@ -2,8 +2,8 @@
 mod aggregate;
 mod asm;
 mod call;
-mod control;
 mod defer;
+mod function_body;
 mod literals;
 mod ops;
 mod place;
@@ -13,13 +13,14 @@ use std::collections::HashMap;
 use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
-use nia_backend_ir::{
-    BackendFunction, BuiltinConst, TypedBody, TypedExpr, TypedExprKind, TypedLocalKind,
-};
+use nia_backend_ir::BackendFunction;
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::{
+    FunctionBody, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionLocal,
+    FunctionLocalKind, FunctionScopeId,
+};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
-    basic_block::BasicBlock,
     builder::Builder,
     values::{BasicValueEnum, FunctionValue, PointerValue},
 };
@@ -34,14 +35,9 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     locals: HashMap<LocalId, PointerValue<'ctx>>,
     local_tys: HashMap<LocalId, InternedTyId>,
     out_ptr: Option<PointerValue<'ctx>>,
-    loops: Vec<LoopTargets<'ctx>>,
     defer_scopes: Vec<DeferScope>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct LoopTargets<'ctx> {
-    break_block: BasicBlock<'ctx>,
-    continue_block: BasicBlock<'ctx>,
+    function_defer_scopes: HashMap<FunctionScopeId, usize>,
+    active_function_scope: Option<FunctionScopeId>,
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
@@ -58,68 +54,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             locals: HashMap::new(),
             local_tys: HashMap::new(),
             out_ptr: None,
-            loops: Vec::new(),
             defer_scopes: Vec::new(),
+            function_defer_scopes: HashMap::new(),
+            active_function_scope: None,
         }
     }
 
-    pub(super) fn emit_body(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
-        let entry = self
-            .module
-            .context
-            .append_basic_block(self.llvm_function, "entry")?;
-        self.builder.position_at_end(entry);
-        self.out_ptr = self.function_out_ptr()?;
-        self.alloc_locals(body)?;
-        self.store_params()?;
-        let scope = self.push_defer_scope();
-        for stmt in &body.stmts {
-            self.emit_stmt(stmt)?;
-            if self.current_block_has_terminator() {
-                break;
-            }
-        }
-        if self.current_block_has_terminator() {
-            self.pop_defer_scope_to(scope, false)?;
-            return Ok(());
-        }
-        if let Some(tail) = &body.tail {
-            if self.is_zero_sized(tail.ty) {
-                self.emit_zero_sized_expr(tail)?;
-                self.pop_defer_scope_to(scope, true)?;
-                self.builder
-                    .build_return(None)
-                    .map_err(|_| self.error(tail.span, "failed to build void return"))?;
-                return Ok(());
-            }
-            let value = self.emit_expr(tail)?;
-            if self.current_block_has_terminator() {
-                self.pop_defer_scope_to(scope, false)?;
-                return Ok(());
-            }
-            self.pop_defer_scope_to(scope, true)?;
-            self.emit_return_value(tail.span, value)?;
-        } else if self.is_void(self.function.return_type) {
-            self.pop_defer_scope_to(scope, true)?;
-            self.builder
-                .build_return(None)
-                .map_err(|_| self.error(body.span, "failed to build void return"))?;
-        } else if self.is_never(self.function.return_type) {
-            self.pop_defer_scope_to(scope, true)?;
-            self.builder
-                .build_unreachable()
-                .map_err(|_| self.error(body.span, "failed to build never function unreachable"))?;
-        } else {
-            self.pop_defer_scope_to(scope, false)?;
-        }
-        Ok(())
+    fn alloc_function_locals(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
+        self.alloc_local_list(&body.locals)
     }
 
-    fn alloc_locals(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
-        for local in &body.locals {
+    fn alloc_local_list(&mut self, locals: &[FunctionLocal]) -> Result<(), Diagnostic> {
+        for local in locals {
             if matches!(
                 local.kind,
-                TypedLocalKind::Param | TypedLocalKind::Binding | TypedLocalKind::ConstBinding
+                FunctionLocalKind::Param
+                    | FunctionLocalKind::Binding
+                    | FunctionLocalKind::ConstBinding
             ) {
                 if self.is_zero_sized(local.ty) {
                     self.local_tys.insert(local.id, local.ty);
@@ -249,23 +200,27 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
-    fn emit_expr(&mut self, expr: &TypedExpr) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+    fn emit_expr(&mut self, expr: &FunctionExpr) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match &expr.kind {
-            TypedExprKind::Integer(text) => self.emit_integer_literal(expr.ty, expr.span, text),
-            TypedExprKind::Float(text) => self.emit_float_literal(expr.ty, expr.span, text),
-            TypedExprKind::String(scalars) => self.emit_string_literal(expr.ty, expr.span, scalars),
-            TypedExprKind::ByteString(bytes) => {
+            FunctionExprKind::Integer(text) => self.emit_integer_literal(expr.ty, expr.span, text),
+            FunctionExprKind::Float(text) => self.emit_float_literal(expr.ty, expr.span, text),
+            FunctionExprKind::String(scalars) => {
+                self.emit_string_literal(expr.ty, expr.span, scalars)
+            }
+            FunctionExprKind::ByteString(bytes) => {
                 self.emit_byte_string_literal(expr.ty, expr.span, bytes)
             }
-            TypedExprKind::Char(value) => self.emit_char_literal(expr.ty, expr.span, *value),
-            TypedExprKind::ByteChar(text) => self.emit_byte_char_literal(expr.ty, expr.span, text),
-            TypedExprKind::Bool(value) => Ok(self
+            FunctionExprKind::Char(value) => self.emit_char_literal(expr.ty, expr.span, *value),
+            FunctionExprKind::ByteChar(text) => {
+                self.emit_byte_char_literal(expr.ty, expr.span, text)
+            }
+            FunctionExprKind::Bool(value) => Ok(self
                 .module
                 .context
                 .bool_type()
                 .const_int(u64::from(*value), false)
                 .into()),
-            TypedExprKind::Local(local_id) => {
+            FunctionExprKind::Local(local_id) => {
                 if self.is_zero_sized(expr.ty) {
                     return Err(self.error(expr.span, "zero-sized local has no runtime value"));
                 }
@@ -277,7 +232,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_load(ty, ptr, "loadtmp")
                     .map_err(|_| self.error(expr.span, "failed to load local"))
             }
-            TypedExprKind::Global(def_id) => self
+            FunctionExprKind::Global(def_id) => self
                 .module
                 .globals
                 .get(def_id)
@@ -303,30 +258,37 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         .build_load(ty, global.as_pointer_value(), "loadglobal")
                         .map_err(|_| self.error(expr.span, "failed to load global"))
                 }),
-            TypedExprKind::BuiltinValue(BuiltinConst::Usize(value)) => Ok(self
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Usize(value)) => Ok(self
                 .module
                 .context
                 .i64_type()
                 .const_int(*value, false)
                 .into()),
-            TypedExprKind::Len(inner) => self.emit_len(expr.span, inner),
-            TypedExprKind::Ptr(inner) => self.emit_ptr(expr.span, inner),
-            TypedExprKind::InlineAsm(asm) => {
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
+                let ty = self
+                    .module
+                    .llvm_basic_type(expr.ty, expr.span)?
+                    .into_int_type()?;
+                Ok(ty.const_u128(*value as u128).into())
+            }
+            FunctionExprKind::Len(inner) => self.emit_len(expr.span, inner),
+            FunctionExprKind::Ptr(inner) => self.emit_ptr(expr.span, inner),
+            FunctionExprKind::InlineAsm(asm) => {
                 self.emit_inline_asm(asm)?;
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
             }
-            TypedExprKind::CStringPointer { array, .. } => {
+            FunctionExprKind::CStringPointer { array, .. } => {
                 self.emit_c_string_pointer(expr.span, array)
             }
-            TypedExprKind::ArrayLiteral { elems } => self.emit_array_literal(expr, elems),
-            TypedExprKind::StructLiteral { def_id, fields } => {
+            FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal(expr, elems),
+            FunctionExprKind::StructLiteral { def_id, fields } => {
                 self.emit_struct_literal(expr, *def_id, fields)
             }
-            TypedExprKind::UnionLiteral { def_id, field } => {
+            FunctionExprKind::UnionLiteral { def_id, field } => {
                 self.emit_union_literal(expr, *def_id, field)
             }
-            TypedExprKind::EnumVariant(def_id) => self.emit_enum_variant(expr, *def_id),
-            TypedExprKind::Binary { lhs, op, rhs } => {
+            FunctionExprKind::EnumVariant(def_id) => self.emit_enum_variant(expr, *def_id),
+            FunctionExprKind::Binary { lhs, op, rhs } => {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {
                     return self.emit_short_circuit(expr.span, lhs, *op, rhs);
                 }
@@ -334,69 +296,36 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let rhs = self.emit_expr(rhs)?;
                 self.emit_binary(expr.span, expr.ty, lhs, *op, rhs)
             }
-            TypedExprKind::Unary { op, expr: inner } => {
+            FunctionExprKind::Unary { op, expr: inner } => {
                 self.emit_unary(expr.span, expr.ty, *op, inner)
             }
-            TypedExprKind::Cast { expr: inner, ty } => {
+            FunctionExprKind::Cast { expr: inner, ty } => {
                 let value = self.emit_expr(inner)?;
                 self.emit_cast(expr.span, inner.ty, *ty, value)
             }
-            TypedExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
-            TypedExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
-            TypedExprKind::Field { .. } | TypedExprKind::Index { .. } => {
+            FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
+            FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
+            FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {
                 let ptr = self.emit_addr_of(expr)?;
                 let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
                 self.builder
                     .build_load(ty, ptr, "loadtmp")
                     .map_err(|_| self.error(expr.span, "failed to load place"))
             }
-            TypedExprKind::Block(body) => self.emit_block_expr(body),
-            TypedExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => self.emit_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
-            TypedExprKind::Switch(switch) => self.emit_switch_expr(expr.span, expr.ty, switch),
-            TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. } => Err(self.error(
-                expr.span,
-                "function item cannot be emitted as a runtime value",
-            )),
-            TypedExprKind::Assign { .. } => {
+            FunctionExprKind::Function(_) | FunctionExprKind::FunctionInstance { .. } => Err(self
+                .error(
+                    expr.span,
+                    "function item cannot be emitted as a runtime value",
+                )),
+            FunctionExprKind::Assign { .. } => {
                 Err(self.error(expr.span, "assignment expression cannot be used as a value"))
             }
-            TypedExprKind::Discard(_) => {
+            FunctionExprKind::Discard(_) => {
                 Err(self.error(expr.span, "discard expression cannot be used as a value"))
             }
-            TypedExprKind::Error => Err(self.error(expr.span, "cannot emit erroneous expression")),
-        }
-    }
-
-    fn emit_block_expr(&mut self, body: &TypedBody) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        if self.is_zero_sized(body.ty) {
-            self.emit_zero_sized_body(body)?;
-            return Err(self.error(body.span, "zero-sized block has no runtime value"));
-        }
-        let scope = self.push_defer_scope();
-        for stmt in &body.stmts {
-            self.emit_stmt(stmt)?;
-            if self.current_block_has_terminator() {
-                break;
+            FunctionExprKind::Error => {
+                Err(self.error(expr.span, "cannot emit erroneous expression"))
             }
-        }
-        if let Some(tail) = &body.tail {
-            let value = self.emit_expr(tail)?;
-            if self.current_block_has_terminator() {
-                self.pop_defer_scope_to(scope, false)?;
-                return Ok(value);
-            }
-            self.pop_defer_scope_to(scope, true)?;
-            Ok(value)
-        } else {
-            self.pop_defer_scope_to(scope, false)?;
-            Err(self.error(
-                body.span,
-                "void block cannot be used as a value in LLVM codegen",
-            ))
         }
     }
 
@@ -429,39 +358,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         span: Span,
     ) -> Result<bool, Diagnostic> {
         Ok(self.module.llvm_basic_type(lhs, span)? == self.module.llvm_basic_type(rhs, span)?)
-    }
-
-    pub(super) fn emit_zero_sized_expr(&mut self, expr: &TypedExpr) -> Result<(), Diagnostic> {
-        match &expr.kind {
-            TypedExprKind::Block(body) => self.emit_zero_sized_body(body),
-            TypedExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => self.emit_void_if_expr(expr.span, cond, then_branch, else_branch.as_deref()),
-            TypedExprKind::Switch(switch) => self.emit_void_switch_expr(expr.span, switch),
-            TypedExprKind::StructLiteral { .. } => Ok(()),
-            TypedExprKind::Local(_) | TypedExprKind::Global(_) => Ok(()),
-            TypedExprKind::CStringPointer { .. } => Ok(()),
-            _ => self.emit_void_expr(expr),
-        }
-    }
-
-    pub(super) fn emit_zero_sized_body(&mut self, body: &TypedBody) -> Result<(), Diagnostic> {
-        let scope = self.push_defer_scope();
-        for stmt in &body.stmts {
-            self.emit_stmt(stmt)?;
-            if self.current_block_has_terminator() {
-                break;
-            }
-        }
-        if !self.current_block_has_terminator()
-            && let Some(tail) = &body.tail
-        {
-            self.emit_zero_sized_expr(tail)?;
-        }
-        self.pop_defer_scope_to(scope, !self.current_block_has_terminator())?;
-        Ok(())
     }
 
     fn is_zero_sized(&self, ty: InternedTyId) -> bool {

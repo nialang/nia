@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::{BodyChecker, BracketSuffixResolution, ResolvedCall};
+use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
+use nia_body_ir::{BracketSuffixResolution, ResolvedCall};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;

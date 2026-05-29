@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{BodyChecker, BuiltinValue};
+use crate::BodyChecker;
 use nia_ast::{Expr, TypeRef};
+use nia_body_ir::BuiltinValue;
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_span::Span;

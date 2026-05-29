@@ -1,46 +1,46 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_backend_ir::TypedExpr;
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::{FunctionDeferBody, FunctionScopeId};
 use nia_span::Span;
 
 use super::FunctionCodegen;
 
 #[derive(Debug, Clone)]
 pub(super) struct DeferScope {
-    pub(super) loop_depth: usize,
-    pub(super) exprs: Vec<TypedExpr>,
+    pub(super) function_scope: Option<FunctionScopeId>,
+    pub(super) bodies: Vec<FunctionDeferBody>,
 }
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
-    pub(super) fn push_defer_scope(&mut self) -> usize {
+    pub(super) fn push_function_defer_scope(&mut self, scope: FunctionScopeId) -> usize {
         let index = self.defer_scopes.len();
         self.defer_scopes.push(DeferScope {
-            loop_depth: self.loops.len(),
-            exprs: Vec::new(),
+            function_scope: Some(scope),
+            bodies: Vec::new(),
         });
         index
     }
 
-    pub(super) fn pop_defer_scope_to(
+    pub(super) fn emit_function_scope_defers(
         &mut self,
-        index: usize,
-        execute: bool,
+        span: Span,
+        scope: FunctionScopeId,
     ) -> Result<(), Diagnostic> {
-        while self.defer_scopes.len() > index {
-            let scope = self
-                .defer_scopes
-                .pop()
-                .ok_or_else(|| self.error(Span::default(), "missing defer scope"))?;
-            if execute {
-                self.emit_defer_scope(scope)?;
-            }
-        }
-        Ok(())
+        let Some(scope) = self
+            .defer_scopes
+            .iter()
+            .rev()
+            .find(|defer_scope| defer_scope.function_scope == Some(scope))
+            .cloned()
+        else {
+            return Err(self.error(span, "missing function defer scope"));
+        };
+        self.emit_defer_scope(scope)
     }
 
     fn emit_defer_scope(&mut self, scope: DeferScope) -> Result<(), Diagnostic> {
-        for expr in scope.exprs.into_iter().rev() {
-            self.emit_void_expr(&expr)?;
+        for body in scope.bodies.into_iter().rev() {
+            self.emit_defer_function_body(&body)?;
         }
         Ok(())
     }
@@ -48,41 +48,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn register_defer(
         &mut self,
         span: Span,
-        expr: &TypedExpr,
+        body: &FunctionDeferBody,
     ) -> Result<(), Diagnostic> {
+        if let Some(function_scope) = self.active_function_scope {
+            let Some(index) = self.function_defer_scopes.get(&function_scope).copied() else {
+                return Err(self.error(span, "missing active function defer scope"));
+            };
+            let Some(scope) = self.defer_scopes.get_mut(index) else {
+                return Err(self.error(span, "missing active function defer storage"));
+            };
+            scope.bodies.push(body.clone());
+            return Ok(());
+        }
         let Some(scope) = self.defer_scopes.last_mut() else {
             return Err(self.error(span, "`defer` is not inside a block"));
         };
-        scope.exprs.push(expr.clone());
-        Ok(())
-    }
-
-    pub(super) fn emit_all_defers(&mut self, span: Span) -> Result<(), Diagnostic> {
-        self.emit_defers_to_loop_depth(span, 0)
-    }
-
-    pub(super) fn emit_loop_exit_defers(&mut self, span: Span) -> Result<(), Diagnostic> {
-        self.emit_defers_to_loop_depth(span, self.loops.len())
-    }
-
-    fn emit_defers_to_loop_depth(
-        &mut self,
-        span: Span,
-        loop_depth: usize,
-    ) -> Result<(), Diagnostic> {
-        let scopes = self
-            .defer_scopes
-            .iter()
-            .rev()
-            .take_while(|scope| scope.loop_depth >= loop_depth)
-            .cloned()
-            .collect::<Vec<_>>();
-        if scopes.is_empty() {
-            return Err(self.error(span, "missing defer scope"));
-        }
-        for scope in scopes {
-            self.emit_defer_scope(scope)?;
-        }
+        scope.bodies.push(body.clone());
         Ok(())
     }
 }

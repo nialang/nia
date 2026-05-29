@@ -105,10 +105,13 @@ impl<'a> ModuleLowerer<'a> {
             .explicit_type
             .or_else(|| binding.value.as_ref().and_then(|value| self.expr_ty(value)))
             .unwrap_or_else(|| self.error_ty());
-        let init = binding
-            .value
-            .as_ref()
-            .map(|value| self.lower_static_init(value));
+        let init = self
+            .input
+            .body_check
+            .ir
+            .global_inits
+            .get(&self.global_def_id(def_id))
+            .cloned();
         Some(BackendGlobal {
             def_id: self.global_def_id(def_id),
             name: binding.name.clone(),
@@ -127,14 +130,18 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendFunction> {
         let def_id = self.def_id_for_span_any_function(span)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
-        let previous_param_locals = std::mem::take(&mut self.current_param_locals);
-        self.current_param_locals = function
-            .params
-            .iter()
-            .filter_map(|param| self.input.locals.local_defs.get(&param.span).copied())
-            .collect();
-        let body = function.body.as_ref().map(|body| self.lower_body(body));
-        self.current_param_locals = previous_param_locals;
+        let body = self
+            .input
+            .body_check
+            .ir
+            .function_bodies
+            .get(&self.global_def_id(def_id))
+            .cloned();
+        if let Some(body) = &body {
+            self.function_bodies
+                .insert(self.global_def_id(def_id), body.clone());
+        }
+        let function_body = body.as_ref().map(nia_function_lower::lower_function_body);
         Some(BackendFunction {
             def_id: self.global_def_id(def_id),
             name: function.name.clone(),
@@ -148,7 +155,7 @@ impl<'a> ModuleLowerer<'a> {
                     let ty = if signature.receiver.is_some() {
                         local_id
                             .and_then(|local_id| {
-                                self.input.body_check.local_types.get(&local_id).copied()
+                                self.input.body_check.ir.local_types.get(&local_id).copied()
                             })
                             .unwrap_or(signature.ty)
                     } else {
@@ -166,7 +173,7 @@ impl<'a> ModuleLowerer<'a> {
             return_type: signature.return_type,
             is_extern: signature.is_extern,
             is_variadic: signature.is_variadic,
-            body,
+            function_body,
             span,
         })
     }

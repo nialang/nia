@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
-use crate::{BodyChecker, BracketSuffixResolution};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
+use nia_body_ir::BracketSuffixResolution;
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;

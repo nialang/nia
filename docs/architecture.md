@@ -240,13 +240,23 @@ Validates static initializers for top-level storage. It distinguishes static dat
 from compile-time value bindings. Address initializers are allowed only when they
 can be represented as target static relocations.
 
-### 8.4 `nia-layout`
+### 8.4 `nia-static-ir`
+
+Defines the static/global initialization IR. It represents compile-time data,
+not executable runtime control flow. It supports zero values, scalars,
+strings/bytes, arrays, repeats, structs, null pointers, global addresses, and
+function addresses.
+
+Static address paths use static-only elements such as field ids and constant
+indices. They must not carry source-shaped body expressions or runtime places.
+
+### 8.5 `nia-layout`
 
 Computes ABI-relevant layout for primitive, pointer, array, struct, enum, and
 instantiated nominal types. It uses explicit target data layout assumptions, such
 as LP64, rather than hidden host assumptions.
 
-### 8.5 `nia-abi-check`
+### 8.6 `nia-abi-check`
 
 Checks C ABI boundaries for `extern` functions, globals, and structs. It rejects
 Nia-only types that cannot be passed directly through the C ABI, such as slices,
@@ -287,6 +297,58 @@ Type-checks function bodies and expression semantics. It owns:
 Body checking consumes earlier tables instead of rediscovering definitions or
 types from source text.
 
+It produces `nia-body-ir` as the stable body semantic boundary. Later phases
+consume that IR instead of reading ad hoc body-check side tables or
+rediscovering expression semantics from AST shape.
+
+### 9.3 `nia-body-ir`
+
+Defines the checked body semantic IR. It stores resolved, typed body facts that
+later phases may consume, including expression types, final bracket-suffix
+resolution, builtin values, call targets, coercions, function references, local
+types, and recorded generic instantiations. It also defines the typed body,
+statement, expression, place, call, aggregate, inline assembly, and control-flow
+nodes produced after body checking.
+
+This crate is source-shaped: blocks, if expressions, switch expressions, and
+for headers still reflect the checked language form. It is not an optimization
+MIR and does not own diagnostics or checking policy. It is the durable data
+product of body checking and the input boundary for later lowering,
+monomorphization, and backend phases.
+
+### 9.4 `nia-function-ir`
+
+Defines the lowered function body IR used by backend codegen: function-level
+blocks, scopes, operations, terminators, places, callees, locals, builtin
+values, inline assembly, and runtime expressions.
+
+Function IR is the current function backend boundary. It removes source-shaped
+control expressions from runtime expression trees: block, if, switch, for,
+return, break, continue, and defer behavior is represented through blocks,
+terminators, scope edges, and defer bodies. LLVM codegen consumes this IR rather
+than rediscovering control-flow or place semantics from typed AST-shaped nodes.
+
+`nia-function-ir` is a data and validation crate. It does not depend on
+`nia-body-ir` and does not own the lowering pass from checked body IR. Its
+validator checks IR invariants such as unique ids, valid block/scope/local
+references, valid terminator successors, and recursively valid defer bodies.
+This catches broken lowerers before backend codegen starts emitting LLVM.
+
+Function IR is deliberately separate from static/global initialization. Static
+initializers describe compile-time data for storage; function IR describes
+runtime executable control and value flow.
+
+### 9.5 `nia-function-lower`
+
+Lowers `nia-body-ir::TypedBody` into `nia-function-ir::FunctionBody`. This crate
+owns the translation from source-shaped checked bodies into explicit function
+blocks, scope edges, terminators, defer bodies, locals, builtin values, and
+inline assembly options.
+
+This split keeps the Function IR data model reusable by validation, analyses,
+backend lowering, and codegen without making the IR crate depend on the
+source-shaped body IR that currently feeds it.
+
 ## 10. Monomorphization And Symbols
 
 ### 10.1 `nia-monomorphize`
@@ -306,8 +368,17 @@ Extern symbols bypass internal mangling and use their source names.
 
 ### 11.1 `nia-backend-ir`
 
-Defines typed backend IR consumed by codegen. It is lower-level than AST and
-contains type-checked, resolved program structure. It is not a full MIR.
+Defines backend program, module, item, layout, static initializer, function IR,
+and monomorphized instance structures consumed by codegen. Function bodies use
+`nia-function-ir::FunctionBody`.
+
+Backend IR is lower-level than AST and contains type-checked, resolved program
+structure. It is not a single full-program MIR. It is the module-level backend
+container around specialized IRs:
+
+- `FunctionBody` for runtime function execution;
+- `nia-static-ir::StaticInit` for global/static storage initialization;
+- layout and ABI-ready item metadata for codegen.
 
 Backend IR should be explicit enough for LLVM codegen without forcing codegen to
 re-run semantic analysis.
@@ -320,6 +391,28 @@ module information.
 
 It owns translation from semantic expressions into typed backend expressions,
 places, statements, static initializers, and inline assembly operands.
+
+Backend lowering may temporarily use `nia-body-ir` typed bodies for
+monomorphization and instance discovery, but typed bodies are not exposed through
+backend IR as the function codegen boundary.
+
+### 11.3 Static Initializer IR
+
+`nia-static-ir::StaticInit` is the static/global initialization IR. It is a data
+IR, not a body IR node. Body checking creates it for top-level storage
+initializers after static-check has accepted the source expression.
+
+Static initializer checking and lowering stay separate from `nia-function-ir`
+because their invariants are different:
+
+- static init must be representable as data before program execution;
+- it cannot contain runtime control flow, defer, local storage, or runtime calls;
+- it must preserve physical aggregate layout for codegen;
+- it may reference globals/functions through statically valid address paths.
+
+This separation is intentional. A future constant/data IR may refine
+`StaticInit`, but it should remain a data-initialization boundary rather than
+being folded into function IR.
 
 ## 12. LLVM Backend
 
@@ -382,8 +475,8 @@ Implementation bugs may panic in tests, but normal invalid Nia programs should
 flow through diagnostic reporting.
 
 Diagnostics should describe current language rules. The compiler should not keep
-special migration diagnostics for syntax that only existed during pre-release
-development.
+special migration diagnostics for syntax that only existed during earlier
+experimental development.
 
 ## 15. File And Module Granularity
 
@@ -402,7 +495,7 @@ for their owning phases.
 
 ## 16. Evolution Rules
 
-Nia is pre-public-release, so temporary historical forms are not compatibility
+Nia is pre-1.0, so temporary historical forms are not compatibility
 requirements. Once behavior is removed, tests and diagnostics should either
 delete it or treat it as ordinary invalid syntax.
 

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use crate::BodyChecker;
 use crate::literals::{
     byte_string_literal_len, c_string_literal_len, float_literal_text, has_numeric_literal_suffix,
     integer_literal_value, integer_range, numeric_literal_suffix, parse_float_literal,
     string_literal_char_len,
 };
-use crate::{ArrayToSliceCoercion, BodyChecker, CStringPointerCoercion};
 use nia_ast::{Expr, ExprKind, UnaryOp};
+use nia_body_ir::{ArrayToSliceCoercion, CStringPointerCoercion};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::InternedTyId;
+use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 
@@ -389,10 +390,7 @@ impl<'a> BodyChecker<'a> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self
-                .comptime
-                .array_lengths
-                .get(id)
-                .copied()
+                .array_len_const_expr_value(*id)
                 .ok_or_else(|| "array length was not evaluated by comptime".to_string()),
             ArrayLenTy::Builtin { name, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
@@ -455,13 +453,20 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::Infer => "_".to_string(),
             ArrayLenTy::ConstValue(value) => value.to_string(),
             ArrayLenTy::ConstExpr(id) => self
-                .comptime
-                .array_lengths
-                .get(id)
-                .map(u64::to_string)
+                .array_len_const_expr_value(*id)
+                .map(|value| value.to_string())
                 .unwrap_or_else(|| "<unevaluated const>".to_string()),
             ArrayLenTy::Builtin { name, ty } => format!("@{name}[{}]()", self.ty_name(*ty)),
         }
+    }
+
+    fn array_len_const_expr_value(&self, id: GlobalConstExprId) -> Option<u64> {
+        if id.module_id == self.defs.module_id {
+            return self.comptime.array_lengths.get(&id).copied();
+        }
+        self.program_comptime
+            .get(&id.module_id)
+            .and_then(|comptime| comptime.array_lengths.get(&id).copied())
     }
 
     fn nominal_ty_name(&self, def_id: nia_ids::GlobalDefId, args: &[InternedTyId]) -> String {

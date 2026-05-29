@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::ModuleCodegen;
-use crate::literals::{parse_float_literal, parse_int_literal};
-use nia_backend_ir::{
-    BackendLayouts, BuiltinConst, PlaceElem, StaticFieldInit, StaticInit, TypedExpr, TypedExprKind,
-};
+use crate::literals::parse_float_literal;
+use nia_backend_ir::BackendLayouts;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::{types::BasicTypeEnum, values::BasicValueEnum};
 use nia_span::Span;
+use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
@@ -86,7 +85,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         ty: InternedTyId,
         global: GlobalDefId,
-        path: &[PlaceElem],
+        path: &[StaticAddressElem],
         span: Span,
         target_interner: &TyInterner,
         target_layouts: &BackendLayouts,
@@ -106,7 +105,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let mut indices = vec![self.context.i64_type().const_int(0, false)];
             for elem in path {
                 match elem {
-                    PlaceElem::Field(field) => {
+                    StaticAddressElem::Field(field) => {
                         indices.push(
                             self.context.i32_type().const_int(
                                 self.field_index(current_ty, *field, span)? as u64,
@@ -115,9 +114,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         );
                         current_ty = self.field_ty(current_ty, *field, span)?;
                     }
-                    PlaceElem::Index(index) => {
-                        let const_index = self.const_index_value(index, span)?;
-                        indices.push(self.context.i64_type().const_int(const_index, false));
+                    StaticAddressElem::Index(index) => {
+                        indices.push(self.context.i64_type().const_int(*index, false));
                         current_ty = self.array_elem_ty(current_ty, span)?;
                     }
                 }
@@ -289,16 +287,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(struct_ty.const_named_struct(&values).into())
-    }
-
-    fn const_index_value(&self, expr: &TypedExpr, span: Span) -> Result<u64, Diagnostic> {
-        match &expr.kind {
-            TypedExprKind::Integer(text) => parse_int_literal(text)
-                .and_then(|value| u64::try_from(value).ok())
-                .ok_or_else(|| self.error(span, "static address index is not a valid usize")),
-            TypedExprKind::BuiltinValue(BuiltinConst::Usize(value)) => Ok(*value),
-            _ => Err(self.error(span, "static address index is not a supported constant")),
-        }
     }
 
     pub(super) fn const_array_from_values_in(

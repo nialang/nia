@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_body_ir::{BracketSuffixResolution, BuiltinValue};
 use nia_defs::{
     DefKind, ModuleId, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs,
 };
@@ -92,6 +93,7 @@ fn pipeline(source: &str) -> BodyCheck {
     );
     check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         module: &module,
+        all_modules: std::slice::from_ref(&module),
         defs: &defs,
         all_defs: std::slice::from_ref(&defs),
         values: &values,
@@ -110,6 +112,9 @@ fn pipeline(source: &str) -> BodyCheck {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+        },
+        program_comptime: ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
         },
     })
 }
@@ -390,39 +395,43 @@ fn main() i32 {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
         checked
+            .ir
             .local_types
             .values()
-            .any(|ty| checked.interner.get(*ty)
+            .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))),
         "{:?}",
-        checked.local_types
+        checked.ir.local_types
     );
     assert!(
         checked
+            .ir
             .local_types
             .values()
-            .any(|ty| checked.interner.get(*ty)
+            .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F64))),
         "{:?}",
-        checked.local_types
+        checked.ir.local_types
     );
     assert!(
         checked
+            .ir
             .local_types
             .values()
-            .any(|ty| checked.interner.get(*ty)
+            .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::U8))),
         "{:?}",
-        checked.local_types
+        checked.ir.local_types
     );
     assert!(
         checked
+            .ir
             .local_types
             .values()
-            .any(|ty| checked.interner.get(*ty)
+            .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F32))),
         "{:?}",
-        checked.local_types
+        checked.ir.local_types
     );
 }
 
@@ -902,7 +911,7 @@ fn main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let counts = checked.bracket_suffix_resolutions.values().fold(
+    let counts = checked.ir.bracket_suffix_resolutions.values().fold(
         (0usize, 0usize, 0usize),
         |(indexes, generic_calls, type_prefixes), resolution| match resolution {
             BracketSuffixResolution::Index => (indexes + 1, generic_calls, type_prefixes),
@@ -1057,12 +1066,14 @@ fn main() usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
         checked
+            .ir
             .builtin_values
             .values()
             .any(|value| *value == BuiltinValue::Usize(8))
     );
     assert!(
         checked
+            .ir
             .builtin_values
             .values()
             .any(|value| *value == BuiltinValue::Usize(4))
@@ -1505,7 +1516,7 @@ fn main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert_eq!(checked.c_string_pointer_coercions.len(), 6);
+    assert_eq!(checked.ir.c_string_pointer_coercions.len(), 6);
 }
 
 #[test]
@@ -1534,7 +1545,7 @@ fn main() void {
             >= 2,
         "{messages:?}"
     );
-    assert!(checked.c_string_pointer_coercions.is_empty());
+    assert!(checked.ir.c_string_pointer_coercions.is_empty());
 }
 
 #[test]

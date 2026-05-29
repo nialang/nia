@@ -7,9 +7,9 @@ project is intentionally narrow: the main repository contains the compiler
 implementation and the language documentation. The standard library, package
 manager, and build system are expected to live as separate projects.
 
-Nia is currently unreleased and under active design. The implementation favors
-clear semantics, predictable compilation phases, and a compact language surface
-over compatibility with earlier experimental syntax.
+Nia is pre-1.0 and under active design. The implementation favors clear
+semantics, predictable compilation phases, and a compact language surface over
+compatibility with earlier experimental syntax.
 
 ## Goals
 
@@ -79,16 +79,21 @@ Module aliases can be supplied with `-M name=path`.
 
 ## Testing
 
-Run the full test suite with:
-
-```sh
-cargo test --workspace
-```
-
-Check formatting with:
+Before opening or merging compiler changes, run the local release gate:
 
 ```sh
 cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
+```
+
+Do not add lint suppressions just to pass Clippy. Fix the code instead, or
+document and review a narrow exception.
+
+For a release point, also confirm the CLI version:
+
+```sh
+cargo run -p nia-cli -- --version
 ```
 
 ## License
