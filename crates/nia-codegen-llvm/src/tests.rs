@@ -2,8 +2,8 @@
 use super::*;
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
-    TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind,
 };
+use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
 use nia_ids::{DefId, GlobalDefId, LocalId, ModuleId};
 use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 use nia_span::Span;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_backend_ir::TypedExpr;
+use nia_body_ir::TypedExpr;
 use nia_diagnostic::Diagnostic;
 use nia_span::Span;
 

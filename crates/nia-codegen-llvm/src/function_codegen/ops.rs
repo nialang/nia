@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::literals::assign_to_binary_op;
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_backend_ir::{TypedExpr, TypedExprKind};
+use nia_body_ir::{TypedExpr, TypedExprKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_llvm::{FloatPredicate, IntPredicate, values::BasicValueEnum};

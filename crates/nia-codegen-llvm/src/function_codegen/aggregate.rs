@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_backend_ir::{TypedArrayElements, TypedExpr, TypedFieldInit};
+use nia_body_ir::{TypedArrayElements, TypedExpr, TypedFieldInit};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::values::{BasicValueEnum, PointerValue};

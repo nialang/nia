@@ -287,6 +287,23 @@ Type-checks function bodies and expression semantics. It owns:
 Body checking consumes earlier tables instead of rediscovering definitions or
 types from source text.
 
+It produces `nia-body-ir` as the stable body semantic boundary. Later phases
+consume that IR instead of reading ad hoc body-check side tables or
+rediscovering expression semantics from AST shape.
+
+### 9.3 `nia-body-ir`
+
+Defines the checked body semantic IR. It stores resolved, typed body facts that
+later phases may consume, including expression types, final bracket-suffix
+resolution, builtin values, call targets, coercions, function references, local
+types, and recorded generic instantiations. It also defines the typed body,
+statement, expression, place, call, aggregate, inline assembly, and control-flow
+nodes produced after body checking.
+
+This crate is not an optimization MIR and does not own diagnostics or checking
+policy. It is the durable data product of body checking and the input boundary
+for later lowering, monomorphization, and backend phases.
+
 ## 10. Monomorphization And Symbols
 
 ### 10.1 `nia-monomorphize`
@@ -306,8 +323,12 @@ Extern symbols bypass internal mangling and use their source names.
 
 ### 11.1 `nia-backend-ir`
 
-Defines typed backend IR consumed by codegen. It is lower-level than AST and
-contains type-checked, resolved program structure. It is not a full MIR.
+Defines backend program, module, item, layout, static initializer, and
+monomorphized instance structures consumed by codegen. Function bodies use
+`nia-body-ir` typed body nodes rather than backend-owned expression syntax.
+
+Backend IR is lower-level than AST and contains type-checked, resolved program
+structure. It is not a full MIR.
 
 Backend IR should be explicit enough for LLVM codegen without forcing codegen to
 re-run semantic analysis.

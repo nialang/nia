@@ -148,7 +148,7 @@ impl<'a> ModuleLowerer<'a> {
                     let ty = if signature.receiver.is_some() {
                         local_id
                             .and_then(|local_id| {
-                                self.input.body_check.local_types.get(&local_id).copied()
+                                self.input.body_check.ir.local_types.get(&local_id).copied()
                             })
                             .unwrap_or(signature.ty)
                     } else {

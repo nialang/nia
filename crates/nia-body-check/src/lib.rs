@@ -14,6 +14,10 @@ pub use calls::import_type_into;
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, ForInit, FunctionItem, ItemKind, Module, Stmt, StmtKind,
 };
+use nia_body_ir::{
+    ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
+    FunctionReference, GenericInstantiation, ResolvedCall,
+};
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
@@ -32,72 +36,8 @@ use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyCheck {
-    pub interner: TyInterner,
-    pub expr_types: HashMap<Span, InternedTyId>,
-    pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
-    pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
-    pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
-    pub local_types: HashMap<LocalId, InternedTyId>,
-    pub builtin_values: HashMap<Span, BuiltinValue>,
-    pub resolved_calls: HashMap<Span, ResolvedCall>,
-    pub function_references: HashMap<Span, FunctionReference>,
-    pub generic_instantiations: Vec<GenericInstantiation>,
+    pub ir: BodyIr,
     pub diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuiltinValue {
-    Usize(u64),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BracketSuffixResolution {
-    Index,
-    GenericCall,
-    TypePrefixInstantiation,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ArrayToSliceCoercion {
-    pub array_ty: InternedTyId,
-    pub slice_ty: InternedTyId,
-    pub is_const: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CStringPointerCoercion {
-    pub array_ty: InternedTyId,
-    pub pointer_ty: InternedTyId,
-    pub is_const: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GenericInstantiation {
-    pub def_id: GlobalDefId,
-    pub args: Vec<InternedTyId>,
-    pub generics: Vec<String>,
-    pub span: Span,
-    pub source_def_id: Option<GlobalDefId>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ResolvedCall {
-    Function(GlobalDefId),
-    FunctionInstance {
-        def_id: GlobalDefId,
-        args: Vec<InternedTyId>,
-    },
-    Method {
-        def_id: GlobalDefId,
-        args: Vec<InternedTyId>,
-    },
-    FunctionPointer,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FunctionReference {
-    pub def_id: GlobalDefId,
-    pub args: Vec<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -313,16 +253,18 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     checker.seed_global_types();
     checker.check_module(input.module);
     BodyCheck {
-        interner: checker.interner,
-        expr_types: checker.expr_types,
-        bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
-        array_to_slice_coercions: checker.array_to_slice_coercions,
-        c_string_pointer_coercions: checker.c_string_pointer_coercions,
-        local_types: checker.local_types,
-        builtin_values: checker.builtin_values,
-        resolved_calls: checker.resolved_calls,
-        function_references: checker.function_references,
-        generic_instantiations: checker.generic_instantiations,
+        ir: BodyIr {
+            interner: checker.interner,
+            expr_types: checker.expr_types,
+            bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
+            array_to_slice_coercions: checker.array_to_slice_coercions,
+            c_string_pointer_coercions: checker.c_string_pointer_coercions,
+            local_types: checker.local_types,
+            builtin_values: checker.builtin_values,
+            resolved_calls: checker.resolved_calls,
+            function_references: checker.function_references,
+            generic_instantiations: checker.generic_instantiations,
+        },
         diagnostics: checker.diagnostics,
     }
 }

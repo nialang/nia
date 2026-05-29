@@ -2,11 +2,12 @@
 use std::collections::HashMap;
 
 use crate::ModuleLowerer;
-use nia_backend_ir::{
-    BackendFunction, BackendParam, PlaceElem, TypedArrayElements, TypedAsmInput, TypedAsmOutput,
-    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedFor,
-    TypedForHeader, TypedForInit, TypedInlineAsm, TypedLocal, TypedPlace, TypedSliceRange,
-    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+use nia_backend_ir::{BackendFunction, BackendParam};
+use nia_body_ir::{
+    PlaceElem, TypedArrayElements, TypedAsmInput, TypedAsmOutput, TypedBinding, TypedBody,
+    TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit,
+    TypedInlineAsm, TypedLocal, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
+    TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::TyKind;

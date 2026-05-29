@@ -22,6 +22,7 @@ members = [
     "crates/nia-comptime-engine",
     "crates/nia-comptime-check",
     "crates/nia-static-check",
+    "crates/nia-body-ir",
     "crates/nia-body-check",
     "crates/nia-monomorphize",
     "crates/nia-mangle",
@@ -63,6 +64,7 @@ nia-type-normalize = { path = "crates/nia-type-normalize" }
 nia-comptime-engine = { path = "crates/nia-comptime-engine" }
 nia-comptime-check = { path = "crates/nia-comptime-check" }
 nia-static-check = { path = "crates/nia-static-check" }
+nia-body-ir = { path = "crates/nia-body-ir" }
 nia-body-check = { path = "crates/nia-body-check" }
 nia-monomorphize = { path = "crates/nia-monomorphize" }
 nia-mangle = { path = "crates/nia-mangle" }

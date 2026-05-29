@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::ModuleCodegen;
 use crate::literals::{parse_float_literal, parse_int_literal};
-use nia_backend_ir::{
-    BackendLayouts, BuiltinConst, PlaceElem, StaticFieldInit, StaticInit, TypedExpr, TypedExprKind,
-};
+use nia_backend_ir::{BackendLayouts, StaticFieldInit, StaticInit};
+use nia_body_ir::{BuiltinConst, PlaceElem, TypedExpr, TypedExprKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::{types::BasicTypeEnum, values::BasicValueEnum};

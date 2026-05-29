@@ -13,9 +13,8 @@ use std::collections::HashMap;
 use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
-use nia_backend_ir::{
-    BackendFunction, BuiltinConst, TypedBody, TypedExpr, TypedExprKind, TypedLocalKind,
-};
+use nia_backend_ir::BackendFunction;
+use nia_body_ir::{BuiltinConst, TypedBody, TypedExpr, TypedExprKind, TypedLocalKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{

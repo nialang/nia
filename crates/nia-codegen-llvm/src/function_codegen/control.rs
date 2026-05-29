@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_backend_ir::{
+use nia_body_ir::{
     TypedBinding, TypedBody, TypedExpr, TypedExprKind, TypedFor, TypedForHeader, TypedForInit,
     TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };

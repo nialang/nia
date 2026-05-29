@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::AssignOp;
-use nia_backend_ir::{TypedExpr, TypedExprKind, TypedPlace, TypedSliceRange};
+use nia_body_ir::{PlaceBase, PlaceElem, TypedExpr, TypedExprKind, TypedPlace, TypedSliceRange};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{InternedTyId, LocalId};
 use nia_llvm::{
@@ -344,11 +344,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_assign(
         &mut self,
         span: Span,
-        place: &nia_backend_ir::TypedPlace,
+        place: &TypedPlace,
         op: AssignOp,
         value: BasicValueEnum<'ctx>,
     ) -> Result<(), Diagnostic> {
-        let nia_backend_ir::PlaceBase::Local(LocalId(id)) = place.base else {
+        let PlaceBase::Local(LocalId(id)) = place.base else {
             let ptr = self.emit_typed_place_addr(place)?;
             let stored = if op == AssignOp::Assign {
                 value
@@ -396,23 +396,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         place: &TypedPlace,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let mut ptr = match &place.base {
-            nia_backend_ir::PlaceBase::Local(local_id) => self
+            PlaceBase::Local(local_id) => self
                 .locals
                 .get(local_id)
                 .copied()
                 .ok_or_else(|| self.error(place.span, "missing local storage"))?,
-            nia_backend_ir::PlaceBase::Global(def_id) => self
+            PlaceBase::Global(def_id) => self
                 .module
                 .globals
                 .get(def_id)
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(place.span, "missing global value"))?,
-            nia_backend_ir::PlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
+            PlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
         };
         let mut current_ty = self.place_base_ty(place);
         for elem in &place.elems {
             match elem {
-                nia_backend_ir::PlaceElem::Field(field) => {
+                PlaceElem::Field(field) => {
                     if let Some(TyKind::Pointer { elem, .. }) = self.module.ty_kind(current_ty) {
                         let ptr_ty = self.module.llvm_basic_type(current_ty, place.span)?;
                         ptr = self
@@ -434,7 +434,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     }
                     current_ty = self.field_ty(current_ty, *field, place.span)?;
                 }
-                nia_backend_ir::PlaceElem::Index(index) => {
+                PlaceElem::Index(index) => {
                     ptr = self.emit_index_addr(place.span, current_ty, ptr, index)?;
                     current_ty = self.array_elem_ty(current_ty, place.span)?;
                 }
@@ -463,17 +463,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn place_base_ty(&self, place: &TypedPlace) -> InternedTyId {
         match &place.base {
-            nia_backend_ir::PlaceBase::Local(local_id) => {
-                self.local_tys.get(local_id).copied().unwrap_or(place.ty)
-            }
-            nia_backend_ir::PlaceBase::Global(def_id) => self
+            PlaceBase::Local(local_id) => self.local_tys.get(local_id).copied().unwrap_or(place.ty),
+            PlaceBase::Global(def_id) => self
                 .module
                 .program
                 .globals
                 .get(def_id)
                 .map(|global| global.ty)
                 .unwrap_or(place.ty),
-            nia_backend_ir::PlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {
+            PlaceBase::Deref(expr) => match self.module.ty_kind(expr.ty) {
                 Some(TyKind::Pointer { elem, .. }) => *elem,
                 _ => place.ty,
             },
