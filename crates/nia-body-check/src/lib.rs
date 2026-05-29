@@ -23,7 +23,7 @@ use nia_body_ir::{
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
     StructSignature, UnionSignature,
@@ -89,6 +89,11 @@ pub struct ProgramSignatureMaps<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct ProgramComptimeMaps<'a> {
+    pub comptimes: &'a HashMap<ModuleId, ComptimeCheck>,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct BodyCheckInput<'a> {
     pub module: &'a Module,
     pub all_modules: &'a [Module],
@@ -104,6 +109,7 @@ pub struct BodyCheckInput<'a> {
     pub extensions: &'a VisibleExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
     pub program_signatures: ProgramSignatureMaps<'a>,
+    pub program_comptime: ProgramComptimeMaps<'a>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -150,6 +156,7 @@ pub fn check_module_bodies(
     let empty_functions = HashMap::new();
     let empty_globals = HashMap::new();
     let empty_comptimes = HashMap::new();
+    let empty_program_comptime = HashMap::new();
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
@@ -176,6 +183,9 @@ pub fn check_module_bodies(
             structs: &empty_structs,
             unions: &empty_unions,
             enums: &empty_enums,
+        },
+        program_comptime: ProgramComptimeMaps {
+            comptimes: &empty_program_comptime,
         },
     });
     checked.diagnostics.extend(layouts.diagnostics);
@@ -212,6 +222,9 @@ pub fn check_module_bodies_with_program_signatures(
         extensions: input.extensions,
         extension_interner: None,
         program_signatures: input.program_signatures,
+        program_comptime: ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
+        },
     });
     checked.diagnostics.extend(layouts.diagnostics);
     checked
@@ -242,6 +255,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_structs: input.program_signatures.structs,
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
+        program_comptime: input.program_comptime.comptimes,
         expr_types: HashMap::new(),
         bracket_suffix_resolutions: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
@@ -300,6 +314,7 @@ struct BodyChecker<'a> {
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     expr_types: HashMap<Span, InternedTyId>,
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,

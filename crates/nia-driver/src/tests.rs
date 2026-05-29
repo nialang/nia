@@ -2077,6 +2077,98 @@ pub comptime width: usize = 4;
 }
 
 #[test]
+fn imported_struct_field_array_length_accepts_literal_repeat_count() {
+    let root = temp_dir("imported_struct_field_array_length_accepts_literal_repeat_count");
+    write(
+        &root.join("defs.nia"),
+        r#"
+pub comptime N: usize = 4;
+
+pub struct Item {
+    value: u32,
+}
+
+pub struct Boxed {
+    items: [N]Item,
+}
+
+extend Item {
+    pub fn zero() Item {
+        { value: 0 }
+    }
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .defs;
+using defs::*;
+
+fn make() Boxed {
+    {
+        items: [Item::zero(); 4],
+    }
+}
+
+fn main() i32 {
+    var x = make();
+    x.items[0].value as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_struct_field_array_length_accepts_imported_repeat_count() {
+    let root = temp_dir("imported_struct_field_array_length_accepts_imported_repeat_count");
+    write(
+        &root.join("defs.nia"),
+        r#"
+pub comptime N: usize = 4;
+
+pub struct Item {
+    value: u32,
+}
+
+pub struct Boxed {
+    items: [N]Item,
+}
+
+extend Item {
+    pub fn zero() Item {
+        { value: 0 }
+    }
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .defs;
+using defs::*;
+
+fn make() Boxed {
+    {
+        items: [Item::zero(); defs::N],
+    }
+}
+
+fn main() i32 {
+    var x = make();
+    x.items[0].value as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_dependency_cycles_are_diagnosed() {
     let root = temp_dir("comptime_dependency_cycles_are_diagnosed");
     write(

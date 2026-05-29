@@ -122,6 +122,9 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
         },
+        program_comptime: nia_body_check::ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
+        },
     });
     assert!(
         body_check.diagnostics.is_empty(),
@@ -346,6 +349,9 @@ fn lower_source(source: &str) -> BackendLowering {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+        },
+        program_comptime: nia_body_check::ProgramComptimeMaps {
+            comptimes: &HashMap::new(),
         },
     });
     assert!(

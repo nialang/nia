@@ -1,66 +1,52 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use crate::{CheckedModule, LoadedModule, program_signatures::VisibleExtensionsForModule};
 use nia_body_check::ProgramSignatureMaps;
-use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
-use nia_imports::ImportAliasMap;
+use nia_comptime_check::ComptimeCheck;
+use nia_defs::DefCollection;
+use nia_ids::ModuleId;
 use nia_item_signatures::ItemSignatures;
+use nia_local_resolve::LocalResolution;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
+use nia_value_resolve::ValueResolution;
 
 pub(crate) struct CheckLoadedModuleInput<'a> {
     pub(crate) loaded_module: &'a LoadedModule,
     pub(crate) defs: DefCollection,
-    pub(crate) imports: &'a ImportAliasMap,
     pub(crate) all_modules: &'a [nia_ast::Module],
     pub(crate) all_defs: &'a [DefCollection],
     pub(crate) extensions: VisibleExtensionsForModule,
     pub(crate) type_resolution: TypeResolution,
+    pub(crate) value_resolution: ValueResolution,
+    pub(crate) local_resolution: LocalResolution,
     pub(crate) type_lowering: TypeLowering,
     pub(crate) item_signatures: ItemSignatures,
     pub(crate) type_normalization: TypeNormalization,
-    pub(crate) public_surfaces: &'a PublicSurfaces,
-    pub(crate) using_scope: &'a ModuleUsingScope,
     pub(crate) program_signatures: ProgramSignatureMaps<'a>,
+    pub(crate) comptime: ComptimeCheck,
+    pub(crate) program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
 }
 
 pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedModule {
     let CheckLoadedModuleInput {
         loaded_module,
         defs,
-        imports,
         all_modules,
         all_defs,
         extensions,
         type_resolution,
+        value_resolution,
+        local_resolution,
         type_lowering,
         item_signatures,
         type_normalization,
-        public_surfaces,
-        using_scope,
         program_signatures,
+        comptime,
+        program_comptime,
     } = input;
-    let value_resolution = nia_value_resolve::resolve_module_values_with_context(
-        &loaded_module.module,
-        &defs,
-        imports,
-        all_defs,
-        public_surfaces,
-        using_scope,
-    );
-    let local_resolution =
-        nia_local_resolve::resolve_module_locals(&loaded_module.module, &defs, &value_resolution);
-    let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &loaded_module.module,
-        all_modules,
-        defs: &defs,
-        all_defs,
-        values: &value_resolution,
-        locals: &local_resolution,
-        signatures: &item_signatures,
-        interner: &type_normalization.interner,
-        const_exprs: &type_lowering.const_exprs,
-    });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
         &defs,
         &type_normalization.interner,
@@ -122,6 +108,9 @@ pub(crate) fn check_loaded_module(input: CheckLoadedModuleInput<'_>) -> CheckedM
             extensions: &extensions.methods,
             extension_interner: Some(&extensions.interner),
             program_signatures,
+            program_comptime: nia_body_check::ProgramComptimeMaps {
+                comptimes: program_comptime,
+            },
         },
     );
 

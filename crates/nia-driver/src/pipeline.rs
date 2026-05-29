@@ -11,16 +11,21 @@ use crate::{
     },
     public_surface::compute_public_surfaces,
 };
+use std::collections::HashMap;
+
 use nia_backend_lower::BackendLowerModuleInput;
+use nia_comptime_check::ComptimeCheck;
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_imports::ModuleMap;
 use nia_item_signatures::ItemSignatures;
+use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
 use nia_span::Span;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
+use nia_value_resolve::ValueResolution;
 
 pub fn check_program(root_path: impl Into<String>) -> CheckedProgram {
     check_program_with_loaded(load_program(root_path))
@@ -164,6 +169,62 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
             )
         })
         .collect::<Vec<_>>();
+    let value_resolutions: Vec<ValueResolution> = parse_ok_modules
+        .iter()
+        .zip(defs_by_module.iter())
+        .map(|(loaded_module, defs)| {
+            let empty_using = nia_defs::ModuleUsingScope::default();
+            let using_scope = using_scopes.get(&loaded_module.id).unwrap_or(&empty_using);
+            nia_value_resolve::resolve_module_values_with_context(
+                &loaded_module.module,
+                defs,
+                &loaded.imports,
+                &defs_by_module,
+                &public_surfaces,
+                using_scope,
+            )
+        })
+        .collect();
+    let local_resolutions: Vec<LocalResolution> = parse_ok_modules
+        .iter()
+        .zip(defs_by_module.iter())
+        .zip(value_resolutions.iter())
+        .map(|((loaded_module, defs), values)| {
+            nia_local_resolve::resolve_module_locals(&loaded_module.module, defs, values)
+        })
+        .collect();
+    let comptimes_by_module: Vec<ComptimeCheck> = parse_ok_modules
+        .iter()
+        .zip(defs_by_module.iter())
+        .zip(value_resolutions.iter())
+        .zip(local_resolutions.iter())
+        .zip(item_signatures_by_module.iter())
+        .zip(type_normalizations.iter())
+        .zip(type_lowerings.iter())
+        .map(
+            |(
+                (((((loaded_module, defs), values), locals), item_signatures), type_normalization),
+                type_lowering,
+            )| {
+                nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+                    module: &loaded_module.module,
+                    all_modules: &all_modules,
+                    defs,
+                    all_defs: &defs_by_module,
+                    values,
+                    locals,
+                    signatures: item_signatures,
+                    interner: &type_normalization.interner,
+                    const_exprs: &type_lowering.const_exprs,
+                })
+            },
+        )
+        .collect();
+    let program_comptime = parse_ok_modules
+        .iter()
+        .zip(comptimes_by_module.iter())
+        .map(|(module, comptime)| (module.id, comptime.clone()))
+        .collect::<HashMap<_, _>>();
     diagnostics.extend(extension_diagnostics.iter().cloned().map(|diagnostic| {
         ProgramDiagnostic {
             path: parse_ok_modules
@@ -176,34 +237,46 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
 
     for (
         (
-            ((((loaded_module, defs), type_resolution), type_lowering), item_signatures),
+            (
+                (
+                    (
+                        (((loaded_module, defs), type_resolution), value_resolution),
+                        local_resolution,
+                    ),
+                    type_lowering,
+                ),
+                item_signatures,
+            ),
             type_normalization,
         ),
-        visible_extensions,
+        (comptime, visible_extensions),
     ) in parse_ok_modules
         .iter()
         .zip(defs_by_module.iter())
         .zip(type_resolutions)
+        .zip(value_resolutions)
+        .zip(local_resolutions)
         .zip(type_lowerings)
         .zip(item_signatures_by_module)
         .zip(type_normalizations)
-        .zip(visible_extensions_by_module.iter())
+        .zip(
+            comptimes_by_module
+                .iter()
+                .zip(visible_extensions_by_module.iter()),
+        )
     {
-        let empty_using = nia_defs::ModuleUsingScope::default();
-        let using_scope = using_scopes.get(&loaded_module.id).unwrap_or(&empty_using);
         let checked = check_loaded_module(CheckLoadedModuleInput {
             loaded_module,
             defs: defs.clone(),
-            imports: &loaded.imports,
             all_modules: &all_modules,
             all_defs: &defs_by_module,
             extensions: visible_extensions.clone(),
             type_resolution,
+            value_resolution,
+            local_resolution,
             type_lowering,
             item_signatures,
             type_normalization,
-            public_surfaces: &public_surfaces,
-            using_scope,
             program_signatures: nia_body_check::ProgramSignatureMaps {
                 functions: &program_functions,
                 globals: &program_globals,
@@ -212,6 +285,8 @@ fn check_program_with_loaded(loaded: crate::LoadedProgram) -> CheckedProgram {
                 unions: &program_unions,
                 enums: &program_enums,
             },
+            comptime: comptime.clone(),
+            program_comptime: &program_comptime,
         });
         diagnostics.extend(module_diagnostics(
             &loaded_module.path,
