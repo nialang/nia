@@ -105,10 +105,13 @@ impl<'a> ModuleLowerer<'a> {
             .explicit_type
             .or_else(|| binding.value.as_ref().and_then(|value| self.expr_ty(value)))
             .unwrap_or_else(|| self.error_ty());
-        let init = binding
-            .value
-            .as_ref()
-            .map(|value| self.lower_static_init(value));
+        let init = self
+            .input
+            .body_check
+            .ir
+            .global_inits
+            .get(&self.global_def_id(def_id))
+            .cloned();
         Some(BackendGlobal {
             def_id: self.global_def_id(def_id),
             name: binding.name.clone(),

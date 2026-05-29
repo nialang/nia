@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::literals::{decode_byte_char_literal, parse_float_literal, parse_int_literal};
-use nia_backend_ir::StaticInit;
+use nia_body_ir::StaticInit;
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_llvm::values::BasicValueEnum;

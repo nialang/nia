@@ -555,7 +555,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn global_comptime_value(
+    pub(crate) fn global_comptime_value(
         &self,
         def_id: nia_ids::GlobalDefId,
     ) -> Option<nia_comptime_check::ComptimeValue> {
@@ -651,7 +651,7 @@ impl<'a> BodyChecker<'a> {
             .is_some_and(|resolved| resolved.signature.fields.is_empty())
     }
 
-    fn bracket_suffix_resolution(&self, span: Span) -> Option<BracketSuffixResolution> {
+    pub(crate) fn bracket_suffix_resolution(&self, span: Span) -> Option<BracketSuffixResolution> {
         self.bracket_suffix_resolutions.get(&span).copied()
     }
 
@@ -662,14 +662,14 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn global_error_def(&self) -> nia_ids::GlobalDefId {
+    pub(crate) fn global_error_def(&self) -> nia_ids::GlobalDefId {
         nia_ids::GlobalDefId {
             module_id: self.defs.module_id,
             def_id: nia_defs::DefId(u32::MAX),
         }
     }
 
-    fn field_def_for_struct_ty(
+    pub(crate) fn field_def_for_struct_ty(
         &self,
         ty: nia_ids::InternedTyId,
         name: &str,
@@ -678,7 +678,7 @@ impl<'a> BodyChecker<'a> {
         self.field_def_for_nominal(def_id, name)
     }
 
-    fn field_def_for_base_ty(
+    pub(crate) fn field_def_for_base_ty(
         &self,
         ty: nia_ids::InternedTyId,
         name: &str,

@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-mod body;
 mod instantiate;
 mod items;
-mod literals;
-mod static_init;
 mod struct_instances;
 
-use nia_ast::{BindingItem, Expr, ItemKind, Module};
+use nia_ast::{Expr, ItemKind, Module};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
     BackendStructInstanceKey,
 };
 use nia_body_check::BodyCheck;
-use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
@@ -37,9 +33,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub module_id: ModuleId,
     pub module_name: String,
     pub module: &'a Module,
-    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
-    pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub type_lowering: &'a TypeLowering,
@@ -79,7 +73,6 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
-    pub(crate) comptime_global_stack: Vec<GlobalDefId>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -89,47 +82,7 @@ impl<'a> ModuleLowerer<'a> {
             monomorphization,
             interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
-            comptime_global_stack: Vec::new(),
         }
-    }
-
-    fn comptime_binding_for(&self, global_id: GlobalDefId) -> Option<&'a BindingItem> {
-        let (module_index, defs) = self
-            .input
-            .all_defs
-            .iter()
-            .enumerate()
-            .find(|(_, defs)| defs.module_id == global_id.module_id)?;
-        let module = self.input.all_modules.get(module_index)?;
-        module.items.iter().find_map(|item| {
-            let ItemKind::Binding(binding) = &item.kind else {
-                return None;
-            };
-            if !binding.is_comptime {
-                return None;
-            }
-            let def_id = defs.def_spans.get(item.span)?;
-            (def_id == global_id.def_id).then_some(binding)
-        })
-    }
-
-    pub(crate) fn comptime_global_id_for_expr(&self, expr: &Expr) -> Option<GlobalDefId> {
-        self.comptime_global_id_for_span(expr.span)
-    }
-
-    pub(crate) fn comptime_global_id_for_span(&self, span: Span) -> Option<GlobalDefId> {
-        if let Some(global_id) = self.input.values.qualified_values.get(&span).copied()
-            && self.def_kind_of(global_id) == Some(DefKind::Comptime)
-        {
-            return Some(global_id);
-        }
-        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
-            self.input.values.names.get(&span)
-        else {
-            return None;
-        };
-        (self.input.defs.defs.get(*def_id)?.kind == DefKind::Comptime)
-            .then_some(self.global_def_id(*def_id))
     }
 
     fn lower_module(&mut self) -> BackendModule {
@@ -366,13 +319,6 @@ impl<'a> ModuleLowerer<'a> {
             .expect("array length used in backend symbol must be evaluated")
     }
 
-    fn global_error_def(&self) -> GlobalDefId {
-        GlobalDefId {
-            module_id: self.input.module_id,
-            def_id: DefId(u32::MAX),
-        }
-    }
-
     fn error_ty(&self) -> InternedTyId {
         self.input.body_check.ir.interner.error()
     }
@@ -388,109 +334,6 @@ impl<'a> ModuleLowerer<'a> {
         }
         None
     }
-
-    fn nominal_global_def(&self, ty: InternedTyId) -> Option<GlobalDefId> {
-        match self.input.body_check.ir.interner.get(ty) {
-            Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
-            _ => None,
-        }
-    }
-
-    fn field_def_for_struct_ty(&self, ty: InternedTyId, name: &str) -> Option<GlobalDefId> {
-        let def_id = self.nominal_global_def(ty)?;
-        let defs = self.defs_for_module(def_id.module_id)?;
-        defs.scopes
-            .struct_members
-            .get(&def_id.def_id)
-            .and_then(|members| members.fields.get(name))
-            .or_else(|| {
-                defs.scopes
-                    .union_members
-                    .get(&def_id.def_id)
-                    .and_then(|members| members.fields.get(name))
-            })
-            .map(|field| GlobalDefId {
-                module_id: def_id.module_id,
-                def_id: field,
-            })
-    }
-
-    fn field_def_for_base_ty(&self, ty: InternedTyId, name: &str) -> Option<GlobalDefId> {
-        let (def_id, _) = self.receiver_base_type(ty)?;
-        let defs = self.defs_for_module(def_id.module_id)?;
-        defs.scopes
-            .struct_members
-            .get(&def_id.def_id)
-            .and_then(|members| members.fields.get(name))
-            .or_else(|| {
-                defs.scopes
-                    .union_members
-                    .get(&def_id.def_id)
-                    .and_then(|members| members.fields.get(name))
-            })
-            .map(|field| GlobalDefId {
-                module_id: def_id.module_id,
-                def_id: field,
-            })
-    }
-
-    fn receiver_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        match self.input.body_check.ir.interner.get(ty) {
-            Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
-            Some(TyKind::Pointer { elem, .. }) => self.receiver_base_type(*elem),
-            _ => None,
-        }
-    }
-
-    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
-        self.input
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == module_id)
-    }
-
-    pub(crate) fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
-        self.input
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == global_id.module_id)
-            .and_then(|defs| defs.defs.get(global_id.def_id))
-            .map(|def| def.kind)
-    }
 }
-
-impl ComptimeEnv for ModuleLowerer<'_> {
-    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
-        if let Some(local_id) = self.local_comptime_id_for_span(span) {
-            return self
-                .input
-                .comptime
-                .values
-                .get(&nia_comptime_check::ComptimeKey::Local(local_id))
-                .cloned()
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: format!("failed to evaluate comptime value `{name}`"),
-                });
-        }
-        if let Some(global_id) = self.comptime_global_id_for_span(span) {
-            return self
-                .input
-                .comptime
-                .values
-                .get(&nia_comptime_check::ComptimeKey::Global(global_id))
-                .cloned()
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: format!("failed to evaluate comptime value `{name}`"),
-                });
-        }
-        Err(ComptimeError {
-            span,
-            message: format!("comptime expression can only use comptime bindings: `{name}`"),
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests;

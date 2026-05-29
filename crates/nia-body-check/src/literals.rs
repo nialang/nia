@@ -83,6 +83,26 @@ pub(super) fn decode_char_literal(text: &str) -> Option<u32> {
     (scalars.len() == 1).then_some(scalars[0])
 }
 
+pub(super) fn decode_byte_char_literal(text: &str) -> Option<u8> {
+    let inner = text.strip_prefix("b'")?.strip_suffix('\'')?;
+    decode_char_inner(inner).and_then(|bytes| (bytes.len() == 1).then_some(bytes[0]))
+}
+
+pub(super) fn parse_int_literal(text: &str) -> Option<i128> {
+    let text = numeric_literal_body(text);
+    let (radix, digits) =
+        if let Some(rest) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+            (16, rest)
+        } else if let Some(rest) = text.strip_prefix("0b").or_else(|| text.strip_prefix("0B")) {
+            (2, rest)
+        } else if let Some(rest) = text.strip_prefix("0o").or_else(|| text.strip_prefix("0O")) {
+            (8, rest)
+        } else {
+            (10, text)
+        };
+    i128::from_str_radix(&digits.replace('_', ""), radix).ok()
+}
+
 pub(super) fn decode_string_literal(literal: &StringLiteral) -> Option<Vec<u32>> {
     if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
         return None;

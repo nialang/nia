@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::ReceiverKind;
-use nia_body_ir::{PlaceElem, TypedBody};
+use nia_body_ir::{StaticInit, TypedBody};
 use nia_comptime_check::ComptimeCheck;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
@@ -191,39 +191,6 @@ pub struct BackendGlobal {
     pub is_extern: bool,
     pub init: Option<StaticInit>,
     pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum StaticInit {
-    Zero,
-    Int(i128),
-    Float(String),
-    Bool(bool),
-    Char(u32),
-    Byte(u8),
-    Chars(Vec<u32>),
-    Bytes(Vec<u8>),
-    Array(Vec<StaticInit>),
-    Repeat {
-        value: Box<StaticInit>,
-        count: u64,
-    },
-    Struct(Vec<StaticFieldInit>),
-    NullPtr,
-    AddrOfGlobal {
-        global: GlobalDefId,
-        path: Vec<PlaceElem>,
-    },
-    AddrOfFunction {
-        function: GlobalDefId,
-        args: Vec<InternedTyId>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct StaticFieldInit {
-    pub field: GlobalDefId,
-    pub value: StaticInit,
 }
 
 #[derive(Debug, Clone, PartialEq)]
