@@ -40,6 +40,10 @@ pub enum ControlOp {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ControlTerminator {
+    Next {
+        target: ControlBlockId,
+        span: Span,
+    },
     Return {
         value: Option<TypedExpr>,
         span: Span,
@@ -56,6 +60,18 @@ pub enum ControlTerminator {
     },
 }
 
+impl ControlTerminator {
+    pub fn successors(&self) -> Vec<ControlBlockId> {
+        match self {
+            ControlTerminator::Next { target, .. } => vec![*target],
+            ControlTerminator::Return { .. }
+            | ControlTerminator::Break { .. }
+            | ControlTerminator::Continue { .. }
+            | ControlTerminator::Tail { .. } => Vec::new(),
+        }
+    }
+}
+
 pub fn lower_control_body(body: &TypedBody) -> ControlBody {
     ControlLowerer::new().lower_body(body)
 }
@@ -70,33 +86,93 @@ impl ControlLowerer {
     }
 
     fn lower_body(&mut self, body: &TypedBody) -> ControlBody {
-        let id = self.alloc_block();
+        let entry = self.alloc_block();
+        let mut blocks = Vec::new();
         let mut ops = Vec::new();
-        let mut terminator = None;
+        let current = entry;
         for stmt in &body.stmts {
             if let Some(term) = self.lower_stmt(stmt, &mut ops) {
-                terminator = Some(term);
-                break;
+                if ops.is_empty() {
+                    blocks.push(ControlBlock {
+                        id: current,
+                        span: stmt.span,
+                        ops,
+                        terminator: term,
+                    });
+                } else {
+                    let term_block = self.alloc_block();
+                    blocks.push(ControlBlock {
+                        id: current,
+                        span: body.span,
+                        ops,
+                        terminator: ControlTerminator::Next {
+                            target: term_block,
+                            span: stmt.span,
+                        },
+                    });
+                    blocks.push(ControlBlock {
+                        id: term_block,
+                        span: stmt.span,
+                        ops: Vec::new(),
+                        terminator: term,
+                    });
+                }
+                return ControlBody {
+                    span: body.span,
+                    locals: body.locals.clone(),
+                    blocks,
+                    entry,
+                    ty: body.ty,
+                };
             }
         }
-        let terminator = terminator.unwrap_or_else(|| ControlTerminator::Tail {
+
+        let tail = ControlTerminator::Tail {
             value: body.tail.as_ref().map(|tail| (**tail).clone()),
             span: body
                 .tail
                 .as_ref()
                 .map(|tail| tail.span)
                 .unwrap_or(body.span),
-        });
+        };
+        if ops.is_empty() {
+            blocks.push(ControlBlock {
+                id: current,
+                span: body.span,
+                ops,
+                terminator: tail,
+            });
+        } else {
+            let tail_block = self.alloc_block();
+            blocks.push(ControlBlock {
+                id: current,
+                span: body.span,
+                ops,
+                terminator: ControlTerminator::Next {
+                    target: tail_block,
+                    span: body
+                        .tail
+                        .as_ref()
+                        .map(|tail| tail.span)
+                        .unwrap_or(body.span),
+                },
+            });
+            blocks.push(ControlBlock {
+                id: tail_block,
+                span: body
+                    .tail
+                    .as_ref()
+                    .map(|tail| tail.span)
+                    .unwrap_or(body.span),
+                ops: Vec::new(),
+                terminator: tail,
+            });
+        }
         ControlBody {
             span: body.span,
             locals: body.locals.clone(),
-            blocks: vec![ControlBlock {
-                id,
-                span: body.span,
-                ops,
-                terminator,
-            }],
-            entry: id,
+            blocks,
+            entry,
             ty: body.ty,
         }
     }
@@ -200,6 +276,47 @@ mod tests {
     }
 
     #[test]
+    fn non_terminal_ops_branch_to_tail_block() {
+        let span = Span::default();
+        let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
+        let expr = TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Integer("1".to_string()),
+        };
+        let body = TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Expr(expr.clone()),
+            }],
+            tail: Some(Box::new(expr)),
+            ty,
+        };
+
+        let control = lower_control_body(&body);
+
+        assert_eq!(control.blocks.len(), 2);
+        assert_eq!(control.blocks[0].ops.len(), 1);
+        assert!(matches!(
+            control.blocks[0].terminator,
+            ControlTerminator::Next {
+                target: ControlBlockId(1),
+                ..
+            }
+        ));
+        assert_eq!(
+            control.blocks[0].terminator.successors(),
+            vec![ControlBlockId(1)]
+        );
+        assert!(matches!(
+            control.blocks[1].terminator,
+            ControlTerminator::Tail { value: Some(_), .. }
+        ));
+    }
+
+    #[test]
     fn return_terminates_block_before_later_statements() {
         let span = Span::default();
         let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
@@ -227,6 +344,7 @@ mod tests {
 
         let control = lower_control_body(&body);
 
+        assert_eq!(control.blocks.len(), 1);
         assert!(control.blocks[0].ops.is_empty());
         assert!(matches!(
             control.blocks[0].terminator,
