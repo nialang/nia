@@ -3,6 +3,7 @@ use nia_body_ir::{
     TypedBinding, TypedBody, TypedExpr, TypedExprKind, TypedFor, TypedForHeader, TypedForInit,
     TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };
+use nia_control_ir::{ControlBlockId, ControlBody, ControlOp, ControlTerminator};
 use nia_diagnostic::Diagnostic;
 use nia_llvm::{
     basic_block::BasicBlock,
@@ -13,6 +14,194 @@ use nia_span::Span;
 use super::{FunctionCodegen, LoopTargets};
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
+    pub(crate) fn can_emit_control_body(body: &ControlBody) -> bool {
+        body.blocks.iter().all(|block| {
+            matches!(
+                block.terminator,
+                ControlTerminator::Next { .. }
+                    | ControlTerminator::Branch { .. }
+                    | ControlTerminator::Return { .. }
+                    | ControlTerminator::Tail { .. }
+            )
+        })
+    }
+
+    pub(crate) fn emit_control_body(&mut self, body: &ControlBody) -> Result<(), Diagnostic> {
+        let mut llvm_blocks = std::collections::HashMap::new();
+        for block in &body.blocks {
+            let name = if block.id == body.entry {
+                "entry".to_string()
+            } else {
+                format!("cir.bb{}", block.id.0)
+            };
+            let llvm_block = self
+                .module
+                .context
+                .append_basic_block(self.llvm_function, &name)?;
+            llvm_blocks.insert(block.id, llvm_block);
+        }
+
+        let Some(entry) = llvm_blocks.get(&body.entry).copied() else {
+            return Err(self.error(body.span, "control body has no entry block"));
+        };
+        self.builder.position_at_end(entry);
+        self.out_ptr = self.function_out_ptr()?;
+        self.alloc_control_locals(body)?;
+        self.store_params()?;
+        let root_scope = self.push_defer_scope();
+
+        for block in &body.blocks {
+            let Some(llvm_block) = llvm_blocks.get(&block.id).copied() else {
+                return Err(self.error(block.span, "missing control block"));
+            };
+            self.builder.position_at_end(llvm_block);
+            if self.current_block_has_terminator() {
+                continue;
+            }
+            for op in &block.ops {
+                self.emit_control_op(block.span, op)?;
+                if self.current_block_has_terminator() {
+                    break;
+                }
+            }
+            if !self.current_block_has_terminator() {
+                self.emit_control_terminator(body, block.id, &block.terminator, &llvm_blocks)?;
+            }
+        }
+
+        self.pop_defer_scope_to(root_scope, false)?;
+        Ok(())
+    }
+
+    fn emit_control_op(&mut self, span: Span, op: &ControlOp) -> Result<(), Diagnostic> {
+        match op {
+            ControlOp::Binding(binding) => self.emit_binding(span, binding),
+            ControlOp::Expr(expr) => {
+                if self.expr_requires_void_emit(expr) || self.is_void_expr(expr) {
+                    self.emit_void_expr(expr)
+                } else {
+                    let _ = self.emit_expr(expr)?;
+                    Ok(())
+                }
+            }
+            ControlOp::Defer(expr) => self.register_defer(span, expr),
+        }
+    }
+
+    fn emit_control_terminator(
+        &mut self,
+        body: &ControlBody,
+        block: ControlBlockId,
+        terminator: &ControlTerminator,
+        llvm_blocks: &std::collections::HashMap<ControlBlockId, BasicBlock<'ctx>>,
+    ) -> Result<(), Diagnostic> {
+        match terminator {
+            ControlTerminator::Next { target, span }
+            | ControlTerminator::Branch { target, span } => {
+                let target = self.llvm_control_block(*span, *target, llvm_blocks)?;
+                self.builder
+                    .build_unconditional_branch(target)
+                    .map_err(|_| self.error(*span, "failed to build control branch"))?;
+            }
+            ControlTerminator::Return { value, span } => {
+                self.emit_control_return(*span, value.as_ref())?;
+            }
+            ControlTerminator::Tail { value, span } => {
+                self.emit_control_tail(body, block, *span, value.as_ref())?;
+            }
+            ControlTerminator::If { span, .. } => {
+                return Err(self.error(*span, "control-ir if codegen is not implemented"));
+            }
+            ControlTerminator::Switch { span, .. } => {
+                return Err(self.error(*span, "control-ir switch codegen is not implemented"));
+            }
+            ControlTerminator::Loop { span, .. } => {
+                return Err(self.error(*span, "control-ir loop codegen is not implemented"));
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_control_return(
+        &mut self,
+        span: Span,
+        value: Option<&TypedExpr>,
+    ) -> Result<(), Diagnostic> {
+        if let Some(value) = value {
+            let value = self.emit_expr(value)?;
+            self.emit_all_defers(span)?;
+            if self.is_never(self.function.return_type) {
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(span, "failed to build never return"))?;
+            } else {
+                self.emit_return_value(span, value)?;
+            }
+        } else {
+            self.emit_all_defers(span)?;
+            if self.is_never(self.function.return_type) {
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(span, "failed to build never return"))?;
+            } else {
+                self.builder
+                    .build_return(None)
+                    .map_err(|_| self.error(span, "failed to build void return"))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_control_tail(
+        &mut self,
+        body: &ControlBody,
+        block: ControlBlockId,
+        span: Span,
+        value: Option<&TypedExpr>,
+    ) -> Result<(), Diagnostic> {
+        let Some(value) = value else {
+            if self.is_void(self.function.return_type) {
+                self.emit_all_defers(span)?;
+                self.builder
+                    .build_return(None)
+                    .map_err(|_| self.error(span, "failed to build void return"))?;
+            } else if self.is_never(self.function.return_type) {
+                self.emit_all_defers(span)?;
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(span, "failed to build never function unreachable"))?;
+            }
+            return Ok(());
+        };
+        if self.is_zero_sized(value.ty) {
+            self.emit_zero_sized_expr(value)?;
+            self.emit_all_defers(span)?;
+            self.builder
+                .build_return(None)
+                .map_err(|_| self.error(span, "failed to build void return"))?;
+            return Ok(());
+        }
+        let value = self.emit_expr(value)?;
+        if self.current_block_has_terminator() {
+            return Ok(());
+        }
+        let _ = body.return_exited_scopes(block);
+        self.emit_all_defers(span)?;
+        self.emit_return_value(span, value)
+    }
+
+    fn llvm_control_block(
+        &self,
+        span: Span,
+        id: ControlBlockId,
+        llvm_blocks: &std::collections::HashMap<ControlBlockId, BasicBlock<'ctx>>,
+    ) -> Result<BasicBlock<'ctx>, Diagnostic> {
+        llvm_blocks
+            .get(&id)
+            .copied()
+            .ok_or_else(|| self.error(span, "missing control branch target"))
+    }
+
     pub(super) fn emit_stmt(&mut self, stmt: &TypedStmt) -> Result<(), Diagnostic> {
         match &stmt.kind {
             TypedStmtKind::Binding(binding) => self.emit_binding(stmt.span, binding),

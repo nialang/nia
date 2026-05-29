@@ -11,6 +11,7 @@ nia-backend-ir.workspace = true
 nia-body-ir.workspace = true
 nia-comptime-check.workspace = true
 nia-comptime-engine.workspace = true
+nia-control-ir.workspace = true
 nia-diagnostic.workspace = true
 nia-ice.workspace = true
 nia-ids.workspace = true
