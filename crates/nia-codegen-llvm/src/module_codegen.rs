@@ -128,11 +128,55 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
         let owner = self.program.module(ty.interner_id)?;
-        owner
+        if let Some(layout) = owner
             .layouts
             .types
             .iter()
             .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
+        {
+            return Some(layout);
+        }
+        let Some(TyKind::Nominal { def_id, args }) = owner.interner.get(ty) else {
+            return None;
+        };
+        let def_owner = self.program.module(def_id.module_id)?;
+        if args.is_empty() {
+            def_owner
+                .layouts
+                .structs
+                .iter()
+                .find_map(|(candidate, layout)| {
+                    (*candidate == *def_id).then_some(layout.layout.clone())
+                })
+                .or_else(|| {
+                    def_owner
+                        .layouts
+                        .unions
+                        .iter()
+                        .find_map(|(candidate, layout)| {
+                            (*candidate == *def_id).then_some(layout.layout.clone())
+                        })
+                })
+        } else {
+            def_owner
+                .layouts
+                .struct_instances
+                .iter()
+                .find_map(|(key, layout)| {
+                    (key.def_id == *def_id && self.same_type_args(&key.args, args))
+                        .then_some(layout.layout.clone())
+                })
+                .or_else(|| {
+                    def_owner
+                        .layouts
+                        .union_instances
+                        .iter()
+                        .find_map(|(key, layout)| {
+                            (key.def_id == *def_id && self.same_type_args(&key.args, args))
+                                .then_some(layout.layout.clone())
+                        })
+                })
+        }
     }
 
     fn is_const_argv_ty(&self, ty: InternedTyId) -> bool {
