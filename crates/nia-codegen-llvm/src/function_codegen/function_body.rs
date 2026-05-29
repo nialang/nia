@@ -2,7 +2,8 @@
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBinding, FunctionBlockId, FunctionBody, FunctionDeferBody, FunctionExpr,
-    FunctionExprKind, FunctionForHeader, FunctionOp, FunctionScopeId, FunctionTerminator,
+    FunctionExprKind, FunctionForHeader, FunctionIrError, FunctionOp, FunctionScopeId,
+    FunctionTerminator, validate_function_body,
 };
 use nia_llvm::{basic_block::BasicBlock, values::IntValue};
 use nia_span::Span;
@@ -11,6 +12,7 @@ use super::FunctionCodegen;
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(crate) fn emit_function_body(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
+        validate_function_body(body).map_err(function_ir_diagnostic)?;
         let physical_entry = self
             .module
             .context
@@ -549,4 +551,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         }
     }
+}
+
+fn function_ir_diagnostic(error: FunctionIrError) -> Diagnostic {
+    Diagnostic::error(
+        error.span,
+        format!("invalid function IR: {}", error.message),
+    )
 }
