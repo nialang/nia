@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod loader;
-mod module_check;
 mod pipeline;
 mod program_signatures;
 mod public_surface;
+mod query;
 
 use nia_abi_check::AbiCheck;
 use nia_ast::Module;
