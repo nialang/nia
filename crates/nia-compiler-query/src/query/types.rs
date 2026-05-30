@@ -56,21 +56,6 @@ impl QueryKey<DriverContext> for ItemSignaturesQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct TypeLoweringsByModuleQuery;
-
-impl QueryKey<DriverContext> for TypeLoweringsByModuleQuery {
-    type Value = Vec<TypeLowering>;
-
-    fn name() -> &'static str {
-        "type_lowerings_by_module"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.type_lowerings_by_module)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct TypeNormalizationQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for TypeNormalizationQuery {
@@ -82,21 +67,6 @@ impl QueryKey<DriverContext> for TypeNormalizationQuery {
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
         (db.context().providers.type_normalization)(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct TypeNormalizationsByModuleQuery;
-
-impl QueryKey<DriverContext> for TypeNormalizationsByModuleQuery {
-    type Value = Vec<TypeNormalization>;
-
-    fn name() -> &'static str {
-        "type_normalizations_by_module"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.type_normalizations_by_module)(db)
     }
 }
 
