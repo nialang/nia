@@ -198,6 +198,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "nia-compiler-query"
+version = "0.2.0"
+dependencies = [
+ "nia-abi-check",
+ "nia-ast",
+ "nia-backend-lower",
+ "nia-body-check",
+ "nia-comptime-check",
+ "nia-defs",
+ "nia-diagnostic",
+ "nia-flow-check",
+ "nia-ids",
+ "nia-imports",
+ "nia-item-signatures",
+ "nia-layout",
+ "nia-local-resolve",
+ "nia-monomorphize",
+ "nia-parser",
+ "nia-query",
+ "nia-span",
+ "nia-static-check",
+ "nia-ty",
+ "nia-type-lower",
+ "nia-type-normalize",
+ "nia-type-resolve",
+ "nia-value-resolve",
+]
+
+[[package]]
 name = "nia-comptime-check"
 version = "0.2.0"
 dependencies = [
@@ -248,29 +277,14 @@ dependencies = [
 name = "nia-driver"
 version = "0.2.0"
 dependencies = [
- "nia-abi-check",
  "nia-ast",
- "nia-backend-lower",
- "nia-body-check",
- "nia-comptime-check",
- "nia-defs",
+ "nia-compiler-query",
  "nia-diagnostic",
- "nia-flow-check",
  "nia-ids",
  "nia-imports",
- "nia-item-signatures",
  "nia-layout",
- "nia-local-resolve",
- "nia-monomorphize",
  "nia-parser",
- "nia-query",
  "nia-span",
- "nia-static-check",
- "nia-ty",
- "nia-type-lower",
- "nia-type-normalize",
- "nia-type-resolve",
- "nia-value-resolve",
 ]
 
 [[package]]

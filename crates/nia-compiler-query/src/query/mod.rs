@@ -39,7 +39,7 @@ use diagnostics::*;
 use module::*;
 use program::*;
 
-pub(crate) fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
+pub fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
     let db = QueryDb::new(DriverContext { loaded });
     db.query(CheckedProgramQuery)
 }
