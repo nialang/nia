@@ -5,7 +5,6 @@ use nia_imports::{
     ImportAliasMap, ModuleGraph, ModuleMap, ResolvedImport, add_resolved_imports,
     collect_import_aliases, resolve_module_imports,
 };
-use nia_lexer::Token;
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
@@ -207,16 +206,11 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let source = db.query(SourceTextQuery(self.path.clone()));
-        let tokens = db.query(TokenizedModuleQuery {
+        let syntax = db.query(SyntaxModuleQuery {
             path: self.path.clone(),
             version: self.version,
         });
-        let text = source
-            .file
-            .as_ref()
-            .map(|file| file.text.as_str())
-            .unwrap_or("");
-        let (module, parse_errors) = nia_parser::parse_module_tokens(text, tokens);
+        let (module, parse_errors) = nia_parser::parse_module_syntax(&syntax);
         ParsedModule {
             source: source
                 .file
@@ -229,24 +223,20 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct TokenizedModuleQuery {
+struct SyntaxModuleQuery {
     path: SourcePath,
     version: SourceVersion,
 }
 
-impl QueryKey<LoaderContext> for TokenizedModuleQuery {
-    type Value = Vec<Token>;
+impl QueryKey<LoaderContext> for SyntaxModuleQuery {
+    type Value = nia_syntax::SyntaxTree;
 
     fn name() -> &'static str {
-        "tokenized_module"
+        "syntax_module"
     }
 
     fn description(&self) -> String {
-        format!(
-            "tokenized_module({})@{:?}",
-            self.path.as_str(),
-            self.version
-        )
+        format!("syntax_module({})@{:?}", self.path.as_str(), self.version)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
@@ -255,8 +245,8 @@ impl QueryKey<LoaderContext> for TokenizedModuleQuery {
             .file
             .as_ref()
             .filter(|file| file.version() == self.version)
-            .map(|file| nia_lexer::tokenize(&file.text))
-            .unwrap_or_else(|| nia_lexer::tokenize(""))
+            .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
+            .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.version)))
     }
 }
 
@@ -472,13 +462,13 @@ mod tests {
                 && dependency
                     .to
                     .description
-                    .starts_with(&format!("tokenized_module({main_path})@"))
+                    .starts_with(&format!("syntax_module({main_path})@"))
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency
                 .from
                 .description
-                .starts_with(&format!("tokenized_module({main_path})@"))
+                .starts_with(&format!("syntax_module({main_path})@"))
                 && dependency.to.description == format!("source_text({main_path})")
         }));
         assert!(trace.dependencies.iter().any(|dependency| {

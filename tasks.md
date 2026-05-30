@@ -234,18 +234,18 @@ invalidation, and node identity are stable enough to support it.
 
 Tasks:
 
-- [ ] Design a `nia-syntax` crate for green nodes, red nodes, tokens, trivia,
+- [x] Design a `nia-syntax` crate for green nodes, red nodes, tokens, trivia,
       and syntax kinds.
-- [ ] Decide whether the lexer emits syntax tokens directly or whether syntax
+- [x] Decide whether the lexer emits syntax tokens directly or whether syntax
       tokens are adapted from existing lexer tokens.
-- [ ] Implement lossless parsing into green trees without changing language
+- [x] Implement lossless parsing into green trees without changing language
       semantics.
-- [ ] Lower syntax trees into the existing AST or provide AST views over syntax
+- [x] Lower syntax trees into the existing AST or provide AST views over syntax
       trees.
-- [ ] Keep parser diagnostics stable or intentionally improve them with tests.
-- [ ] Add node identity based on green-tree child paths.
-- [ ] Enable partial reparsing only after full-tree parsing is stable.
-- [ ] Keep IDE/LSP use cases in mind, but do not force an LSP architecture into
+- [x] Keep parser diagnostics stable or intentionally improve them with tests.
+- [x] Add node identity based on green-tree child paths.
+- [x] Enable partial reparsing only after full-tree parsing is stable.
+- [x] Keep IDE/LSP use cases in mind, but do not force an LSP architecture into
       the compiler crates.
 
 Completion criteria:
@@ -257,9 +257,9 @@ Completion criteria:
 
 Verification:
 
-- [ ] `cargo test -p nia-lexer -p nia-parser`
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo test -p nia-lexer -p nia-parser`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
 
 ## Deferred Until After Red/Green
 

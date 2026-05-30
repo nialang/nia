@@ -45,6 +45,18 @@ fn main() i32 { 0 }
 }
 
 #[test]
+fn parses_ast_from_lossless_syntax_tree() {
+    let source = "fn  main() i32 { // retained by syntax\n  0\n}\n";
+    let syntax = nia_syntax::parse_source(source, None);
+    let (from_source, source_errors) = parse_module(source);
+    let (from_syntax, syntax_errors) = parse_module_syntax(&syntax);
+
+    assert_eq!(syntax.full_text(), source);
+    assert_eq!(source_errors, syntax_errors);
+    assert_eq!(from_source, from_syntax);
+}
+
+#[test]
 fn reports_parameter_without_explicit_type() {
     let (_, errors) = parse_module(
         r#"

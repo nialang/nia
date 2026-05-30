@@ -11,6 +11,7 @@ pub enum SyntaxKind {
     Type,
     Pattern,
     Param,
+    Syntax,
     Token,
 }
 
