@@ -99,17 +99,17 @@ Tasks:
 
 - [x] Identify current definition/signature collection paths in
       `nia-compiler-query` and related crates.
-- [ ] Add a module definition query that maps a parsed module to item defs.
-- [ ] Add public surface/signature queries for structs, enums, functions,
+- [x] Add a module definition query that maps a parsed module to item defs.
+- [x] Add public surface/signature queries for structs, enums, functions,
       globals, aliases, and extensions.
 - [x] Keep ordered program aggregation only where order is semantically or
       diagnostically required.
-- [ ] Replace fragile cross-module lookup paths with direct queries keyed by
+- [x] Replace fragile cross-module lookup paths with direct queries keyed by
       module/item ids.
-- [ ] Add regression tests for imported nominal types, imported array lengths,
+- [x] Add regression tests for imported nominal types, imported array lengths,
       imported enum variants, and imported associated items through the new
       query path.
-- [ ] Ensure no query provider reconstructs semantic facts by re-reading AST
+- [x] Ensure no query provider reconstructs semantic facts by re-reading AST
       shapes when an earlier query already computed the fact.
 
 Completion criteria:
@@ -121,9 +121,9 @@ Completion criteria:
 
 Verification:
 
-- [ ] `cargo test -p nia-compiler-query -p nia-loader-query`
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo test -p nia-compiler-query -p nia-loader-query`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
 
 ## Phase 4: Semantic Query Boundaries
 
