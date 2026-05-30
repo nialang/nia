@@ -4,20 +4,8 @@ use std::collections::HashMap;
 use nia_ast::{ImportPath, ImportPathKind, ItemKind, Module};
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::ModuleId;
+pub use nia_source::SourcePath;
 use nia_span::Span;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SourcePath(String);
-
-impl SourcePath {
-    pub fn new(path: impl Into<String>) -> Self {
-        Self(path.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleMap {

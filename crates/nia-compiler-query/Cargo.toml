@@ -23,6 +23,7 @@ nia-local-resolve.workspace = true
 nia-monomorphize.workspace = true
 nia-parser.workspace = true
 nia-query.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 nia-static-check.workspace = true
 nia-ty.workspace = true
