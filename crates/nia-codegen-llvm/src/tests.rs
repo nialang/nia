@@ -2247,6 +2247,64 @@ pub struct Point {
 }
 
 #[test]
+fn emits_local_struct_with_imported_nominal_field() {
+    let root = temp_dir("emits_local_struct_with_imported_nominal_field");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .defs;
+using defs::Item;
+
+struct HoldsItem {
+    item: Item,
+}
+
+fn make() HoldsItem {
+    {
+        item: Item::zero(),
+    }
+}
+
+fn main() i32 {
+    var held = make();
+    held.item.value
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("defs.nia"),
+        r#"
+pub struct Item {
+    value: i32,
+}
+
+extend Item {
+    pub fn zero() Item {
+        { value: 0 }
+    }
+}
+"#,
+    )
+    .expect("write defs source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let main_ir = output
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module IR");
+    assert!(main_ir.ir.contains("__HoldsItem"));
+    assert!(main_ir.ir.contains("__Item"));
+    assert!(main_ir.ir.contains("ret i32"));
+}
+
+#[test]
 fn emits_local_struct_array_field_when_module_has_import() {
     let root = temp_dir("emits_local_struct_array_field_when_module_has_import");
     let main = root.join("main.nia");

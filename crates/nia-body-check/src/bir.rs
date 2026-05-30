@@ -595,12 +595,8 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn global_comptime_initializer(&self, def_id: nia_ids::GlobalDefId) -> Option<&Expr> {
-        let (module_index, defs) = self
-            .all_defs
-            .iter()
-            .enumerate()
-            .find(|(_, defs)| defs.module_id == def_id.module_id)?;
-        let module = self.all_modules.get(module_index)?;
+        let defs = self.defs_for_module(def_id.module_id)?;
+        let module = self.module_for_module(def_id.module_id)?;
         module.items.iter().find_map(|item| {
             let nia_ast::ItemKind::Binding(binding) = &item.kind else {
                 return None;
@@ -625,10 +621,7 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(global_id);
         }
-        let module_defs = self
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == module_id)?;
+        let module_defs = self.defs_for_module(module_id)?;
         let nia_value_resolve::ValueNameResolution::Def(def_id) = self.values.names.get(&span)?
         else {
             return None;
@@ -692,10 +685,7 @@ impl<'a> BodyChecker<'a> {
         def_id: nia_ids::GlobalDefId,
         name: &str,
     ) -> Option<nia_ids::GlobalDefId> {
-        let defs = self
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == def_id.module_id)?;
+        let defs = self.defs_for_module(def_id.module_id)?;
         defs.scopes
             .struct_members
             .get(&def_id.def_id)

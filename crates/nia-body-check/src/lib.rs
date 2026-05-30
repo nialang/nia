@@ -94,11 +94,24 @@ pub struct ProgramComptimeMaps<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct BodyProgramContext<'a> {
+    pub modules: Option<&'a HashMap<ModuleId, Module>>,
+    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+}
+
+impl<'a> BodyProgramContext<'a> {
+    pub fn empty() -> Self {
+        Self {
+            modules: None,
+            defs: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct BodyCheckInput<'a> {
     pub module: &'a Module,
-    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
-    pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub lowered: &'a TypeLowering,
@@ -108,6 +121,7 @@ pub struct BodyCheckInput<'a> {
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
+    pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
     pub program_comptime: ProgramComptimeMaps<'a>,
 }
@@ -115,9 +129,7 @@ pub struct BodyCheckInput<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub module: &'a Module,
-    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
-    pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub lowered: &'a TypeLowering,
@@ -125,6 +137,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub normalization: &'a TypeNormalization,
     pub comptime: &'a ComptimeCheck,
     pub extensions: &'a VisibleExtensionMethods,
+    pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
 }
 
@@ -164,9 +177,7 @@ pub fn check_module_bodies(
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         module,
-        all_modules: std::slice::from_ref(module),
         defs,
-        all_defs: std::slice::from_ref(defs),
         values,
         locals,
         lowered,
@@ -176,6 +187,7 @@ pub fn check_module_bodies(
         layouts: &layouts,
         extensions: &empty_extensions,
         extension_interner: None,
+        program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {
             functions: &empty_functions,
             globals: &empty_globals,
@@ -209,9 +221,7 @@ pub fn check_module_bodies_with_program_signatures(
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         module: input.module,
-        all_modules: input.all_modules,
         defs: input.defs,
-        all_defs: input.all_defs,
         values: input.values,
         locals: input.locals,
         lowered: input.lowered,
@@ -221,6 +231,7 @@ pub fn check_module_bodies_with_program_signatures(
         layouts: &layouts,
         extensions: input.extensions,
         extension_interner: None,
+        program: input.program,
         program_signatures: input.program_signatures,
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -234,9 +245,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
 ) -> BodyCheck {
     let mut checker = BodyChecker {
+        module: input.module,
         defs: input.defs,
-        all_defs: input.all_defs,
-        all_modules: input.all_modules,
+        program: input.program,
         values: input.values,
         locals: input.locals,
         interner: input
@@ -296,9 +307,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
 }
 
 struct BodyChecker<'a> {
+    module: &'a Module,
     defs: &'a DefCollection,
-    all_defs: &'a [DefCollection],
-    all_modules: &'a [Module],
+    program: BodyProgramContext<'a>,
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     interner: TyInterner,
@@ -340,6 +351,24 @@ struct ReceiverBase {
     args: Vec<InternedTyId>,
     from_pointer: bool,
     has_readonly_pointer: bool,
+}
+
+impl<'a> BodyChecker<'a> {
+    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
+        if module_id == self.defs.module_id {
+            Some(self.defs)
+        } else {
+            self.program.defs?.get(&module_id)
+        }
+    }
+
+    fn module_for_module(&self, module_id: ModuleId) -> Option<&Module> {
+        if module_id == self.defs.module_id {
+            Some(self.module)
+        } else {
+            self.program.modules?.get(&module_id)
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

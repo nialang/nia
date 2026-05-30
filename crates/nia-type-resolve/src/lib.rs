@@ -51,24 +51,35 @@ pub enum PrimitiveType {
     Never,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramDefsContext<'a> {
+    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+}
+
+impl<'a> ProgramDefsContext<'a> {
+    pub fn empty() -> Self {
+        Self { defs: None }
+    }
+}
+
 pub fn resolve_module_types(module: &Module, defs: &DefCollection) -> TypeResolution {
-    resolve_module_types_inner(module, defs, None, &[], None, None)
+    resolve_module_types_inner(module, defs, None, ProgramDefsContext::empty(), None, None)
 }
 
 pub fn resolve_module_types_with_imports(
     module: &Module,
     defs: &DefCollection,
     imports: &ImportAliasMap,
-    all_defs: &[DefCollection],
+    program_defs: ProgramDefsContext<'_>,
 ) -> TypeResolution {
-    resolve_module_types_inner(module, defs, Some(imports), all_defs, None, None)
+    resolve_module_types_inner(module, defs, Some(imports), program_defs, None, None)
 }
 
 pub fn resolve_module_types_with_context(
     module: &Module,
     defs: &DefCollection,
     imports: &ImportAliasMap,
-    all_defs: &[DefCollection],
+    program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
 ) -> TypeResolution {
@@ -76,7 +87,7 @@ pub fn resolve_module_types_with_context(
         module,
         defs,
         Some(imports),
-        all_defs,
+        program_defs,
         Some(public_surfaces),
         Some(using_scope),
     )
@@ -86,14 +97,14 @@ fn resolve_module_types_inner(
     module: &Module,
     defs: &DefCollection,
     imports: Option<&ImportAliasMap>,
-    all_defs: &[DefCollection],
+    program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
 ) -> TypeResolution {
     let mut resolver = TypeResolver {
         defs,
         imports,
-        all_defs,
+        program_defs,
         public_surfaces,
         using_scope,
         type_names: HashMap::new(),
@@ -113,7 +124,7 @@ fn resolve_module_types_inner(
 struct TypeResolver<'a> {
     defs: &'a DefCollection,
     imports: Option<&'a ImportAliasMap>,
-    all_defs: &'a [DefCollection],
+    program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
     type_names: HashMap<Span, TypeNameResolution>,
@@ -320,7 +331,7 @@ impl<'a> TypeResolver<'a> {
                         }));
                     }
                 }
-                let target_defs = defs_for_module(self.all_defs, module_id)?;
+                let target_defs = self.defs_for_module(module_id)?;
                 let def_id = target_defs.module_scope.types.get(&segment.name)?;
                 let def = target_defs.defs.get(def_id)?;
                 if module_id != self.defs.module_id && def.visibility != Visibility::Public {
@@ -354,7 +365,7 @@ impl<'a> TypeResolver<'a> {
             self.qualified_type_names.insert(span, global);
             return TypeNameResolution::External(global);
         }
-        let Some(target_defs) = defs_for_module(self.all_defs, module_id) else {
+        let Some(target_defs) = self.defs_for_module(module_id) else {
             self.diagnostics.push(Diagnostic::error(
                 span,
                 "module namespace refers to an unloaded module",
@@ -450,10 +461,14 @@ impl<'a> TypeResolver<'a> {
             .rev()
             .any(|generics| generics.iter().any(|generic| generic == name))
     }
-}
 
-fn defs_for_module(all_defs: &[DefCollection], module_id: ModuleId) -> Option<&DefCollection> {
-    all_defs.iter().find(|defs| defs.module_id == module_id)
+    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
+        if module_id == self.defs.module_id {
+            Some(self.defs)
+        } else {
+            self.program_defs.defs?.get(&module_id)
+        }
+    }
 }
 
 fn segment_span(_segment: &TypePathSegment) -> Span {
