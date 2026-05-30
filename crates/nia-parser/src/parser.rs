@@ -8,9 +8,9 @@ use nia_ast::{
     TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
     UsingSelector, Visibility,
 };
-use nia_lexer::{Token, TokenKind};
+use nia_lexer::TokenKind;
 use nia_span::Span;
-use nia_syntax::SyntaxTree;
+use nia_syntax::{SyntaxToken, SyntaxTokenCursor, SyntaxTree};
 
 mod expr;
 mod items;
@@ -23,7 +23,7 @@ pub fn parse_module(source: &str) -> (Module, Vec<ParseError>) {
 }
 
 pub fn parse_module_syntax(syntax: &SyntaxTree) -> (Module, Vec<ParseError>) {
-    Parser::from_tokens(syntax.source(), syntax.semantic_tokens()).parse_module()
+    Parser::from_syntax(syntax).parse_module()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,21 +32,21 @@ pub struct ParseError {
     pub message: String,
 }
 
-pub struct Parser<'a> {
-    source: &'a str,
-    tokens: Vec<Token>,
-    pos: usize,
+pub struct Parser {
+    source: String,
+    tokens: SyntaxTokenCursor,
     errors: Vec<ParseError>,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(source: &'a str) -> Self {
+impl Parser {
+    pub fn new(source: &str) -> Self {
         let syntax = nia_syntax::parse_source(source, None);
-        Self::from_tokens(source, syntax.semantic_tokens())
+        Self::from_syntax(&syntax)
     }
 
-    fn from_tokens(source: &'a str, tokens: Vec<Token>) -> Self {
-        let errors = tokens
+    fn from_syntax(syntax: &SyntaxTree) -> Self {
+        let token_list = syntax.tokens();
+        let errors = token_list
             .iter()
             .filter_map(|token| match &token.kind {
                 TokenKind::Error(error) => Some(ParseError {
@@ -57,9 +57,8 @@ impl<'a> Parser<'a> {
             })
             .collect();
         Self {
-            source,
-            tokens,
-            pos: 0,
+            source: syntax.source().to_string(),
+            tokens: SyntaxTokenCursor::new(syntax),
             errors,
         }
     }
@@ -78,8 +77,8 @@ impl<'a> Parser<'a> {
 
     fn has_top_level_semicolon_before_lbrace(&self) -> bool {
         let mut depth = 0usize;
-        let mut index = self.pos;
-        while let Some(token) = self.tokens.get(index) {
+        let mut index = 0usize;
+        while let Some(token) = self.tokens.nth(index) {
             match token.kind {
                 TokenKind::LBrace if depth == 0 => return false,
                 TokenKind::Semicolon if depth == 0 => return true,
@@ -160,7 +159,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn eat(&mut self, kind: TokenKind) -> Option<Token> {
+    fn eat(&mut self, kind: TokenKind) -> Option<SyntaxToken> {
         if self.at(kind) {
             Some(self.bump())
         } else {
@@ -169,33 +168,23 @@ impl<'a> Parser<'a> {
     }
 
     fn at(&self, kind: TokenKind) -> bool {
-        self.peek().kind == kind
+        self.tokens.at(kind)
     }
 
-    fn bump(&mut self) -> Token {
-        let token = self.peek().clone();
-        if token.kind != TokenKind::Eof {
-            self.pos += 1;
-        }
-        token
+    fn bump(&mut self) -> SyntaxToken {
+        self.tokens.bump()
     }
 
-    fn peek(&self) -> &Token {
-        &self.tokens[self.pos]
+    fn peek(&self) -> &SyntaxToken {
+        self.tokens.peek()
     }
 
     fn previous_end(&self) -> usize {
-        if self.pos == 0 {
-            0
-        } else {
-            self.tokens[self.pos - 1].span.end
-        }
+        self.tokens.previous_end()
     }
 
-    fn token_text(&self, token: &Token) -> &str {
-        self.source
-            .get(token.span.start..token.span.end)
-            .unwrap_or("")
+    fn token_text<'token>(&self, token: &'token SyntaxToken) -> &'token str {
+        &token.text
     }
 
     fn source_text(&self, span: Span) -> String {

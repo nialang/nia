@@ -6,7 +6,7 @@ enum BracketSuffix {
     Range(nia_ast::SliceRange),
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     pub(super) fn parse_expr(&mut self) -> Option<Expr> {
         self.parse_assignment()
     }
@@ -189,13 +189,13 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_expr_until_tokens(&mut self, stops: &[TokenKind]) -> Option<Expr> {
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let expr = self.parse_expr()?;
         if stops.iter().any(|kind| self.at(kind.clone())) {
             return Some(expr);
         }
-        self.pos = checkpoint;
+        self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_binary_until(0, stops)
     }
@@ -226,7 +226,7 @@ impl<'a> Parser<'a> {
             }));
         }
 
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let expr_errors_len = self.errors.len();
         let first = self.parse_binary_until(
             0,
@@ -262,7 +262,7 @@ impl<'a> Parser<'a> {
                 inclusive: true,
             }))
         } else {
-            self.pos = checkpoint;
+            self.tokens.rewind(checkpoint);
             self.errors.truncate(expr_errors_len);
             Some(BracketSuffix::Args(self.parse_bracket_args_after_open()?))
         }
@@ -272,7 +272,7 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             let start = self.peek().span.start;
-            let type_checkpoint = self.pos;
+            let type_checkpoint = self.tokens.checkpoint();
             let type_errors_len = self.errors.len();
             let ty = if self.at(TokenKind::Bool) {
                 let token = self.bump();
@@ -290,10 +290,10 @@ impl<'a> Parser<'a> {
                 self.parse_type()
             };
             let type_end = ty.as_ref().map(|ty| ty.span.end);
-            self.pos = type_checkpoint;
+            self.tokens.rewind(type_checkpoint);
             self.errors.truncate(type_errors_len);
 
-            let expr_checkpoint = self.pos;
+            let expr_checkpoint = self.tokens.checkpoint();
             let expr_errors_len = self.errors.len();
             let mut expr = if type_end.is_some()
                 && !matches!(
@@ -323,7 +323,7 @@ impl<'a> Parser<'a> {
             };
             let expr_end = expr.as_ref().map(|expr| expr.span.end);
             if expr.is_none() || expr_end.is_some_and(|expr_end| Some(expr_end) < type_end) {
-                self.pos = expr_checkpoint;
+                self.tokens.rewind(expr_checkpoint);
                 self.errors.truncate(expr_errors_len);
                 expr = None;
             }
@@ -338,7 +338,7 @@ impl<'a> Parser<'a> {
                 }
             };
             if expr_end.is_none() || expr_end.is_some_and(|expr_end| expr_end < end) {
-                self.pos = type_checkpoint;
+                self.tokens.rewind(type_checkpoint);
                 while !self.at(TokenKind::Comma)
                     && !self.at(TokenKind::RBracket)
                     && !self.at(TokenKind::Eof)
@@ -486,7 +486,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let start = self.peek().span.start;
         self.expect(TokenKind::LBracket, "expected `[` before type target")?;
@@ -499,7 +499,7 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::TypeTarget { ty },
             });
         }
-        self.pos = checkpoint;
+        self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_bracket_array_literal()
     }
@@ -588,15 +588,15 @@ impl<'a> Parser<'a> {
 
     fn looks_like_inferred_struct_literal(&self) -> bool {
         self.tokens
-            .get(self.pos + 1)
+            .nth(1)
             .is_some_and(|token| token.kind == TokenKind::Ident)
             && self
                 .tokens
-                .get(self.pos + 2)
+                .nth(2)
                 .is_some_and(|token| token.kind == TokenKind::Colon)
     }
 
-    fn literal_expr(&mut self, token: Token, make: impl FnOnce(String) -> ExprKind) -> Expr {
+    fn literal_expr(&mut self, token: SyntaxToken, make: impl FnOnce(String) -> ExprKind) -> Expr {
         self.bump();
         Expr {
             span: token.span,
@@ -642,7 +642,7 @@ impl<'a> Parser<'a> {
         ) && self.token_is_quoted_string_literal(self.peek())
     }
 
-    fn token_is_quoted_string_literal(&self, token: &Token) -> bool {
+    fn token_is_quoted_string_literal(&self, token: &SyntaxToken) -> bool {
         let text = self.token_text(token);
         !text
             .strip_prefix('b')

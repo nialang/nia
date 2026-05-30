@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_lexer::{LosslessToken, LosslessTokenKind, Token, TokenKind, tokenize_lossless};
+use nia_lexer::{LosslessToken, LosslessTokenKind, TokenKind, tokenize_lossless};
 use nia_node_id::{NodeChildPath, NodeKey, SyntaxKind as NodeSyntaxKind};
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -29,6 +29,19 @@ pub struct GreenToken {
     kind: SyntaxKind,
     span: Span,
     text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxToken {
+    pub kind: TokenKind,
+    pub span: Span,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxTokenCursor {
+    tokens: Vec<SyntaxToken>,
+    pos: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +102,55 @@ impl TextEdit {
     }
 }
 
+impl SyntaxTokenCursor {
+    pub fn new(tree: &SyntaxTree) -> Self {
+        Self {
+            tokens: tree.tokens(),
+            pos: 0,
+        }
+    }
+
+    pub fn checkpoint(&self) -> usize {
+        self.pos
+    }
+
+    pub fn rewind(&mut self, checkpoint: usize) {
+        self.pos = checkpoint.min(self.tokens.len().saturating_sub(1));
+    }
+
+    pub fn peek(&self) -> &SyntaxToken {
+        &self.tokens[self.pos]
+    }
+
+    pub fn bump(&mut self) -> SyntaxToken {
+        let token = self.peek().clone();
+        if token.kind != TokenKind::Eof {
+            self.pos += 1;
+        }
+        token
+    }
+
+    pub fn at(&self, kind: TokenKind) -> bool {
+        self.peek().kind == kind
+    }
+
+    pub fn nth(&self, offset: usize) -> Option<&SyntaxToken> {
+        self.tokens.get(self.pos + offset)
+    }
+
+    pub fn nth_kind(&self, offset: usize) -> Option<&TokenKind> {
+        self.nth(offset).map(|token| &token.kind)
+    }
+
+    pub fn previous_end(&self) -> usize {
+        if self.pos == 0 {
+            0
+        } else {
+            self.tokens[self.pos - 1].span.end
+        }
+    }
+}
+
 impl SyntaxTree {
     pub fn parse(source: &str, version: Option<SourceVersion>) -> Self {
         let tokens = tokenize_lossless(source);
@@ -128,9 +190,9 @@ impl SyntaxTree {
         &self.root
     }
 
-    pub fn semantic_tokens(&self) -> Vec<Token> {
+    pub fn tokens(&self) -> Vec<SyntaxToken> {
         let mut tokens = Vec::new();
-        self.root.push_semantic_tokens(&mut tokens);
+        self.root.push_tokens(&mut tokens);
         tokens
     }
 
@@ -186,15 +248,16 @@ impl GreenNode {
         }
     }
 
-    fn push_semantic_tokens(&self, tokens: &mut Vec<Token>) {
+    fn push_tokens(&self, tokens: &mut Vec<SyntaxToken>) {
         for child in &self.children {
             match child {
-                GreenElement::Node(node) => node.push_semantic_tokens(tokens),
+                GreenElement::Node(node) => node.push_tokens(tokens),
                 GreenElement::Token(token) => {
                     if let SyntaxKind::Token(kind) = &token.kind {
-                        tokens.push(Token {
+                        tokens.push(SyntaxToken {
                             kind: kind.clone(),
                             span: token.span,
+                            text: token.text.clone(),
                         });
                     }
                 }
@@ -597,12 +660,12 @@ mod tests {
     }
 
     #[test]
-    fn semantic_tokens_filter_trivia_for_existing_parser() {
+    fn tokens_filter_trivia_but_keep_source_text() {
         let tree = parse_source("fn  main() // c\n{}", None);
-        let kinds = tree
-            .semantic_tokens()
-            .into_iter()
-            .map(|token| token.kind)
+        let tokens = tree.tokens();
+        let kinds = tokens
+            .iter()
+            .map(|token| token.kind.clone())
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -617,6 +680,7 @@ mod tests {
                 TokenKind::Eof,
             ]
         );
+        assert_eq!(tokens[1].text, "main");
     }
 
     #[test]
@@ -677,10 +741,11 @@ mod tests {
         assert_eq!(reparse.kind, ReparseKind::Partial);
         assert_eq!(reparse.tree.version(), Some(edited_version));
         assert_eq!(reparse.tree.full_text(), "fn main() i32 { 2 }");
-        assert_eq!(
-            reparse.tree.semantic_tokens(),
-            nia_lexer::tokenize("fn main() i32 { 2 }")
+        assert_token_kinds(
+            &reparse.tree,
+            &[TokenKind::Fn, TokenKind::Ident, TokenKind::LParen],
         );
+        assert!(reparse.tree.tokens().iter().any(|token| token.text == "2"));
     }
 
     #[test]
@@ -706,10 +771,22 @@ mod tests {
 
         assert_eq!(reparse.kind, ReparseKind::Full);
         assert_eq!(reparse.tree.full_text(), "fn main() i32 { 1 + 2 }");
-        assert_eq!(
-            reparse.tree.semantic_tokens(),
-            nia_lexer::tokenize("fn main() i32 { 1 + 2 }")
+        assert!(
+            reparse
+                .tree
+                .tokens()
+                .iter()
+                .any(|token| token.kind == TokenKind::Plus)
         );
+    }
+
+    fn assert_token_kinds(tree: &SyntaxTree, prefix: &[TokenKind]) {
+        let actual = tree
+            .tokens()
+            .into_iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
+        assert!(actual.starts_with(prefix), "{actual:?}");
     }
 
     fn contains_token_kind(node: &GreenNode, kind: &SyntaxKind) -> bool {

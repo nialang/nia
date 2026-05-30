@@ -76,8 +76,8 @@ source versions for syntax, AST, and import queries so same-session invalidation
 can reconnect after source edits.
 
 The old tokenized module query is not part of the loader path. The lexer still
-offers semantic tokens for CLI/debugging and for lowering syntax trees into the
-existing parser, but the official lossless source representation is
+offers semantic tokens for CLI/debugging, but parser lowering consumes
+`nia-syntax` tokens directly. The official lossless source representation is
 `nia-syntax`.
 
 ## Stable Node Identity

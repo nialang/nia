@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-impl<'a> Parser<'a> {
+impl Parser {
     pub(super) fn parse_generic_params(&mut self) -> Vec<String> {
         let mut generics = Vec::new();
         if self.eat(TokenKind::LBracket).is_none() {
@@ -20,7 +20,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_type_until(&mut self, stops: &[TokenKind]) -> Option<TypeRef> {
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         if let Some(ty) = self.parse_type()
             && stops.iter().any(|kind| self.at(kind.clone()))
@@ -28,7 +28,7 @@ impl<'a> Parser<'a> {
             return Some(ty);
         }
         let bare_fn_type = self.at(TokenKind::Fn);
-        self.pos = checkpoint;
+        self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         let span = self.collect_until(stops)?;
         if bare_fn_type {
@@ -162,12 +162,12 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_type_args_after_open(&mut self) -> Vec<TypeArg> {
         let mut args = Vec::new();
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
-            let checkpoint = self.pos;
+            let checkpoint = self.tokens.checkpoint();
             let errors_len = self.errors.len();
             if let Some(ty) = self.parse_type() {
                 args.push(TypeArg::Type(ty));
             } else {
-                self.pos = checkpoint;
+                self.tokens.rewind(checkpoint);
                 self.errors.truncate(errors_len);
                 if let Some(span) = self.collect_until(&[TokenKind::Comma, TokenKind::RBracket]) {
                     args.push(TypeArg::Const(ExprStub {
