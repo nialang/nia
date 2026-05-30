@@ -45,7 +45,7 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::Reserved => return self.error(),
         };
-        self.builtin_values.insert(span, BuiltinValue::Usize(value));
+        self.record_builtin_value(span, BuiltinValue::Usize(value));
         self.primitive(PrimitiveTy::Usize)
     }
 

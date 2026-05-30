@@ -6,7 +6,7 @@ enum BracketSuffix {
     Range(nia_ast::SliceRange),
 }
 
-impl<'a> Parser<'a> {
+impl Parser {
     pub(super) fn parse_expr(&mut self) -> Option<Expr> {
         self.parse_assignment()
     }
@@ -19,14 +19,14 @@ impl<'a> Parser<'a> {
         self.bump();
         let rhs = self.parse_assignment()?;
         let span = Span::new(lhs.span.start, rhs.span.end);
-        Some(Expr {
+        Some(self.make_expr(
             span,
-            kind: ExprKind::Assign {
+            ExprKind::Assign {
                 lhs: Box::new(lhs),
                 op,
                 rhs: Box::new(rhs),
             },
-        })
+        ))
     }
 
     fn parse_binary_until(&mut self, min_prec: u8, stops: &[TokenKind]) -> Option<Expr> {
@@ -41,14 +41,14 @@ impl<'a> Parser<'a> {
             self.bump();
             let rhs = self.parse_binary_until(prec + 1, stops)?;
             let span = Span::new(lhs.span.start, rhs.span.end);
-            lhs = Expr {
+            lhs = self.make_expr(
                 span,
-                kind: ExprKind::Binary {
+                ExprKind::Binary {
                     lhs: Box::new(lhs),
                     op,
                     rhs: Box::new(rhs),
                 },
-            };
+            );
         }
         Some(lhs)
     }
@@ -57,13 +57,13 @@ impl<'a> Parser<'a> {
         let mut expr = self.parse_unary()?;
         while self.eat(TokenKind::As).is_some() {
             let ty = self.parse_type()?;
-            expr = Expr {
-                span: Span::new(expr.span.start, ty.span.end),
-                kind: ExprKind::Cast {
+            expr = self.make_expr(
+                Span::new(expr.span.start, ty.span.end),
+                ExprKind::Cast {
                     expr: Box::new(expr),
                     ty,
                 },
-            };
+            );
         }
         Some(expr)
     }
@@ -87,13 +87,13 @@ impl<'a> Parser<'a> {
         };
         if let Some(op) = op {
             let expr = self.parse_unary()?;
-            return Some(Expr {
-                span: Span::new(start, expr.span.end),
-                kind: ExprKind::Unary {
+            return Some(self.make_expr(
+                Span::new(start, expr.span.end),
+                ExprKind::Unary {
                     op,
                     expr: Box::new(expr),
                 },
-            });
+            ));
         }
         self.parse_postfix()
     }
@@ -119,48 +119,48 @@ impl<'a> Parser<'a> {
                 let end = self
                     .expect(TokenKind::RParen, "expected `)` after call")?
                     .end;
-                expr = Expr {
-                    span: Span::new(expr.span.start, end),
-                    kind: ExprKind::Call {
+                expr = self.make_expr(
+                    Span::new(expr.span.start, end),
+                    ExprKind::Call {
                         callee: Box::new(expr),
                         args,
                     },
-                };
+                );
                 continue;
             }
             if self.eat(TokenKind::Dot).is_some() {
                 if self.eat(TokenKind::Star).is_some() {
                     let end = self.previous_end();
-                    expr = Expr {
-                        span: Span::new(expr.span.start, end),
-                        kind: ExprKind::Unary {
+                    expr = self.make_expr(
+                        Span::new(expr.span.start, end),
+                        ExprKind::Unary {
                             op: UnaryOp::Deref,
                             expr: Box::new(expr),
                         },
-                    };
+                    );
                     continue;
                 }
                 let name = self.expect_text(TokenKind::Ident, "expected field name")?;
                 let end = self.previous_end();
-                expr = Expr {
-                    span: Span::new(expr.span.start, end),
-                    kind: ExprKind::Field {
+                expr = self.make_expr(
+                    Span::new(expr.span.start, end),
+                    ExprKind::Field {
                         lhs: Box::new(expr),
                         name,
                     },
-                };
+                );
                 continue;
             }
             if self.eat(TokenKind::ColonColon).is_some() {
                 let name = self.expect_text(TokenKind::Ident, "expected name after `::`")?;
                 let end = self.previous_end();
-                expr = Expr {
-                    span: Span::new(expr.span.start, end),
-                    kind: ExprKind::Qualified {
+                expr = self.make_expr(
+                    Span::new(expr.span.start, end),
+                    ExprKind::Qualified {
                         lhs: Box::new(expr),
                         name,
                     },
-                };
+                );
                 continue;
             }
             if self.eat(TokenKind::LBracket).is_some() {
@@ -168,9 +168,9 @@ impl<'a> Parser<'a> {
                 let end = self
                     .expect(TokenKind::RBracket, "expected `]` after bracket suffix")?
                     .end;
-                expr = Expr {
-                    span: Span::new(expr.span.start, end),
-                    kind: match suffix {
+                expr = self.make_expr(
+                    Span::new(expr.span.start, end),
+                    match suffix {
                         BracketSuffix::Args(args) => ExprKind::BracketSuffix {
                             callee: Box::new(expr),
                             args,
@@ -180,7 +180,7 @@ impl<'a> Parser<'a> {
                             index: nia_ast::IndexArg::Range(range),
                         },
                     },
-                };
+                );
                 continue;
             }
             break;
@@ -189,13 +189,13 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_expr_until_tokens(&mut self, stops: &[TokenKind]) -> Option<Expr> {
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let expr = self.parse_expr()?;
         if stops.iter().any(|kind| self.at(kind.clone())) {
             return Some(expr);
         }
-        self.pos = checkpoint;
+        self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_binary_until(0, stops)
     }
@@ -226,7 +226,7 @@ impl<'a> Parser<'a> {
             }));
         }
 
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let expr_errors_len = self.errors.len();
         let first = self.parse_binary_until(
             0,
@@ -262,7 +262,7 @@ impl<'a> Parser<'a> {
                 inclusive: true,
             }))
         } else {
-            self.pos = checkpoint;
+            self.tokens.rewind(checkpoint);
             self.errors.truncate(expr_errors_len);
             Some(BracketSuffix::Args(self.parse_bracket_args_after_open()?))
         }
@@ -272,28 +272,27 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             let start = self.peek().span.start;
-            let type_checkpoint = self.pos;
+            let type_checkpoint = self.tokens.checkpoint();
             let type_errors_len = self.errors.len();
             let ty = if self.at(TokenKind::Bool) {
                 let token = self.bump();
-                Some(TypeRef {
-                    span: token.span,
-                    text: self.token_text(&token).to_string(),
-                    kind: TypeKind::Path {
+                Some(self.make_type_ref(
+                    token.span,
+                    TypeKind::Path {
                         segments: vec![TypePathSegment {
                             name: self.token_text(&token).to_string(),
                             args: Vec::new(),
                         }],
                     },
-                })
+                ))
             } else {
                 self.parse_type()
             };
             let type_end = ty.as_ref().map(|ty| ty.span.end);
-            self.pos = type_checkpoint;
+            self.tokens.rewind(type_checkpoint);
             self.errors.truncate(type_errors_len);
 
-            let expr_checkpoint = self.pos;
+            let expr_checkpoint = self.tokens.checkpoint();
             let expr_errors_len = self.errors.len();
             let mut expr = if type_end.is_some()
                 && !matches!(
@@ -323,7 +322,7 @@ impl<'a> Parser<'a> {
             };
             let expr_end = expr.as_ref().map(|expr| expr.span.end);
             if expr.is_none() || expr_end.is_some_and(|expr_end| Some(expr_end) < type_end) {
-                self.pos = expr_checkpoint;
+                self.tokens.rewind(expr_checkpoint);
                 self.errors.truncate(expr_errors_len);
                 expr = None;
             }
@@ -338,7 +337,7 @@ impl<'a> Parser<'a> {
                 }
             };
             if expr_end.is_none() || expr_end.is_some_and(|expr_end| expr_end < end) {
-                self.pos = type_checkpoint;
+                self.tokens.rewind(type_checkpoint);
                 while !self.at(TokenKind::Comma)
                     && !self.at(TokenKind::RBracket)
                     && !self.at(TokenKind::Eof)
@@ -375,31 +374,22 @@ impl<'a> Parser<'a> {
             TokenKind::ByteChar => Some(self.literal_expr(token, ExprKind::ByteChar)),
             TokenKind::True => {
                 self.bump();
-                Some(Expr {
-                    span: token.span,
-                    kind: ExprKind::Bool(true),
-                })
+                Some(self.make_expr(token.span, ExprKind::Bool(true)))
             }
             TokenKind::False => {
                 self.bump();
-                Some(Expr {
-                    span: token.span,
-                    kind: ExprKind::Bool(false),
-                })
+                Some(self.make_expr(token.span, ExprKind::Bool(false)))
             }
             TokenKind::Ident => {
                 self.bump();
-                Some(Expr {
-                    span: token.span,
-                    kind: ExprKind::Ident(self.token_text(&token).to_string()),
-                })
+                Some(self.make_expr(
+                    token.span,
+                    ExprKind::Ident(self.token_text(&token).to_string()),
+                ))
             }
             TokenKind::Underscore => {
                 self.bump();
-                Some(Expr {
-                    span: token.span,
-                    kind: ExprKind::Underscore,
-                })
+                Some(self.make_expr(token.span, ExprKind::Underscore))
             }
             TokenKind::At => self.parse_builtin_expr(),
             TokenKind::LBracket => self.parse_bracket_primary(),
@@ -414,10 +404,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::LBrace => {
                 let block = self.parse_block()?;
-                Some(Expr {
-                    span: block.span,
-                    kind: ExprKind::Block(block),
-                })
+                Some(self.make_expr(block.span, ExprKind::Block(block)))
             }
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Switch => self.parse_switch_expr(),
@@ -437,10 +424,7 @@ impl<'a> Parser<'a> {
                 Some(Box::new(self.parse_if_expr()?))
             } else {
                 let block = self.parse_block()?;
-                Some(Box::new(Expr {
-                    span: block.span,
-                    kind: ExprKind::Block(block),
-                }))
+                Some(Box::new(self.make_expr(block.span, ExprKind::Block(block))))
             }
         } else {
             None
@@ -448,14 +432,14 @@ impl<'a> Parser<'a> {
         let end = else_branch
             .as_ref()
             .map_or(then_branch.span.end, |expr| expr.span.end);
-        Some(Expr {
-            span: Span::new(start, end),
-            kind: ExprKind::If {
+        Some(self.make_expr(
+            Span::new(start, end),
+            ExprKind::If {
                 cond: Box::new(cond),
                 then_branch,
                 else_branch,
             },
-        })
+        ))
     }
 
     fn parse_builtin_expr(&mut self) -> Option<Expr> {
@@ -479,14 +463,14 @@ impl<'a> Parser<'a> {
                 "expected `]` after builtin type argument",
             )?;
         }
-        Some(Expr {
-            span: Span::new(start, self.previous_end()),
-            kind: ExprKind::Builtin { name, type_arg },
-        })
+        Some(self.make_expr(
+            Span::new(start, self.previous_end()),
+            ExprKind::Builtin { name, type_arg },
+        ))
     }
 
     fn parse_bracket_primary(&mut self) -> Option<Expr> {
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let start = self.peek().span.start;
         self.expect(TokenKind::LBracket, "expected `[` before type target")?;
@@ -494,12 +478,9 @@ impl<'a> Parser<'a> {
             && self.at(TokenKind::ColonColon)
         {
             let end = self.previous_end();
-            return Some(Expr {
-                span: Span::new(start, end),
-                kind: ExprKind::TypeTarget { ty },
-            });
+            return Some(self.make_expr(Span::new(start, end), ExprKind::TypeTarget { ty }));
         }
-        self.pos = checkpoint;
+        self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_bracket_array_literal()
     }
@@ -525,10 +506,7 @@ impl<'a> Parser<'a> {
         let end = self
             .expect(TokenKind::RBracket, "expected `]` after array literal")?
             .end;
-        Some(Expr {
-            span: Span::new(start, end),
-            kind: ExprKind::ArrayLiteral { elems },
-        })
+        Some(self.make_expr(Span::new(start, end), ExprKind::ArrayLiteral { elems }))
     }
 
     fn parse_array_elements_until_rbracket(&mut self) -> Option<ArrayElements> {
@@ -561,10 +539,7 @@ impl<'a> Parser<'a> {
         let end = self
             .expect(TokenKind::RBrace, "expected `}` after struct literal")?
             .end;
-        Some(Expr {
-            span: Span::new(start, end),
-            kind: ExprKind::StructLiteral { fields },
-        })
+        Some(self.make_expr(Span::new(start, end), ExprKind::StructLiteral { fields }))
     }
 
     fn parse_struct_literal_fields(&mut self) -> Option<Vec<FieldInit>> {
@@ -588,20 +563,17 @@ impl<'a> Parser<'a> {
 
     fn looks_like_inferred_struct_literal(&self) -> bool {
         self.tokens
-            .get(self.pos + 1)
+            .nth(1)
             .is_some_and(|token| token.kind == TokenKind::Ident)
             && self
                 .tokens
-                .get(self.pos + 2)
+                .nth(2)
                 .is_some_and(|token| token.kind == TokenKind::Colon)
     }
 
-    fn literal_expr(&mut self, token: Token, make: impl FnOnce(String) -> ExprKind) -> Expr {
+    fn literal_expr(&mut self, token: SyntaxToken, make: impl FnOnce(String) -> ExprKind) -> Expr {
         self.bump();
-        Expr {
-            span: token.span,
-            kind: make(self.token_text(&token).to_string()),
-        }
+        self.make_expr(token.span, make(self.token_text(&token).to_string()))
     }
 
     fn parse_string_literal_run(
@@ -629,10 +601,8 @@ impl<'a> Parser<'a> {
         if quoted_run && self.peek_is_quoted_string_literal() {
             self.error_here("adjacent string literals must use the same literal prefix");
         }
-        (!parts.is_empty()).then_some(Expr {
-            span: Span::new(start, end),
-            kind: make(StringLiteral { parts }),
-        })
+        (!parts.is_empty())
+            .then(|| self.make_expr(Span::new(start, end), make(StringLiteral { parts })))
     }
 
     fn peek_is_quoted_string_literal(&self) -> bool {
@@ -642,7 +612,7 @@ impl<'a> Parser<'a> {
         ) && self.token_is_quoted_string_literal(self.peek())
     }
 
-    fn token_is_quoted_string_literal(&self, token: &Token) -> bool {
+    fn token_is_quoted_string_literal(&self, token: &SyntaxToken) -> bool {
         let text = self.token_text(token);
         !text
             .strip_prefix('b')

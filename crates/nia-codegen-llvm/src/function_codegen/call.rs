@@ -239,14 +239,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         arg: &FunctionExpr,
     ) -> Result<nia_llvm::values::PointerValue<'ctx>, Diagnostic> {
         match &arg.kind {
-            FunctionExprKind::Global(_)
-            | FunctionExprKind::Local(_)
-            | FunctionExprKind::Unary {
-                op: nia_ast::UnaryOp::Deref,
-                ..
-            }
-            | FunctionExprKind::Field { .. }
-            | FunctionExprKind::Index { .. } => self.emit_addr_of(arg),
+            FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
             _ => {
                 let ty = self.module.llvm_basic_type(arg.ty, span)?;
                 let ptr = self

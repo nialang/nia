@@ -8,6 +8,19 @@ pub struct Token {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LosslessToken {
+    pub kind: LosslessTokenKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LosslessTokenKind {
+    Token(TokenKind),
+    Whitespace,
+    LineComment,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenKind {
     Ident,
     Integer,

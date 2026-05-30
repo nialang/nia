@@ -73,7 +73,29 @@ schedule whole-program work, or call later backends.
 Defines source spans with byte offsets. It does not depend on AST, lexer,
 parser, diagnostics, or any semantic phase.
 
-### 3.2 `nia-ids`
+### 3.2 `nia-source`
+
+Owns source identity for compiler sessions:
+
+- `SourcePath` identifies a path-like input name;
+- `SourceId` identifies a source file inside one session;
+- `SourceRevision` identifies a concrete version of that source;
+- `SourceFile` carries id, path, revision, and text.
+
+`SourceId` is session-local. Persistent cross-session incremental compilation
+must use a separate fingerprint or cache key rather than treating `SourceId` as
+stable across compiler runs.
+
+### 3.3 `nia-node-id`
+
+Defines source-versioned syntax node identity for semantic side tables and
+diagnostics. `NodeKey` combines source id, revision, syntax kind, and either a
+span or red/green child-path position.
+
+AST nodes stay semantic-free. Semantic facts that need syntax identity are
+stored in side tables keyed by `NodeKey`, `DefId`, `LocalId`, or `TyId`.
+
+### 3.4 `nia-ids`
 
 Defines stable cross-phase ids:
 
@@ -86,7 +108,7 @@ Defines stable cross-phase ids:
 It stores no semantic tables and has no filesystem, parser, or diagnostic
 responsibility.
 
-### 3.3 `nia-diagnostic`
+### 3.5 `nia-diagnostic`
 
 Defines diagnostics and source rendering. It owns user-facing diagnostic display
 but not semantic policy. Semantic crates create diagnostics; this crate renders
@@ -103,15 +125,30 @@ errors.
 The lexer does not know semantic meaning. It should not resolve types, evaluate
 constants, or classify identifiers beyond keyword recognition.
 
-### 4.2 `nia-ast`
+The lexer also remains available for CLI/debug tooling such as `niac lex`.
+Parser lowering does not depend on lexer token vectors.
+
+### 4.2 `nia-syntax`
+
+Defines the official lossless syntax representation. It builds green nodes and
+red syntax nodes/tokens, preserves trivia and full source text, groups delimiter
+subtrees, and exposes conservative partial reparsing for token/trivia edits.
+
+Red syntax tokens carry source-versioned child paths. Parser diagnostics and AST
+lowering use those identities to populate `NodeOriginTable` entries for later
+semantic facts.
+
+### 4.3 `nia-ast`
 
 Defines the parsed syntax tree. AST nodes represent source structure and spans.
 They do not store type ids, def ids, layout information, or backend values.
 
-### 4.3 `nia-parser`
+### 4.4 `nia-parser`
 
-Builds AST from tokens and reports parse errors. It owns grammar decisions and
-local parse recovery.
+Builds AST from `nia-syntax` red tokens and reports parse errors. It owns
+grammar decisions, local parse recovery, and syntax-to-AST lowering. While
+lowering AST nodes, it records `NodeOriginTable` mappings from AST spans to
+red/green child-path ranges.
 
 Important parser boundary:
 
@@ -119,10 +156,21 @@ Important parser boundary:
 - semantic disambiguation of generic instantiation vs indexing happens later;
 - removed historical spellings should not get special migration paths.
 
-### 4.4 `nia-ast-walk`
+### 4.5 `nia-ast-walk`
 
 Provides AST traversal helpers for phases that need tree walking. It should stay
 small and generic. It must not embed semantic policy.
+
+### 4.6 Query Frontend
+
+`nia-loader-query` and `nia-compiler-query` provide the typed query frontend for
+source loading, syntax parsing, AST lowering, import graph construction,
+definition collection, public surfaces, and semantic checks. Query keys use
+source versions where source text matters, and `nia-query` tracks in-memory
+dependencies and invalidation.
+
+The query frontend is batch-friendly. Persistent caches, cross-session reuse,
+LSP scheduling, cancellation, and priority handling are separate future layers.
 
 ## 5. Definitions And Modules
 

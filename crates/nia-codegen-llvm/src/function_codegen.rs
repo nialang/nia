@@ -299,6 +299,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::Unary { op, expr: inner } => {
                 self.emit_unary(expr.span, expr.ty, *op, inner)
             }
+            FunctionExprKind::AddrOf(place) => Ok(self.emit_typed_place_addr(place)?.into()),
             FunctionExprKind::Cast { expr: inner, ty } => {
                 let value = self.emit_expr(inner)?;
                 self.emit_cast(expr.span, inner.ty, *ty, value)

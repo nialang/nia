@@ -17,7 +17,7 @@ impl<'a> BodyChecker<'a> {
             return self.check_expr(expr);
         };
         let ty = self.infer_array_literal_type(expr.span, elems);
-        self.expr_types.insert(expr.span, ty);
+        self.record_expr_type(expr.span, ty);
         ty
     }
 

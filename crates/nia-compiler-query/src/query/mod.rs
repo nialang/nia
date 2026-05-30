@@ -3,9 +3,10 @@ use crate::{
     CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
     module_diagnostics,
     program_signatures::{
-        VisibleExtensionsForModule, collect_extension_methods, collect_program_comptimes,
-        collect_program_enums, collect_program_functions, collect_program_globals,
-        collect_program_structs, collect_program_unions, visible_extensions_for_module,
+        ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
+        collect_extension_methods, collect_program_comptimes, collect_program_enums,
+        collect_program_functions, collect_program_globals, collect_program_structs,
+        collect_program_unions, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -133,6 +134,33 @@ impl DriverContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_source::{SourceId, SourceRevision};
+
+    fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
+        LoadedProgram {
+            graph: ModuleGraph::new(SourcePath::new("main.nia")),
+            imports: ImportAliasMap::default(),
+            modules,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
+        let (module, parse_errors) = nia_parser::parse_module(source);
+        assert!(parse_errors.is_empty(), "{parse_errors:?}");
+        LoadedModule {
+            id,
+            path: SourcePath::new(path),
+            source_version: nia_source::SourceVersion {
+                id: SourceId(id.0),
+                revision: SourceRevision::INITIAL,
+            },
+            source: source.to_string(),
+            module,
+            parse_errors,
+            origins: nia_node_id::NodeOriginTable::default(),
+        }
+    }
 
     #[test]
     fn compiler_query_providers_can_override_query_execution() {
@@ -145,21 +173,138 @@ mod tests {
             ..CompilerQueryProviders::default()
         };
         let checked = check_loaded_program_with_providers(
-            LoadedProgram {
-                graph: ModuleGraph::new(SourcePath::new("main.nia")),
-                imports: ImportAliasMap::default(),
-                modules: vec![LoadedModule {
-                    id: ModuleId(0),
-                    path: SourcePath::new("main.nia"),
-                    source: "fn main() i32 { 0 }".to_string(),
-                    module: nia_ast::Module { items: Vec::new() },
-                    parse_errors: Vec::new(),
-                }],
-                diagnostics: Vec::new(),
-            },
+            loaded_program_with_modules(vec![loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "fn main() i32 { 0 }",
+            )]),
             providers,
         );
 
         assert!(checked.modules.is_empty());
+    }
+
+    #[test]
+    fn program_signatures_query_uses_module_signature_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(ProgramSignaturesQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signatures" && dependency.to.name == "type_lowering"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signatures" && dependency.to.name == "item_signatures"
+        }));
+    }
+
+    #[test]
+    fn public_surface_query_uses_module_defs_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub struct S { value: i32 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(PublicSurfaceQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "defs_by_module" && dependency.to.name == "module_defs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "public_surface" && dependency.to.name == "defs_by_module"
+        }));
+    }
+
+    #[test]
+    fn extension_queries_use_module_semantic_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(ExtensionMethodsQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods" && dependency.to.name == "module_defs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods" && dependency.to.name == "type_lowering"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "type_normalization"
+        }));
+    }
+
+    #[test]
+    fn backend_lowering_uses_function_body_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { 0 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(BackendLoweringQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering" && dependency.to.name == "function_bodies"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "function_bodies" && dependency.to.name == "body_check"
+        }));
+    }
+
+    #[test]
+    fn invalidates_semantic_queries_after_public_surface_dependency_changes() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub struct S { value: i32 } fn main() i32 { 0 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(TypeResolutionQuery(ModuleId(0)));
+        let invalidation = db.invalidate(ModuleDefsQuery(ModuleId(0)));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
+        assert!(invalidated.contains(&"defs_by_module"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(invalidated.contains(&"type_resolution"), "{invalidated:?}");
+
+        let _ = db.query(TypeResolutionQuery(ModuleId(0)));
     }
 }

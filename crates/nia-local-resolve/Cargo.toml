@@ -10,11 +10,14 @@ nia-ast.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
+nia-node-id.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 nia-value-resolve.workspace = true
 
 [dev-dependencies]
 nia-parser.workspace = true
+nia-syntax.workspace = true
 
 [lib]
 path = "src/lib.rs"

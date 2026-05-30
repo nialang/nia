@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_ast::{ExprKind, SwitchArmBody};
+use nia_node_id::{NodePosition, SyntaxKind};
+use nia_source::{SourceId, SourceRevision, SourceVersion};
 
 #[test]
 fn parses_top_level_items() {
@@ -42,6 +44,79 @@ fn main() i32 { 0 }
     assert!(matches!(&module.items[6].kind, ItemKind::Binding(binding) if binding.is_extern));
     assert!(matches!(module.items[7].kind, ItemKind::TypeAlias(_)));
     assert!(matches!(module.items[8].kind, ItemKind::Function(_)));
+}
+
+#[test]
+fn parses_ast_from_lossless_syntax_tree() {
+    let source = "fn  main() i32 { // retained by syntax\n  0\n}\n";
+    let syntax = nia_syntax::parse_source(source, None);
+    let (from_source, source_errors) = parse_module(source);
+    let (from_syntax, syntax_errors) = parse_module_syntax(&syntax);
+
+    assert_eq!(syntax.full_text(), source);
+    assert_eq!(source_errors, syntax_errors);
+    assert_eq!(from_source, from_syntax);
+}
+
+#[test]
+fn parse_errors_from_syntax_carry_red_token_node_keys() {
+    let version = SourceVersion {
+        id: SourceId(9),
+        revision: SourceRevision(3),
+    };
+    let syntax = nia_syntax::parse_source("fn bad(value) {}", Some(version));
+    let (_, errors) = parse_module_syntax(&syntax);
+
+    let error = errors
+        .iter()
+        .find(|error| error.message.contains("expected `:` after parameter name"))
+        .expect("parameter type error");
+    let key = error.node_key.as_ref().expect("red token node key");
+    assert_eq!(key.source_version(), version);
+    assert!(matches!(
+        &key.position,
+        NodePosition::ChildPath(path) if !path.steps().is_empty()
+    ));
+}
+
+#[test]
+fn parse_module_syntax_records_ast_origins_as_red_child_path_ranges() {
+    let version = SourceVersion {
+        id: SourceId(10),
+        revision: SourceRevision(4),
+    };
+    let syntax = nia_syntax::parse_source(
+        r#"
+fn main(a: i32) i32 {
+    var x = a;
+    x
+}
+"#,
+        Some(version),
+    );
+    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(!origins.is_empty());
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function
+        .body
+        .as_ref()
+        .and_then(|body| body.tail.as_ref())
+        .expect("tail expression");
+    let key = origins
+        .get(SyntaxKind::Expr, expr.span)
+        .expect("tail expr origin");
+
+    assert_eq!(key.source_version(), version);
+    assert_eq!(key.kind, SyntaxKind::Expr);
+    assert!(matches!(
+        &key.position,
+        NodePosition::ChildPathRange { start, end }
+            if !start.steps().is_empty() && !end.steps().is_empty()
+    ));
 }
 
 #[test]

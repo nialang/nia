@@ -3,12 +3,14 @@ resolver = "3"
 members = [
     "crates/nia-span",
     "crates/nia-source",
+    "crates/nia-node-id",
     "crates/nia-ids",
     "crates/nia-diagnostic",
     "crates/nia-ice",
     "crates/nia-ast",
     "crates/nia-ast-walk",
     "crates/nia-lexer",
+    "crates/nia-syntax",
     "crates/nia-parser",
     "crates/nia-defs",
     "crates/nia-imports",
@@ -44,7 +46,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["softfault <givenyoung46@gmail.com>"]
 license = "GPL-3.0-or-later"
@@ -52,12 +54,14 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 nia-span = { path = "crates/nia-span" }
 nia-source = { path = "crates/nia-source" }
+nia-node-id = { path = "crates/nia-node-id" }
 nia-ids = { path = "crates/nia-ids" }
 nia-diagnostic = { path = "crates/nia-diagnostic" }
 nia-ice = { path = "crates/nia-ice" }
 nia-ast = { path = "crates/nia-ast" }
 nia-ast-walk = { path = "crates/nia-ast-walk" }
 nia-lexer = { path = "crates/nia-lexer" }
+nia-syntax = { path = "crates/nia-syntax" }
 nia-parser = { path = "crates/nia-parser" }
 nia-defs = { path = "crates/nia-defs" }
 nia-imports = { path = "crates/nia-imports" }

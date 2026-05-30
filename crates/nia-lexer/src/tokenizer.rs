@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{LexError, Token, TokenKind};
+use crate::{LexError, LosslessToken, LosslessTokenKind, Token, TokenKind};
 use nia_span::Span;
 
 pub fn tokenize(source: &str) -> Vec<Token> {
     Tokenizer::new(source).tokenize()
+}
+
+pub fn tokenize_lossless(source: &str) -> Vec<LosslessToken> {
+    Tokenizer::new(source).tokenize_lossless()
 }
 
 pub struct Tokenizer<'a> {
@@ -22,6 +26,7 @@ impl<'a> Tokenizer<'a> {
     pub fn tokenize(mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         loop {
+            self.skip_trivia();
             let token = self.next_token();
             let is_eof = token.kind == TokenKind::Eof;
             tokens.push(token);
@@ -32,8 +37,40 @@ impl<'a> Tokenizer<'a> {
         tokens
     }
 
+    pub fn tokenize_lossless(mut self) -> Vec<LosslessToken> {
+        let mut tokens = Vec::new();
+        loop {
+            let token = self.next_lossless_token();
+            let is_eof = matches!(token.kind, LosslessTokenKind::Token(TokenKind::Eof));
+            tokens.push(token);
+            if is_eof {
+                break;
+            }
+        }
+        tokens
+    }
+
+    fn next_lossless_token(&mut self) -> LosslessToken {
+        let start = self.pos;
+        let Some(byte) = self.peek() else {
+            return self.lossless_token(LosslessTokenKind::Token(TokenKind::Eof), start, start);
+        };
+        if byte.is_ascii_whitespace() {
+            self.consume_whitespace();
+            return self.lossless_token(LosslessTokenKind::Whitespace, start, self.pos);
+        }
+        if byte == b'/' && self.peek_next() == Some(b'/') {
+            self.consume_line_comment();
+            return self.lossless_token(LosslessTokenKind::LineComment, start, self.pos);
+        }
+        let token = self.next_token();
+        LosslessToken {
+            kind: LosslessTokenKind::Token(token.kind),
+            span: token.span,
+        }
+    }
+
     fn next_token(&mut self) -> Token {
-        self.skip_trivia();
         let start = self.pos;
         let Some(byte) = self.bump() else {
             return self.token(TokenKind::Eof, start, start);
@@ -528,16 +565,27 @@ impl<'a> Tokenizer<'a> {
 
     fn skip_trivia(&mut self) {
         loop {
-            while self.peek().is_some_and(|b| b.is_ascii_whitespace()) {
-                self.bump();
+            if self.peek().is_some_and(|b| b.is_ascii_whitespace()) {
+                self.consume_whitespace();
+                continue;
             }
             if self.peek() == Some(b'/') && self.peek_next() == Some(b'/') {
-                while self.peek().is_some_and(|b| b != b'\n') {
-                    self.bump();
-                }
+                self.consume_line_comment();
                 continue;
             }
             break;
+        }
+    }
+
+    fn consume_whitespace(&mut self) {
+        while self.peek().is_some_and(|b| b.is_ascii_whitespace()) {
+            self.bump();
+        }
+    }
+
+    fn consume_line_comment(&mut self) {
+        while self.peek().is_some_and(|b| b != b'\n') {
+            self.bump();
         }
     }
 
@@ -591,6 +639,13 @@ impl<'a> Tokenizer<'a> {
 
     fn token(&self, kind: TokenKind, start: usize, end: usize) -> Token {
         Token {
+            kind,
+            span: Span::new(start, end),
+        }
+    }
+
+    fn lossless_token(&self, kind: LosslessTokenKind, start: usize, end: usize) -> LosslessToken {
+        LosslessToken {
             kind,
             span: Span::new(start, end),
         }

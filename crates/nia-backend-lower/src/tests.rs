@@ -7,8 +7,10 @@ use nia_body_check::{
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
 use nia_function_ir::{FunctionArrayElements, FunctionExprKind, FunctionOp, FunctionTerminator};
+use nia_function_lower::lower_function_body;
 use nia_item_signatures::collect_item_signatures;
 use nia_local_resolve::resolve_module_locals;
+use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
 use nia_type_lower::lower_module_types_with_id;
 use nia_type_normalize::normalize_module_types;
@@ -99,7 +101,10 @@ fn main() i32 {
             },
         },
     );
+    let origins = NodeOriginTable::default();
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
+        source_version: None,
+        origins: &origins,
         module: &module,
         defs: &defs,
         values: &values,
@@ -129,6 +134,12 @@ fn main() i32 {
         "{:?}",
         body_check.diagnostics
     );
+    let function_bodies = body_check
+        .ir
+        .function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, lower_function_body(body)))
+        .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -144,6 +155,7 @@ fn main() i32 {
         extensions: &extensions,
         comptime: &comptime,
         layouts: &layouts,
+        function_bodies: &function_bodies,
         extension_interner: None,
     };
     let lowering = lower_backend_program(
@@ -296,6 +308,36 @@ fn main() i32 {
     assert_eq!(body.terminator.successors(), vec![continue_target]);
 }
 
+#[test]
+fn instantiates_generic_function_instances_in_function_ir() {
+    let source = r#"
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    id[i32](42)
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let instance = module
+        .function_instances
+        .iter()
+        .find(|instance| instance.name == "id")
+        .expect("id instance");
+    let body = instance
+        .function_body
+        .as_ref()
+        .expect("id instance function body");
+    let i32_ty = module.interner.primitive(nia_ty::PrimitiveTy::I32);
+
+    assert_eq!(instance.params[0].ty, i32_ty);
+    assert_eq!(instance.return_type, i32_ty);
+    assert_eq!(body.ty, i32_ty);
+    assert!(body.locals.iter().all(|local| local.ty == i32_ty));
+}
+
 fn lower_source(source: &str) -> BackendLowering {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -325,7 +367,10 @@ fn lower_source(source: &str) -> BackendLowering {
         nia_layout::TargetDataLayout::LP64,
     );
     let extensions = VisibleExtensionMethods::default();
+    let origins = NodeOriginTable::default();
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
+        source_version: None,
+        origins: &origins,
         module: &module,
         defs: &defs,
         values: &values,
@@ -355,6 +400,25 @@ fn lower_source(source: &str) -> BackendLowering {
         "{:?}",
         body_check.diagnostics
     );
+    let function_bodies = body_check
+        .ir
+        .function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, lower_function_body(body)))
+        .collect::<HashMap<_, _>>();
+    let monomorphization =
+        nia_monomorphize::collect_monomorphizations(&[nia_monomorphize::MonomorphizeModuleInput {
+            module_id: ModuleId(0),
+            defs: &defs,
+            interner: &body_check.ir.interner,
+            comptime: &comptime,
+            instantiations: &body_check.ir.generic_instantiations,
+        }]);
+    assert!(
+        monomorphization.diagnostics.is_empty(),
+        "{:?}",
+        monomorphization.diagnostics
+    );
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -370,15 +434,10 @@ fn lower_source(source: &str) -> BackendLowering {
         extensions: &extensions,
         comptime: &comptime,
         layouts: &layouts,
+        function_bodies: &function_bodies,
         extension_interner: None,
     };
-    let lowering = lower_backend_program(
-        &[input],
-        &Monomorphization {
-            instances: Vec::new(),
-            diagnostics: Vec::new(),
-        },
-    );
+    let lowering = lower_backend_program(&[input], &monomorphization);
     assert!(
         lowering.diagnostics.is_empty(),
         "{:?}",

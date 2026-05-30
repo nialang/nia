@@ -15,10 +15,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
     pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
-    pub(super) item_signatures_by_module: fn(&QueryDb<DriverContext>) -> Vec<ItemSignatures>,
-    pub(super) type_lowerings_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeLowering>,
     pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
-    pub(super) type_normalizations_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeNormalization>,
     pub(super) program_signatures: fn(&QueryDb<DriverContext>) -> ProgramSignatures,
     pub(super) extension_methods: fn(&QueryDb<DriverContext>) -> ExtensionMethodsQueryValue,
     pub(super) visible_extensions:
@@ -32,6 +29,10 @@ pub(super) struct CompilerQueryProviders {
     pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
     pub(super) body_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_check::BodyCheck,
+    pub(super) function_bodies: fn(
+        &QueryDb<DriverContext>,
+        ModuleId,
+    ) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
     pub(super) checked_module: fn(&QueryDb<DriverContext>, ModuleId) -> CheckedModule,
     pub(super) checked_modules: fn(&QueryDb<DriverContext>) -> Vec<CheckedModule>,
     pub(super) monomorphization: fn(&QueryDb<DriverContext>) -> nia_monomorphize::Monomorphization,
@@ -53,10 +54,7 @@ impl Default for CompilerQueryProviders {
             type_resolution: provide_type_resolution,
             type_lowering: provide_type_lowering,
             item_signatures: provide_item_signatures,
-            item_signatures_by_module: provide_item_signatures_by_module,
-            type_lowerings_by_module: provide_type_lowerings_by_module,
             type_normalization: provide_type_normalization,
-            type_normalizations_by_module: provide_type_normalizations_by_module,
             program_signatures: provide_program_signatures,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
@@ -69,6 +67,7 @@ impl Default for CompilerQueryProviders {
             static_check: provide_static_check,
             flow_check: provide_flow_check,
             body_check: provide_body_check,
+            function_bodies: provide_function_bodies,
             checked_module: provide_checked_module,
             checked_modules: provide_checked_modules,
             monomorphization: provide_monomorphization,
@@ -194,24 +193,6 @@ pub(super) fn provide_item_signatures(
     nia_item_signatures::collect_item_signatures(&loaded.module, &defs, &type_lowering)
 }
 
-pub(super) fn provide_item_signatures_by_module(
-    db: &QueryDb<DriverContext>,
-) -> Vec<ItemSignatures> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(ItemSignaturesQuery),
-    )
-}
-
-pub(super) fn provide_type_lowerings_by_module(db: &QueryDb<DriverContext>) -> Vec<TypeLowering> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(TypeLoweringQuery),
-    )
-}
-
 pub(super) fn provide_type_normalization(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
@@ -221,37 +202,76 @@ pub(super) fn provide_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
-pub(super) fn provide_type_normalizations_by_module(
-    db: &QueryDb<DriverContext>,
-) -> Vec<TypeNormalization> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(TypeNormalizationQuery),
-    )
-}
-
 pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignatures {
-    let modules = modules_in_order(db);
-    let type_lowerings = db.query(TypeLoweringsByModuleQuery);
-    let item_signatures = db.query(ItemSignaturesByModuleQuery);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let type_lowerings = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+        .collect::<Vec<_>>();
+    let item_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
+        .collect::<Vec<_>>();
+    let modules = module_ids
+        .iter()
+        .copied()
+        .zip(type_lowerings.iter())
+        .zip(item_signatures.iter())
+        .map(|((module_id, lowering), signatures)| ModuleSignatureInput {
+            module_id,
+            lowering,
+            signatures,
+        })
+        .collect::<Vec<_>>();
     ProgramSignatures {
-        functions: collect_program_functions(&modules, &type_lowerings, &item_signatures),
-        globals: collect_program_globals(&modules, &type_lowerings, &item_signatures),
-        comptimes: collect_program_comptimes(&modules, &type_lowerings, &item_signatures),
-        structs: collect_program_structs(&modules, &type_lowerings, &item_signatures),
-        unions: collect_program_unions(&modules, &type_lowerings, &item_signatures),
-        enums: collect_program_enums(&modules, &type_lowerings, &item_signatures),
+        functions: collect_program_functions(&modules),
+        globals: collect_program_globals(&modules),
+        comptimes: collect_program_comptimes(&modules),
+        structs: collect_program_structs(&modules),
+        unions: collect_program_unions(&modules),
+        enums: collect_program_enums(&modules),
     }
 }
 
 pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> ExtensionMethodsQueryValue {
-    let modules = modules_in_order(db);
-    let defs = db.query(DefsByModuleQuery);
-    let type_lowerings = db.query(TypeLoweringsByModuleQuery);
-    let normalizations = db.query(TypeNormalizationsByModuleQuery);
-    let (methods, diagnostics) =
-        collect_extension_methods(&modules, &defs, &type_lowerings, &normalizations);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let modules = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(LoadedModuleQuery(module_id)))
+        .collect::<Vec<_>>();
+    let defs = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
+        .collect::<Vec<_>>();
+    let type_lowerings = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+        .collect::<Vec<_>>();
+    let normalizations = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(TypeNormalizationQuery(module_id)))
+        .collect::<Vec<_>>();
+    let inputs = modules
+        .iter()
+        .zip(defs.iter())
+        .zip(type_lowerings.iter())
+        .zip(normalizations.iter())
+        .map(
+            |(((module, defs), lowering), normalization)| ExtensionModuleInput {
+                module,
+                defs,
+                lowering,
+                normalization,
+            },
+        )
+        .collect::<Vec<_>>();
+    let (methods, diagnostics) = collect_extension_methods(&inputs);
     ExtensionMethodsQueryValue {
         methods,
         diagnostics,
@@ -263,8 +283,12 @@ pub(super) fn provide_visible_extensions(
     module_id: ModuleId,
 ) -> VisibleExtensionsForModule {
     let imports = db.query(ImportAliasMapQuery);
-    let defs = db.query(DefsByModuleQuery);
-    let normalizations = db.query(TypeNormalizationsByModuleQuery);
+    let defs = defs_by_module_id(db);
+    let normalizations = db
+        .query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
+        .collect::<HashMap<_, _>>();
     let extensions = db.query(ExtensionMethodsQuery);
     visible_extensions_for_module(
         module_id,
@@ -305,7 +329,13 @@ pub(super) fn provide_local_resolution(
     let loaded = db.query(LoadedModuleQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
-    nia_local_resolve::resolve_module_locals(&loaded.module, &defs, &values)
+    nia_local_resolve::resolve_module_locals_with_origins(
+        &loaded.module,
+        &defs,
+        &values,
+        Some(loaded.source_version),
+        &loaded.origins,
+    )
 }
 
 pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
@@ -468,6 +498,8 @@ pub(super) fn provide_body_check(
     let program_comptime = db.query(ProgramComptimeQuery);
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
         nia_body_check::BodyCheckInput {
+            source_version: Some(loaded.source_version),
+            origins: &loaded.origins,
             module: &loaded.module,
             defs: &defs,
             values: &values,
@@ -489,6 +521,18 @@ pub(super) fn provide_body_check(
             },
         },
     )
+}
+
+pub(super) fn provide_function_bodies(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody> {
+    db.query(BodyCheckQuery(module_id))
+        .ir
+        .function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, nia_function_lower::lower_function_body(body)))
+        .collect()
 }
 
 pub(super) fn provide_checked_module(
@@ -554,26 +598,34 @@ pub(super) fn provide_backend_lowering(
         .iter()
         .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let function_bodies = checked_modules
+        .iter()
+        .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
+        .collect::<Vec<_>>();
     let inputs = checked_modules
         .iter()
         .zip(loaded_modules.iter())
         .zip(visible_extensions.iter())
+        .zip(function_bodies.iter())
         .map(
-            |((checked_module, loaded_module), visible_extensions)| BackendLowerModuleInput {
-                module_id: checked_module.id,
-                module_name: checked_module.path.as_str().to_string(),
-                module: &loaded_module.module,
-                defs: &checked_module.defs,
-                extensions: &visible_extensions.methods,
-                values: &checked_module.value_resolution,
-                locals: &checked_module.local_resolution,
-                type_lowering: &checked_module.type_lowering,
-                signatures: &checked_module.item_signatures,
-                type_normalization: &checked_module.type_normalization,
-                body_check: &checked_module.body_check,
-                comptime: &checked_module.comptime,
-                layouts: &checked_module.layouts,
-                extension_interner: Some(&visible_extensions.interner),
+            |(((checked_module, loaded_module), visible_extensions), function_bodies)| {
+                BackendLowerModuleInput {
+                    module_id: checked_module.id,
+                    module_name: checked_module.path.as_str().to_string(),
+                    module: &loaded_module.module,
+                    defs: &checked_module.defs,
+                    extensions: &visible_extensions.methods,
+                    values: &checked_module.value_resolution,
+                    locals: &checked_module.local_resolution,
+                    type_lowering: &checked_module.type_lowering,
+                    signatures: &checked_module.item_signatures,
+                    type_normalization: &checked_module.type_normalization,
+                    body_check: &checked_module.body_check,
+                    comptime: &checked_module.comptime,
+                    layouts: &checked_module.layouts,
+                    function_bodies,
+                    extension_interner: Some(&visible_extensions.interner),
+                }
             },
         )
         .collect::<Vec<_>>();
