@@ -181,6 +181,7 @@ pub enum FunctionExprKind {
         op: UnaryOp,
         expr: Box<FunctionExpr>,
     },
+    AddrOf(FunctionPlace),
     Binary {
         lhs: Box<FunctionExpr>,
         op: BinaryOp,

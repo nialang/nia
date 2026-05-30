@@ -683,6 +683,41 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_address_of_checked_places_from_function_ir() {
+    let root = temp_dir("emits_address_of_checked_places_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn read(ptr: &const i32) i32 {
+    ptr.*
+}
+
+fn main(i: usize) i32 {
+    var pair: Pair = { a: 10, b: 20 };
+    var xs: [2]i32 = [30, 40];
+    read(&const pair.b) + read(&const xs[i])
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("getelementptr"), "{ir}");
+    assert!(ir.contains("call i32 @nia__m0__d3__read"), "{ir}");
+}
+
+#[test]
 fn emits_c_string_literal_pointer_coercions() {
     let root = temp_dir("emits_c_string_literal_pointer_coercions");
     let main = root.join("main.nia");
@@ -1138,11 +1173,11 @@ fn main() i32 {
     );
     assert!(ir.contains("define i32 @nia__m0__d4__sum(ptr %0)"), "{ir}");
     assert!(
-        ir.contains("call void @nia__m0__d3__id(ptr %call.out, ptr %pair"),
+        ir.contains("call void @nia__m0__d3__id(ptr %call.out, ptr %arg.copy"),
         "{ir}"
     );
     assert!(
-        ir.contains("call i32 @nia__m0__d4__sum(ptr %copied"),
+        ir.contains("call i32 @nia__m0__d4__sum(ptr %arg.copy"),
         "{ir}"
     );
 }

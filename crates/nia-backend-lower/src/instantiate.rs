@@ -412,6 +412,9 @@ impl<'a> ModuleLowerer<'a> {
                     op,
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                 },
+                FunctionExprKind::AddrOf(place) => {
+                    FunctionExprKind::AddrOf(self.instantiate_place(place, substitutions))
+                }
                 FunctionExprKind::Binary { lhs, op, rhs } => FunctionExprKind::Binary {
                     lhs: Box::new(self.instantiate_expr(*lhs, substitutions)),
                     op,

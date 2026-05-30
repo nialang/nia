@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_ast::UnaryOp;
 use nia_body_ir::{
     AsmOption, BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody,
     TypedCallee, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedInlineAsm,
@@ -656,6 +657,15 @@ impl FunctionLowerer {
                     span: field.span,
                 }),
             },
+            TypedExprKind::Unary { op, expr: inner }
+                if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                    && !matches!(
+                        inner.kind,
+                        TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. }
+                    ) =>
+            {
+                FunctionExprKind::AddrOf(self.lower_expr_place(inner, scope, current, ops, blocks))
+            }
             TypedExprKind::Unary { op, expr: inner } => FunctionExprKind::Unary {
                 op: *op,
                 expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
@@ -1198,6 +1208,58 @@ impl FunctionLowerer {
                     )),
                 })
                 .collect(),
+        }
+    }
+
+    fn lower_expr_place(
+        &mut self,
+        expr: &TypedExpr,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionPlace {
+        match &expr.kind {
+            TypedExprKind::Global(def_id) => FunctionPlace {
+                span: expr.span,
+                ty: expr.ty,
+                base: FunctionPlaceBase::Global(*def_id),
+                elems: Vec::new(),
+            },
+            TypedExprKind::Local(local_id) => FunctionPlace {
+                span: expr.span,
+                ty: expr.ty,
+                base: FunctionPlaceBase::Local(*local_id),
+                elems: Vec::new(),
+            },
+            TypedExprKind::Unary {
+                op: UnaryOp::Deref,
+                expr: inner,
+            } => FunctionPlace {
+                span: expr.span,
+                ty: expr.ty,
+                base: FunctionPlaceBase::Deref(Box::new(
+                    self.lower_value_expr(inner, scope, current, ops, blocks),
+                )),
+                elems: Vec::new(),
+            },
+            TypedExprKind::Field { lhs, field } => {
+                let mut place = self.lower_expr_place(lhs, scope, current, ops, blocks);
+                place.span = expr.span;
+                place.ty = expr.ty;
+                place.elems.push(FunctionPlaceElem::Field(*field));
+                place
+            }
+            TypedExprKind::Index { lhs, index } => {
+                let mut place = self.lower_expr_place(lhs, scope, current, ops, blocks);
+                place.span = expr.span;
+                place.ty = expr.ty;
+                place.elems.push(FunctionPlaceElem::Index(Box::new(
+                    self.lower_value_expr(index, scope, current, ops, blocks),
+                )));
+                place
+            }
+            _ => unreachable!("address-of expression must be a body-checked place"),
         }
     }
 

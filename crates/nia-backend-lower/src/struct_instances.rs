@@ -289,6 +289,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
+            FunctionExprKind::AddrOf(place) => {
+                self.collect_struct_instances_place(place, seen, out);
+            }
             FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_struct_instances_expr(lhs, seen, out);
                 self.collect_struct_instances_expr(rhs, seen, out);
@@ -607,6 +610,9 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
                 self.collect_union_instances_expr(expr, seen, out);
+            }
+            FunctionExprKind::AddrOf(place) => {
+                self.collect_union_instances_place(place, seen, out);
             }
             FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_union_instances_expr(lhs, seen, out);
