@@ -34,6 +34,7 @@ mod checked;
 mod checks;
 mod diagnostics;
 mod program;
+mod providers;
 mod resolve;
 mod types;
 
@@ -42,16 +43,25 @@ use checked::*;
 use checks::*;
 use diagnostics::*;
 use program::*;
+use providers::*;
 use resolve::*;
 use types::*;
 
 pub fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
-    let db = QueryDb::new(DriverContext { loaded });
+    check_loaded_program_with_providers(loaded, CompilerQueryProviders::default())
+}
+
+fn check_loaded_program_with_providers(
+    loaded: LoadedProgram,
+    providers: CompilerQueryProviders,
+) -> CheckedProgram {
+    let db = QueryDb::new(DriverContext { loaded, providers });
     db.query(CheckedProgramQuery)
 }
 
 struct DriverContext {
     loaded: LoadedProgram,
+    providers: CompilerQueryProviders,
 }
 
 impl DriverContext {
@@ -66,5 +76,39 @@ impl DriverContext {
         self.loaded_module(module_id)
             .map(|module| module.path.clone())
             .unwrap_or_else(|| SourcePath::new("<unknown>"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compiler_query_providers_can_override_query_execution() {
+        fn no_parse_ok_modules(_: &QueryDb<DriverContext>) -> Vec<ModuleId> {
+            Vec::new()
+        }
+
+        let providers = CompilerQueryProviders {
+            parse_ok_module_ids: no_parse_ok_modules,
+            ..CompilerQueryProviders::default()
+        };
+        let checked = check_loaded_program_with_providers(
+            LoadedProgram {
+                graph: ModuleGraph::new(SourcePath::new("main.nia")),
+                imports: ImportAliasMap::default(),
+                modules: vec![LoadedModule {
+                    id: ModuleId(0),
+                    path: SourcePath::new("main.nia"),
+                    source: "fn main() i32 { 0 }".to_string(),
+                    module: nia_ast::Module { items: Vec::new() },
+                    parse_errors: Vec::new(),
+                }],
+                diagnostics: Vec::new(),
+            },
+            providers,
+        );
+
+        assert!(checked.modules.is_empty());
     }
 }

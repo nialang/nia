@@ -5,12 +5,12 @@ kept as a thin facade and temporary query migration scaffolding removed.
 
 ## 1. Provider-based compiler query layer
 
-- [ ] Add an explicit provider table to `nia-compiler-query`.
-- [ ] Move query execution bodies behind providers instead of hard-coding pass calls directly in
+- [x] Add an explicit provider table to `nia-compiler-query`.
+- [x] Move query execution bodies behind providers instead of hard-coding pass calls directly in
       `impl QueryKey`.
-- [ ] Keep default providers assembled in `nia-compiler-query`, not `nia-driver`.
-- [ ] Add focused tests proving provider override is possible for at least one small query.
-- [ ] Commit this stage.
+- [x] Keep default providers assembled in `nia-compiler-query`, not `nia-driver`.
+- [x] Add focused tests proving provider override is possible for at least one small query.
+- [x] Commit this stage.
 
 Acceptance:
 
