@@ -132,12 +132,12 @@ preserving the current pass ownership model.
 
 Tasks:
 
-- [ ] Define query boundaries for name resolution, type resolution, comptime
+- [x] Define query boundaries for name resolution, type resolution, comptime
       evaluation, body checking, flow checking, ABI checking, layout, and
       function IR lowering.
-- [ ] Prefer item/function-level body queries where the input identity is
+- [x] Prefer item/function-level body queries where the input identity is
       already stable.
-- [ ] Keep expression-level queries out of scope until stable node identity
+- [x] Keep expression-level queries out of scope until stable node identity
       exists.
 - [ ] Make body-check outputs explicitly carry downstream decisions currently
       rediscovered by lowering/codegen, including:

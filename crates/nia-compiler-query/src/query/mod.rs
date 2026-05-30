@@ -250,4 +250,27 @@ mod tests {
                 && dependency.to.name == "type_normalization"
         }));
     }
+
+    #[test]
+    fn backend_lowering_uses_function_body_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "fn main() i32 { 0 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(BackendLoweringQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "backend_lowering" && dependency.to.name == "function_bodies"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "function_bodies" && dependency.to.name == "body_check"
+        }));
+    }
 }

@@ -12,6 +12,7 @@ use nia_body_check::BodyCheck;
 use nia_body_ir::TypedBody;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
+use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_layout::Layouts;
@@ -44,6 +45,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub extensions: &'a VisibleExtensionMethods,
     pub comptime: &'a nia_comptime_check::ComptimeCheck,
     pub layouts: &'a Layouts,
+    pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
 }
 

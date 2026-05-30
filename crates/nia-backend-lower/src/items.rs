@@ -141,7 +141,11 @@ impl<'a> ModuleLowerer<'a> {
             self.function_bodies
                 .insert(self.global_def_id(def_id), body.clone());
         }
-        let function_body = body.as_ref().map(nia_function_lower::lower_function_body);
+        let function_body = self
+            .input
+            .function_bodies
+            .get(&self.global_def_id(def_id))
+            .cloned();
         Some(BackendFunction {
             def_id: self.global_def_id(def_id),
             name: function.name.clone(),

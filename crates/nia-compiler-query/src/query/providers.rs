@@ -29,6 +29,10 @@ pub(super) struct CompilerQueryProviders {
     pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
     pub(super) body_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_check::BodyCheck,
+    pub(super) function_bodies: fn(
+        &QueryDb<DriverContext>,
+        ModuleId,
+    ) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody>,
     pub(super) checked_module: fn(&QueryDb<DriverContext>, ModuleId) -> CheckedModule,
     pub(super) checked_modules: fn(&QueryDb<DriverContext>) -> Vec<CheckedModule>,
     pub(super) monomorphization: fn(&QueryDb<DriverContext>) -> nia_monomorphize::Monomorphization,
@@ -63,6 +67,7 @@ impl Default for CompilerQueryProviders {
             static_check: provide_static_check,
             flow_check: provide_flow_check,
             body_check: provide_body_check,
+            function_bodies: provide_function_bodies,
             checked_module: provide_checked_module,
             checked_modules: provide_checked_modules,
             monomorphization: provide_monomorphization,
@@ -510,6 +515,18 @@ pub(super) fn provide_body_check(
     )
 }
 
+pub(super) fn provide_function_bodies(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody> {
+    db.query(BodyCheckQuery(module_id))
+        .ir
+        .function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, nia_function_lower::lower_function_body(body)))
+        .collect()
+}
+
 pub(super) fn provide_checked_module(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
@@ -573,26 +590,34 @@ pub(super) fn provide_backend_lowering(
         .iter()
         .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let function_bodies = checked_modules
+        .iter()
+        .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
+        .collect::<Vec<_>>();
     let inputs = checked_modules
         .iter()
         .zip(loaded_modules.iter())
         .zip(visible_extensions.iter())
+        .zip(function_bodies.iter())
         .map(
-            |((checked_module, loaded_module), visible_extensions)| BackendLowerModuleInput {
-                module_id: checked_module.id,
-                module_name: checked_module.path.as_str().to_string(),
-                module: &loaded_module.module,
-                defs: &checked_module.defs,
-                extensions: &visible_extensions.methods,
-                values: &checked_module.value_resolution,
-                locals: &checked_module.local_resolution,
-                type_lowering: &checked_module.type_lowering,
-                signatures: &checked_module.item_signatures,
-                type_normalization: &checked_module.type_normalization,
-                body_check: &checked_module.body_check,
-                comptime: &checked_module.comptime,
-                layouts: &checked_module.layouts,
-                extension_interner: Some(&visible_extensions.interner),
+            |(((checked_module, loaded_module), visible_extensions), function_bodies)| {
+                BackendLowerModuleInput {
+                    module_id: checked_module.id,
+                    module_name: checked_module.path.as_str().to_string(),
+                    module: &loaded_module.module,
+                    defs: &checked_module.defs,
+                    extensions: &visible_extensions.methods,
+                    values: &checked_module.value_resolution,
+                    locals: &checked_module.local_resolution,
+                    type_lowering: &checked_module.type_lowering,
+                    signatures: &checked_module.item_signatures,
+                    type_normalization: &checked_module.type_normalization,
+                    body_check: &checked_module.body_check,
+                    comptime: &checked_module.comptime,
+                    layouts: &checked_module.layouts,
+                    function_bodies,
+                    extension_interner: Some(&visible_extensions.interner),
+                }
             },
         )
         .collect::<Vec<_>>();

@@ -7,6 +7,7 @@ use nia_body_check::{
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
 use nia_function_ir::{FunctionArrayElements, FunctionExprKind, FunctionOp, FunctionTerminator};
+use nia_function_lower::lower_function_body;
 use nia_item_signatures::collect_item_signatures;
 use nia_local_resolve::resolve_module_locals;
 use nia_parser::parse_module;
@@ -129,6 +130,12 @@ fn main() i32 {
         "{:?}",
         body_check.diagnostics
     );
+    let function_bodies = body_check
+        .ir
+        .function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, lower_function_body(body)))
+        .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -144,6 +151,7 @@ fn main() i32 {
         extensions: &extensions,
         comptime: &comptime,
         layouts: &layouts,
+        function_bodies: &function_bodies,
         extension_interner: None,
     };
     let lowering = lower_backend_program(
@@ -355,6 +363,12 @@ fn lower_source(source: &str) -> BackendLowering {
         "{:?}",
         body_check.diagnostics
     );
+    let function_bodies = body_check
+        .ir
+        .function_bodies
+        .iter()
+        .map(|(def_id, body)| (*def_id, lower_function_body(body)))
+        .collect::<HashMap<_, _>>();
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -370,6 +384,7 @@ fn lower_source(source: &str) -> BackendLowering {
         extensions: &extensions,
         comptime: &comptime,
         layouts: &layouts,
+        function_bodies: &function_bodies,
         extension_interner: None,
     };
     let lowering = lower_backend_program(
