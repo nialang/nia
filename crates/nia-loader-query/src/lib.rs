@@ -492,6 +492,78 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn invalidates_source_dependents_after_in_memory_text_change() {
+        let sources = SourceDatabase::new();
+        let main = SourcePath::new("main.nia");
+        sources.set_source(main.clone(), "fn main() i32 { 0 }");
+        let db = QueryDb::new(LoaderContext {
+            root_path: main.clone(),
+            module_map: ModuleMap::default(),
+            sources: sources.clone(),
+        });
+
+        let first = db.query(LoadedProgramQuery);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert_eq!(first.modules[0].source, "fn main() i32 { 0 }");
+
+        sources.set_source(main.clone(), "fn main() i32 { 1 }");
+        let invalidation = db.invalidate(SourceTextQuery(main.clone()));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.description.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            invalidated.contains(&"source_text(main.nia)"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated
+                .iter()
+                .any(|description| description.starts_with("parsed_module(main.nia)@")),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"loaded_program::LoadedProgramQuery"),
+            "{invalidated:?}"
+        );
+
+        let second = db.query(LoadedProgramQuery);
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(second.modules[0].source, "fn main() i32 { 1 }");
+    }
+
+    #[test]
+    fn invalidates_import_graph_after_import_text_change() {
+        let sources = SourceDatabase::new();
+        let main = SourcePath::new("main.nia");
+        sources.set_source(main.clone(), "");
+        sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+        let db = QueryDb::new(LoaderContext {
+            root_path: main.clone(),
+            module_map: ModuleMap::default(),
+            sources: sources.clone(),
+        });
+
+        let first = db.query(LoadedProgramQuery);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert_eq!(first.modules.len(), 1);
+
+        sources.set_source(main.clone(), "import .defs;");
+        db.invalidate(SourceTextQuery(main));
+
+        let second = db.query(LoadedProgramQuery);
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(second.modules.len(), 2);
+        assert!(
+            second
+                .modules
+                .iter()
+                .any(|module| module.path.as_str() == "defs.nia")
+        );
+    }
+
     fn temp_dir(name: &str) -> PathBuf {
         let mut dir = std::env::temp_dir();
         dir.push(format!("nia_loader_query_{name}_{}", std::process::id()));

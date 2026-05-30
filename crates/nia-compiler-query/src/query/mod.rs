@@ -273,4 +273,32 @@ mod tests {
             dependency.from.name == "function_bodies" && dependency.to.name == "body_check"
         }));
     }
+
+    #[test]
+    fn invalidates_semantic_queries_after_public_surface_dependency_changes() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub struct S { value: i32 } fn main() i32 { 0 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(TypeResolutionQuery(ModuleId(0)));
+        let invalidation = db.invalidate(ModuleDefsQuery(ModuleId(0)));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
+        assert!(invalidated.contains(&"defs_by_module"), "{invalidated:?}");
+        assert!(invalidated.contains(&"public_surface"), "{invalidated:?}");
+        assert!(invalidated.contains(&"type_resolution"), "{invalidated:?}");
+
+        let _ = db.query(TypeResolutionQuery(ModuleId(0)));
+    }
 }

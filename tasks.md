@@ -171,15 +171,15 @@ recomputation.
 
 Tasks:
 
-- [ ] Extend `nia-query` with a cache invalidation API.
-- [ ] Track reverse dependencies for query frames or typed query keys.
-- [ ] Invalidate direct and transitive dependents when a source revision
+- [x] Extend `nia-query` with a cache invalidation API.
+- [x] Track reverse dependencies for query frames or typed query keys.
+- [x] Invalidate direct and transitive dependents when a source revision
       changes.
-- [ ] Preserve deterministic behavior when invalidation races with scoped
+- [x] Preserve deterministic behavior when invalidation races with scoped
       `query_many` workers.
-- [ ] Decide whether invalidation is coarse by query frame or typed by query key
+- [x] Decide whether invalidation is coarse by query frame or typed by query key
       storage.
-- [ ] Add tests for invalidating:
+- [x] Add tests for invalidating:
       - source input;
       - token and parse results;
       - import graph after import text changes;
@@ -194,9 +194,9 @@ Completion criteria:
 
 Verification:
 
-- [ ] `cargo test -p nia-query -p nia-source -p nia-loader-query`
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo test -p nia-query -p nia-source -p nia-loader-query`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
 
 ## Phase 6: Stable Node Identity
 
