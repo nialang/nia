@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_ty::TyInterner;
@@ -21,6 +22,9 @@ pub struct BodyIr {
     pub resolved_calls: HashMap<Span, ResolvedCall>,
     pub function_references: HashMap<Span, FunctionReference>,
     pub generic_instantiations: Vec<GenericInstantiation>,
+    pub node_expr_types: HashMap<NodeKey, InternedTyId>,
+    pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
+    pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

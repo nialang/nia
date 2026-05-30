@@ -30,6 +30,8 @@ use nia_item_signatures::{
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
+use nia_node_id::{NodeKey, SyntaxKind};
+use nia_source::SourceVersion;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
@@ -110,6 +112,7 @@ impl<'a> BodyProgramContext<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckInput<'a> {
+    pub source_version: Option<SourceVersion>,
     pub module: &'a Module,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
@@ -128,6 +131,7 @@ pub struct BodyCheckInput<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
+    pub source_version: Option<SourceVersion>,
     pub module: &'a Module,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
@@ -176,6 +180,7 @@ pub fn check_module_bodies(
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
+        source_version: None,
         module,
         defs,
         values,
@@ -220,6 +225,7 @@ pub fn check_module_bodies_with_program_signatures(
         nia_layout::TargetDataLayout::LP64,
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
+        source_version: input.source_version,
         module: input.module,
         defs: input.defs,
         values: input.values,
@@ -245,6 +251,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
 ) -> BodyCheck {
     let mut checker = BodyChecker {
+        source_version: input.source_version,
         module: input.module,
         defs: input.defs,
         program: input.program,
@@ -274,6 +281,9 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         builtin_values: HashMap::new(),
         resolved_calls: HashMap::new(),
         function_references: HashMap::new(),
+        node_expr_types: HashMap::new(),
+        node_bracket_suffix_resolutions: HashMap::new(),
+        node_resolved_calls: HashMap::new(),
         generic_instantiations: Vec::new(),
         function_bodies: HashMap::new(),
         global_inits: HashMap::new(),
@@ -301,12 +311,16 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             resolved_calls: checker.resolved_calls,
             function_references: checker.function_references,
             generic_instantiations: checker.generic_instantiations,
+            node_expr_types: checker.node_expr_types,
+            node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
+            node_resolved_calls: checker.node_resolved_calls,
         },
         diagnostics: checker.diagnostics,
     }
 }
 
 struct BodyChecker<'a> {
+    source_version: Option<SourceVersion>,
     module: &'a Module,
     defs: &'a DefCollection,
     program: BodyProgramContext<'a>,
@@ -333,6 +347,9 @@ struct BodyChecker<'a> {
     builtin_values: HashMap<Span, BuiltinValue>,
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
+    node_expr_types: HashMap<NodeKey, InternedTyId>,
+    node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
+    node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
     global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
@@ -354,6 +371,36 @@ struct ReceiverBase {
 }
 
 impl<'a> BodyChecker<'a> {
+    fn record_expr_type(&mut self, span: Span, ty: InternedTyId) {
+        self.expr_types.insert(span, ty);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_expr_types.insert(key, ty);
+        }
+    }
+
+    fn record_bracket_suffix_resolution(
+        &mut self,
+        span: Span,
+        resolution: BracketSuffixResolution,
+    ) {
+        self.bracket_suffix_resolutions.insert(span, resolution);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_bracket_suffix_resolutions.insert(key, resolution);
+        }
+    }
+
+    fn record_resolved_call(&mut self, span: Span, call: ResolvedCall) {
+        self.resolved_calls.insert(span, call.clone());
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_resolved_calls.insert(key, call);
+        }
+    }
+
+    fn node_key(&self, kind: SyntaxKind, span: Span) -> Option<NodeKey> {
+        self.source_version
+            .map(|version| NodeKey::span(version, kind, span))
+    }
+
     fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
         if module_id == self.defs.module_id {
             Some(self.defs)
@@ -387,14 +434,6 @@ struct ResolvedEnumSignature {
 }
 
 impl<'a> BodyChecker<'a> {
-    fn record_bracket_suffix_resolution(
-        &mut self,
-        span: Span,
-        resolution: BracketSuffixResolution,
-    ) {
-        self.bracket_suffix_resolutions.insert(span, resolution);
-    }
-
     fn check_module(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Binding(binding) = &item.kind {
@@ -760,7 +799,7 @@ impl<'a> BodyChecker<'a> {
                             "switch pattern",
                         )
                     {
-                        self.expr_types.insert(pattern.span, target_ty);
+                        self.record_expr_type(pattern.span, target_ty);
                     } else {
                         self.expect_expr_type(pattern, target_ty, pattern_ty, "switch pattern");
                     }

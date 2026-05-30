@@ -8,6 +8,8 @@ use nia_ast::{
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::LocalId;
+use nia_node_id::{NodeKey, SyntaxKind};
+use nia_source::SourceVersion;
 use nia_span::Span;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
@@ -15,7 +17,9 @@ use nia_value_resolve::{ValueNameResolution, ValueResolution};
 pub struct LocalResolution {
     pub locals: LocalMap,
     pub local_defs: HashMap<Span, LocalId>,
+    pub node_local_defs: HashMap<NodeKey, LocalId>,
     pub uses: HashMap<Span, LocalUse>,
+    pub node_uses: HashMap<NodeKey, LocalUse>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -80,12 +84,24 @@ pub fn resolve_module_locals(
     defs: &DefCollection,
     values: &ValueResolution,
 ) -> LocalResolution {
+    resolve_module_locals_with_source(module, defs, values, None)
+}
+
+pub fn resolve_module_locals_with_source(
+    module: &Module,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    source_version: Option<SourceVersion>,
+) -> LocalResolution {
     let mut resolver = LocalResolver {
+        source_version,
         defs,
         values,
         locals: LocalMap::default(),
         local_defs: HashMap::new(),
+        node_local_defs: HashMap::new(),
         uses: HashMap::new(),
+        node_uses: HashMap::new(),
         diagnostics: Vec::new(),
         scopes: Vec::new(),
     };
@@ -93,17 +109,22 @@ pub fn resolve_module_locals(
     LocalResolution {
         locals: resolver.locals,
         local_defs: resolver.local_defs,
+        node_local_defs: resolver.node_local_defs,
         uses: resolver.uses,
+        node_uses: resolver.node_uses,
         diagnostics: resolver.diagnostics,
     }
 }
 
 struct LocalResolver<'a> {
+    source_version: Option<SourceVersion>,
     defs: &'a DefCollection,
     values: &'a ValueResolution,
     locals: LocalMap,
     local_defs: HashMap<Span, LocalId>,
+    node_local_defs: HashMap<NodeKey, LocalId>,
     uses: HashMap<Span, LocalUse>,
+    node_uses: HashMap<NodeKey, LocalUse>,
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<HashMap<String, ScopedLocal>>,
 }
@@ -159,6 +180,7 @@ impl<'a> LocalResolver<'a> {
                     name,
                     LocalKind::Param,
                     param.span,
+                    SyntaxKind::Param,
                     "duplicate parameter name",
                 );
             }
@@ -245,6 +267,7 @@ impl<'a> LocalResolver<'a> {
                 LocalKind::Binding
             },
             span,
+            SyntaxKind::Stmt,
             "duplicate local binding",
         );
     }
@@ -437,7 +460,7 @@ impl<'a> LocalResolver<'a> {
             return self.try_resolve_type_prefix(callee);
         }
         if matches!(expr.kind, ExprKind::TypeTarget { .. }) {
-            self.uses.insert(expr.span, LocalUse::TypePrefix);
+            self.record_use(expr.span, LocalUse::TypePrefix);
             return true;
         }
         if let ExprKind::Qualified { lhs, .. } = &expr.kind {
@@ -445,7 +468,7 @@ impl<'a> LocalResolver<'a> {
                 // The Qualified's own span resolves to a type — recurse into
                 // lhs so the import-alias span still gets marked, then mark us.
                 self.resolve_expr(lhs);
-                self.uses.insert(expr.span, LocalUse::TypePrefix);
+                self.record_use(expr.span, LocalUse::TypePrefix);
                 return true;
             }
             return false;
@@ -460,7 +483,7 @@ impl<'a> LocalResolver<'a> {
             && (self.defs.module_scope.types.get(name).is_some()
                 || self.values.qualified_type_prefixes.contains_key(&expr.span))
         {
-            self.uses.insert(expr.span, LocalUse::TypePrefix);
+            self.record_use(expr.span, LocalUse::TypePrefix);
             return true;
         }
         false
@@ -553,16 +576,16 @@ impl<'a> LocalResolver<'a> {
     fn resolve_ident(&mut self, name: &str, span: Span) {
         match self.values.names.get(&span) {
             Some(ValueNameResolution::Def(_)) | Some(ValueNameResolution::External(_)) => {
-                self.uses.insert(span, LocalUse::ModuleValue);
+                self.record_use(span, LocalUse::ModuleValue);
             }
             Some(ValueNameResolution::ImportAlias) => {
-                self.uses.insert(span, LocalUse::ImportAlias);
+                self.record_use(span, LocalUse::ImportAlias);
             }
             Some(ValueNameResolution::LocalDeferred) | None => {
                 if let Some(local) = self.lookup(name) {
-                    self.uses.insert(span, LocalUse::Local(local.id));
+                    self.record_use(span, LocalUse::Local(local.id));
                 } else {
-                    self.uses.insert(span, LocalUse::Unresolved);
+                    self.record_use(span, LocalUse::Unresolved);
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         format!("unknown local or value `{name}`"),
@@ -570,18 +593,28 @@ impl<'a> LocalResolver<'a> {
                 }
             }
             Some(ValueNameResolution::Error) => {
-                self.uses.insert(span, LocalUse::Unresolved);
+                self.record_use(span, LocalUse::Unresolved);
             }
         }
     }
 
-    fn define(&mut self, name: &str, kind: LocalKind, span: Span, duplicate_message: &'static str) {
+    fn define(
+        &mut self,
+        name: &str,
+        kind: LocalKind,
+        span: Span,
+        syntax_kind: SyntaxKind,
+        duplicate_message: &'static str,
+    ) {
         let id = self.locals.push(Local {
             name: name.to_string(),
             kind,
             span,
         });
         self.local_defs.insert(span, id);
+        if let Some(key) = self.node_key(syntax_kind, span) {
+            self.node_local_defs.insert(key, id);
+        }
         let Some(scope) = self.scopes.last_mut() else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -598,6 +631,18 @@ impl<'a> LocalResolver<'a> {
             return;
         }
         scope.insert(name.to_string(), ScopedLocal { id, span });
+    }
+
+    fn record_use(&mut self, span: Span, use_kind: LocalUse) {
+        self.uses.insert(span, use_kind);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_uses.insert(key, use_kind);
+        }
+    }
+
+    fn node_key(&self, kind: SyntaxKind, span: Span) -> Option<NodeKey> {
+        self.source_version
+            .map(|version| NodeKey::span(version, kind, span))
     }
 
     fn lookup(&self, name: &str) -> Option<ScopedLocal> {
@@ -620,7 +665,9 @@ impl<'a> LocalResolver<'a> {
 mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
+    use nia_node_id::{NodePosition, SyntaxKind};
     use nia_parser::parse_module;
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
     use nia_value_resolve::resolve_module_values;
 
     #[test]
@@ -652,6 +699,36 @@ fn add(a: i32, b: i32) i32 {
                 .values()
                 .any(|use_kind| matches!(use_kind, LocalUse::ModuleValue))
         );
+    }
+
+    #[test]
+    fn records_local_facts_by_source_versioned_node_keys() {
+        let (module, errors) = parse_module(
+            r#"
+fn main(a: i32) i32 {
+    var x = a;
+    x
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let values = resolve_module_values(&module, &defs);
+        let version = SourceVersion {
+            id: SourceId(4),
+            revision: SourceRevision(2),
+        };
+        let locals = resolve_module_locals_with_source(&module, &defs, &values, Some(version));
+
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+        assert!(!locals.node_local_defs.is_empty());
+        assert!(!locals.node_uses.is_empty());
+        assert!(locals.node_uses.iter().any(|(key, use_kind)| {
+            key.source_version() == version
+                && key.kind == SyntaxKind::Expr
+                && matches!(key.position, NodePosition::Span(_))
+                && matches!(use_kind, LocalUse::Local(_))
+        }));
     }
 
     #[test]

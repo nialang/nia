@@ -180,6 +180,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         LoadedModule {
             id,
             path: self.0.clone(),
+            source_version: parsed.source.version(),
             source: parsed.source.text,
             module: parsed.module,
             parse_errors: parsed.parse_errors,

@@ -134,6 +134,7 @@ impl DriverContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_source::{SourceId, SourceRevision};
 
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
         LoadedProgram {
@@ -150,6 +151,10 @@ mod tests {
         LoadedModule {
             id,
             path: SourcePath::new(path),
+            source_version: nia_source::SourceVersion {
+                id: SourceId(id.0),
+                revision: SourceRevision::INITIAL,
+            },
             source: source.to_string(),
             module,
             parse_errors,

@@ -177,7 +177,7 @@ impl<'a> BodyChecker<'a> {
             let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, span);
-            self.resolved_calls.insert(
+            self.record_resolved_call(
                 span,
                 ResolvedCall::FunctionInstance {
                     def_id: method_id,
@@ -506,7 +506,7 @@ impl<'a> BodyChecker<'a> {
             let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, call.span);
-            self.resolved_calls.insert(
+            self.record_resolved_call(
                 call.span,
                 ResolvedCall::Method {
                     def_id: method_id,
@@ -514,7 +514,7 @@ impl<'a> BodyChecker<'a> {
                 },
             );
         } else {
-            self.resolved_calls.insert(
+            self.record_resolved_call(
                 call.span,
                 ResolvedCall::Method {
                     def_id: method_id,

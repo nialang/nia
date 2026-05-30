@@ -329,7 +329,12 @@ pub(super) fn provide_local_resolution(
     let loaded = db.query(LoadedModuleQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
-    nia_local_resolve::resolve_module_locals(&loaded.module, &defs, &values)
+    nia_local_resolve::resolve_module_locals_with_source(
+        &loaded.module,
+        &defs,
+        &values,
+        Some(loaded.source_version),
+    )
 }
 
 pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
@@ -492,6 +497,7 @@ pub(super) fn provide_body_check(
     let program_comptime = db.query(ProgramComptimeQuery);
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
         nia_body_check::BodyCheckInput {
+            source_version: Some(loaded.source_version),
             module: &loaded.module,
             defs: &defs,
             values: &values,

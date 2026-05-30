@@ -282,7 +282,7 @@ impl<'a> BodyChecker<'a> {
             );
         }
         let callee_ty = self.check_bracket_suffix_expr(callee_span, callee, type_args, None);
-        self.expr_types.insert(callee_span, callee_ty);
+        self.record_expr_type(callee_span, callee_ty);
         self.check_function_pointer_call_with_callee_ty(span, callee_ty, args)
     }
 
@@ -344,7 +344,7 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         }
         self.record_generic_instantiation(def_id, &lowered_args, span);
-        self.resolved_calls.insert(
+        self.record_resolved_call(
             span,
             ResolvedCall::FunctionInstance {
                 def_id,
@@ -419,7 +419,7 @@ impl<'a> BodyChecker<'a> {
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
         self.record_generic_instantiation(def_id, &instance_args, span);
-        self.resolved_calls.insert(
+        self.record_resolved_call(
             span,
             ResolvedCall::FunctionInstance {
                 def_id,

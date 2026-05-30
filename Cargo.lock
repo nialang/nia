@@ -137,7 +137,9 @@ dependencies = [
  "nia-item-signatures",
  "nia-layout",
  "nia-local-resolve",
+ "nia-node-id",
  "nia-parser",
+ "nia-source",
  "nia-span",
  "nia-static-ir",
  "nia-ty",
@@ -153,6 +155,7 @@ version = "0.2.1"
 dependencies = [
  "nia-ast",
  "nia-ids",
+ "nia-node-id",
  "nia-span",
  "nia-static-ir",
  "nia-ty",
@@ -422,7 +425,9 @@ dependencies = [
  "nia-defs",
  "nia-diagnostic",
  "nia-ids",
+ "nia-node-id",
  "nia-parser",
+ "nia-source",
  "nia-span",
  "nia-value-resolve",
 ]
@@ -448,6 +453,14 @@ dependencies = [
  "nia-parser",
  "nia-span",
  "nia-ty",
+]
+
+[[package]]
+name = "nia-node-id"
+version = "0.2.1"
+dependencies = [
+ "nia-source",
+ "nia-span",
 ]
 
 [[package]]
