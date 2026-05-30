@@ -24,6 +24,19 @@ pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap
     db.query(LoadedProgramQuery)
 }
 
+#[cfg(test)]
+fn load_program_trace(
+    root_path: impl Into<String>,
+    module_map: ModuleMap,
+) -> nia_query::QueryTrace {
+    let db = QueryDb::new(LoaderContext {
+        root_path: SourcePath::new(root_path.into()),
+        module_map,
+    });
+    let _ = db.query(LoadedProgramQuery);
+    db.query_trace()
+}
+
 struct LoaderContext {
     root_path: SourcePath,
     module_map: ModuleMap,
@@ -138,6 +151,10 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         "loaded_module"
     }
 
+    fn description(&self) -> String {
+        format!("loaded_module({})", self.0.as_str())
+    }
+
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let graph = db.query(ModuleGraphQuery);
         let id = graph
@@ -162,6 +179,10 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 
     fn name() -> &'static str {
         "parsed_module"
+    }
+
+    fn description(&self) -> String {
+        format!("parsed_module({})", self.0.as_str())
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
@@ -194,6 +215,10 @@ impl QueryKey<LoaderContext> for TokenizedModuleQuery {
         "tokenized_module"
     }
 
+    fn description(&self) -> String {
+        format!("tokenized_module({})", self.0.as_str())
+    }
+
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let source = db.query(SourceTextQuery(self.0.clone()));
         source
@@ -220,6 +245,10 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
 
     fn name() -> &'static str {
         "source_text"
+    }
+
+    fn description(&self) -> String {
+        format!("source_text({})", self.0.as_str())
     }
 
     fn execute(&self, _: &QueryDb<LoaderContext>) -> Self::Value {
@@ -266,6 +295,10 @@ impl QueryKey<LoaderContext> for ModuleImportsQuery {
 
     fn name() -> &'static str {
         "module_imports"
+    }
+
+    fn description(&self) -> String {
+        format!("module_imports({})", self.0.as_str())
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
@@ -362,6 +395,25 @@ mod tests {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(program.imports.get(program.graph.root(), "io").is_some());
+    }
+
+    #[test]
+    fn query_trace_records_source_frontend_dependencies() {
+        let root = temp_dir("query_trace_records_source_frontend_dependencies");
+        let main_path = root.join("main.nia");
+        write(&main_path, "fn main() i32 { 0 }");
+        let main_path = main_path.to_string_lossy().into_owned();
+
+        let trace = load_program_trace(main_path.clone(), ModuleMap::default());
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.description == format!("parsed_module({main_path})")
+                && dependency.to.description == format!("tokenized_module({main_path})")
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.description == format!("tokenized_module({main_path})")
+                && dependency.to.description == format!("source_text({main_path})")
+        }));
     }
 
     fn temp_dir(name: &str) -> PathBuf {
