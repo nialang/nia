@@ -149,6 +149,9 @@ impl<C> QueryDb<C> {
         K: QueryKey<C>,
     {
         let keys = keys.into_iter().collect::<Vec<_>>();
+        for key in &keys {
+            self.record_dependency::<K>(key);
+        }
         std::thread::scope(|scope| {
             let handles = keys
                 .into_iter()
@@ -232,6 +235,10 @@ impl<C> QueryDb<C> {
     where
         K: QueryKey<C>,
     {
+        self.record_dependency_from_stack(query_frame::<C, K>(key));
+    }
+
+    fn record_dependency_from_stack(&self, to: QueryFrame) {
         QUERY_STACK.with(|stack| {
             let Some(from) = stack.borrow().last().cloned() else {
                 return;
@@ -240,10 +247,7 @@ impl<C> QueryDb<C> {
                 .dependencies
                 .lock()
                 .expect("query dependency lock poisoned")
-                .push(QueryDependency {
-                    from,
-                    to: query_frame::<C, K>(key),
-                });
+                .push(QueryDependency { from, to });
         });
     }
 }
@@ -382,6 +386,23 @@ mod tests {
         assert_eq!(trace.dependencies[0].to.description, "double(7)");
     }
 
+    #[test]
+    fn records_query_many_dependencies_from_parent_query() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(db.query(DoubleMany([2, 5])), 14);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "double_many" && dependency.to.description == "double(2)"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "double_many" && dependency.to.description == "double(5)"
+        }));
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     struct DoubleTwice(usize);
 
@@ -394,6 +415,21 @@ mod tests {
 
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
             db.query(Double(self.0)) * 2
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct DoubleMany([usize; 2]);
+
+    impl QueryKey<TestContext> for DoubleMany {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "double_many"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.query_many(self.0.map(Double)).into_iter().sum()
         }
     }
 }

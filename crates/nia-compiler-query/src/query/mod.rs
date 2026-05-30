@@ -200,4 +200,54 @@ mod tests {
             dependency.from.name == "program_signatures" && dependency.to.name == "item_signatures"
         }));
     }
+
+    #[test]
+    fn public_surface_query_uses_module_defs_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub struct S { value: i32 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(PublicSurfaceQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "defs_by_module" && dependency.to.name == "module_defs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "public_surface" && dependency.to.name == "defs_by_module"
+        }));
+    }
+
+    #[test]
+    fn extension_queries_use_module_semantic_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(ExtensionMethodsQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods" && dependency.to.name == "module_defs"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods" && dependency.to.name == "type_lowering"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "extension_methods"
+                && dependency.to.name == "type_normalization"
+        }));
+    }
 }
