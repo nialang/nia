@@ -4,10 +4,11 @@ use std::fs;
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
-    ImportAliasMap, ModuleGraph, ModuleMap, ResolvedImport, SourcePath, add_resolved_imports,
+    ImportAliasMap, ModuleGraph, ModuleMap, ResolvedImport, add_resolved_imports,
     collect_import_aliases, resolve_module_imports,
 };
 use nia_query::{QueryDb, QueryKey};
+use nia_source::{SourceFile, SourceId, SourcePath};
 use nia_span::Span;
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
@@ -145,7 +146,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         LoadedModule {
             id,
             path: self.0.clone(),
-            source: parsed.source,
+            source: parsed.source.text,
             module: parsed.module,
             parse_errors: parsed.parse_errors,
         }
@@ -164,9 +165,16 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let source = db.query(SourceTextQuery(self.0.clone()));
-        let (module, parse_errors) = nia_parser::parse_module(source.text.as_deref().unwrap_or(""));
+        let text = source
+            .file
+            .as_ref()
+            .map(|file| file.text.as_str())
+            .unwrap_or("");
+        let (module, parse_errors) = nia_parser::parse_module(text);
         ParsedModule {
-            source: source.text.unwrap_or_default(),
+            source: source.file.unwrap_or_else(|| {
+                SourceFile::new(source_id_for_path(&self.0), self.0.clone(), String::new())
+            }),
             module,
             parse_errors,
             read_diagnostic: source.diagnostic,
@@ -176,7 +184,7 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 
 #[derive(Debug, Clone, PartialEq)]
 struct ParsedModule {
-    source: String,
+    source: SourceFile,
     module: nia_ast::Module,
     parse_errors: Vec<nia_parser::ParseError>,
     read_diagnostic: Option<Diagnostic>,
@@ -195,11 +203,15 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
     fn execute(&self, _: &QueryDb<LoaderContext>) -> Self::Value {
         match fs::read_to_string(self.0.as_str()) {
             Ok(text) => SourceText {
-                text: Some(text),
+                file: Some(SourceFile::new(
+                    source_id_for_path(&self.0),
+                    self.0.clone(),
+                    text,
+                )),
                 diagnostic: None,
             },
             Err(err) => SourceText {
-                text: None,
+                file: None,
                 diagnostic: Some(Diagnostic::error(
                     Span::default(),
                     format!("failed to read `{}`: {err}", self.0.as_str()),
@@ -211,8 +223,17 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
 
 #[derive(Debug, Clone, PartialEq)]
 struct SourceText {
-    text: Option<String>,
+    file: Option<SourceFile>,
     diagnostic: Option<Diagnostic>,
+}
+
+fn source_id_for_path(path: &SourcePath) -> SourceId {
+    let mut hash = 2166136261u32;
+    for byte in path.as_str().as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(16777619);
+    }
+    SourceId(hash)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

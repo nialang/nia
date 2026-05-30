@@ -1,0 +1,11 @@
+[package]
+name = "nia-source"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lib]
+path = "src/lib.rs"
