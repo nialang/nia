@@ -5,7 +5,7 @@ use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalConstExprId, GlobalDefId, LocalId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, LocalId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
@@ -31,14 +31,28 @@ pub use nia_comptime_engine::ComptimeValue;
 #[derive(Debug, Clone, Copy)]
 pub struct ComptimeInput<'a> {
     pub module: &'a Module,
-    pub all_modules: &'a [Module],
     pub defs: &'a DefCollection,
-    pub all_defs: &'a [DefCollection],
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
     pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
+    pub program: ComptimeProgramContext<'a>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ComptimeProgramContext<'a> {
+    pub modules: Option<&'a HashMap<ModuleId, Module>>,
+    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+}
+
+impl<'a> ComptimeProgramContext<'a> {
+    pub fn empty() -> Self {
+        Self {
+            modules: None,
+            defs: None,
+        }
+    }
 }
 
 pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
@@ -188,13 +202,14 @@ impl Analyzer<'_> {
     }
 
     fn global_initializer(&self, global_id: GlobalDefId) -> Option<Expr> {
-        let (index, defs) = self
-            .input
-            .all_defs
-            .iter()
-            .enumerate()
-            .find(|(_, defs)| defs.module_id == global_id.module_id)?;
-        let module = self.input.all_modules.get(index)?;
+        let (module, defs) = if global_id.module_id == self.input.defs.module_id {
+            (self.input.module, self.input.defs)
+        } else {
+            (
+                self.input.program.modules?.get(&global_id.module_id)?,
+                self.input.program.defs?.get(&global_id.module_id)?,
+            )
+        };
         module.items.iter().find_map(|item| {
             let ItemKind::Binding(binding) = &item.kind else {
                 return None;
@@ -207,6 +222,14 @@ impl Analyzer<'_> {
                 .then(|| binding.value.clone())
                 .flatten()
         })
+    }
+
+    fn global_defs(&self, module_id: ModuleId) -> Option<&DefCollection> {
+        if module_id == self.input.defs.module_id {
+            Some(self.input.defs)
+        } else {
+            self.input.program.defs?.get(&module_id)
+        }
     }
 
     fn local_initializer(&self, local_id: LocalId) -> Option<Expr> {
@@ -284,12 +307,10 @@ impl Analyzer<'_> {
     }
 
     fn def_kind_of(&self, global_id: GlobalDefId) -> Option<DefKind> {
-        let defs = self
-            .input
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == global_id.module_id)?;
-        defs.defs.get(global_id.def_id).map(|def| def.kind)
+        self.global_defs(global_id.module_id)?
+            .defs
+            .get(global_id.def_id)
+            .map(|def| def.kind)
     }
 
     fn def_id_for_span(&self, span: Span, expected: DefKind) -> Option<DefId> {

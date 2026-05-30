@@ -36,13 +36,13 @@ Acceptance:
 
 ## 3. Remove bulk program-input dependencies from passes
 
-- [ ] Audit `all_defs`, `all_modules`, `program_*` maps, and cross-module callback inputs.
-- [ ] Replace the highest-risk pass inputs with query context/provider traits where practical.
-- [ ] Prioritize comptime/body-check/layout/type/value resolve paths because recent bugs clustered
+- [x] Audit `all_defs`, `all_modules`, `program_*` maps, and cross-module callback inputs.
+- [x] Replace the highest-risk pass inputs with query context/provider traits where practical.
+- [x] Prioritize comptime/body-check/layout/type/value resolve paths because recent bugs clustered
       there.
-- [ ] Keep pass crates independent; they should consume explicit contexts, not depend on
+- [x] Keep pass crates independent; they should consume explicit contexts, not depend on
       `nia-compiler-query`.
-- [ ] Commit this stage.
+- [x] Commit this stage.
 
 Acceptance:
 

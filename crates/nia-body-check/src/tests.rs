@@ -35,14 +35,13 @@ fn pipeline(source: &str) -> BodyCheck {
     );
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
         module: &module,
-        all_modules: std::slice::from_ref(&module),
         defs: &defs,
-        all_defs: std::slice::from_ref(&defs),
         values: &values,
         locals: &locals,
         signatures: &signatures,
         interner: &lowered.interner,
         const_exprs: &lowered.const_exprs,
+        program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     assert!(
         comptime.diagnostics.is_empty(),
@@ -93,9 +92,7 @@ fn pipeline(source: &str) -> BodyCheck {
     );
     check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         module: &module,
-        all_modules: std::slice::from_ref(&module),
         defs: &defs,
-        all_defs: std::slice::from_ref(&defs),
         values: &values,
         locals: &locals,
         lowered: &lowered,
@@ -105,6 +102,7 @@ fn pipeline(source: &str) -> BodyCheck {
         layouts: &layouts,
         extensions: &extensions,
         extension_interner: None,
+        program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {
             functions: &HashMap::new(),
             globals: &HashMap::new(),

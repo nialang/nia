@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ProgramDiagnosticsQuery;
@@ -20,6 +21,13 @@ pub(super) fn modules_in_order(db: &QueryDb<DriverContext>) -> Vec<LoadedModule>
     db.query(ParseOkModuleIdsQuery)
         .into_iter()
         .map(|module_id| db.query(LoadedModuleQuery(module_id)))
+        .collect()
+}
+
+pub(super) fn defs_by_module_id(db: &QueryDb<DriverContext>) -> HashMap<ModuleId, DefCollection> {
+    db.query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
         .collect()
 }
 
