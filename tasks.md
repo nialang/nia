@@ -160,9 +160,9 @@ Completion criteria:
 
 Verification:
 
-- [ ] `cargo test -p nia-body-check -p nia-function-lower -p nia-backend-lower`
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo test -p nia-body-check -p nia-function-lower -p nia-backend-lower`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
 
 ## Phase 5: In-Memory Invalidation
 

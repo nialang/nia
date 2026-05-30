@@ -6,11 +6,12 @@ use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendStructInstance,
     BackendUnionInstance,
 };
-use nia_body_ir::{
-    TypedArrayElements, TypedBody, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit,
-    TypedStmt, TypedStmtKind, TypedSwitchArmBody, TypedSwitchPattern,
-};
 use nia_defs::{DefId, DefKind};
+use nia_function_ir::{
+    FunctionArrayElements, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
+    FunctionExprKind, FunctionForHeader, FunctionOp, FunctionPlace, FunctionPlaceBase,
+    FunctionPlaceElem, FunctionTerminator,
+};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_mangle::mangle_instance_symbol;
 use nia_span::Span;
@@ -139,9 +140,9 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instance_ty(param.ty, &mut seen, struct_instances);
                 self.collect_union_instance_ty(param.ty, &mut seen_unions, union_instances);
             }
-            if let Some(body) = self.function_bodies.get(&function.def_id).cloned() {
-                self.collect_struct_instances_body(&body, &mut seen, struct_instances);
-                self.collect_union_instances_body(&body, &mut seen_unions, union_instances);
+            if let Some(body) = &function.function_body {
+                self.collect_struct_instances_body(body, &mut seen, struct_instances);
+                self.collect_union_instances_body(body, &mut seen_unions, union_instances);
             }
         }
         for function in function_instances {
@@ -151,24 +152,16 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instance_ty(param.ty, &mut seen, struct_instances);
                 self.collect_union_instance_ty(param.ty, &mut seen_unions, union_instances);
             }
-            if let Some(body) = self
-                .function_instance_bodies
-                .get(&(
-                    function.def_id,
-                    function.arg_module_id,
-                    function.args.clone(),
-                ))
-                .cloned()
-            {
-                self.collect_struct_instances_body(&body, &mut seen, struct_instances);
-                self.collect_union_instances_body(&body, &mut seen_unions, union_instances);
+            if let Some(body) = &function.function_body {
+                self.collect_struct_instances_body(body, &mut seen, struct_instances);
+                self.collect_union_instances_body(body, &mut seen_unions, union_instances);
             }
         }
     }
 
     fn collect_struct_instances_body(
         &mut self,
-        body: &TypedBody,
+        body: &FunctionBody,
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
@@ -176,130 +169,165 @@ impl<'a> ModuleLowerer<'a> {
         for local in &body.locals {
             self.collect_struct_instance_ty(local.ty, seen, out);
         }
-        for stmt in &body.stmts {
-            self.collect_struct_instances_stmt(stmt, seen, out);
-        }
-        if let Some(tail) = &body.tail {
-            self.collect_struct_instances_expr(tail, seen, out);
+        for block in &body.blocks {
+            for op in &block.ops {
+                self.collect_struct_instances_op(op, seen, out);
+            }
+            self.collect_struct_instances_terminator(&block.terminator, seen, out);
         }
     }
 
-    fn collect_struct_instances_stmt(
+    fn collect_struct_instances_defer_body(
         &mut self,
-        stmt: &TypedStmt,
+        body: &FunctionDeferBody,
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
-        match &stmt.kind {
-            TypedStmtKind::Binding(binding) => {
+        for block in &body.blocks {
+            for op in &block.ops {
+                self.collect_struct_instances_op(op, seen, out);
+            }
+            self.collect_struct_instances_terminator(&block.terminator, seen, out);
+        }
+    }
+
+    fn collect_struct_instances_op(
+        &mut self,
+        op: &FunctionOp,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendStructInstance>,
+    ) {
+        match op {
+            FunctionOp::Binding(binding) => {
                 self.collect_struct_instance_ty(binding.ty, seen, out);
                 if let Some(value) = &binding.value {
                     self.collect_struct_instances_expr(value, seen, out);
                 }
             }
-            TypedStmtKind::Expr(expr) | TypedStmtKind::Defer(expr) => {
+            FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+                self.collect_struct_instances_expr(value, seen, out);
+            }
+            FunctionOp::Defer(body) => {
+                self.collect_struct_instances_defer_body(body, seen, out);
+            }
+        }
+    }
+
+    fn collect_struct_instances_terminator(
+        &mut self,
+        terminator: &FunctionTerminator,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendStructInstance>,
+    ) {
+        match terminator {
+            FunctionTerminator::If { cond, .. } => {
+                self.collect_struct_instances_expr(cond, seen, out);
+            }
+            FunctionTerminator::Switch { target, arms, .. } => {
+                self.collect_struct_instances_expr(target, seen, out);
+                for arm in arms {
+                    self.collect_struct_instances_expr(&arm.pattern, seen, out);
+                }
+            }
+            FunctionTerminator::Loop { header, .. } => {
+                self.collect_struct_instances_for_header(header, seen, out);
+            }
+            FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+                if let Some(expr) = value {
+                    self.collect_struct_instances_expr(expr, seen, out);
+                }
+            }
+            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+        }
+    }
+
+    fn collect_struct_instances_for_header(
+        &mut self,
+        header: &FunctionForHeader,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendStructInstance>,
+    ) {
+        match header {
+            FunctionForHeader::Infinite => {}
+            FunctionForHeader::Condition(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
-            TypedStmtKind::Return(Some(expr)) => {
-                self.collect_struct_instances_expr(expr, seen, out)
-            }
-            TypedStmtKind::Return(None) | TypedStmtKind::Break | TypedStmtKind::Continue => {}
-            TypedStmtKind::For(for_stmt) => {
-                match &for_stmt.header {
-                    TypedForHeader::Infinite => {}
-                    TypedForHeader::Condition(expr) => {
-                        self.collect_struct_instances_expr(expr, seen, out);
-                    }
-                    TypedForHeader::CStyle { init, cond, step } => {
-                        if let Some(init) = init {
-                            match &**init {
-                                TypedForInit::Binding(binding) => {
-                                    self.collect_struct_instance_ty(binding.ty, seen, out);
-                                    if let Some(value) = &binding.value {
-                                        self.collect_struct_instances_expr(value, seen, out);
-                                    }
-                                }
-                                TypedForInit::Expr(expr) => {
-                                    self.collect_struct_instances_expr(expr, seen, out);
-                                }
-                            }
-                        }
-                        if let Some(cond) = cond {
-                            self.collect_struct_instances_expr(cond, seen, out);
-                        }
-                        if let Some(step) = step {
-                            self.collect_struct_instances_expr(step, seen, out);
-                        }
-                    }
+            FunctionForHeader::CStyle { cond } => {
+                if let Some(cond) = cond {
+                    self.collect_struct_instances_expr(cond, seen, out);
                 }
-                self.collect_struct_instances_body(&for_stmt.body, seen, out);
             }
         }
     }
 
     fn collect_struct_instances_expr(
         &mut self,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendStructInstance>,
     ) {
         self.collect_struct_instance_ty(expr.ty, seen, out);
         match &expr.kind {
-            TypedExprKind::ArrayLiteral { elems } => match elems {
-                TypedArrayElements::List(elems) => {
+            FunctionExprKind::ArrayLiteral { elems } => match elems {
+                FunctionArrayElements::List(elems) => {
                     for elem in elems {
                         self.collect_struct_instances_expr(elem, seen, out);
                     }
                 }
-                TypedArrayElements::Repeat { value, .. } => {
+                FunctionArrayElements::Repeat { value, .. } => {
                     self.collect_struct_instances_expr(value, seen, out);
                 }
             },
-            TypedExprKind::StructLiteral { fields, .. } => {
+            FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_struct_instances_expr(&field.value, seen, out);
                 }
             }
-            TypedExprKind::UnionLiteral { field, .. } => {
+            FunctionExprKind::UnionLiteral { field, .. } => {
                 self.collect_struct_instances_expr(&field.value, seen, out);
             }
-            TypedExprKind::Unary { expr, .. } | TypedExprKind::Cast { expr, .. } => {
+            FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
-            TypedExprKind::Binary { lhs, rhs, .. } => {
+            FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_struct_instances_expr(lhs, seen, out);
                 self.collect_struct_instances_expr(rhs, seen, out);
             }
-            TypedExprKind::Assign { place, rhs, .. } => {
-                self.collect_struct_instance_ty(place.ty, seen, out);
+            FunctionExprKind::Assign { place, rhs, .. } => {
+                self.collect_struct_instances_place(place, seen, out);
                 self.collect_struct_instances_expr(rhs, seen, out);
             }
-            TypedExprKind::Discard(expr) => {
+            FunctionExprKind::Discard(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
-            TypedExprKind::Len(inner) | TypedExprKind::Ptr(inner) => {
+            FunctionExprKind::Len(inner) | FunctionExprKind::Ptr(inner) => {
                 self.collect_struct_instances_expr(inner, seen, out);
             }
-            TypedExprKind::CStringPointer { array, .. } => {
+            FunctionExprKind::CStringPointer { array, .. } => {
                 self.collect_struct_instances_expr(array, seen, out);
             }
-            TypedExprKind::InlineAsm(asm) => {
+            FunctionExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
                     self.collect_struct_instances_expr(&input.value, seen, out);
                 }
                 for output in &asm.outputs {
-                    self.collect_struct_instance_ty(output.place.ty, seen, out);
+                    self.collect_struct_instances_place(&output.place, seen, out);
                 }
             }
-            TypedExprKind::Call { args, .. } => {
+            FunctionExprKind::Call { callee, args } => {
+                self.collect_struct_instances_callee(callee, seen, out);
                 for arg in args {
                     self.collect_struct_instances_expr(arg, seen, out);
                 }
             }
-            TypedExprKind::Field { lhs, .. } | TypedExprKind::Index { lhs, .. } => {
+            FunctionExprKind::Field { lhs, .. } => {
                 self.collect_struct_instances_expr(lhs, seen, out);
             }
-            TypedExprKind::Slice { lhs, range, .. } => {
+            FunctionExprKind::Index { lhs, index } => {
+                self.collect_struct_instances_expr(lhs, seen, out);
+                self.collect_struct_instances_expr(index, seen, out);
+            }
+            FunctionExprKind::Slice { lhs, range, .. } => {
                 self.collect_struct_instances_expr(lhs, seen, out);
                 if let Some(start) = &range.start {
                     self.collect_struct_instances_expr(start, seen, out);
@@ -308,51 +336,69 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_expr(end, seen, out);
                 }
             }
-            TypedExprKind::Block(body) => self.collect_struct_instances_body(body, seen, out),
-            TypedExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_struct_instances_expr(cond, seen, out);
-                self.collect_struct_instances_body(then_branch, seen, out);
-                if let Some(else_branch) = else_branch {
-                    self.collect_struct_instances_expr(else_branch, seen, out);
+            FunctionExprKind::FunctionInstance { args, .. } => {
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
                 }
             }
-            TypedExprKind::Switch(switch) => {
-                self.collect_struct_instances_expr(&switch.target, seen, out);
-                for arm in &switch.arms {
-                    if let TypedSwitchPattern::Expr(expr) = &arm.pattern {
-                        self.collect_struct_instances_expr(expr, seen, out);
-                    }
-                    match &arm.body {
-                        TypedSwitchArmBody::Expr(expr) => {
-                            self.collect_struct_instances_expr(expr, seen, out);
-                        }
-                        TypedSwitchArmBody::Stmt(stmt) => {
-                            self.collect_struct_instances_stmt(stmt, seen, out);
-                        }
-                        TypedSwitchArmBody::Block(body) => {
-                            self.collect_struct_instances_body(body, seen, out);
-                        }
-                    }
+            FunctionExprKind::Error
+            | FunctionExprKind::Integer(_)
+            | FunctionExprKind::Float(_)
+            | FunctionExprKind::String(_)
+            | FunctionExprKind::ByteString(_)
+            | FunctionExprKind::Char(_)
+            | FunctionExprKind::ByteChar(_)
+            | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Local(_)
+            | FunctionExprKind::Global(_)
+            | FunctionExprKind::Function(_)
+            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::BuiltinValue(_) => {}
+        }
+    }
+
+    fn collect_struct_instances_callee(
+        &mut self,
+        callee: &FunctionCallee,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendStructInstance>,
+    ) {
+        match callee {
+            FunctionCallee::Function(_) => {}
+            FunctionCallee::FunctionInstance { args, .. } => {
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
                 }
             }
-            TypedExprKind::Error
-            | TypedExprKind::Integer(_)
-            | TypedExprKind::Float(_)
-            | TypedExprKind::String(_)
-            | TypedExprKind::ByteString(_)
-            | TypedExprKind::Char(_)
-            | TypedExprKind::ByteChar(_)
-            | TypedExprKind::Bool(_)
-            | TypedExprKind::Local(_)
-            | TypedExprKind::Global(_)
-            | TypedExprKind::Function(_)
-            | TypedExprKind::FunctionInstance { .. }
-            | TypedExprKind::EnumVariant(_)
-            | TypedExprKind::BuiltinValue(_) => {}
+            FunctionCallee::Method { args, receiver, .. } => {
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                self.collect_struct_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::FunctionPointer(expr) => {
+                self.collect_struct_instances_expr(expr, seen, out);
+            }
+        }
+    }
+
+    fn collect_struct_instances_place(
+        &mut self,
+        place: &FunctionPlace,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendStructInstance>,
+    ) {
+        self.collect_struct_instance_ty(place.ty, seen, out);
+        if let FunctionPlaceBase::Deref(expr) = &place.base {
+            self.collect_struct_instances_expr(expr, seen, out);
+        }
+        for elem in &place.elems {
+            match elem {
+                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Index(expr) => {
+                    self.collect_struct_instances_expr(expr, seen, out);
+                }
+            }
         }
     }
 
@@ -434,7 +480,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn collect_union_instances_body(
         &mut self,
-        body: &TypedBody,
+        body: &FunctionBody,
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
@@ -442,128 +488,165 @@ impl<'a> ModuleLowerer<'a> {
         for local in &body.locals {
             self.collect_union_instance_ty(local.ty, seen, out);
         }
-        for stmt in &body.stmts {
-            self.collect_union_instances_stmt(stmt, seen, out);
-        }
-        if let Some(tail) = &body.tail {
-            self.collect_union_instances_expr(tail, seen, out);
+        for block in &body.blocks {
+            for op in &block.ops {
+                self.collect_union_instances_op(op, seen, out);
+            }
+            self.collect_union_instances_terminator(&block.terminator, seen, out);
         }
     }
 
-    fn collect_union_instances_stmt(
+    fn collect_union_instances_defer_body(
         &mut self,
-        stmt: &TypedStmt,
+        body: &FunctionDeferBody,
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
-        match &stmt.kind {
-            TypedStmtKind::Binding(binding) => {
+        for block in &body.blocks {
+            for op in &block.ops {
+                self.collect_union_instances_op(op, seen, out);
+            }
+            self.collect_union_instances_terminator(&block.terminator, seen, out);
+        }
+    }
+
+    fn collect_union_instances_op(
+        &mut self,
+        op: &FunctionOp,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendUnionInstance>,
+    ) {
+        match op {
+            FunctionOp::Binding(binding) => {
                 self.collect_union_instance_ty(binding.ty, seen, out);
                 if let Some(value) = &binding.value {
                     self.collect_union_instances_expr(value, seen, out);
                 }
             }
-            TypedStmtKind::Expr(expr) | TypedStmtKind::Defer(expr) => {
+            FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+                self.collect_union_instances_expr(value, seen, out);
+            }
+            FunctionOp::Defer(body) => {
+                self.collect_union_instances_defer_body(body, seen, out);
+            }
+        }
+    }
+
+    fn collect_union_instances_terminator(
+        &mut self,
+        terminator: &FunctionTerminator,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendUnionInstance>,
+    ) {
+        match terminator {
+            FunctionTerminator::If { cond, .. } => {
+                self.collect_union_instances_expr(cond, seen, out);
+            }
+            FunctionTerminator::Switch { target, arms, .. } => {
+                self.collect_union_instances_expr(target, seen, out);
+                for arm in arms {
+                    self.collect_union_instances_expr(&arm.pattern, seen, out);
+                }
+            }
+            FunctionTerminator::Loop { header, .. } => {
+                self.collect_union_instances_for_header(header, seen, out);
+            }
+            FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+                if let Some(expr) = value {
+                    self.collect_union_instances_expr(expr, seen, out);
+                }
+            }
+            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+        }
+    }
+
+    fn collect_union_instances_for_header(
+        &mut self,
+        header: &FunctionForHeader,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendUnionInstance>,
+    ) {
+        match header {
+            FunctionForHeader::Infinite => {}
+            FunctionForHeader::Condition(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
-            TypedStmtKind::Return(Some(expr)) => self.collect_union_instances_expr(expr, seen, out),
-            TypedStmtKind::Return(None) | TypedStmtKind::Break | TypedStmtKind::Continue => {}
-            TypedStmtKind::For(for_stmt) => {
-                match &for_stmt.header {
-                    TypedForHeader::Infinite => {}
-                    TypedForHeader::Condition(expr) => {
-                        self.collect_union_instances_expr(expr, seen, out);
-                    }
-                    TypedForHeader::CStyle { init, cond, step } => {
-                        if let Some(init) = init {
-                            match &**init {
-                                TypedForInit::Binding(binding) => {
-                                    self.collect_union_instance_ty(binding.ty, seen, out);
-                                    if let Some(value) = &binding.value {
-                                        self.collect_union_instances_expr(value, seen, out);
-                                    }
-                                }
-                                TypedForInit::Expr(expr) => {
-                                    self.collect_union_instances_expr(expr, seen, out);
-                                }
-                            }
-                        }
-                        if let Some(cond) = cond {
-                            self.collect_union_instances_expr(cond, seen, out);
-                        }
-                        if let Some(step) = step {
-                            self.collect_union_instances_expr(step, seen, out);
-                        }
-                    }
+            FunctionForHeader::CStyle { cond } => {
+                if let Some(cond) = cond {
+                    self.collect_union_instances_expr(cond, seen, out);
                 }
-                self.collect_union_instances_body(&for_stmt.body, seen, out);
             }
         }
     }
 
     fn collect_union_instances_expr(
         &mut self,
-        expr: &TypedExpr,
+        expr: &FunctionExpr,
         seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
         out: &mut Vec<BackendUnionInstance>,
     ) {
         self.collect_union_instance_ty(expr.ty, seen, out);
         match &expr.kind {
-            TypedExprKind::ArrayLiteral { elems } => match elems {
-                TypedArrayElements::List(elems) => {
+            FunctionExprKind::ArrayLiteral { elems } => match elems {
+                FunctionArrayElements::List(elems) => {
                     for elem in elems {
                         self.collect_union_instances_expr(elem, seen, out);
                     }
                 }
-                TypedArrayElements::Repeat { value, .. } => {
+                FunctionArrayElements::Repeat { value, .. } => {
                     self.collect_union_instances_expr(value, seen, out);
                 }
             },
-            TypedExprKind::StructLiteral { fields, .. } => {
+            FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
                     self.collect_union_instances_expr(&field.value, seen, out);
                 }
             }
-            TypedExprKind::UnionLiteral { field, .. } => {
+            FunctionExprKind::UnionLiteral { field, .. } => {
                 self.collect_union_instances_expr(&field.value, seen, out);
             }
-            TypedExprKind::Unary { expr, .. } | TypedExprKind::Cast { expr, .. } => {
+            FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
-            TypedExprKind::Binary { lhs, rhs, .. } => {
+            FunctionExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_union_instances_expr(lhs, seen, out);
                 self.collect_union_instances_expr(rhs, seen, out);
             }
-            TypedExprKind::Assign { place, rhs, .. } => {
-                self.collect_union_instance_ty(place.ty, seen, out);
+            FunctionExprKind::Assign { place, rhs, .. } => {
+                self.collect_union_instances_place(place, seen, out);
                 self.collect_union_instances_expr(rhs, seen, out);
             }
-            TypedExprKind::Discard(expr) => {
+            FunctionExprKind::Discard(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
-            TypedExprKind::Len(inner) | TypedExprKind::Ptr(inner) => {
+            FunctionExprKind::Len(inner) | FunctionExprKind::Ptr(inner) => {
                 self.collect_union_instances_expr(inner, seen, out);
             }
-            TypedExprKind::CStringPointer { array, .. } => {
+            FunctionExprKind::CStringPointer { array, .. } => {
                 self.collect_union_instances_expr(array, seen, out);
             }
-            TypedExprKind::InlineAsm(asm) => {
+            FunctionExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
                     self.collect_union_instances_expr(&input.value, seen, out);
                 }
                 for output in &asm.outputs {
-                    self.collect_union_instance_ty(output.place.ty, seen, out);
+                    self.collect_union_instances_place(&output.place, seen, out);
                 }
             }
-            TypedExprKind::Call { args, .. } => {
+            FunctionExprKind::Call { callee, args } => {
+                self.collect_union_instances_callee(callee, seen, out);
                 for arg in args {
                     self.collect_union_instances_expr(arg, seen, out);
                 }
             }
-            TypedExprKind::Field { lhs, .. } | TypedExprKind::Index { lhs, .. } => {
+            FunctionExprKind::Field { lhs, .. } => {
                 self.collect_union_instances_expr(lhs, seen, out);
             }
-            TypedExprKind::Slice { lhs, range, .. } => {
+            FunctionExprKind::Index { lhs, index } => {
+                self.collect_union_instances_expr(lhs, seen, out);
+                self.collect_union_instances_expr(index, seen, out);
+            }
+            FunctionExprKind::Slice { lhs, range, .. } => {
                 self.collect_union_instances_expr(lhs, seen, out);
                 if let Some(start) = &range.start {
                     self.collect_union_instances_expr(start, seen, out);
@@ -572,51 +655,69 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_expr(end, seen, out);
                 }
             }
-            TypedExprKind::Block(body) => self.collect_union_instances_body(body, seen, out),
-            TypedExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_union_instances_expr(cond, seen, out);
-                self.collect_union_instances_body(then_branch, seen, out);
-                if let Some(else_branch) = else_branch {
-                    self.collect_union_instances_expr(else_branch, seen, out);
+            FunctionExprKind::FunctionInstance { args, .. } => {
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
                 }
             }
-            TypedExprKind::Switch(switch) => {
-                self.collect_union_instances_expr(&switch.target, seen, out);
-                for arm in &switch.arms {
-                    if let TypedSwitchPattern::Expr(expr) = &arm.pattern {
-                        self.collect_union_instances_expr(expr, seen, out);
-                    }
-                    match &arm.body {
-                        TypedSwitchArmBody::Expr(expr) => {
-                            self.collect_union_instances_expr(expr, seen, out);
-                        }
-                        TypedSwitchArmBody::Stmt(stmt) => {
-                            self.collect_union_instances_stmt(stmt, seen, out);
-                        }
-                        TypedSwitchArmBody::Block(body) => {
-                            self.collect_union_instances_body(body, seen, out);
-                        }
-                    }
+            FunctionExprKind::Error
+            | FunctionExprKind::Integer(_)
+            | FunctionExprKind::Float(_)
+            | FunctionExprKind::String(_)
+            | FunctionExprKind::ByteString(_)
+            | FunctionExprKind::Char(_)
+            | FunctionExprKind::ByteChar(_)
+            | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Local(_)
+            | FunctionExprKind::Global(_)
+            | FunctionExprKind::Function(_)
+            | FunctionExprKind::EnumVariant(_)
+            | FunctionExprKind::BuiltinValue(_) => {}
+        }
+    }
+
+    fn collect_union_instances_callee(
+        &mut self,
+        callee: &FunctionCallee,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendUnionInstance>,
+    ) {
+        match callee {
+            FunctionCallee::Function(_) => {}
+            FunctionCallee::FunctionInstance { args, .. } => {
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
                 }
             }
-            TypedExprKind::Error
-            | TypedExprKind::Integer(_)
-            | TypedExprKind::Float(_)
-            | TypedExprKind::String(_)
-            | TypedExprKind::ByteString(_)
-            | TypedExprKind::Char(_)
-            | TypedExprKind::ByteChar(_)
-            | TypedExprKind::Bool(_)
-            | TypedExprKind::Local(_)
-            | TypedExprKind::Global(_)
-            | TypedExprKind::Function(_)
-            | TypedExprKind::FunctionInstance { .. }
-            | TypedExprKind::EnumVariant(_)
-            | TypedExprKind::BuiltinValue(_) => {}
+            FunctionCallee::Method { args, receiver, .. } => {
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::FunctionPointer(expr) => {
+                self.collect_union_instances_expr(expr, seen, out);
+            }
+        }
+    }
+
+    fn collect_union_instances_place(
+        &mut self,
+        place: &FunctionPlace,
+        seen: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        out: &mut Vec<BackendUnionInstance>,
+    ) {
+        self.collect_union_instance_ty(place.ty, seen, out);
+        if let FunctionPlaceBase::Deref(expr) = &place.base {
+            self.collect_union_instances_expr(expr, seen, out);
+        }
+        for elem in &place.elems {
+            match elem {
+                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Index(expr) => {
+                    self.collect_union_instances_expr(expr, seen, out);
+                }
+            }
         }
     }
 
