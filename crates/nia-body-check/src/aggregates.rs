@@ -528,10 +528,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn enum_variant_scope(&self, enum_id: GlobalDefId) -> Option<Vec<(String, DefId)>> {
-        let target_defs = self
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == enum_id.module_id)?;
+        let target_defs = self.defs_for_module(enum_id.module_id)?;
         let scope = target_defs.scopes.enum_members.get(&enum_id.def_id)?;
         Some(
             scope
@@ -668,9 +665,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
-        self.all_defs
-            .iter()
-            .find(|defs| defs.module_id == global_id.module_id)
+        self.defs_for_module(global_id.module_id)
             .and_then(|defs| defs.defs.get(global_id.def_id))
             .map(|def| def.kind)
     }

@@ -77,21 +77,6 @@ impl QueryKey<DriverContext> for LoadedModuleQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct AllModulesQuery;
-
-impl QueryKey<DriverContext> for AllModulesQuery {
-    type Value = Vec<nia_ast::Module>;
-
-    fn name() -> &'static str {
-        "all_modules"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.all_modules)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ModuleDefsQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for ModuleDefsQuery {

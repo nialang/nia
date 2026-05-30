@@ -9,7 +9,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) import_alias_map: fn(&QueryDb<DriverContext>) -> ImportAliasMap,
     pub(super) parse_ok_module_ids: fn(&QueryDb<DriverContext>) -> Vec<ModuleId>,
     pub(super) loaded_module: fn(&QueryDb<DriverContext>, ModuleId) -> LoadedModule,
-    pub(super) all_modules: fn(&QueryDb<DriverContext>) -> Vec<nia_ast::Module>,
     pub(super) module_defs: fn(&QueryDb<DriverContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<DriverContext>) -> Vec<DefCollection>,
     pub(super) public_surface: fn(&QueryDb<DriverContext>) -> PublicSurfaceQueryValue,
@@ -48,7 +47,6 @@ impl Default for CompilerQueryProviders {
             import_alias_map: provide_import_alias_map,
             parse_ok_module_ids: provide_parse_ok_module_ids,
             loaded_module: provide_loaded_module,
-            all_modules: provide_all_modules,
             module_defs: provide_module_defs,
             defs_by_module: provide_defs_by_module,
             public_surface: provide_public_surface,
@@ -119,13 +117,6 @@ pub(super) fn provide_loaded_module(
         .clone()
 }
 
-pub(super) fn provide_all_modules(db: &QueryDb<DriverContext>) -> Vec<nia_ast::Module> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| db.query(LoadedModuleQuery(module_id)).module)
-        .collect()
-}
-
 pub(super) fn provide_module_defs(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
@@ -159,7 +150,7 @@ pub(super) fn provide_type_resolution(
 ) -> TypeResolution {
     let loaded = db.query(LoadedModuleQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
-    let all_defs = db.query(DefsByModuleQuery);
+    let program_defs = defs_by_module_id(db);
     let imports = db.query(ImportAliasMapQuery);
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
@@ -168,7 +159,9 @@ pub(super) fn provide_type_resolution(
         &loaded.module,
         &defs,
         &imports,
-        &all_defs,
+        nia_type_resolve::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
         &public.surfaces,
         using_scope,
     )
@@ -180,12 +173,14 @@ pub(super) fn provide_type_lowering(
 ) -> TypeLowering {
     let loaded = db.query(LoadedModuleQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
-    let all_defs = db.query(DefsByModuleQuery);
+    let program_defs = defs_by_module_id(db);
     nia_type_lower::lower_module_types_with_defs(
         module_id,
         &loaded.module,
         &type_resolution,
-        &all_defs,
+        nia_type_lower::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
     )
 }
 
@@ -286,7 +281,7 @@ pub(super) fn provide_value_resolution(
 ) -> ValueResolution {
     let loaded = db.query(LoadedModuleQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
-    let all_defs = db.query(DefsByModuleQuery);
+    let program_defs = defs_by_module_id(db);
     let imports = db.query(ImportAliasMapQuery);
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
@@ -295,7 +290,9 @@ pub(super) fn provide_value_resolution(
         &loaded.module,
         &defs,
         &imports,
-        &all_defs,
+        nia_value_resolve::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
         &public.surfaces,
         using_scope,
     )
@@ -313,9 +310,21 @@ pub(super) fn provide_local_resolution(
 
 pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
     let loaded = db.query(LoadedModuleQuery(module_id));
-    let all_modules = db.query(AllModulesQuery);
     let defs = db.query(ModuleDefsQuery(module_id));
-    let all_defs = db.query(DefsByModuleQuery);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let program_modules = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| {
+            let loaded = db.query(LoadedModuleQuery(module_id));
+            (module_id, loaded.module)
+        })
+        .collect::<HashMap<_, _>>();
+    let program_defs = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
+        .collect::<HashMap<_, _>>();
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
@@ -323,14 +332,16 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
         module: &loaded.module,
-        all_modules: &all_modules,
         defs: &defs,
-        all_defs: &all_defs,
         values: &values,
         locals: &locals,
         signatures: &item_signatures,
         interner: &type_normalization.interner,
         const_exprs: &type_lowering.const_exprs,
+        program: nia_comptime_check::ComptimeProgramContext {
+            modules: Some(&program_modules),
+            defs: Some(&program_defs),
+        },
     })
 }
 
@@ -434,9 +445,17 @@ pub(super) fn provide_body_check(
     module_id: ModuleId,
 ) -> nia_body_check::BodyCheck {
     let loaded = db.query(LoadedModuleQuery(module_id));
-    let all_modules = db.query(AllModulesQuery);
     let defs = db.query(ModuleDefsQuery(module_id));
-    let all_defs = db.query(DefsByModuleQuery);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let program_modules = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| {
+            let loaded = db.query(LoadedModuleQuery(module_id));
+            (module_id, loaded.module)
+        })
+        .collect::<HashMap<_, _>>();
+    let program_defs = defs_by_module_id(db);
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
@@ -450,9 +469,7 @@ pub(super) fn provide_body_check(
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
         nia_body_check::BodyCheckInput {
             module: &loaded.module,
-            all_modules: &all_modules,
             defs: &defs,
-            all_defs: &all_defs,
             values: &values,
             locals: &locals,
             lowered: &lowered,
@@ -462,6 +479,10 @@ pub(super) fn provide_body_check(
             layouts: &layouts,
             extensions: &extensions.methods,
             extension_interner: Some(&extensions.interner),
+            program: nia_body_check::BodyProgramContext {
+                modules: Some(&program_modules),
+                defs: Some(&program_defs),
+            },
             program_signatures: program_signatures.maps(),
             program_comptime: nia_body_check::ProgramComptimeMaps {
                 comptimes: &program_comptime,

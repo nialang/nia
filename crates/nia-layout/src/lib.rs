@@ -688,7 +688,9 @@ fn align_to(value: u64, align: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_comptime_check::{ComptimeCheck, ComptimeInput, check_module_comptime};
+    use nia_comptime_check::{
+        ComptimeCheck, ComptimeInput, ComptimeProgramContext, check_module_comptime,
+    };
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
     use nia_local_resolve::resolve_module_locals;
@@ -708,14 +710,13 @@ mod tests {
         let locals = resolve_module_locals(module, defs, &values);
         check_module_comptime(ComptimeInput {
             module,
-            all_modules: std::slice::from_ref(module),
             defs,
-            all_defs: std::slice::from_ref(defs),
             values: &values,
             locals: &locals,
             signatures,
             interner: &lowered.interner,
             const_exprs: &lowered.const_exprs,
+            program: ComptimeProgramContext::empty(),
         })
     }
 
