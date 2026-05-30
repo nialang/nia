@@ -13,21 +13,7 @@ impl QueryKey<DriverContext> for TypeResolutionQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let loaded = db.query(LoadedModuleQuery(self.0));
-        let defs = db.query(ModuleDefsQuery(self.0));
-        let all_defs = db.query(DefsByModuleQuery);
-        let imports = db.query(ImportAliasMapQuery);
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&self.0).unwrap_or(&empty_using);
-        nia_type_resolve::resolve_module_types_with_context(
-            &loaded.module,
-            &defs,
-            &imports,
-            &all_defs,
-            &public.surfaces,
-            using_scope,
-        )
+        (db.context().providers.type_resolution)(db, self.0)
     }
 }
 
@@ -42,15 +28,7 @@ impl QueryKey<DriverContext> for TypeLoweringQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let loaded = db.query(LoadedModuleQuery(self.0));
-        let type_resolution = db.query(TypeResolutionQuery(self.0));
-        let all_defs = db.query(DefsByModuleQuery);
-        nia_type_lower::lower_module_types_with_defs(
-            self.0,
-            &loaded.module,
-            &type_resolution,
-            &all_defs,
-        )
+        (db.context().providers.type_lowering)(db, self.0)
     }
 }
 
@@ -65,10 +43,7 @@ impl QueryKey<DriverContext> for ItemSignaturesQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let loaded = db.query(LoadedModuleQuery(self.0));
-        let defs = db.query(ModuleDefsQuery(self.0));
-        let type_lowering = db.query(TypeLoweringQuery(self.0));
-        nia_item_signatures::collect_item_signatures(&loaded.module, &defs, &type_lowering)
+        (db.context().providers.item_signatures)(db, self.0)
     }
 }
 
@@ -83,11 +58,7 @@ impl QueryKey<DriverContext> for ItemSignaturesByModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.query_many(
-            db.query(ParseOkModuleIdsQuery)
-                .into_iter()
-                .map(ItemSignaturesQuery),
-        )
+        (db.context().providers.item_signatures_by_module)(db)
     }
 }
 
@@ -102,11 +73,7 @@ impl QueryKey<DriverContext> for TypeLoweringsByModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.query_many(
-            db.query(ParseOkModuleIdsQuery)
-                .into_iter()
-                .map(TypeLoweringQuery),
-        )
+        (db.context().providers.type_lowerings_by_module)(db)
     }
 }
 
@@ -121,13 +88,7 @@ impl QueryKey<DriverContext> for TypeNormalizationQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let type_lowering = db.query(TypeLoweringQuery(self.0));
-        let item_signatures = db.query(ItemSignaturesQuery(self.0));
-        nia_type_normalize::normalize_module_types(
-            self.0,
-            &type_lowering.interner,
-            &item_signatures,
-        )
+        (db.context().providers.type_normalization)(db, self.0)
     }
 }
 
@@ -142,11 +103,7 @@ impl QueryKey<DriverContext> for TypeNormalizationsByModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.query_many(
-            db.query(ParseOkModuleIdsQuery)
-                .into_iter()
-                .map(TypeNormalizationQuery),
-        )
+        (db.context().providers.type_normalizations_by_module)(db)
     }
 }
 
@@ -184,17 +141,7 @@ impl QueryKey<DriverContext> for ProgramSignaturesQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let modules = modules_in_order(db);
-        let type_lowerings = db.query(TypeLoweringsByModuleQuery);
-        let item_signatures = db.query(ItemSignaturesByModuleQuery);
-        ProgramSignatures {
-            functions: collect_program_functions(&modules, &type_lowerings, &item_signatures),
-            globals: collect_program_globals(&modules, &type_lowerings, &item_signatures),
-            comptimes: collect_program_comptimes(&modules, &type_lowerings, &item_signatures),
-            structs: collect_program_structs(&modules, &type_lowerings, &item_signatures),
-            unions: collect_program_unions(&modules, &type_lowerings, &item_signatures),
-            enums: collect_program_enums(&modules, &type_lowerings, &item_signatures),
-        }
+        (db.context().providers.program_signatures)(db)
     }
 }
 
@@ -215,16 +162,7 @@ impl QueryKey<DriverContext> for ExtensionMethodsQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let modules = modules_in_order(db);
-        let defs = db.query(DefsByModuleQuery);
-        let type_lowerings = db.query(TypeLoweringsByModuleQuery);
-        let normalizations = db.query(TypeNormalizationsByModuleQuery);
-        let (methods, diagnostics) =
-            collect_extension_methods(&modules, &defs, &type_lowerings, &normalizations);
-        ExtensionMethodsQueryValue {
-            methods,
-            diagnostics,
-        }
+        (db.context().providers.extension_methods)(db)
     }
 }
 
@@ -239,16 +177,6 @@ impl QueryKey<DriverContext> for VisibleExtensionsQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let imports = db.query(ImportAliasMapQuery);
-        let defs = db.query(DefsByModuleQuery);
-        let normalizations = db.query(TypeNormalizationsByModuleQuery);
-        let extensions = db.query(ExtensionMethodsQuery);
-        visible_extensions_for_module(
-            self.0,
-            &imports,
-            &defs,
-            &normalizations,
-            &extensions.methods,
-        )
+        (db.context().providers.visible_extensions)(db, self.0)
     }
 }

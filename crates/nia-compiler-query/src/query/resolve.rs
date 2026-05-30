@@ -12,21 +12,7 @@ impl QueryKey<DriverContext> for ValueResolutionQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let loaded = db.query(LoadedModuleQuery(self.0));
-        let defs = db.query(ModuleDefsQuery(self.0));
-        let all_defs = db.query(DefsByModuleQuery);
-        let imports = db.query(ImportAliasMapQuery);
-        let public = db.query(PublicSurfaceQuery);
-        let empty_using = ModuleUsingScope::default();
-        let using_scope = public.using_scopes.get(&self.0).unwrap_or(&empty_using);
-        nia_value_resolve::resolve_module_values_with_context(
-            &loaded.module,
-            &defs,
-            &imports,
-            &all_defs,
-            &public.surfaces,
-            using_scope,
-        )
+        (db.context().providers.value_resolution)(db, self.0)
     }
 }
 
@@ -41,9 +27,6 @@ impl QueryKey<DriverContext> for LocalResolutionQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let loaded = db.query(LoadedModuleQuery(self.0));
-        let defs = db.query(ModuleDefsQuery(self.0));
-        let values = db.query(ValueResolutionQuery(self.0));
-        nia_local_resolve::resolve_module_locals(&loaded.module, &defs, &values)
+        (db.context().providers.local_resolution)(db, self.0)
     }
 }

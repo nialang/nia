@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use std::collections::HashMap;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct CheckedProgramQuery;
 
@@ -13,14 +12,7 @@ impl QueryKey<DriverContext> for CheckedProgramQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        CheckedProgram {
-            graph: db.query(ModuleGraphQuery),
-            imports: db.query(ImportAliasMapQuery),
-            modules: db.query(CheckedModulesQuery),
-            monomorphization: db.query(MonomorphizationQuery),
-            backend_lowering: db.query(BackendLoweringQuery),
-            diagnostics: db.query(ProgramDiagnosticsQuery),
-        }
+        (db.context().providers.checked_program)(db)
     }
 }
 
@@ -35,7 +27,7 @@ impl QueryKey<DriverContext> for ModuleGraphQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.context().loaded.graph.clone()
+        (db.context().providers.module_graph)(db)
     }
 }
 
@@ -50,7 +42,7 @@ impl QueryKey<DriverContext> for ImportAliasMapQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.context().loaded.imports.clone()
+        (db.context().providers.import_alias_map)(db)
     }
 }
 
@@ -65,13 +57,7 @@ impl QueryKey<DriverContext> for ParseOkModuleIdsQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.context()
-            .loaded
-            .modules
-            .iter()
-            .filter(|module| module.parse_errors.is_empty())
-            .map(|module| module.id)
-            .collect()
+        (db.context().providers.parse_ok_module_ids)(db)
     }
 }
 
@@ -86,10 +72,7 @@ impl QueryKey<DriverContext> for LoadedModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.context()
-            .loaded_module(self.0)
-            .unwrap_or_else(|| panic!("missing loaded module {:?}", self.0))
-            .clone()
+        (db.context().providers.loaded_module)(db, self.0)
     }
 }
 
@@ -104,10 +87,7 @@ impl QueryKey<DriverContext> for AllModulesQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(|module_id| db.query(LoadedModuleQuery(module_id)).module)
-            .collect()
+        (db.context().providers.all_modules)(db)
     }
 }
 
@@ -122,8 +102,7 @@ impl QueryKey<DriverContext> for ModuleDefsQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let loaded = db.query(LoadedModuleQuery(self.0));
-        nia_defs::collect_module_defs(loaded.id, &loaded.module)
+        (db.context().providers.module_defs)(db, self.0)
     }
 }
 
@@ -138,11 +117,7 @@ impl QueryKey<DriverContext> for DefsByModuleQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        db.query_many(
-            db.query(ParseOkModuleIdsQuery)
-                .into_iter()
-                .map(ModuleDefsQuery),
-        )
+        (db.context().providers.defs_by_module)(db)
     }
 }
 
@@ -164,13 +139,6 @@ impl QueryKey<DriverContext> for PublicSurfaceQuery {
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        let defs = db.query(DefsByModuleQuery);
-        let imports = db.query(ImportAliasMapQuery);
-        let (surfaces, using_scopes, diagnostics) = compute_public_surfaces(&defs, &imports);
-        PublicSurfaceQueryValue {
-            surfaces,
-            using_scopes,
-            diagnostics,
-        }
+        (db.context().providers.public_surface)(db)
     }
 }
