@@ -20,6 +20,10 @@ pub fn parse_module(source: &str) -> (Module, Vec<ParseError>) {
     Parser::new(source).parse_module()
 }
 
+pub fn parse_module_tokens(source: &str, tokens: Vec<Token>) -> (Module, Vec<ParseError>) {
+    Parser::from_tokens(source, tokens).parse_module()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub span: Span,
@@ -36,6 +40,10 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     pub fn new(source: &'a str) -> Self {
         let tokens = tokenize(source);
+        Self::from_tokens(source, tokens)
+    }
+
+    pub fn from_tokens(source: &'a str, tokens: Vec<Token>) -> Self {
         let errors = tokens
             .iter()
             .filter_map(|token| match &token.kind {

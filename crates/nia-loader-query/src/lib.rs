@@ -7,6 +7,7 @@ use nia_imports::{
     ImportAliasMap, ModuleGraph, ModuleMap, ResolvedImport, add_resolved_imports,
     collect_import_aliases, resolve_module_imports,
 };
+use nia_lexer::Token;
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceFile, SourceId, SourcePath};
 use nia_span::Span;
@@ -165,12 +166,13 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let source = db.query(SourceTextQuery(self.0.clone()));
+        let tokens = db.query(TokenizedModuleQuery(self.0.clone()));
         let text = source
             .file
             .as_ref()
             .map(|file| file.text.as_str())
             .unwrap_or("");
-        let (module, parse_errors) = nia_parser::parse_module(text);
+        let (module, parse_errors) = nia_parser::parse_module_tokens(text, tokens);
         ParsedModule {
             source: source.file.unwrap_or_else(|| {
                 SourceFile::new(source_id_for_path(&self.0), self.0.clone(), String::new())
@@ -179,6 +181,26 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             parse_errors,
             read_diagnostic: source.diagnostic,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TokenizedModuleQuery(SourcePath);
+
+impl QueryKey<LoaderContext> for TokenizedModuleQuery {
+    type Value = Vec<Token>;
+
+    fn name() -> &'static str {
+        "tokenized_module"
+    }
+
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
+        let source = db.query(SourceTextQuery(self.0.clone()));
+        source
+            .file
+            .as_ref()
+            .map(|file| nia_lexer::tokenize(&file.text))
+            .unwrap_or_else(|| nia_lexer::tokenize(""))
     }
 }
 
