@@ -21,6 +21,17 @@ pub struct TypeLowering {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramDefsContext<'a> {
+    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+}
+
+impl<'a> ProgramDefsContext<'a> {
+    pub fn empty() -> Self {
+        Self { defs: None }
+    }
+}
+
 pub fn lower_module_types(module: &Module, resolved: &TypeResolution) -> TypeLowering {
     lower_module_types_with_id(ModuleId(0), module, resolved)
 }
@@ -30,19 +41,19 @@ pub fn lower_module_types_with_id(
     module: &Module,
     resolved: &TypeResolution,
 ) -> TypeLowering {
-    lower_module_types_with_defs(module_id, module, resolved, &[])
+    lower_module_types_with_defs(module_id, module, resolved, ProgramDefsContext::empty())
 }
 
 pub fn lower_module_types_with_defs(
     module_id: ModuleId,
     module: &Module,
     resolved: &TypeResolution,
-    all_defs: &[DefCollection],
+    program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
     let mut lowerer = TypeLowerer {
         module_id,
         resolved,
-        all_defs,
+        program_defs,
         interner: TyInterner::new(module_id),
         type_uses: HashMap::new(),
         const_exprs: HashMap::new(),
@@ -62,7 +73,7 @@ pub fn lower_module_types_with_defs(
 struct TypeLowerer<'a> {
     module_id: ModuleId,
     resolved: &'a TypeResolution,
-    all_defs: &'a [DefCollection],
+    program_defs: ProgramDefsContext<'a>,
     interner: TyInterner,
     type_uses: HashMap<Span, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
@@ -306,11 +317,7 @@ impl<'a> TypeLowerer<'a> {
     }
 
     fn check_type_arg_count(&mut self, span: Span, def_id: GlobalDefId, actual: usize) {
-        let Some(defs) = self
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == def_id.module_id)
-        else {
+        let Some(defs) = self.defs_for_module(def_id.module_id) else {
             return;
         };
         let Some(def) = defs.defs.get(def_id.def_id) else {
@@ -411,6 +418,10 @@ impl<'a> TypeLowerer<'a> {
             self.interner.get(ty),
             Some(TyKind::Primitive(PrimitiveTy::Never))
         )
+    }
+
+    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
+        self.program_defs.defs?.get(&module_id)
     }
 }
 
@@ -551,11 +562,14 @@ fn non_generic_arg(a: Point[i32]) {}
             "{:?}",
             resolved.diagnostics
         );
+        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
         let lowered = lower_module_types_with_defs(
             ModuleId(0),
             &module,
             &resolved,
-            std::slice::from_ref(&defs),
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
         );
         let mismatch_count = lowered
             .diagnostics

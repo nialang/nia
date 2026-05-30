@@ -471,9 +471,7 @@ impl<'a> BodyChecker<'a> {
 
     fn nominal_ty_name(&self, def_id: nia_ids::GlobalDefId, args: &[InternedTyId]) -> String {
         let base = self
-            .all_defs
-            .iter()
-            .find(|defs| defs.module_id == def_id.module_id)
+            .defs_for_module(def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id))
             .map(|def| def.name.clone())
             .unwrap_or_else(|| "<unknown type>".to_string());

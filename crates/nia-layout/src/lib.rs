@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
@@ -59,6 +59,38 @@ pub struct Layouts {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+impl Layouts {
+    pub fn nominal_type_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<TypeLayout> {
+        if args.is_empty() {
+            self.structs
+                .get(&def_id.def_id)
+                .map(|layout| layout.layout.clone())
+                .or_else(|| {
+                    self.unions
+                        .get(&def_id.def_id)
+                        .map(|layout| layout.layout.clone())
+                })
+        } else {
+            let key = StructLayoutKey {
+                def_id: def_id.def_id,
+                args: args.to_vec(),
+            };
+            self.struct_instances
+                .get(&key)
+                .map(|layout| layout.layout.clone())
+                .or_else(|| {
+                    self.union_instances
+                        .get(&key)
+                        .map(|layout| layout.layout.clone())
+                })
+        }
+    }
+}
+
 pub fn compute_layouts(
     defs: &DefCollection,
     interner: &TyInterner,
@@ -85,6 +117,32 @@ pub fn compute_layouts_with_normalized_types(
     comptime: &ComptimeCheck,
     target: TargetDataLayout,
 ) -> Layouts {
+    compute_layouts_with_program_context(
+        defs,
+        interner,
+        signatures,
+        normalized,
+        comptime,
+        target,
+        ProgramLayoutContext::default(),
+    )
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct ProgramLayoutContext<'a> {
+    pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
+    pub comptimes: Option<&'a dyn Fn(ModuleId) -> Option<ComptimeCheck>>,
+}
+
+pub fn compute_layouts_with_program_context(
+    defs: &DefCollection,
+    interner: &TyInterner,
+    signatures: &ItemSignatures,
+    normalized: &HashMap<InternedTyId, InternedTyId>,
+    comptime: &ComptimeCheck,
+    target: TargetDataLayout,
+    program: ProgramLayoutContext<'_>,
+) -> Layouts {
     LayoutComputer {
         module_id: defs.module_id,
         interner: interner.clone(),
@@ -101,6 +159,7 @@ pub fn compute_layouts_with_normalized_types(
         visiting: HashSet::new(),
         visiting_structs: HashSet::new(),
         visiting_unions: HashSet::new(),
+        program,
     }
     .compute()
 }
@@ -121,6 +180,7 @@ struct LayoutComputer<'a> {
     visiting: HashSet<InternedTyId>,
     visiting_structs: HashSet<StructLayoutKey>,
     visiting_unions: HashSet<StructLayoutKey>,
+    program: ProgramLayoutContext<'a>,
 }
 
 impl<'a> LayoutComputer<'a> {
@@ -248,7 +308,15 @@ impl<'a> LayoutComputer<'a> {
             }
             ArrayLenTy::ConstValue(value) => value,
             ArrayLenTy::ConstExpr(id) => {
-                let Some(value) = self.comptime.array_lengths.get(&id).copied() else {
+                let value = if id.module_id == self.module_id {
+                    self.comptime.array_lengths.get(&id).copied()
+                } else {
+                    self.program
+                        .comptimes
+                        .and_then(|comptimes| comptimes(id.module_id))
+                        .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+                };
+                let Some(value) = value else {
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         "array length was not evaluated by comptime",
@@ -291,7 +359,7 @@ impl<'a> LayoutComputer<'a> {
         args: &[InternedTyId],
     ) -> Option<TypeLayout> {
         if def_id.module_id != self.module_id {
-            return None;
+            return self.external_nominal_layout(def_id, args);
         }
         if let Some(signature) = self.signatures.structs.get(&def_id.def_id).cloned() {
             return self.struct_layout(span, def_id.def_id, &signature, args);
@@ -303,6 +371,18 @@ impl<'a> LayoutComputer<'a> {
             return self.enum_layout(span, &signature);
         }
         None
+    }
+
+    fn external_nominal_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<TypeLayout> {
+        let layouts = self
+            .program
+            .layouts
+            .and_then(|query| query(def_id.module_id))?;
+        layouts.nominal_type_layout(def_id, args)
     }
 
     fn enum_layout(&mut self, span: Span, signature: &EnumSignature) -> Option<TypeLayout> {
@@ -608,7 +688,9 @@ fn align_to(value: u64, align: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_comptime_check::{ComptimeCheck, ComptimeInput, check_module_comptime};
+    use nia_comptime_check::{
+        ComptimeCheck, ComptimeInput, ComptimeProgramContext, check_module_comptime,
+    };
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
     use nia_local_resolve::resolve_module_locals;
@@ -628,14 +710,13 @@ mod tests {
         let locals = resolve_module_locals(module, defs, &values);
         check_module_comptime(ComptimeInput {
             module,
-            all_modules: std::slice::from_ref(module),
             defs,
-            all_defs: std::slice::from_ref(defs),
             values: &values,
             locals: &locals,
             signatures,
             interner: &lowered.interner,
             const_exprs: &lowered.const_exprs,
+            program: ComptimeProgramContext::empty(),
         })
     }
 

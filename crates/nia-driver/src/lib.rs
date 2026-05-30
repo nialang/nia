@@ -1,99 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-mod loader;
-mod module_check;
 mod pipeline;
-mod program_signatures;
-mod public_surface;
 
-use nia_abi_check::AbiCheck;
-use nia_ast::Module;
-use nia_backend_lower::BackendLowering;
-use nia_body_check::BodyCheck;
-use nia_comptime_check::ComptimeCheck;
-use nia_defs::DefCollection;
-use nia_diagnostic::Diagnostic;
-use nia_flow_check::FlowCheck;
-use nia_ids::ModuleId;
-use nia_imports::{ImportAliasMap, ModuleGraph, SourcePath};
-use nia_item_signatures::ItemSignatures;
-use nia_layout::Layouts;
-use nia_local_resolve::LocalResolution;
-use nia_monomorphize::Monomorphization;
-use nia_parser::ParseError;
-use nia_static_check::StaticCheck;
-use nia_type_lower::TypeLowering;
-use nia_type_normalize::TypeNormalization;
-use nia_type_resolve::TypeResolution;
-use nia_value_resolve::ValueResolution;
-
-pub use loader::{load_program, load_program_with_map};
+pub use nia_compiler_query::{
+    CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
+};
+pub use nia_loader_query::{load_program, load_program_with_map};
 pub use pipeline::{check_program, check_program_with_map};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LoadedProgram {
-    pub graph: ModuleGraph,
-    pub imports: ImportAliasMap,
-    pub modules: Vec<LoadedModule>,
-    pub diagnostics: Vec<ProgramDiagnostic>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LoadedModule {
-    pub id: ModuleId,
-    pub path: SourcePath,
-    pub source: String,
-    pub module: Module,
-    pub parse_errors: Vec<ParseError>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CheckedProgram {
-    pub graph: ModuleGraph,
-    pub imports: ImportAliasMap,
-    pub modules: Vec<CheckedModule>,
-    pub monomorphization: Monomorphization,
-    pub backend_lowering: BackendLowering,
-    pub diagnostics: Vec<ProgramDiagnostic>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramDiagnostic {
-    pub path: SourcePath,
-    pub diagnostic: Diagnostic,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct CheckedModule {
-    pub id: ModuleId,
-    pub path: SourcePath,
-    pub defs: DefCollection,
-    pub type_resolution: TypeResolution,
-    pub type_lowering: TypeLowering,
-    pub value_resolution: ValueResolution,
-    pub local_resolution: LocalResolution,
-    pub item_signatures: ItemSignatures,
-    pub type_normalization: TypeNormalization,
-    pub comptime: ComptimeCheck,
-    pub static_check: StaticCheck,
-    pub layouts: Layouts,
-    pub abi_check: AbiCheck,
-    pub flow_check: FlowCheck,
-    pub body_check: BodyCheck,
-}
-
-pub(crate) fn module_diagnostics(
-    path: &SourcePath,
-    diagnostics: &[Diagnostic],
-) -> Vec<ProgramDiagnostic> {
-    diagnostics
-        .iter()
-        .cloned()
-        .map(|diagnostic| ProgramDiagnostic {
-            path: path.clone(),
-            diagnostic,
-        })
-        .collect()
-}
 
 #[cfg(test)]
 mod tests;

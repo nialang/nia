@@ -47,24 +47,35 @@ pub enum BuiltinResolution {
     Reserved,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramDefsContext<'a> {
+    pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+}
+
+impl<'a> ProgramDefsContext<'a> {
+    pub fn empty() -> Self {
+        Self { defs: None }
+    }
+}
+
 pub fn resolve_module_values(module: &Module, defs: &DefCollection) -> ValueResolution {
-    resolve_module_values_inner(module, defs, None, &[], None, None)
+    resolve_module_values_inner(module, defs, None, ProgramDefsContext::empty(), None, None)
 }
 
 pub fn resolve_module_values_with_imports(
     module: &Module,
     defs: &DefCollection,
     imports: &ImportAliasMap,
-    all_defs: &[DefCollection],
+    program_defs: ProgramDefsContext<'_>,
 ) -> ValueResolution {
-    resolve_module_values_inner(module, defs, Some(imports), all_defs, None, None)
+    resolve_module_values_inner(module, defs, Some(imports), program_defs, None, None)
 }
 
 pub fn resolve_module_values_with_context(
     module: &Module,
     defs: &DefCollection,
     imports: &ImportAliasMap,
-    all_defs: &[DefCollection],
+    program_defs: ProgramDefsContext<'_>,
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
 ) -> ValueResolution {
@@ -72,7 +83,7 @@ pub fn resolve_module_values_with_context(
         module,
         defs,
         Some(imports),
-        all_defs,
+        program_defs,
         Some(public_surfaces),
         Some(using_scope),
     )
@@ -82,14 +93,14 @@ fn resolve_module_values_inner(
     module: &Module,
     defs: &DefCollection,
     imports: Option<&ImportAliasMap>,
-    all_defs: &[DefCollection],
+    program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
 ) -> ValueResolution {
     let mut resolver = ValueResolver {
         defs,
         imports,
-        all_defs,
+        program_defs,
         public_surfaces,
         using_scope,
         names: HashMap::new(),
@@ -113,7 +124,7 @@ fn resolve_module_values_inner(
 struct ValueResolver<'a> {
     defs: &'a DefCollection,
     imports: Option<&'a ImportAliasMap>,
-    all_defs: &'a [DefCollection],
+    program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
     names: HashMap<Span, ValueNameResolution>,
@@ -294,7 +305,7 @@ impl<'a> ValueResolver<'a> {
                         }));
                     }
                 }
-                let target_defs = match defs_for_module(self.all_defs, module_id) {
+                let target_defs = match self.defs_for_module(module_id) {
                     Some(defs) => defs,
                     None => {
                         self.diagnostics.push(Diagnostic::error(
@@ -356,7 +367,7 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
         }
-        let Some(target_defs) = defs_for_module(self.all_defs, module_id) else {
+        let Some(target_defs) = self.defs_for_module(module_id) else {
             self.diagnostics.push(Diagnostic::error(
                 span,
                 "module namespace refers to an unloaded module",
@@ -410,7 +421,7 @@ impl<'a> ValueResolver<'a> {
         type_id: GlobalDefId,
         name: PathSegment<'_>,
     ) {
-        let Some(target_defs) = defs_for_module(self.all_defs, type_id.module_id) else {
+        let Some(target_defs) = self.defs_for_module(type_id.module_id) else {
             return;
         };
         let Some(def) = target_defs.defs.get(type_id.def_id) else {
@@ -480,6 +491,14 @@ impl<'a> ValueResolver<'a> {
             }
         }
     }
+
+    fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
+        if module_id == self.defs.module_id {
+            Some(self.defs)
+        } else {
+            self.program_defs.defs?.get(&module_id)
+        }
+    }
 }
 
 fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
@@ -507,10 +526,6 @@ fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
     let mut segments = Vec::new();
     collect(expr, &mut segments)?;
     Some(segments)
-}
-
-fn defs_for_module(all_defs: &[DefCollection], module_id: ModuleId) -> Option<&DefCollection> {
-    all_defs.iter().find(|defs| defs.module_id == module_id)
 }
 
 fn qualified_path_text(segments: &[PathSegment<'_>]) -> String {

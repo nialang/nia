@@ -6,7 +6,7 @@ use nia_diagnostic::Diagnostic;
 pub use nia_ids::ModuleId;
 use nia_span::Span;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourcePath(String);
 
 impl SourcePath {
@@ -118,6 +118,13 @@ pub struct ImportEdge {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedImport {
+    pub alias: String,
+    pub path: SourcePath,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportCollection {
     pub graph: ModuleGraph,
     pub aliases: ImportAliasMap,
@@ -205,7 +212,28 @@ pub fn collect_module_imports(
     module: &Module,
     module_map: &ModuleMap,
 ) {
+    for import in resolve_module_imports(diagnostics, module_path, module, module_map) {
+        let target = graph.intern_path(import.path.clone());
+        graph.add_import(
+            module_id,
+            ImportEdge {
+                alias: import.alias,
+                path: import.path,
+                target,
+                span: import.span,
+            },
+        );
+    }
+}
+
+pub fn resolve_module_imports(
+    diagnostics: &mut Vec<Diagnostic>,
+    module_path: &SourcePath,
+    module: &Module,
+    module_map: &ModuleMap,
+) -> Vec<ResolvedImport> {
     let mut aliases = HashMap::<String, Span>::new();
+    let mut imports = Vec::new();
     for item in &module.items {
         let ItemKind::Import(import) = &item.kind else {
             continue;
@@ -233,14 +261,29 @@ pub fn collect_module_imports(
             continue;
         };
         aliases.insert(alias.clone(), item.span);
-        let target = graph.intern_path(path.clone());
+        imports.push(ResolvedImport {
+            alias,
+            path,
+            span: item.span,
+        });
+    }
+    imports
+}
+
+pub fn add_resolved_imports(
+    graph: &mut ModuleGraph,
+    module_id: ModuleId,
+    imports: impl IntoIterator<Item = ResolvedImport>,
+) {
+    for import in imports {
+        let target = graph.intern_path(import.path.clone());
         graph.add_import(
             module_id,
             ImportEdge {
-                alias,
-                path,
+                alias: import.alias,
+                path: import.path,
                 target,
-                span: item.span,
+                span: import.span,
             },
         );
     }

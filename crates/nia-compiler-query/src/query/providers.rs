@@ -1,0 +1,691 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::*;
+use std::collections::HashMap;
+
+#[derive(Clone)]
+pub(super) struct CompilerQueryProviders {
+    pub(super) checked_program: fn(&QueryDb<DriverContext>) -> CheckedProgram,
+    pub(super) module_graph: fn(&QueryDb<DriverContext>) -> ModuleGraph,
+    pub(super) import_alias_map: fn(&QueryDb<DriverContext>) -> ImportAliasMap,
+    pub(super) parse_ok_module_ids: fn(&QueryDb<DriverContext>) -> Vec<ModuleId>,
+    pub(super) loaded_module: fn(&QueryDb<DriverContext>, ModuleId) -> LoadedModule,
+    pub(super) module_defs: fn(&QueryDb<DriverContext>, ModuleId) -> DefCollection,
+    pub(super) defs_by_module: fn(&QueryDb<DriverContext>) -> Vec<DefCollection>,
+    pub(super) public_surface: fn(&QueryDb<DriverContext>) -> PublicSurfaceQueryValue,
+    pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
+    pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
+    pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
+    pub(super) item_signatures_by_module: fn(&QueryDb<DriverContext>) -> Vec<ItemSignatures>,
+    pub(super) type_lowerings_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeLowering>,
+    pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
+    pub(super) type_normalizations_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeNormalization>,
+    pub(super) program_signatures: fn(&QueryDb<DriverContext>) -> ProgramSignatures,
+    pub(super) extension_methods: fn(&QueryDb<DriverContext>) -> ExtensionMethodsQueryValue,
+    pub(super) visible_extensions:
+        fn(&QueryDb<DriverContext>, ModuleId) -> VisibleExtensionsForModule,
+    pub(super) value_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> ValueResolution,
+    pub(super) local_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> LocalResolution,
+    pub(super) comptime: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeCheck,
+    pub(super) program_comptime: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ComptimeCheck>,
+    pub(super) layouts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_layout::Layouts,
+    pub(super) abi_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_abi_check::AbiCheck,
+    pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
+    pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
+    pub(super) body_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_check::BodyCheck,
+    pub(super) checked_module: fn(&QueryDb<DriverContext>, ModuleId) -> CheckedModule,
+    pub(super) checked_modules: fn(&QueryDb<DriverContext>) -> Vec<CheckedModule>,
+    pub(super) monomorphization: fn(&QueryDb<DriverContext>) -> nia_monomorphize::Monomorphization,
+    pub(super) backend_lowering: fn(&QueryDb<DriverContext>) -> nia_backend_lower::BackendLowering,
+    pub(super) program_diagnostics: fn(&QueryDb<DriverContext>) -> Vec<ProgramDiagnostic>,
+}
+
+impl Default for CompilerQueryProviders {
+    fn default() -> Self {
+        Self {
+            checked_program: provide_checked_program,
+            module_graph: provide_module_graph,
+            import_alias_map: provide_import_alias_map,
+            parse_ok_module_ids: provide_parse_ok_module_ids,
+            loaded_module: provide_loaded_module,
+            module_defs: provide_module_defs,
+            defs_by_module: provide_defs_by_module,
+            public_surface: provide_public_surface,
+            type_resolution: provide_type_resolution,
+            type_lowering: provide_type_lowering,
+            item_signatures: provide_item_signatures,
+            item_signatures_by_module: provide_item_signatures_by_module,
+            type_lowerings_by_module: provide_type_lowerings_by_module,
+            type_normalization: provide_type_normalization,
+            type_normalizations_by_module: provide_type_normalizations_by_module,
+            program_signatures: provide_program_signatures,
+            extension_methods: provide_extension_methods,
+            visible_extensions: provide_visible_extensions,
+            value_resolution: provide_value_resolution,
+            local_resolution: provide_local_resolution,
+            comptime: provide_comptime,
+            program_comptime: provide_program_comptime,
+            layouts: provide_layouts,
+            abi_check: provide_abi_check,
+            static_check: provide_static_check,
+            flow_check: provide_flow_check,
+            body_check: provide_body_check,
+            checked_module: provide_checked_module,
+            checked_modules: provide_checked_modules,
+            monomorphization: provide_monomorphization,
+            backend_lowering: provide_backend_lowering,
+            program_diagnostics: provide_program_diagnostics,
+        }
+    }
+}
+
+pub(super) fn provide_checked_program(db: &QueryDb<DriverContext>) -> CheckedProgram {
+    CheckedProgram {
+        graph: db.query(ModuleGraphQuery),
+        imports: db.query(ImportAliasMapQuery),
+        modules: db.query(CheckedModulesQuery),
+        monomorphization: db.query(MonomorphizationQuery),
+        backend_lowering: db.query(BackendLoweringQuery),
+        diagnostics: db.query(ProgramDiagnosticsQuery),
+    }
+}
+
+pub(super) fn provide_module_graph(db: &QueryDb<DriverContext>) -> ModuleGraph {
+    db.context().loaded.graph.clone()
+}
+
+pub(super) fn provide_import_alias_map(db: &QueryDb<DriverContext>) -> ImportAliasMap {
+    db.context().loaded.imports.clone()
+}
+
+pub(super) fn provide_parse_ok_module_ids(db: &QueryDb<DriverContext>) -> Vec<ModuleId> {
+    db.context()
+        .loaded
+        .modules
+        .iter()
+        .filter(|module| module.parse_errors.is_empty())
+        .map(|module| module.id)
+        .collect()
+}
+
+pub(super) fn provide_loaded_module(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> LoadedModule {
+    db.context()
+        .loaded_module(module_id)
+        .unwrap_or_else(|| panic!("missing loaded module {module_id:?}"))
+        .clone()
+}
+
+pub(super) fn provide_module_defs(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> DefCollection {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    nia_defs::collect_module_defs(loaded.id, &loaded.module)
+}
+
+pub(super) fn provide_defs_by_module(db: &QueryDb<DriverContext>) -> Vec<DefCollection> {
+    db.query_many(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(ModuleDefsQuery),
+    )
+}
+
+pub(super) fn provide_public_surface(db: &QueryDb<DriverContext>) -> PublicSurfaceQueryValue {
+    let defs = db.query(DefsByModuleQuery);
+    let imports = db.query(ImportAliasMapQuery);
+    let (surfaces, using_scopes, diagnostics) = compute_public_surfaces(&defs, &imports);
+    PublicSurfaceQueryValue {
+        surfaces,
+        using_scopes,
+        diagnostics,
+    }
+}
+
+pub(super) fn provide_type_resolution(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> TypeResolution {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let program_defs = defs_by_module_id(db);
+    let imports = db.query(ImportAliasMapQuery);
+    let public = db.query(PublicSurfaceQuery);
+    let empty_using = ModuleUsingScope::default();
+    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+    nia_type_resolve::resolve_module_types_with_context(
+        &loaded.module,
+        &defs,
+        &imports,
+        nia_type_resolve::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
+        &public.surfaces,
+        using_scope,
+    )
+}
+
+pub(super) fn provide_type_lowering(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> TypeLowering {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let type_resolution = db.query(TypeResolutionQuery(module_id));
+    let program_defs = defs_by_module_id(db);
+    nia_type_lower::lower_module_types_with_defs(
+        module_id,
+        &loaded.module,
+        &type_resolution,
+        nia_type_lower::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
+    )
+}
+
+pub(super) fn provide_item_signatures(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> ItemSignatures {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    nia_item_signatures::collect_item_signatures(&loaded.module, &defs, &type_lowering)
+}
+
+pub(super) fn provide_item_signatures_by_module(
+    db: &QueryDb<DriverContext>,
+) -> Vec<ItemSignatures> {
+    db.query_many(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(ItemSignaturesQuery),
+    )
+}
+
+pub(super) fn provide_type_lowerings_by_module(db: &QueryDb<DriverContext>) -> Vec<TypeLowering> {
+    db.query_many(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(TypeLoweringQuery),
+    )
+}
+
+pub(super) fn provide_type_normalization(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> TypeNormalization {
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
+}
+
+pub(super) fn provide_type_normalizations_by_module(
+    db: &QueryDb<DriverContext>,
+) -> Vec<TypeNormalization> {
+    db.query_many(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(TypeNormalizationQuery),
+    )
+}
+
+pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignatures {
+    let modules = modules_in_order(db);
+    let type_lowerings = db.query(TypeLoweringsByModuleQuery);
+    let item_signatures = db.query(ItemSignaturesByModuleQuery);
+    ProgramSignatures {
+        functions: collect_program_functions(&modules, &type_lowerings, &item_signatures),
+        globals: collect_program_globals(&modules, &type_lowerings, &item_signatures),
+        comptimes: collect_program_comptimes(&modules, &type_lowerings, &item_signatures),
+        structs: collect_program_structs(&modules, &type_lowerings, &item_signatures),
+        unions: collect_program_unions(&modules, &type_lowerings, &item_signatures),
+        enums: collect_program_enums(&modules, &type_lowerings, &item_signatures),
+    }
+}
+
+pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> ExtensionMethodsQueryValue {
+    let modules = modules_in_order(db);
+    let defs = db.query(DefsByModuleQuery);
+    let type_lowerings = db.query(TypeLoweringsByModuleQuery);
+    let normalizations = db.query(TypeNormalizationsByModuleQuery);
+    let (methods, diagnostics) =
+        collect_extension_methods(&modules, &defs, &type_lowerings, &normalizations);
+    ExtensionMethodsQueryValue {
+        methods,
+        diagnostics,
+    }
+}
+
+pub(super) fn provide_visible_extensions(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> VisibleExtensionsForModule {
+    let imports = db.query(ImportAliasMapQuery);
+    let defs = db.query(DefsByModuleQuery);
+    let normalizations = db.query(TypeNormalizationsByModuleQuery);
+    let extensions = db.query(ExtensionMethodsQuery);
+    visible_extensions_for_module(
+        module_id,
+        &imports,
+        &defs,
+        &normalizations,
+        &extensions.methods,
+    )
+}
+
+pub(super) fn provide_value_resolution(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> ValueResolution {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let program_defs = defs_by_module_id(db);
+    let imports = db.query(ImportAliasMapQuery);
+    let public = db.query(PublicSurfaceQuery);
+    let empty_using = ModuleUsingScope::default();
+    let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
+    nia_value_resolve::resolve_module_values_with_context(
+        &loaded.module,
+        &defs,
+        &imports,
+        nia_value_resolve::ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
+        &public.surfaces,
+        using_scope,
+    )
+}
+
+pub(super) fn provide_local_resolution(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> LocalResolution {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let values = db.query(ValueResolutionQuery(module_id));
+    nia_local_resolve::resolve_module_locals(&loaded.module, &defs, &values)
+}
+
+pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let program_modules = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| {
+            let loaded = db.query(LoadedModuleQuery(module_id));
+            (module_id, loaded.module)
+        })
+        .collect::<HashMap<_, _>>();
+    let program_defs = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
+        .collect::<HashMap<_, _>>();
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    let type_normalization = db.query(TypeNormalizationQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+        module: &loaded.module,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        signatures: &item_signatures,
+        interner: &type_normalization.interner,
+        const_exprs: &type_lowering.const_exprs,
+        program: nia_comptime_check::ComptimeProgramContext {
+            modules: Some(&program_modules),
+            defs: Some(&program_defs),
+        },
+    })
+}
+
+pub(super) fn provide_program_comptime(
+    db: &QueryDb<DriverContext>,
+) -> HashMap<ModuleId, ComptimeCheck> {
+    let ids = db.query(ParseOkModuleIdsQuery);
+    let comptimes = db.query_many(ids.iter().copied().map(ComptimeQuery));
+    ids.into_iter().zip(comptimes).collect()
+}
+
+pub(super) fn provide_layouts(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_layout::Layouts {
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let type_normalization = db.query(TypeNormalizationQuery(module_id));
+    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    let comptime = db.query(ComptimeQuery(module_id));
+    let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
+    let comptime_query = |module_id| Some(db.query(ComptimeQuery(module_id)));
+    nia_layout::compute_layouts_with_program_context(
+        &defs,
+        &type_normalization.interner,
+        &item_signatures,
+        &type_normalization.normalized,
+        &comptime,
+        nia_layout::TargetDataLayout::LP64,
+        nia_layout::ProgramLayoutContext {
+            layouts: Some(&layout_query),
+            comptimes: Some(&comptime_query),
+        },
+    )
+}
+
+pub(super) fn provide_abi_check(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_abi_check::AbiCheck {
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let item_signatures = db.query(ItemSignaturesQuery(module_id));
+    let program = db.query(ProgramSignaturesQuery);
+    let program_structs = program
+        .structs
+        .iter()
+        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
+        .collect();
+    let program_unions = program
+        .unions
+        .iter()
+        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
+        .collect();
+    let program_enums = program
+        .enums
+        .iter()
+        .map(|(def_id, signature)| (*def_id, signature.signature.clone()))
+        .collect();
+    nia_abi_check::check_module_abi_with_program_signatures(
+        &defs,
+        &type_lowering.interner,
+        &item_signatures,
+        nia_abi_check::ProgramAbiSignatures {
+            structs: &program_structs,
+            unions: &program_unions,
+            enums: &program_enums,
+        },
+    )
+}
+
+pub(super) fn provide_static_check(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_static_check::StaticCheck {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let signatures = db.query(ItemSignaturesQuery(module_id));
+    nia_static_check::check_module_static_initializers(
+        &loaded.module,
+        &defs,
+        &values,
+        &locals,
+        &signatures,
+    )
+}
+
+pub(super) fn provide_flow_check(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_flow_check::FlowCheck {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let signatures = db.query(ItemSignaturesQuery(module_id));
+    nia_flow_check::check_module_flow(&loaded.module, &type_lowering.interner, &signatures)
+}
+
+pub(super) fn provide_body_check(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_body_check::BodyCheck {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let program_modules = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| {
+            let loaded = db.query(LoadedModuleQuery(module_id));
+            (module_id, loaded.module)
+        })
+        .collect::<HashMap<_, _>>();
+    let program_defs = defs_by_module_id(db);
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let lowered = db.query(TypeLoweringQuery(module_id));
+    let signatures = db.query(ItemSignaturesQuery(module_id));
+    let normalization = db.query(TypeNormalizationQuery(module_id));
+    let comptime = db.query(ComptimeQuery(module_id));
+    let layouts = db.query(LayoutsQuery(module_id));
+    let extensions = db.query(VisibleExtensionsQuery(module_id));
+    let program_signatures = db.query(ProgramSignaturesQuery);
+    let program_comptime = db.query(ProgramComptimeQuery);
+    nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
+        nia_body_check::BodyCheckInput {
+            module: &loaded.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            lowered: &lowered,
+            signatures: &signatures,
+            normalization: &normalization,
+            comptime: &comptime,
+            layouts: &layouts,
+            extensions: &extensions.methods,
+            extension_interner: Some(&extensions.interner),
+            program: nia_body_check::BodyProgramContext {
+                modules: Some(&program_modules),
+                defs: Some(&program_defs),
+            },
+            program_signatures: program_signatures.maps(),
+            program_comptime: nia_body_check::ProgramComptimeMaps {
+                comptimes: &program_comptime,
+            },
+        },
+    )
+}
+
+pub(super) fn provide_checked_module(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> CheckedModule {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    CheckedModule {
+        id: loaded.id,
+        path: loaded.path,
+        defs: db.query(ModuleDefsQuery(module_id)),
+        type_resolution: db.query(TypeResolutionQuery(module_id)),
+        type_lowering: db.query(TypeLoweringQuery(module_id)),
+        value_resolution: db.query(ValueResolutionQuery(module_id)),
+        local_resolution: db.query(LocalResolutionQuery(module_id)),
+        item_signatures: db.query(ItemSignaturesQuery(module_id)),
+        type_normalization: db.query(TypeNormalizationQuery(module_id)),
+        comptime: db.query(ComptimeQuery(module_id)),
+        static_check: db.query(StaticCheckQuery(module_id)),
+        layouts: db.query(LayoutsQuery(module_id)),
+        abi_check: db.query(AbiCheckQuery(module_id)),
+        flow_check: db.query(FlowCheckQuery(module_id)),
+        body_check: db.query(BodyCheckQuery(module_id)),
+    }
+}
+
+pub(super) fn provide_checked_modules(db: &QueryDb<DriverContext>) -> Vec<CheckedModule> {
+    db.query_many(
+        db.query(ParseOkModuleIdsQuery)
+            .into_iter()
+            .map(CheckedModuleQuery),
+    )
+}
+
+pub(super) fn provide_monomorphization(
+    db: &QueryDb<DriverContext>,
+) -> nia_monomorphize::Monomorphization {
+    let checked_modules = db.query(CheckedModulesQuery);
+    nia_monomorphize::collect_monomorphizations(
+        &checked_modules
+            .iter()
+            .map(|module| MonomorphizeModuleInput {
+                module_id: module.id,
+                defs: &module.defs,
+                interner: &module.body_check.ir.interner,
+                comptime: &module.comptime,
+                instantiations: &module.body_check.ir.generic_instantiations,
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+pub(super) fn provide_backend_lowering(
+    db: &QueryDb<DriverContext>,
+) -> nia_backend_lower::BackendLowering {
+    let checked_modules = db.query(CheckedModulesQuery);
+    let monomorphization = db.query(MonomorphizationQuery);
+    let loaded_modules = checked_modules
+        .iter()
+        .map(|checked_module| db.query(LoadedModuleQuery(checked_module.id)))
+        .collect::<Vec<_>>();
+    let visible_extensions = checked_modules
+        .iter()
+        .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
+        .collect::<Vec<_>>();
+    let inputs = checked_modules
+        .iter()
+        .zip(loaded_modules.iter())
+        .zip(visible_extensions.iter())
+        .map(
+            |((checked_module, loaded_module), visible_extensions)| BackendLowerModuleInput {
+                module_id: checked_module.id,
+                module_name: checked_module.path.as_str().to_string(),
+                module: &loaded_module.module,
+                defs: &checked_module.defs,
+                extensions: &visible_extensions.methods,
+                values: &checked_module.value_resolution,
+                locals: &checked_module.local_resolution,
+                type_lowering: &checked_module.type_lowering,
+                signatures: &checked_module.item_signatures,
+                type_normalization: &checked_module.type_normalization,
+                body_check: &checked_module.body_check,
+                comptime: &checked_module.comptime,
+                layouts: &checked_module.layouts,
+                extension_interner: Some(&visible_extensions.interner),
+            },
+        )
+        .collect::<Vec<_>>();
+    nia_backend_lower::lower_backend_program(&inputs, &monomorphization)
+}
+
+pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<ProgramDiagnostic> {
+    let mut diagnostics = db.context().loaded.diagnostics.clone();
+    for loaded_module in &db.context().loaded.modules {
+        for error in &loaded_module.parse_errors {
+            diagnostics.push(ProgramDiagnostic {
+                path: loaded_module.path.clone(),
+                diagnostic: Diagnostic::error(error.span, error.message.clone()),
+            });
+        }
+    }
+    let public = db.query(PublicSurfaceQuery);
+    for (module_id, diagnostic) in public.diagnostics {
+        diagnostics.push(ProgramDiagnostic {
+            path: db.context().path_for_module(module_id),
+            diagnostic,
+        });
+    }
+    let first_path = db
+        .query(ParseOkModuleIdsQuery)
+        .first()
+        .map(|module_id| db.context().path_for_module(*module_id))
+        .unwrap_or_else(|| SourcePath::new("<unknown>"));
+    diagnostics.extend(
+        db.query(ExtensionMethodsQuery)
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| ProgramDiagnostic {
+                path: first_path.clone(),
+                diagnostic,
+            }),
+    );
+
+    let checked_modules = db.query(CheckedModulesQuery);
+    for checked in &checked_modules {
+        diagnostics.extend(module_diagnostics(&checked.path, &checked.defs.diagnostics));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.type_resolution.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.type_lowering.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.value_resolution.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.local_resolution.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.item_signatures.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.type_normalization.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.comptime.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.static_check.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.layouts.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.abi_check.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.flow_check.diagnostics,
+        ));
+        diagnostics.extend(module_diagnostics(
+            &checked.path,
+            &checked.body_check.diagnostics,
+        ));
+    }
+
+    let monomorphization = db.query(MonomorphizationQuery);
+    diagnostics.extend(
+        monomorphization
+            .diagnostics
+            .iter()
+            .cloned()
+            .map(|diagnostic| ProgramDiagnostic {
+                path: path_for_diagnostic_span(&checked_modules, diagnostic.span),
+                diagnostic,
+            }),
+    );
+    let backend_lowering = db.query(BackendLoweringQuery);
+    diagnostics.extend(
+        backend_lowering
+            .diagnostics
+            .iter()
+            .cloned()
+            .map(|diagnostic| ProgramDiagnostic {
+                path: path_for_diagnostic_span(&checked_modules, diagnostic.span),
+                diagnostic,
+            }),
+    );
+    diagnostics
+}

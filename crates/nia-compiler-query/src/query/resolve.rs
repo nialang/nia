@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ValueResolutionQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for ValueResolutionQuery {
+    type Value = ValueResolution;
+
+    fn name() -> &'static str {
+        "value_resolution"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.value_resolution)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct LocalResolutionQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for LocalResolutionQuery {
+    type Value = LocalResolution;
+
+    fn name() -> &'static str {
+        "local_resolution"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.local_resolution)(db, self.0)
+    }
+}
