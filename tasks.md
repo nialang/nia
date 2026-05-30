@@ -53,12 +53,12 @@ Acceptance:
 
 ## 4. Query runtime hardening
 
-- [ ] Add query descriptions suitable for diagnostics/profiling.
-- [ ] Improve cycle diagnostics beyond panic-only reporting.
-- [ ] Add dependency recording hooks that can support later invalidation.
-- [ ] Decide whether cache specialization or sharding is needed now; implement only if the current
+- [x] Add query descriptions suitable for diagnostics/profiling.
+- [x] Improve cycle diagnostics beyond panic-only reporting.
+- [x] Add dependency recording hooks that can support later invalidation.
+- [x] Decide whether cache specialization or sharding is needed now; implement only if the current
       architecture benefits.
-- [ ] Commit this stage.
+- [x] Commit this stage.
 
 Acceptance:
 

@@ -203,6 +203,7 @@ version = "0.2.0"
 dependencies = [
  "nia-abi-check",
  "nia-ast",
+ "nia-backend-ir",
  "nia-backend-lower",
  "nia-body-check",
  "nia-comptime-check",
