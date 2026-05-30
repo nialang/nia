@@ -34,7 +34,8 @@ can be added without moving compiler semantics into the driver.
 - `SourcePath` identifies a file path;
 - `SourceId` identifies a source file independently from its current text;
 - `SourceRevision` identifies a specific version of that file;
-- `SourceFile` carries id, path, revision, and text.
+- `SourceFile` carries id, path, revision, and text;
+- `SourceTable` assigns stable ids for paths inside one compiler session.
 
 `nia-imports` may use source paths, but it must not own source identity. Import
 resolution is a client of source identity, not its storage layer.

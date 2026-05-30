@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SourceId(pub u32);
@@ -51,6 +55,38 @@ impl SourceFile {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SourceTable {
+    inner: Arc<Mutex<SourceTableInner>>,
+}
+
+#[derive(Debug, Default)]
+struct SourceTableInner {
+    paths: HashMap<SourcePath, SourceId>,
+    next_id: u32,
+}
+
+impl SourceTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
+        let mut inner = self.inner.lock().expect("source table lock poisoned");
+        if let Some(id) = inner.paths.get(path).copied() {
+            return id;
+        }
+
+        let id = SourceId(inner.next_id);
+        inner.next_id = inner
+            .next_id
+            .checked_add(1)
+            .expect("source id space exhausted");
+        inner.paths.insert(path.clone(), id);
+        id
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,5 +106,16 @@ mod tests {
 
         assert_eq!(file.revision, SourceRevision::INITIAL);
         assert_eq!(file.path.as_str(), "main.nia");
+    }
+
+    #[test]
+    fn source_table_reuses_path_ids() {
+        let table = SourceTable::new();
+        let main = SourcePath::new("main.nia");
+        let defs = SourcePath::new("defs.nia");
+
+        assert_eq!(table.id_for_path(&main), SourceId(0));
+        assert_eq!(table.id_for_path(&defs), SourceId(1));
+        assert_eq!(table.id_for_path(&main), SourceId(0));
     }
 }

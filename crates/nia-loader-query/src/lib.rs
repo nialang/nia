@@ -9,7 +9,7 @@ use nia_imports::{
 };
 use nia_lexer::Token;
 use nia_query::{QueryDb, QueryKey};
-use nia_source::{SourceFile, SourceId, SourcePath};
+use nia_source::{SourceFile, SourcePath, SourceTable};
 use nia_span::Span;
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
@@ -20,6 +20,7 @@ pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap
     let db = QueryDb::new(LoaderContext {
         root_path: SourcePath::new(root_path.into()),
         module_map,
+        sources: SourceTable::new(),
     });
     db.query(LoadedProgramQuery)
 }
@@ -32,6 +33,7 @@ fn load_program_trace(
     let db = QueryDb::new(LoaderContext {
         root_path: SourcePath::new(root_path.into()),
         module_map,
+        sources: SourceTable::new(),
     });
     let _ = db.query(LoadedProgramQuery);
     db.query_trace()
@@ -40,6 +42,7 @@ fn load_program_trace(
 struct LoaderContext {
     root_path: SourcePath,
     module_map: ModuleMap,
+    sources: SourceTable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -196,7 +199,11 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
         let (module, parse_errors) = nia_parser::parse_module_tokens(text, tokens);
         ParsedModule {
             source: source.file.unwrap_or_else(|| {
-                SourceFile::new(source_id_for_path(&self.0), self.0.clone(), String::new())
+                SourceFile::new(
+                    db.context().sources.id_for_path(&self.0),
+                    self.0.clone(),
+                    String::new(),
+                )
             }),
             module,
             parse_errors,
@@ -251,11 +258,11 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
         format!("source_text({})", self.0.as_str())
     }
 
-    fn execute(&self, _: &QueryDb<LoaderContext>) -> Self::Value {
+    fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         match fs::read_to_string(self.0.as_str()) {
             Ok(text) => SourceText {
                 file: Some(SourceFile::new(
-                    source_id_for_path(&self.0),
+                    db.context().sources.id_for_path(&self.0),
                     self.0.clone(),
                     text,
                 )),
@@ -276,15 +283,6 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
 struct SourceText {
     file: Option<SourceFile>,
     diagnostic: Option<Diagnostic>,
-}
-
-fn source_id_for_path(path: &SourcePath) -> SourceId {
-    let mut hash = 2166136261u32;
-    for byte in path.as_str().as_bytes() {
-        hash ^= u32::from(*byte);
-        hash = hash.wrapping_mul(16777619);
-    }
-    SourceId(hash)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
