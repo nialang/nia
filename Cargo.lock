@@ -211,6 +211,8 @@ dependencies = [
  "nia-defs",
  "nia-diagnostic",
  "nia-flow-check",
+ "nia-function-ir",
+ "nia-function-lower",
  "nia-ids",
  "nia-imports",
  "nia-item-signatures",
