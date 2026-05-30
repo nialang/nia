@@ -278,15 +278,11 @@ dependencies = [
 name = "nia-driver"
 version = "0.2.0"
 dependencies = [
- "nia-ast",
  "nia-compiler-query",
- "nia-diagnostic",
  "nia-ids",
  "nia-imports",
  "nia-layout",
  "nia-loader-query",
- "nia-parser",
- "nia-span",
 ]
 
 [[package]]
