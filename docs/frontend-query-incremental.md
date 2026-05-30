@@ -76,9 +76,10 @@ source versions for syntax, AST, and import queries so same-session invalidation
 can reconnect after source edits.
 
 The old tokenized module query is not part of the loader path. The lexer still
-offers semantic tokens for CLI/debugging, but parser lowering consumes
-`nia-syntax` tokens directly. The official lossless source representation is
-`nia-syntax`.
+offers semantic tokens for CLI/debugging, but parser lowering consumes red
+`nia-syntax` tokens directly. Those tokens carry source-versioned child paths
+and can produce `NodeKey`s for diagnostics and later side tables. The official
+lossless source representation is `nia-syntax`.
 
 ## Stable Node Identity
 
@@ -98,8 +99,8 @@ tables such as defs, locals, types, and body IR.
 ## Red/Green Tree Direction
 
 `nia-syntax` provides the official lossless syntax layer. The current green tree
-preserves tokens and trivia and groups delimiter subtrees. Red nodes provide
-source-versioned child-path identity through `nia-node-id`.
+preserves tokens and trivia and groups delimiter subtrees. Red nodes and tokens
+provide source-versioned child-path identity through `nia-node-id`.
 
 A red/green tree is useful when Nia needs:
 

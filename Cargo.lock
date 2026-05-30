@@ -469,6 +469,8 @@ version = "0.2.1"
 dependencies = [
  "nia-ast",
  "nia-lexer",
+ "nia-node-id",
+ "nia-source",
  "nia-span",
  "nia-syntax",
 ]

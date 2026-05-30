@@ -9,6 +9,7 @@ use nia_ast::{
     UsingSelector, Visibility,
 };
 use nia_lexer::TokenKind;
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_syntax::{SyntaxToken, SyntaxTokenCursor, SyntaxTree};
 
@@ -30,6 +31,7 @@ pub fn parse_module_syntax(syntax: &SyntaxTree) -> (Module, Vec<ParseError>) {
 pub struct ParseError {
     pub span: Span,
     pub message: String,
+    pub node_key: Option<NodeKey>,
 }
 
 pub struct Parser {
@@ -45,20 +47,22 @@ impl Parser {
     }
 
     fn from_syntax(syntax: &SyntaxTree) -> Self {
-        let token_list = syntax.tokens();
-        let errors = token_list
+        let tokens = SyntaxTokenCursor::new(syntax);
+        let errors = tokens
+            .tokens()
             .iter()
             .filter_map(|token| match &token.kind {
                 TokenKind::Error(error) => Some(ParseError {
                     span: token.span,
                     message: format!("lex error: {error:?}"),
+                    node_key: token.node_key(),
                 }),
                 _ => None,
             })
             .collect();
         Self {
             source: syntax.source().to_string(),
-            tokens: SyntaxTokenCursor::new(syntax),
+            tokens,
             errors,
         }
     }
@@ -199,6 +203,7 @@ impl Parser {
         self.errors.push(ParseError {
             span: self.peek().span,
             message: message.into(),
+            node_key: self.peek().node_key(),
         });
     }
 
@@ -206,6 +211,7 @@ impl Parser {
         self.errors.push(ParseError {
             span,
             message: message.into(),
+            node_key: None,
         });
     }
 
