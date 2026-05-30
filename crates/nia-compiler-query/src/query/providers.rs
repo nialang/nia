@@ -15,7 +15,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
     pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
-    pub(super) item_signatures_by_module: fn(&QueryDb<DriverContext>) -> Vec<ItemSignatures>,
     pub(super) type_lowerings_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeLowering>,
     pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
     pub(super) type_normalizations_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeNormalization>,
@@ -53,7 +52,6 @@ impl Default for CompilerQueryProviders {
             type_resolution: provide_type_resolution,
             type_lowering: provide_type_lowering,
             item_signatures: provide_item_signatures,
-            item_signatures_by_module: provide_item_signatures_by_module,
             type_lowerings_by_module: provide_type_lowerings_by_module,
             type_normalization: provide_type_normalization,
             type_normalizations_by_module: provide_type_normalizations_by_module,
@@ -194,16 +192,6 @@ pub(super) fn provide_item_signatures(
     nia_item_signatures::collect_item_signatures(&loaded.module, &defs, &type_lowering)
 }
 
-pub(super) fn provide_item_signatures_by_module(
-    db: &QueryDb<DriverContext>,
-) -> Vec<ItemSignatures> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(ItemSignaturesQuery),
-    )
-}
-
 pub(super) fn provide_type_lowerings_by_module(db: &QueryDb<DriverContext>) -> Vec<TypeLowering> {
     db.query_many(
         db.query(ParseOkModuleIdsQuery)
@@ -232,16 +220,35 @@ pub(super) fn provide_type_normalizations_by_module(
 }
 
 pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignatures {
-    let modules = modules_in_order(db);
-    let type_lowerings = db.query(TypeLoweringsByModuleQuery);
-    let item_signatures = db.query(ItemSignaturesByModuleQuery);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let type_lowerings = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+        .collect::<Vec<_>>();
+    let item_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
+        .collect::<Vec<_>>();
+    let modules = module_ids
+        .iter()
+        .copied()
+        .zip(type_lowerings.iter())
+        .zip(item_signatures.iter())
+        .map(|((module_id, lowering), signatures)| ModuleSignatureInput {
+            module_id,
+            lowering,
+            signatures,
+        })
+        .collect::<Vec<_>>();
     ProgramSignatures {
-        functions: collect_program_functions(&modules, &type_lowerings, &item_signatures),
-        globals: collect_program_globals(&modules, &type_lowerings, &item_signatures),
-        comptimes: collect_program_comptimes(&modules, &type_lowerings, &item_signatures),
-        structs: collect_program_structs(&modules, &type_lowerings, &item_signatures),
-        unions: collect_program_unions(&modules, &type_lowerings, &item_signatures),
-        enums: collect_program_enums(&modules, &type_lowerings, &item_signatures),
+        functions: collect_program_functions(&modules),
+        globals: collect_program_globals(&modules),
+        comptimes: collect_program_comptimes(&modules),
+        structs: collect_program_structs(&modules),
+        unions: collect_program_unions(&modules),
+        enums: collect_program_enums(&modules),
     }
 }
 

@@ -17,6 +17,12 @@ use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
+pub(crate) struct ModuleSignatureInput<'a> {
+    pub(crate) module_id: nia_ids::ModuleId,
+    pub(crate) lowering: &'a TypeLowering,
+    pub(crate) signatures: &'a ItemSignatures,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,
@@ -24,21 +30,19 @@ pub(crate) struct VisibleExtensionsForModule {
 }
 
 pub(crate) fn collect_program_functions(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
     let mut functions = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.functions {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.functions {
             functions.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramFunctionSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -47,21 +51,19 @@ pub(crate) fn collect_program_functions(
 }
 
 pub(crate) fn collect_program_globals(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
     let mut globals = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.globals {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.globals {
             globals.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramGlobalSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -70,21 +72,19 @@ pub(crate) fn collect_program_globals(
 }
 
 pub(crate) fn collect_program_comptimes(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramComptimeSignature> {
     let mut comptimes = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.comptimes {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.comptimes {
             comptimes.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramComptimeSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -93,21 +93,19 @@ pub(crate) fn collect_program_comptimes(
 }
 
 pub(crate) fn collect_program_structs(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramStructSignature> {
     let mut structs = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.structs {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.structs {
             structs.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramStructSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -116,21 +114,19 @@ pub(crate) fn collect_program_structs(
 }
 
 pub(crate) fn collect_program_unions(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramUnionSignature> {
     let mut unions = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.unions {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.unions {
             unions.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramUnionSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -139,21 +135,19 @@ pub(crate) fn collect_program_unions(
 }
 
 pub(crate) fn collect_program_enums(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramEnumSignature> {
     let mut enums = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.enums {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.enums {
             enums.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramEnumSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }

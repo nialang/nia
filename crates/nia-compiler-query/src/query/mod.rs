@@ -3,9 +3,10 @@ use crate::{
     CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
     module_diagnostics,
     program_signatures::{
-        VisibleExtensionsForModule, collect_extension_methods, collect_program_comptimes,
-        collect_program_enums, collect_program_functions, collect_program_globals,
-        collect_program_structs, collect_program_unions, visible_extensions_for_module,
+        ModuleSignatureInput, VisibleExtensionsForModule, collect_extension_methods,
+        collect_program_comptimes, collect_program_enums, collect_program_functions,
+        collect_program_globals, collect_program_structs, collect_program_unions,
+        visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
@@ -134,6 +135,27 @@ impl DriverContext {
 mod tests {
     use super::*;
 
+    fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
+        LoadedProgram {
+            graph: ModuleGraph::new(SourcePath::new("main.nia")),
+            imports: ImportAliasMap::default(),
+            modules,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
+        let (module, parse_errors) = nia_parser::parse_module(source);
+        assert!(parse_errors.is_empty(), "{parse_errors:?}");
+        LoadedModule {
+            id,
+            path: SourcePath::new(path),
+            source: source.to_string(),
+            module,
+            parse_errors,
+        }
+    }
+
     #[test]
     fn compiler_query_providers_can_override_query_execution() {
         fn no_parse_ok_modules(_: &QueryDb<DriverContext>) -> Vec<ModuleId> {
@@ -145,21 +167,37 @@ mod tests {
             ..CompilerQueryProviders::default()
         };
         let checked = check_loaded_program_with_providers(
-            LoadedProgram {
-                graph: ModuleGraph::new(SourcePath::new("main.nia")),
-                imports: ImportAliasMap::default(),
-                modules: vec![LoadedModule {
-                    id: ModuleId(0),
-                    path: SourcePath::new("main.nia"),
-                    source: "fn main() i32 { 0 }".to_string(),
-                    module: nia_ast::Module { items: Vec::new() },
-                    parse_errors: Vec::new(),
-                }],
-                diagnostics: Vec::new(),
-            },
+            loaded_program_with_modules(vec![loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "fn main() i32 { 0 }",
+            )]),
             providers,
         );
 
         assert!(checked.modules.is_empty());
+    }
+
+    #[test]
+    fn program_signatures_query_uses_module_signature_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 }",
+        )]);
+        let db = QueryDb::new(DriverContext {
+            loaded,
+            providers: CompilerQueryProviders::default(),
+        });
+
+        let _ = db.query(ProgramSignaturesQuery);
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signatures" && dependency.to.name == "type_lowering"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_signatures" && dependency.to.name == "item_signatures"
+        }));
     }
 }

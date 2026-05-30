@@ -97,7 +97,7 @@ boundaries before deeper semantic passes are split.
 
 Tasks:
 
-- [ ] Identify current definition/signature collection paths in
+- [x] Identify current definition/signature collection paths in
       `nia-compiler-query` and related crates.
 - [ ] Add a module definition query that maps a parsed module to item defs.
 - [ ] Add public surface/signature queries for structs, enums, functions,
