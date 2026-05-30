@@ -187,7 +187,7 @@ impl<'a> BodyChecker<'a> {
         if !type_args.is_empty() {
             self.record_generic_instantiation(def_id, type_args, span);
         }
-        self.function_references.insert(
+        self.record_function_reference(
             span,
             FunctionReference {
                 def_id,
@@ -218,8 +218,7 @@ impl<'a> BodyChecker<'a> {
         if signature.generics.is_empty() {
             let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
-            self.resolved_calls
-                .insert(span, ResolvedCall::Function(resolved.def_id));
+            self.record_resolved_call(span, ResolvedCall::Function(resolved.def_id));
             return signature.return_type;
         }
         self.check_inferred_generic_function_call(span, resolved.def_id, signature, args, expected)
@@ -299,8 +298,7 @@ impl<'a> BodyChecker<'a> {
                 is_variadic,
             }) => {
                 self.check_direct_call_args(span, args, &params, is_variadic);
-                self.resolved_calls
-                    .insert(span, ResolvedCall::FunctionPointer);
+                self.record_resolved_call(span, ResolvedCall::FunctionPointer);
                 return_type
             }
             Some(TyKind::Error) | None => {

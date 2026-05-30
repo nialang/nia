@@ -74,11 +74,7 @@ impl Parser {
             return None;
         };
         let span = Span::new(start, self.previous_end());
-        Some(TypeRef {
-            span,
-            text: self.source_text(span),
-            kind,
-        })
+        Some(self.make_type_ref(span, kind))
     }
 
     pub(super) fn parse_type_after_amp(&mut self, _start: usize) -> Option<TypeKind> {
@@ -201,11 +197,7 @@ impl Parser {
         )
     }
 
-    fn error_type_ref(&self, span: Span) -> TypeRef {
-        TypeRef {
-            span,
-            text: self.source_text(span),
-            kind: TypeKind::Error,
-        }
+    fn error_type_ref(&mut self, span: Span) -> TypeRef {
+        self.make_type_ref(span, TypeKind::Error)
     }
 }

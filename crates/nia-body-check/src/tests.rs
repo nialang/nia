@@ -1015,9 +1015,24 @@ fn records_body_facts_by_red_child_path_origins() {
     };
     let syntax = nia_syntax::parse_source(
         r#"
+struct Pair {
+    a: u8,
+    b: i32,
+}
+
+fn id(value: i32) i32 { value }
+fn call_ptr(f: &const fn(i32) i32, value: i32) i32 { f(value) }
+fn take(xs: &const [i32]) usize { @len(xs) }
+fn cstr(value: &const u8) usize { 1 }
+
 fn main() i32 {
     var x = 1;
-    x
+    var y = id(x);
+    var n = @size[Pair]();
+    var s = take([1, 2, 3]);
+    var p = cstr(c"ok");
+    var q = call_ptr(&const id, y);
+    q + n as i32 + s as i32 + p as i32
 }
 "#,
         Some(version),
@@ -1091,6 +1106,37 @@ fn main() i32 {
             && key.kind == SyntaxKind::Expr
             && matches!(key.position, NodePosition::ChildPathRange { .. })
     }));
+    assert!(checked.ir.node_builtin_values.keys().any(|key| {
+        key.source_version() == version
+            && key.kind == SyntaxKind::Expr
+            && matches!(key.position, NodePosition::ChildPathRange { .. })
+    }));
+    assert!(checked.ir.node_resolved_calls.keys().any(|key| {
+        key.source_version() == version
+            && key.kind == SyntaxKind::Expr
+            && matches!(key.position, NodePosition::ChildPathRange { .. })
+    }));
+    assert!(checked.ir.node_function_references.keys().any(|key| {
+        key.source_version() == version
+            && key.kind == SyntaxKind::Expr
+            && matches!(key.position, NodePosition::ChildPathRange { .. })
+    }));
+    assert!(checked.ir.node_array_to_slice_coercions.keys().any(|key| {
+        key.source_version() == version
+            && key.kind == SyntaxKind::Expr
+            && matches!(key.position, NodePosition::ChildPathRange { .. })
+    }));
+    assert!(
+        checked
+            .ir
+            .node_c_string_pointer_coercions
+            .keys()
+            .any(|key| {
+                key.source_version() == version
+                    && key.kind == SyntaxKind::Expr
+                    && matches!(key.position, NodePosition::ChildPathRange { .. })
+            })
+    );
 }
 
 #[test]

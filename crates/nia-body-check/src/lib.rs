@@ -288,7 +288,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         function_references: HashMap::new(),
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
+        node_array_to_slice_coercions: HashMap::new(),
+        node_c_string_pointer_coercions: HashMap::new(),
+        node_builtin_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
+        node_function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
         function_bodies: HashMap::new(),
         global_inits: HashMap::new(),
@@ -318,7 +322,11 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             generic_instantiations: checker.generic_instantiations,
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
+            node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
+            node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
+            node_builtin_values: checker.node_builtin_values,
             node_resolved_calls: checker.node_resolved_calls,
+            node_function_references: checker.node_function_references,
         },
         diagnostics: checker.diagnostics,
     }
@@ -355,7 +363,11 @@ struct BodyChecker<'a> {
     function_references: HashMap<Span, FunctionReference>,
     node_expr_types: HashMap<NodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
+    node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
+    node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
+    node_function_references: HashMap<NodeKey, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
     function_bodies: HashMap<GlobalDefId, nia_body_ir::TypedBody>,
     global_inits: HashMap<GlobalDefId, nia_static_ir::StaticInit>,
@@ -399,6 +411,34 @@ impl<'a> BodyChecker<'a> {
         self.resolved_calls.insert(span, call.clone());
         if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
             self.node_resolved_calls.insert(key, call);
+        }
+    }
+
+    fn record_array_to_slice_coercion(&mut self, span: Span, coercion: ArrayToSliceCoercion) {
+        self.array_to_slice_coercions.insert(span, coercion);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_array_to_slice_coercions.insert(key, coercion);
+        }
+    }
+
+    fn record_c_string_pointer_coercion(&mut self, span: Span, coercion: CStringPointerCoercion) {
+        self.c_string_pointer_coercions.insert(span, coercion);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_c_string_pointer_coercions.insert(key, coercion);
+        }
+    }
+
+    fn record_builtin_value(&mut self, span: Span, value: BuiltinValue) {
+        self.builtin_values.insert(span, value);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_builtin_values.insert(key, value);
+        }
+    }
+
+    fn record_function_reference(&mut self, span: Span, reference: FunctionReference) {
+        self.function_references.insert(span, reference.clone());
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_function_references.insert(key, reference);
         }
     }
 

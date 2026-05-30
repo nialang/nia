@@ -85,9 +85,7 @@ impl Parser {
                 self.recover_to_item_boundary();
             }
         }
-        let module = Module { items };
-        self.record_module_origins(&module);
-        (module, self.errors, self.origins)
+        (Module { items }, self.errors, self.origins)
     }
 
     fn record_origin(&mut self, kind: NodeSyntaxKind, span: Span) {
@@ -114,273 +112,44 @@ impl Parser {
         );
     }
 
-    fn record_module_origins(&mut self, module: &Module) {
-        for item in &module.items {
-            self.record_item_origin(item);
+    fn make_item(&mut self, span: Span, vis: Visibility, kind: ItemKind) -> Item {
+        self.record_origin(NodeSyntaxKind::Item, span);
+        Item { span, vis, kind }
+    }
+
+    fn make_param(
+        &mut self,
+        span: Span,
+        receiver: Option<ReceiverKind>,
+        name: Option<String>,
+        ty: Option<TypeRef>,
+    ) -> Param {
+        self.record_origin(NodeSyntaxKind::Param, span);
+        Param {
+            receiver,
+            name,
+            ty,
+            span,
         }
     }
 
-    fn record_item_origin(&mut self, item: &Item) {
-        self.record_origin(NodeSyntaxKind::Item, item.span);
-        match &item.kind {
-            ItemKind::Struct(item_struct) => {
-                for field in &item_struct.fields {
-                    self.record_origin(NodeSyntaxKind::Type, field.ty.span);
-                }
-            }
-            ItemKind::Union(item_union) => {
-                for field in &item_union.fields {
-                    self.record_origin(NodeSyntaxKind::Type, field.ty.span);
-                }
-            }
-            ItemKind::Enum(item_enum) => {
-                if let Some(ty) = &item_enum.backing_type {
-                    self.record_type_origin(ty);
-                }
-                for variant in &item_enum.variants {
-                    if let Some(value) = &variant.value {
-                        self.record_expr_origin(value);
-                    }
-                }
-            }
-            ItemKind::Extend(extend) => {
-                self.record_type_origin(&extend.target);
-                for method in &extend.methods {
-                    self.record_function_origins(&method.function);
-                }
-            }
-            ItemKind::Function(function) => self.record_function_origins(function),
-            ItemKind::Binding(binding) => {
-                if let Some(ty) = &binding.ty {
-                    self.record_type_origin(ty);
-                }
-                if let Some(value) = &binding.value {
-                    self.record_expr_origin(value);
-                }
-            }
-            ItemKind::TypeAlias(alias) => self.record_type_origin(&alias.ty),
-            ItemKind::Import(_) | ItemKind::Using(_) => {}
+    fn make_type_ref(&mut self, span: Span, kind: TypeKind) -> TypeRef {
+        self.record_origin(NodeSyntaxKind::Type, span);
+        TypeRef {
+            span,
+            text: self.source_text(span),
+            kind,
         }
     }
 
-    fn record_function_origins(&mut self, function: &FunctionItem) {
-        for param in &function.params {
-            self.record_origin(NodeSyntaxKind::Param, param.span);
-            if let Some(ty) = &param.ty {
-                self.record_type_origin(ty);
-            }
-        }
-        if let Some(ty) = &function.return_type {
-            self.record_type_origin(ty);
-        }
-        if let Some(body) = &function.body {
-            self.record_block_origin(body);
-        }
+    fn make_expr(&mut self, span: Span, kind: ExprKind) -> Expr {
+        self.record_origin(NodeSyntaxKind::Expr, span);
+        Expr { span, kind }
     }
 
-    fn record_type_origin(&mut self, ty: &TypeRef) {
-        self.record_origin(NodeSyntaxKind::Type, ty.span);
-        match &ty.kind {
-            TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
-                self.record_type_origin(elem);
-            }
-            TypeKind::Array { len, elem } => {
-                if let ArrayLen::Expr(expr) = len {
-                    self.record_expr_origin(expr);
-                }
-                self.record_type_origin(elem);
-            }
-            TypeKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            } => {
-                for param in params {
-                    self.record_type_origin(param);
-                }
-                if let Some(return_type) = return_type {
-                    self.record_type_origin(return_type);
-                }
-            }
-            TypeKind::Path { segments } => {
-                for segment in segments {
-                    for arg in &segment.args {
-                        match arg {
-                            TypeArg::Type(ty) => self.record_type_origin(ty),
-                            TypeArg::Const(expr) => {
-                                self.record_origin(NodeSyntaxKind::Expr, expr.span);
-                            }
-                        }
-                    }
-                }
-            }
-            TypeKind::Error | TypeKind::Void | TypeKind::Never | TypeKind::Infer => {}
-        }
-    }
-
-    fn record_block_origin(&mut self, block: &Block) {
-        for stmt in &block.stmts {
-            self.record_stmt_origin(stmt);
-        }
-        if let Some(tail) = &block.tail {
-            self.record_expr_origin(tail);
-        }
-    }
-
-    fn record_stmt_origin(&mut self, stmt: &Stmt) {
-        self.record_origin(NodeSyntaxKind::Stmt, stmt.span);
-        match &stmt.kind {
-            StmtKind::Binding(binding) => {
-                if let Some(ty) = &binding.ty {
-                    self.record_type_origin(ty);
-                }
-                if let Some(value) = &binding.value {
-                    self.record_expr_origin(value);
-                }
-            }
-            StmtKind::Expr(expr) | StmtKind::Defer(expr) => self.record_expr_origin(expr),
-            StmtKind::Return(value) => {
-                if let Some(value) = value {
-                    self.record_expr_origin(value);
-                }
-            }
-            StmtKind::For(for_stmt) => {
-                match &for_stmt.header {
-                    ForHeader::Infinite => {}
-                    ForHeader::Condition(expr) => self.record_expr_origin(expr),
-                    ForHeader::CStyle { init, cond, step } => {
-                        if let Some(init) = init {
-                            match init.as_ref() {
-                                ForInit::Binding { span, binding } => {
-                                    self.record_origin(NodeSyntaxKind::Stmt, *span);
-                                    if let Some(ty) = &binding.ty {
-                                        self.record_type_origin(ty);
-                                    }
-                                    if let Some(value) = &binding.value {
-                                        self.record_expr_origin(value);
-                                    }
-                                }
-                                ForInit::Expr(expr) => self.record_expr_origin(expr),
-                            }
-                        }
-                        if let Some(cond) = cond {
-                            self.record_expr_origin(cond);
-                        }
-                        if let Some(step) = step {
-                            self.record_expr_origin(step);
-                        }
-                    }
-                }
-                self.record_block_origin(&for_stmt.body);
-            }
-            StmtKind::Using(_) | StmtKind::Break | StmtKind::Continue => {}
-        }
-    }
-
-    fn record_expr_origin(&mut self, expr: &Expr) {
-        self.record_origin(NodeSyntaxKind::Expr, expr.span);
-        match &expr.kind {
-            ExprKind::Unary { expr, .. } | ExprKind::Cast { expr, .. } => {
-                self.record_expr_origin(expr);
-            }
-            ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
-                self.record_expr_origin(lhs);
-                self.record_expr_origin(rhs);
-            }
-            ExprKind::Call { callee, args } => {
-                self.record_expr_origin(callee);
-                for arg in args {
-                    self.record_expr_origin(arg);
-                }
-            }
-            ExprKind::BracketSuffix { callee, args } => {
-                self.record_expr_origin(callee);
-                for arg in args {
-                    if let Some(expr) = &arg.expr {
-                        self.record_expr_origin(expr);
-                    }
-                    if let Some(ty) = &arg.ty {
-                        self.record_type_origin(ty);
-                    }
-                }
-            }
-            ExprKind::Qualified { lhs, .. } | ExprKind::Field { lhs, .. } => {
-                self.record_expr_origin(lhs);
-            }
-            ExprKind::Index { lhs, index } => {
-                self.record_expr_origin(lhs);
-                match index {
-                    nia_ast::IndexArg::Expr(expr) => self.record_expr_origin(expr),
-                    nia_ast::IndexArg::Range(range) => {
-                        if let Some(start) = &range.start {
-                            self.record_expr_origin(start);
-                        }
-                        if let Some(end) = &range.end {
-                            self.record_expr_origin(end);
-                        }
-                    }
-                }
-            }
-            ExprKind::ArrayLiteral { elems } => match elems {
-                ArrayElements::List(elems) => {
-                    for elem in elems {
-                        self.record_expr_origin(elem);
-                    }
-                }
-                ArrayElements::Repeat { value, count } => {
-                    self.record_expr_origin(value);
-                    self.record_expr_origin(count);
-                }
-            },
-            ExprKind::StructLiteral { fields } => {
-                for field in fields {
-                    self.record_expr_origin(&field.value);
-                }
-            }
-            ExprKind::Block(block) => self.record_block_origin(block),
-            ExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                self.record_expr_origin(cond);
-                self.record_block_origin(then_branch);
-                if let Some(else_branch) = else_branch {
-                    self.record_expr_origin(else_branch);
-                }
-            }
-            ExprKind::Switch(switch) => {
-                self.record_expr_origin(&switch.target);
-                for arm in &switch.arms {
-                    if let SwitchPattern::Expr(pattern) = &arm.pattern {
-                        self.record_expr_origin(pattern);
-                    }
-                    match &arm.body {
-                        SwitchArmBody::Expr(expr) => self.record_expr_origin(expr),
-                        SwitchArmBody::Stmt(stmt) => self.record_stmt_origin(stmt),
-                        SwitchArmBody::Block(block) => self.record_block_origin(block),
-                    }
-                }
-            }
-            ExprKind::Builtin { type_arg, .. } => {
-                if let Some(ty) = type_arg {
-                    self.record_type_origin(ty);
-                }
-            }
-            ExprKind::TypeTarget { ty } => self.record_type_origin(ty),
-            ExprKind::Error
-            | ExprKind::Integer(_)
-            | ExprKind::Float(_)
-            | ExprKind::String(_)
-            | ExprKind::ByteString(_)
-            | ExprKind::CString(_)
-            | ExprKind::Char(_)
-            | ExprKind::ByteChar(_)
-            | ExprKind::Ident(_)
-            | ExprKind::Bool(_)
-            | ExprKind::Underscore
-            | ExprKind::Raw(_) => {}
-        }
+    fn make_stmt(&mut self, span: Span, kind: StmtKind) -> Stmt {
+        self.record_origin(NodeSyntaxKind::Stmt, span);
+        Stmt { span, kind }
     }
 
     fn has_top_level_semicolon_before_lbrace(&self) -> bool {
@@ -408,10 +177,7 @@ impl Parser {
             return expr;
         }
         let span = self.collect_until(stops)?;
-        Some(Expr {
-            span,
-            kind: ExprKind::Raw(self.source_text(span)),
-        })
+        Some(self.make_expr(span, ExprKind::Raw(self.source_text(span))))
     }
 
     fn collect_until(&mut self, stops: &[TokenKind]) -> Option<Span> {

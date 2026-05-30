@@ -113,7 +113,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_assignable(expr, "array-to-slice source");
             }
         }
-        self.array_to_slice_coercions.insert(
+        self.record_array_to_slice_coercion(
             expr.span,
             ArrayToSliceCoercion {
                 array_ty: actual,
@@ -155,7 +155,7 @@ impl<'a> BodyChecker<'a> {
         {
             return None;
         }
-        self.c_string_pointer_coercions.insert(
+        self.record_c_string_pointer_coercion(
             expr.span,
             CStringPointerCoercion {
                 array_ty: actual,
