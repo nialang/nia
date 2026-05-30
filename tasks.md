@@ -102,7 +102,7 @@ Tasks:
 - [ ] Add a module definition query that maps a parsed module to item defs.
 - [ ] Add public surface/signature queries for structs, enums, functions,
       globals, aliases, and extensions.
-- [ ] Keep ordered program aggregation only where order is semantically or
+- [x] Keep ordered program aggregation only where order is semantically or
       diagnostically required.
 - [ ] Replace fragile cross-module lookup paths with direct queries keyed by
       module/item ids.

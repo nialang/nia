@@ -3,10 +3,10 @@ use crate::{
     CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
     module_diagnostics,
     program_signatures::{
-        ModuleSignatureInput, VisibleExtensionsForModule, collect_extension_methods,
-        collect_program_comptimes, collect_program_enums, collect_program_functions,
-        collect_program_globals, collect_program_structs, collect_program_unions,
-        visible_extensions_for_module,
+        ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
+        collect_extension_methods, collect_program_comptimes, collect_program_enums,
+        collect_program_functions, collect_program_globals, collect_program_structs,
+        collect_program_unions, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };

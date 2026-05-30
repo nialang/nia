@@ -15,9 +15,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
     pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
-    pub(super) type_lowerings_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeLowering>,
     pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
-    pub(super) type_normalizations_by_module: fn(&QueryDb<DriverContext>) -> Vec<TypeNormalization>,
     pub(super) program_signatures: fn(&QueryDb<DriverContext>) -> ProgramSignatures,
     pub(super) extension_methods: fn(&QueryDb<DriverContext>) -> ExtensionMethodsQueryValue,
     pub(super) visible_extensions:
@@ -52,9 +50,7 @@ impl Default for CompilerQueryProviders {
             type_resolution: provide_type_resolution,
             type_lowering: provide_type_lowering,
             item_signatures: provide_item_signatures,
-            type_lowerings_by_module: provide_type_lowerings_by_module,
             type_normalization: provide_type_normalization,
-            type_normalizations_by_module: provide_type_normalizations_by_module,
             program_signatures: provide_program_signatures,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
@@ -192,14 +188,6 @@ pub(super) fn provide_item_signatures(
     nia_item_signatures::collect_item_signatures(&loaded.module, &defs, &type_lowering)
 }
 
-pub(super) fn provide_type_lowerings_by_module(db: &QueryDb<DriverContext>) -> Vec<TypeLowering> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(TypeLoweringQuery),
-    )
-}
-
 pub(super) fn provide_type_normalization(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
@@ -207,16 +195,6 @@ pub(super) fn provide_type_normalization(
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
-}
-
-pub(super) fn provide_type_normalizations_by_module(
-    db: &QueryDb<DriverContext>,
-) -> Vec<TypeNormalization> {
-    db.query_many(
-        db.query(ParseOkModuleIdsQuery)
-            .into_iter()
-            .map(TypeNormalizationQuery),
-    )
 }
 
 pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignatures {
@@ -253,12 +231,42 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
 }
 
 pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> ExtensionMethodsQueryValue {
-    let modules = modules_in_order(db);
-    let defs = db.query(DefsByModuleQuery);
-    let type_lowerings = db.query(TypeLoweringsByModuleQuery);
-    let normalizations = db.query(TypeNormalizationsByModuleQuery);
-    let (methods, diagnostics) =
-        collect_extension_methods(&modules, &defs, &type_lowerings, &normalizations);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let modules = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(LoadedModuleQuery(module_id)))
+        .collect::<Vec<_>>();
+    let defs = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
+        .collect::<Vec<_>>();
+    let type_lowerings = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(TypeLoweringQuery(module_id)))
+        .collect::<Vec<_>>();
+    let normalizations = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(TypeNormalizationQuery(module_id)))
+        .collect::<Vec<_>>();
+    let inputs = modules
+        .iter()
+        .zip(defs.iter())
+        .zip(type_lowerings.iter())
+        .zip(normalizations.iter())
+        .map(
+            |(((module, defs), lowering), normalization)| ExtensionModuleInput {
+                module,
+                defs,
+                lowering,
+                normalization,
+            },
+        )
+        .collect::<Vec<_>>();
+    let (methods, diagnostics) = collect_extension_methods(&inputs);
     ExtensionMethodsQueryValue {
         methods,
         diagnostics,
@@ -270,8 +278,12 @@ pub(super) fn provide_visible_extensions(
     module_id: ModuleId,
 ) -> VisibleExtensionsForModule {
     let imports = db.query(ImportAliasMapQuery);
-    let defs = db.query(DefsByModuleQuery);
-    let normalizations = db.query(TypeNormalizationsByModuleQuery);
+    let defs = defs_by_module_id(db);
+    let normalizations = db
+        .query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
+        .collect::<HashMap<_, _>>();
     let extensions = db.query(ExtensionMethodsQuery);
     visible_extensions_for_module(
         module_id,

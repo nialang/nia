@@ -17,13 +17,6 @@ impl QueryKey<DriverContext> for ProgramDiagnosticsQuery {
     }
 }
 
-pub(super) fn modules_in_order(db: &QueryDb<DriverContext>) -> Vec<LoadedModule> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| db.query(LoadedModuleQuery(module_id)))
-        .collect()
-}
-
 pub(super) fn defs_by_module_id(db: &QueryDb<DriverContext>) -> HashMap<ModuleId, DefCollection> {
     db.query(ParseOkModuleIdsQuery)
         .into_iter()
