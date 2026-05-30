@@ -2,5 +2,5 @@
 mod token;
 mod tokenizer;
 
-pub use token::{LexError, Token, TokenKind};
-pub use tokenizer::{Tokenizer, tokenize};
+pub use token::{LexError, LosslessToken, LosslessTokenKind, Token, TokenKind};
+pub use tokenizer::{Tokenizer, tokenize, tokenize_lossless};

@@ -8,8 +8,9 @@ use nia_ast::{
     TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
     UsingSelector, Visibility,
 };
-use nia_lexer::{Token, TokenKind, tokenize};
+use nia_lexer::{Token, TokenKind};
 use nia_span::Span;
+use nia_syntax::SyntaxTree;
 
 mod expr;
 mod items;
@@ -17,11 +18,12 @@ mod stmt;
 mod types;
 
 pub fn parse_module(source: &str) -> (Module, Vec<ParseError>) {
-    Parser::new(source).parse_module()
+    let syntax = nia_syntax::parse_source(source, None);
+    parse_module_syntax(&syntax)
 }
 
-pub fn parse_module_tokens(source: &str, tokens: Vec<Token>) -> (Module, Vec<ParseError>) {
-    Parser::from_tokens(source, tokens).parse_module()
+pub fn parse_module_syntax(syntax: &SyntaxTree) -> (Module, Vec<ParseError>) {
+    Parser::from_tokens(syntax.source(), syntax.semantic_tokens()).parse_module()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,11 +41,11 @@ pub struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     pub fn new(source: &'a str) -> Self {
-        let tokens = tokenize(source);
-        Self::from_tokens(source, tokens)
+        let syntax = nia_syntax::parse_source(source, None);
+        Self::from_tokens(source, syntax.semantic_tokens())
     }
 
-    pub fn from_tokens(source: &'a str, tokens: Vec<Token>) -> Self {
+    fn from_tokens(source: &'a str, tokens: Vec<Token>) -> Self {
         let errors = tokens
             .iter()
             .filter_map(|token| match &token.kind {

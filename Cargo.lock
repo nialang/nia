@@ -410,11 +410,11 @@ dependencies = [
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-imports",
- "nia-lexer",
  "nia-parser",
  "nia-query",
  "nia-source",
  "nia-span",
+ "nia-syntax",
 ]
 
 [[package]]
@@ -470,6 +470,7 @@ dependencies = [
  "nia-ast",
  "nia-lexer",
  "nia-span",
+ "nia-syntax",
 ]
 
 [[package]]
@@ -506,6 +507,16 @@ name = "nia-static-ir"
 version = "0.2.1"
 dependencies = [
  "nia-ids",
+]
+
+[[package]]
+name = "nia-syntax"
+version = "0.2.1"
+dependencies = [
+ "nia-lexer",
+ "nia-node-id",
+ "nia-source",
+ "nia-span",
 ]
 
 [[package]]

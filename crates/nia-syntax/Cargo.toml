@@ -1,14 +1,14 @@
 [package]
-name = "nia-parser"
+name = "nia-syntax"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-ast.workspace = true
 nia-lexer.workspace = true
-nia-syntax.workspace = true
+nia-node-id.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 
 [lib]
