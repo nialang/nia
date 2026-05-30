@@ -24,7 +24,11 @@ pub struct BodyIr {
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub node_expr_types: HashMap<NodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
+    pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
+    pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
+    pub node_function_references: HashMap<NodeKey, FunctionReference>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

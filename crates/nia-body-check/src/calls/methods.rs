@@ -185,8 +185,7 @@ impl<'a> BodyChecker<'a> {
                 },
             );
         } else {
-            self.resolved_calls
-                .insert(span, ResolvedCall::Function(method_id));
+            self.record_resolved_call(span, ResolvedCall::Function(method_id));
         }
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }

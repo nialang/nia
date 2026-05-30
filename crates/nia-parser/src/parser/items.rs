@@ -57,11 +57,7 @@ impl Parser {
         };
 
         let end = self.previous_end();
-        Some(Item {
-            span: Span::new(start, end),
-            vis,
-            kind,
-        })
+        Some(self.make_item(Span::new(start, end), vis, kind))
     }
 
     fn parse_import(&mut self) -> Option<ImportItem> {
@@ -473,39 +469,29 @@ impl Parser {
             };
             if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "self" {
                 self.bump();
-                return Some(Param {
-                    receiver: Some(receiver),
-                    name: Some("self".to_string()),
-                    ty: None,
-                    span: Span::new(start, self.previous_end()),
-                });
+                return Some(self.make_param(
+                    Span::new(start, self.previous_end()),
+                    Some(receiver),
+                    Some("self".to_string()),
+                    None,
+                ));
             }
             self.tokens.rewind(checkpoint);
             let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
-            return Some(Param {
-                receiver: None,
-                name: None,
-                span: Span::new(start, ty.span.end),
-                ty: Some(ty),
-            });
+            return Some(self.make_param(Span::new(start, ty.span.end), None, None, Some(ty)));
         }
         let name = self.expect_text(TokenKind::Ident, "expected parameter name")?;
         if name == "self" {
-            return Some(Param {
-                receiver: Some(ReceiverKind::Value),
-                name: Some(name),
-                ty: None,
-                span: Span::new(start, self.previous_end()),
-            });
+            return Some(self.make_param(
+                Span::new(start, self.previous_end()),
+                Some(ReceiverKind::Value),
+                Some(name),
+                None,
+            ));
         }
         self.expect(TokenKind::Colon, "expected `:` after parameter name")?;
         let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
-        Some(Param {
-            receiver: None,
-            name: Some(name),
-            span: Span::new(start, ty.span.end),
-            ty: Some(ty),
-        })
+        Some(self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty)))
     }
 
     fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {
