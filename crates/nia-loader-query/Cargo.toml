@@ -1,5 +1,5 @@
 [package]
-name = "nia-driver"
+name = "nia-loader-query"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -9,14 +9,10 @@ license.workspace = true
 nia-ast.workspace = true
 nia-compiler-query.workspace = true
 nia-diagnostic.workspace = true
-nia-ids.workspace = true
 nia-imports.workspace = true
-nia-loader-query.workspace = true
 nia-parser.workspace = true
+nia-query.workspace = true
 nia-span.workspace = true
-
-[dev-dependencies]
-nia-layout.workspace = true
 
 [lib]
 path = "src/lib.rs"

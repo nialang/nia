@@ -283,6 +283,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-layout",
+ "nia-loader-query",
  "nia-parser",
  "nia-span",
 ]
@@ -394,6 +395,19 @@ dependencies = [
  "llvm-sys",
  "nia-diagnostic",
  "nia-ice",
+ "nia-span",
+]
+
+[[package]]
+name = "nia-loader-query"
+version = "0.2.0"
+dependencies = [
+ "nia-ast",
+ "nia-compiler-query",
+ "nia-diagnostic",
+ "nia-imports",
+ "nia-parser",
+ "nia-query",
  "nia-span",
 ]
 

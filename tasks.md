@@ -20,13 +20,13 @@ Acceptance:
 
 ## 2. Query-driven loading boundary
 
-- [ ] Move source loading, parsing, import discovery, and module graph construction into
+- [x] Move source loading, parsing, import discovery, and module graph construction into
       query-shaped units.
-- [ ] Introduce source/parse/import/module graph queries or equivalent typed keys.
-- [ ] Keep filesystem access at the loader/interface boundary and keep compiler semantic queries
+- [x] Introduce source/parse/import/module graph queries or equivalent typed keys.
+- [x] Keep filesystem access at the loader/interface boundary and keep compiler semantic queries
       independent from CLI concerns.
-- [ ] Preserve current public `load_program` and `check_program` APIs as thin wrappers.
-- [ ] Commit this stage.
+- [x] Preserve current public `load_program` and `check_program` APIs as thin wrappers.
+- [x] Commit this stage.
 
 Acceptance:
 
