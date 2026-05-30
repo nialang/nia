@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_ast::{ExprKind, SwitchArmBody};
-use nia_node_id::NodePosition;
+use nia_node_id::{NodePosition, SyntaxKind};
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 
 #[test]
@@ -76,6 +76,46 @@ fn parse_errors_from_syntax_carry_red_token_node_keys() {
     assert!(matches!(
         &key.position,
         NodePosition::ChildPath(path) if !path.steps().is_empty()
+    ));
+}
+
+#[test]
+fn parse_module_syntax_records_ast_origins_as_red_child_path_ranges() {
+    let version = SourceVersion {
+        id: SourceId(10),
+        revision: SourceRevision(4),
+    };
+    let syntax = nia_syntax::parse_source(
+        r#"
+fn main(a: i32) i32 {
+    var x = a;
+    x
+}
+"#,
+        Some(version),
+    );
+    let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(!origins.is_empty());
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let expr = function
+        .body
+        .as_ref()
+        .and_then(|body| body.tail.as_ref())
+        .expect("tail expression");
+    let key = origins
+        .get(SyntaxKind::Expr, expr.span)
+        .expect("tail expr origin");
+
+    assert_eq!(key.source_version(), version);
+    assert_eq!(key.kind, SyntaxKind::Expr);
+    assert!(matches!(
+        &key.position,
+        NodePosition::ChildPathRange { start, end }
+            if !start.steps().is_empty() && !end.steps().is_empty()
     ));
 }
 

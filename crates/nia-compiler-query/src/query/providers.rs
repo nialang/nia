@@ -329,11 +329,12 @@ pub(super) fn provide_local_resolution(
     let loaded = db.query(LoadedModuleQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
-    nia_local_resolve::resolve_module_locals_with_source(
+    nia_local_resolve::resolve_module_locals_with_origins(
         &loaded.module,
         &defs,
         &values,
         Some(loaded.source_version),
+        &loaded.origins,
     )
 }
 
@@ -498,6 +499,7 @@ pub(super) fn provide_body_check(
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
         nia_body_check::BodyCheckInput {
             source_version: Some(loaded.source_version),
+            origins: &loaded.origins,
             module: &loaded.module,
             defs: &defs,
             values: &values,

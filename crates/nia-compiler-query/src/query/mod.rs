@@ -158,6 +158,7 @@ mod tests {
             source: source.to_string(),
             module,
             parse_errors,
+            origins: nia_node_id::NodeOriginTable::default(),
         }
     }
 

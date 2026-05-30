@@ -148,6 +148,19 @@ impl SyntaxTokenCursor {
         self.nth(offset).map(|token| &token.kind)
     }
 
+    pub fn token_at_or_after(&self, offset: usize) -> Option<&SyntaxToken> {
+        self.tokens
+            .iter()
+            .find(|token| token.kind != TokenKind::Eof && token.span.end > offset)
+    }
+
+    pub fn token_before_or_at(&self, offset: usize) -> Option<&SyntaxToken> {
+        self.tokens
+            .iter()
+            .rev()
+            .find(|token| token.kind != TokenKind::Eof && token.span.start < offset)
+    }
+
     pub fn previous_end(&self) -> usize {
         if self.pos == 0 {
             0
@@ -160,6 +173,10 @@ impl SyntaxTokenCursor {
 impl SyntaxToken {
     pub fn child_path(&self) -> &NodeChildPath {
         &self.path
+    }
+
+    pub fn source_version(&self) -> Option<SourceVersion> {
+        self.version
     }
 
     pub fn node_key(&self) -> Option<NodeKey> {

@@ -17,6 +17,7 @@ use nia_item_signatures::ItemSignatures;
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
+use nia_node_id::NodeOriginTable;
 use nia_parser::ParseError;
 use nia_source::{SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
@@ -42,6 +43,7 @@ pub struct LoadedModule {
     pub source_version: SourceVersion,
     pub source: String,
     pub module: Module,
+    pub origins: NodeOriginTable,
     pub parse_errors: Vec<ParseError>,
 }
 

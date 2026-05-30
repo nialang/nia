@@ -182,6 +182,7 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             source_version: parsed.source.version(),
             source: parsed.source.text,
             module: parsed.module,
+            origins: parsed.origins,
             parse_errors: parsed.parse_errors,
         }
     }
@@ -210,12 +211,13 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             path: self.path.clone(),
             version: self.version,
         });
-        let (module, parse_errors) = nia_parser::parse_module_syntax(&syntax);
+        let (module, parse_errors, origins) = nia_parser::parse_module_syntax_with_origins(&syntax);
         ParsedModule {
             source: source
                 .file
                 .unwrap_or_else(|| db.context().sources.empty_source(&self.path)),
             module,
+            origins,
             parse_errors,
             read_diagnostic: source.diagnostic,
         }
@@ -254,6 +256,7 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
 struct ParsedModule {
     source: SourceFile,
     module: nia_ast::Module,
+    origins: nia_node_id::NodeOriginTable,
     parse_errors: Vec<nia_parser::ParseError>,
     read_diagnostic: Option<Diagnostic>,
 }

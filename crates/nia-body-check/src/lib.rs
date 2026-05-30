@@ -30,7 +30,7 @@ use nia_item_signatures::{
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
-use nia_node_id::{NodeKey, SyntaxKind};
+use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
 use nia_source::SourceVersion;
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
@@ -113,6 +113,7 @@ impl<'a> BodyProgramContext<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckInput<'a> {
     pub source_version: Option<SourceVersion>,
+    pub origins: &'a NodeOriginTable,
     pub module: &'a Module,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
@@ -132,6 +133,7 @@ pub struct BodyCheckInput<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub source_version: Option<SourceVersion>,
+    pub origins: &'a NodeOriginTable,
     pub module: &'a Module,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
@@ -181,6 +183,7 @@ pub fn check_module_bodies(
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: None,
+        origins: &NodeOriginTable::default(),
         module,
         defs,
         values,
@@ -226,6 +229,7 @@ pub fn check_module_bodies_with_program_signatures(
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: input.source_version,
+        origins: input.origins,
         module: input.module,
         defs: input.defs,
         values: input.values,
@@ -252,6 +256,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
 ) -> BodyCheck {
     let mut checker = BodyChecker {
         source_version: input.source_version,
+        origins: input.origins,
         module: input.module,
         defs: input.defs,
         program: input.program,
@@ -321,6 +326,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
 
 struct BodyChecker<'a> {
     source_version: Option<SourceVersion>,
+    origins: &'a NodeOriginTable,
     module: &'a Module,
     defs: &'a DefCollection,
     program: BodyProgramContext<'a>,
@@ -397,8 +403,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn node_key(&self, kind: SyntaxKind, span: Span) -> Option<NodeKey> {
-        self.source_version
-            .map(|version| NodeKey::span(version, kind, span))
+        self.origins.get(kind, span).cloned().or_else(|| {
+            self.source_version
+                .map(|version| NodeKey::span(version, kind, span))
+        })
     }
 
     fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {

@@ -8,7 +8,7 @@ use nia_ast::{
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::LocalId;
-use nia_node_id::{NodeKey, SyntaxKind};
+use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
 use nia_source::SourceVersion;
 use nia_span::Span;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
@@ -93,8 +93,25 @@ pub fn resolve_module_locals_with_source(
     values: &ValueResolution,
     source_version: Option<SourceVersion>,
 ) -> LocalResolution {
+    resolve_module_locals_with_origins(
+        module,
+        defs,
+        values,
+        source_version,
+        &NodeOriginTable::default(),
+    )
+}
+
+pub fn resolve_module_locals_with_origins(
+    module: &Module,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    source_version: Option<SourceVersion>,
+    origins: &NodeOriginTable,
+) -> LocalResolution {
     let mut resolver = LocalResolver {
         source_version,
+        origins,
         defs,
         values,
         locals: LocalMap::default(),
@@ -118,6 +135,7 @@ pub fn resolve_module_locals_with_source(
 
 struct LocalResolver<'a> {
     source_version: Option<SourceVersion>,
+    origins: &'a NodeOriginTable,
     defs: &'a DefCollection,
     values: &'a ValueResolution,
     locals: LocalMap,
@@ -641,8 +659,10 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn node_key(&self, kind: SyntaxKind, span: Span) -> Option<NodeKey> {
-        self.source_version
-            .map(|version| NodeKey::span(version, kind, span))
+        self.origins.get(kind, span).cloned().or_else(|| {
+            self.source_version
+                .map(|version| NodeKey::span(version, kind, span))
+        })
     }
 
     fn lookup(&self, name: &str) -> Option<ScopedLocal> {
@@ -666,7 +686,7 @@ mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_node_id::{NodePosition, SyntaxKind};
-    use nia_parser::parse_module;
+    use nia_parser::{parse_module, parse_module_syntax_with_origins};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
     use nia_value_resolve::resolve_module_values;
 
@@ -727,6 +747,37 @@ fn main(a: i32) i32 {
             key.source_version() == version
                 && key.kind == SyntaxKind::Expr
                 && matches!(key.position, NodePosition::Span(_))
+                && matches!(use_kind, LocalUse::Local(_))
+        }));
+    }
+
+    #[test]
+    fn records_local_facts_by_red_child_path_origins() {
+        let version = SourceVersion {
+            id: SourceId(5),
+            revision: SourceRevision(1),
+        };
+        let syntax = nia_syntax::parse_source(
+            r#"
+fn main(a: i32) i32 {
+    var x = a;
+    x
+}
+"#,
+            Some(version),
+        );
+        let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let values = resolve_module_values(&module, &defs);
+        let locals =
+            resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);
+
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+        assert!(locals.node_uses.iter().any(|(key, use_kind)| {
+            key.source_version() == version
+                && key.kind == SyntaxKind::Expr
+                && matches!(key.position, NodePosition::ChildPathRange { .. })
                 && matches!(use_kind, LocalUse::Local(_))
         }));
     }

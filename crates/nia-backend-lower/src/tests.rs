@@ -10,6 +10,7 @@ use nia_function_ir::{FunctionArrayElements, FunctionExprKind, FunctionOp, Funct
 use nia_function_lower::lower_function_body;
 use nia_item_signatures::collect_item_signatures;
 use nia_local_resolve::resolve_module_locals;
+use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
 use nia_type_lower::lower_module_types_with_id;
 use nia_type_normalize::normalize_module_types;
@@ -100,8 +101,10 @@ fn main() i32 {
             },
         },
     );
+    let origins = NodeOriginTable::default();
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
+        origins: &origins,
         module: &module,
         defs: &defs,
         values: &values,
@@ -364,8 +367,10 @@ fn lower_source(source: &str) -> BackendLowering {
         nia_layout::TargetDataLayout::LP64,
     );
     let extensions = VisibleExtensionMethods::default();
+    let origins = NodeOriginTable::default();
     let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
+        origins: &origins,
         module: &module,
         defs: &defs,
         values: &values,

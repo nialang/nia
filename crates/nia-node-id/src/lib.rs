@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 
@@ -40,6 +42,10 @@ impl NodeChildPath {
 pub enum NodePosition {
     Span(Span),
     ChildPath(NodeChildPath),
+    ChildPathRange {
+        start: NodeChildPath,
+        end: NodeChildPath,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -69,11 +75,48 @@ impl NodeKey {
         }
     }
 
+    pub fn child_path_range(
+        version: SourceVersion,
+        kind: SyntaxKind,
+        start: NodeChildPath,
+        end: NodeChildPath,
+    ) -> Self {
+        Self {
+            source_id: version.id,
+            revision: version.revision,
+            kind,
+            position: NodePosition::ChildPathRange { start, end },
+        }
+    }
+
     pub fn source_version(&self) -> SourceVersion {
         SourceVersion {
             id: self.source_id,
             revision: self.revision,
         }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NodeOriginTable {
+    keys: HashMap<(SyntaxKind, Span), NodeKey>,
+}
+
+impl NodeOriginTable {
+    pub fn insert(&mut self, kind: SyntaxKind, span: Span, key: NodeKey) {
+        self.keys.insert((kind, span), key);
+    }
+
+    pub fn get(&self, kind: SyntaxKind, span: Span) -> Option<&NodeKey> {
+        self.keys.get(&(kind, span))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.keys.len()
     }
 }
 
@@ -105,6 +148,34 @@ mod tests {
         let key = NodeKey::child_path(version, SyntaxKind::Type, path.clone());
 
         assert_eq!(key.position, NodePosition::ChildPath(path));
+    }
+
+    #[test]
+    fn child_path_range_position_can_key_lowered_ast_nodes() {
+        let version = SourceVersion {
+            id: SourceId(1),
+            revision: SourceRevision::INITIAL,
+        };
+        let start = NodeChildPath::from_steps([0, 1]);
+        let end = NodeChildPath::from_steps([0, 3]);
+        let key = NodeKey::child_path_range(version, SyntaxKind::Expr, start.clone(), end.clone());
+
+        assert_eq!(key.position, NodePosition::ChildPathRange { start, end });
+    }
+
+    #[test]
+    fn origin_table_maps_kind_and_span_to_node_key() {
+        let version = SourceVersion {
+            id: SourceId(2),
+            revision: SourceRevision(1),
+        };
+        let span = Span::new(4, 9);
+        let key = NodeKey::span(version, SyntaxKind::Expr, span);
+        let mut origins = NodeOriginTable::default();
+
+        origins.insert(SyntaxKind::Expr, span, key.clone());
+
+        assert_eq!(origins.get(SyntaxKind::Expr, span), Some(&key));
     }
 
     #[test]
