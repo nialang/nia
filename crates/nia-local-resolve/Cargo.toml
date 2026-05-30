@@ -17,6 +17,7 @@ nia-value-resolve.workspace = true
 
 [dev-dependencies]
 nia-parser.workspace = true
+nia-syntax.workspace = true
 
 [lib]
 path = "src/lib.rs"
