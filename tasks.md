@@ -204,15 +204,15 @@ Goal: establish syntax node identity without embedding semantic ids in AST.
 
 Tasks:
 
-- [ ] Define a node identity model based on `SourceId`, `SourceRevision`, syntax
+- [x] Define a node identity model based on `SourceId`, `SourceRevision`, syntax
       kind, span, and later green-tree child path.
-- [ ] Add a lightweight node key type if needed by semantic tables.
-- [ ] Record semantic facts in side tables keyed by node identity or existing
+- [x] Add a lightweight node key type if needed by semantic tables.
+- [x] Record semantic facts in side tables keyed by node identity or existing
       item/local ids.
-- [ ] Keep AST structs semantic-free.
-- [ ] Audit places where later passes need information currently lost after
+- [x] Keep AST structs semantic-free.
+- [x] Audit places where later passes need information currently lost after
       body-check and add explicit side-table outputs.
-- [ ] Decide how node identity behaves across source edits before red/green
+- [x] Decide how node identity behaves across source edits before red/green
       trees exist.
 
 Completion criteria:
@@ -223,9 +223,9 @@ Completion criteria:
 
 Verification:
 
-- [ ] `cargo test -p nia-body-check -p nia-local-resolve`
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo test -p nia-body-check -p nia-local-resolve`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
 
 ## Phase 7: Red/Green Syntax Tree
 

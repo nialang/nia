@@ -68,7 +68,7 @@ impl<'a> BodyChecker<'a> {
                     && let Some(function_ptr_ty) =
                         self.check_function_ref(inner, matches!(op, UnaryOp::RefConst))
                 {
-                    self.expr_types.insert(expr.span, function_ptr_ty);
+                    self.record_expr_type(expr.span, function_ptr_ty);
                     return function_ptr_ty;
                 }
                 if let ExprKind::Index {
@@ -80,15 +80,15 @@ impl<'a> BodyChecker<'a> {
                         UnaryOp::RefConst => {
                             let slice_ty =
                                 self.check_slice_ref(expr.span, lhs, range, true, expected);
-                            self.expr_types.insert(inner.span, slice_ty);
-                            self.expr_types.insert(expr.span, slice_ty);
+                            self.record_expr_type(inner.span, slice_ty);
+                            self.record_expr_type(expr.span, slice_ty);
                             return slice_ty;
                         }
                         UnaryOp::Ref => {
                             let slice_ty =
                                 self.check_slice_ref(expr.span, lhs, range, false, expected);
-                            self.expr_types.insert(inner.span, slice_ty);
-                            self.expr_types.insert(expr.span, slice_ty);
+                            self.record_expr_type(inner.span, slice_ty);
+                            self.record_expr_type(expr.span, slice_ty);
                             return slice_ty;
                         }
                         _ => {}
@@ -214,7 +214,7 @@ impl<'a> BodyChecker<'a> {
         } else {
             ty
         };
-        self.expr_types.insert(expr.span, ty);
+        self.record_expr_type(expr.span, ty);
         ty
     }
 

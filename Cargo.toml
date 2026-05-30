@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/nia-span",
     "crates/nia-source",
+    "crates/nia-node-id",
     "crates/nia-ids",
     "crates/nia-diagnostic",
     "crates/nia-ice",
@@ -52,6 +53,7 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 nia-span = { path = "crates/nia-span" }
 nia-source = { path = "crates/nia-source" }
+nia-node-id = { path = "crates/nia-node-id" }
 nia-ids = { path = "crates/nia-ids" }
 nia-diagnostic = { path = "crates/nia-diagnostic" }
 nia-ice = { path = "crates/nia-ice" }
