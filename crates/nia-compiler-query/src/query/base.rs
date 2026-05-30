@@ -71,6 +71,10 @@ impl QueryKey<DriverContext> for LoadedModuleQuery {
         "loaded_module"
     }
 
+    fn description(&self) -> String {
+        format!("loaded_module({:?})", self.0)
+    }
+
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
         (db.context().providers.loaded_module)(db, self.0)
     }
@@ -84,6 +88,10 @@ impl QueryKey<DriverContext> for ModuleDefsQuery {
 
     fn name() -> &'static str {
         "module_defs"
+    }
+
+    fn description(&self) -> String {
+        format!("module_defs({:?})", self.0)
     }
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
