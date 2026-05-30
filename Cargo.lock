@@ -172,6 +172,7 @@ dependencies = [
  "nia-imports",
  "nia-lexer",
  "nia-parser",
+ "nia-source",
 ]
 
 [[package]]
@@ -218,6 +219,7 @@ dependencies = [
  "nia-monomorphize",
  "nia-parser",
  "nia-query",
+ "nia-source",
  "nia-span",
  "nia-static-check",
  "nia-ty",
@@ -340,6 +342,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-ids",
  "nia-parser",
+ "nia-source",
  "nia-span",
 ]
 
@@ -403,8 +406,10 @@ dependencies = [
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-imports",
+ "nia-lexer",
  "nia-parser",
  "nia-query",
+ "nia-source",
  "nia-span",
 ]
 
@@ -455,6 +460,10 @@ dependencies = [
 
 [[package]]
 name = "nia-query"
+version = "0.2.1"
+
+[[package]]
+name = "nia-source"
 version = "0.2.1"
 
 [[package]]
