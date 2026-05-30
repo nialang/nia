@@ -2,10 +2,10 @@
 
 Status: active branch plan for `evolve/frontend-incremental-red-green`
 
-This document tracks the frontend architecture work from the current
-source/token/parse query split toward a stable incremental frontend and a
-future red/green syntax tree. It is intentionally kept in the branch root and
-should live for the lifetime of this evolution branch.
+This document tracks the frontend architecture work from the original
+source/token/parse query split to the current stable incremental frontend and
+red/green syntax tree. It is intentionally kept in the branch root and should
+live for the lifetime of this evolution branch.
 
 ## Principles
 
@@ -15,8 +15,7 @@ should live for the lifetime of this evolution branch.
 - Prefer typed query inputs and outputs over program-wide synchronized `Vec`
   state.
 - Do not move semantic ids into AST nodes.
-- Do not introduce a second syntax representation until source identity,
-  query keys, and invalidation are ready for it.
+- Keep `nia-syntax` as the single official lossless source representation.
 - Every check-path regression test that can affect emit must have an emit-path
   companion test.
 - Avoid compatibility shims that become permanent historical baggage.
@@ -74,8 +73,8 @@ Tasks:
 - [x] Ensure query descriptions include both path and source version where
       useful for diagnostics and trace readability.
 - [x] Add dependency trace tests for:
-      - parsed source depends on tokenized source;
-      - tokenized source depends on source input;
+      - parsed source depends on syntax source;
+      - syntax source depends on source input;
       - module imports depend on parsed source.
 
 Completion criteria:
@@ -252,6 +251,8 @@ Completion criteria:
 
 - Nia has one official syntax layer for lossless source representation.
 - Existing AST consumers either receive lowered AST or syntax-backed AST views.
+- Parser lowering consumes syntax tokens directly rather than adapting back
+  through lexer token vectors.
 - Batch check/emit behavior is unchanged.
 - Red/green nodes participate in query dependencies through source revisions.
 

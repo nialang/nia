@@ -2,7 +2,7 @@
 use super::expr::expr_can_terminate_statement_without_semicolon;
 use super::*;
 
-impl<'a> Parser<'a> {
+impl Parser {
     pub(super) fn parse_stmt(&mut self) -> Option<Stmt> {
         let start = self.peek().span.start;
         if self.at(TokenKind::Pub) {

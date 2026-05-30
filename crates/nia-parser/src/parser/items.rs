@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-impl<'a> Parser<'a> {
+impl Parser {
     pub(super) fn parse_item(&mut self) -> Option<Item> {
         let start = self.peek().span.start;
         let pub_span = self.eat(TokenKind::Pub).map(|token| token.span);
@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
             }
             // Two-token lookahead: if `IDENT '::'`, treat IDENT as another host segment.
             // Otherwise it's a single-name selector.
-            let next_kind = self.tokens.get(self.pos + 1).map(|t| t.kind.clone());
+            let next_kind = self.tokens.nth_kind(1).cloned();
             if matches!(next_kind, Some(TokenKind::ColonColon)) {
                 let segment_token = self.bump();
                 host.push(UsingHostSegment {
@@ -183,14 +183,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_using_group_item(&mut self) -> Option<UsingGroupItem> {
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let mut host = Vec::new();
         while self.at(TokenKind::Ident)
-            && matches!(
-                self.tokens.get(self.pos + 1).map(|token| &token.kind),
-                Some(TokenKind::ColonColon)
-            )
+            && matches!(self.tokens.nth_kind(1), Some(TokenKind::ColonColon))
         {
             let segment_token = self.bump();
             host.push(UsingHostSegment {
@@ -222,7 +219,7 @@ impl<'a> Parser<'a> {
                 selector: Box::new(selector),
             });
         }
-        self.pos = checkpoint;
+        self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_using_name().map(UsingGroupItem::Name)
     }
@@ -466,7 +463,7 @@ impl<'a> Parser<'a> {
 
     fn parse_param(&mut self) -> Option<Param> {
         let start = self.peek().span.start;
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         if self.eat(TokenKind::Amp).is_some() {
             let is_const_receiver = self.eat(TokenKind::Const).is_some();
             let receiver = if is_const_receiver {
@@ -483,7 +480,7 @@ impl<'a> Parser<'a> {
                     span: Span::new(start, self.previous_end()),
                 });
             }
-            self.pos = checkpoint;
+            self.tokens.rewind(checkpoint);
             let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
             return Some(Param {
                 receiver: None,
