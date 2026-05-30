@@ -63,17 +63,17 @@ revision instead of raw paths.
 
 Tasks:
 
-- [ ] Introduce query key structs for source-versioned inputs, such as
+- [x] Introduce query key structs for source-versioned inputs, such as
       `SourceVersion { id: SourceId, revision: SourceRevision }`.
-- [ ] Change token query keys from `SourcePath` to source-version keys.
-- [ ] Change parse query keys from `SourcePath` to source-version keys.
-- [ ] Change import query keys to use the parsed source version while still
+- [x] Change token query keys from `SourcePath` to source-version keys.
+- [x] Change parse query keys from `SourcePath` to source-version keys.
+- [x] Change import query keys to use the parsed source version while still
       returning path/module import edges.
-- [ ] Keep path-based root loading as a convenience API that resolves to source
+- [x] Keep path-based root loading as a convenience API that resolves to source
       ids before querying token/parse/import layers.
-- [ ] Ensure query descriptions include both path and source version where
+- [x] Ensure query descriptions include both path and source version where
       useful for diagnostics and trace readability.
-- [ ] Add dependency trace tests for:
+- [x] Add dependency trace tests for:
       - parsed source depends on tokenized source;
       - tokenized source depends on source input;
       - module imports depend on parsed source.
@@ -86,9 +86,9 @@ Completion criteria:
 
 Verification:
 
-- [ ] `cargo test -p nia-source -p nia-loader-query -p nia-query`
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo test -p nia-source -p nia-loader-query -p nia-query`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
 
 ## Phase 3: Definition And Signature Queries
 

@@ -19,6 +19,12 @@ impl SourceRevision {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SourceVersion {
+    pub id: SourceId,
+    pub revision: SourceRevision,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourcePath(String);
 
@@ -53,6 +59,13 @@ impl SourceFile {
     pub fn with_revision(mut self, revision: SourceRevision) -> Self {
         self.revision = revision;
         self
+    }
+
+    pub fn version(&self) -> SourceVersion {
+        SourceVersion {
+            id: self.id,
+            revision: self.revision,
+        }
     }
 }
 
@@ -105,11 +118,20 @@ impl SourceDatabase {
 
     pub fn source_for_path(&self, path: &SourcePath) -> Option<SourceFile> {
         let id = self.id_for_path(path);
+        self.source_for_id(id)
+    }
+
+    pub fn source_for_id(&self, id: SourceId) -> Option<SourceFile> {
         self.files
             .lock()
             .expect("source database lock poisoned")
             .get(&id)
             .cloned()
+    }
+
+    pub fn source_for_version(&self, version: SourceVersion) -> Option<SourceFile> {
+        self.source_for_id(version.id)
+            .filter(|file| file.revision == version.revision)
     }
 
     pub fn set_source(&self, path: SourcePath, text: impl Into<String>) -> SourceFile {
@@ -156,6 +178,13 @@ mod tests {
         );
 
         assert_eq!(file.revision, SourceRevision::INITIAL);
+        assert_eq!(
+            file.version(),
+            SourceVersion {
+                id: SourceId(7),
+                revision: SourceRevision::INITIAL
+            }
+        );
         assert_eq!(file.path.as_str(), "main.nia");
     }
 
@@ -194,5 +223,17 @@ mod tests {
         assert_eq!(first.revision, SourceRevision::INITIAL);
         assert_eq!(second.revision, SourceRevision(1));
         assert_eq!(second.text, "fn main() i32 { 1 }");
+    }
+
+    #[test]
+    fn source_database_reads_sources_by_version() {
+        let sources = SourceDatabase::new();
+        let path = SourcePath::new("main.nia");
+
+        let first = sources.set_source(path.clone(), "fn main() i32 { 0 }");
+        let second = sources.set_source(path, "fn main() i32 { 1 }");
+
+        assert_eq!(sources.source_for_version(first.version()), None);
+        assert_eq!(sources.source_for_version(second.version()), Some(second));
     }
 }
