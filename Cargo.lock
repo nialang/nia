@@ -406,6 +406,7 @@ dependencies = [
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-imports",
+ "nia-lexer",
  "nia-parser",
  "nia-query",
  "nia-source",
