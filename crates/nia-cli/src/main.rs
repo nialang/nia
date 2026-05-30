@@ -7,8 +7,9 @@ use std::{
 
 use nia_diagnostic::{Diagnostic, render_diagnostic};
 use nia_ids::ModuleId;
-use nia_imports::{ModuleMap, SourcePath};
+use nia_imports::ModuleMap;
 use nia_parser::ParseError;
+use nia_source::SourcePath;
 
 mod help;
 

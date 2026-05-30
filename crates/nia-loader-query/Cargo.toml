@@ -12,6 +12,7 @@ nia-diagnostic.workspace = true
 nia-imports.workspace = true
 nia-parser.workspace = true
 nia-query.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 
 [lib]
