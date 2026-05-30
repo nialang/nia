@@ -105,3 +105,22 @@ impl QueryKey<DriverContext> for BodyCheckQuery {
         (db.context().providers.body_check)(db, self.0)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct FunctionBodiesQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for FunctionBodiesQuery {
+    type Value = HashMap<GlobalDefId, nia_function_ir::FunctionBody>;
+
+    fn name() -> &'static str {
+        "function_bodies"
+    }
+
+    fn description(&self) -> String {
+        format!("function_bodies({:?})", self.0)
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.function_bodies)(db, self.0)
+    }
+}

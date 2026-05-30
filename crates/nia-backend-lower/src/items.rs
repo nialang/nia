@@ -130,18 +130,11 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendFunction> {
         let def_id = self.def_id_for_span_any_function(span)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
-        let body = self
+        let function_body = self
             .input
-            .body_check
-            .ir
             .function_bodies
             .get(&self.global_def_id(def_id))
             .cloned();
-        if let Some(body) = &body {
-            self.function_bodies
-                .insert(self.global_def_id(def_id), body.clone());
-        }
-        let function_body = body.as_ref().map(nia_function_lower::lower_function_body);
         Some(BackendFunction {
             def_id: self.global_def_id(def_id),
             name: function.name.clone(),

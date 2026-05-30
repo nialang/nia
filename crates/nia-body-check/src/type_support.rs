@@ -43,11 +43,11 @@ impl<'a> BodyChecker<'a> {
         context: &str,
     ) {
         if let Some(coerced) = self.coerce_c_string_to_pointer(expr, expected, actual) {
-            self.expr_types.insert(expr.span, coerced);
+            self.record_expr_type(expr.span, coerced);
             return;
         }
         if let Some(coerced) = self.coerce_array_to_slice(expr, expected, actual) {
-            self.expr_types.insert(expr.span, coerced);
+            self.record_expr_type(expr.span, coerced);
             return;
         }
         if !has_numeric_literal_suffix(expr)
@@ -113,7 +113,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_assignable(expr, "array-to-slice source");
             }
         }
-        self.array_to_slice_coercions.insert(
+        self.record_array_to_slice_coercion(
             expr.span,
             ArrayToSliceCoercion {
                 array_ty: actual,
@@ -155,7 +155,7 @@ impl<'a> BodyChecker<'a> {
         {
             return None;
         }
-        self.c_string_pointer_coercions.insert(
+        self.record_c_string_pointer_coercion(
             expr.span,
             CStringPointerCoercion {
                 array_ty: actual,
@@ -167,13 +167,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
-        self.expr_types.insert(expr.span, ty);
+        self.record_expr_type(expr.span, ty);
         if let ExprKind::Unary {
             op: UnaryOp::Neg,
             expr: inner,
         } = &expr.kind
         {
-            self.expr_types.insert(inner.span, ty);
+            self.record_expr_type(inner.span, ty);
         }
     }
 

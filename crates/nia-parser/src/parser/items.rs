@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
-impl<'a> Parser<'a> {
+impl Parser {
     pub(super) fn parse_item(&mut self) -> Option<Item> {
         let start = self.peek().span.start;
         let pub_span = self.eat(TokenKind::Pub).map(|token| token.span);
@@ -57,11 +57,7 @@ impl<'a> Parser<'a> {
         };
 
         let end = self.previous_end();
-        Some(Item {
-            span: Span::new(start, end),
-            vis,
-            kind,
-        })
+        Some(self.make_item(Span::new(start, end), vis, kind))
     }
 
     fn parse_import(&mut self) -> Option<ImportItem> {
@@ -141,7 +137,7 @@ impl<'a> Parser<'a> {
             }
             // Two-token lookahead: if `IDENT '::'`, treat IDENT as another host segment.
             // Otherwise it's a single-name selector.
-            let next_kind = self.tokens.get(self.pos + 1).map(|t| t.kind.clone());
+            let next_kind = self.tokens.nth_kind(1).cloned();
             if matches!(next_kind, Some(TokenKind::ColonColon)) {
                 let segment_token = self.bump();
                 host.push(UsingHostSegment {
@@ -183,14 +179,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_using_group_item(&mut self) -> Option<UsingGroupItem> {
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
         let mut host = Vec::new();
         while self.at(TokenKind::Ident)
-            && matches!(
-                self.tokens.get(self.pos + 1).map(|token| &token.kind),
-                Some(TokenKind::ColonColon)
-            )
+            && matches!(self.tokens.nth_kind(1), Some(TokenKind::ColonColon))
         {
             let segment_token = self.bump();
             host.push(UsingHostSegment {
@@ -222,7 +215,7 @@ impl<'a> Parser<'a> {
                 selector: Box::new(selector),
             });
         }
-        self.pos = checkpoint;
+        self.tokens.rewind(checkpoint);
         self.errors.truncate(errors_len);
         self.parse_using_name().map(UsingGroupItem::Name)
     }
@@ -466,7 +459,7 @@ impl<'a> Parser<'a> {
 
     fn parse_param(&mut self) -> Option<Param> {
         let start = self.peek().span.start;
-        let checkpoint = self.pos;
+        let checkpoint = self.tokens.checkpoint();
         if self.eat(TokenKind::Amp).is_some() {
             let is_const_receiver = self.eat(TokenKind::Const).is_some();
             let receiver = if is_const_receiver {
@@ -476,39 +469,29 @@ impl<'a> Parser<'a> {
             };
             if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "self" {
                 self.bump();
-                return Some(Param {
-                    receiver: Some(receiver),
-                    name: Some("self".to_string()),
-                    ty: None,
-                    span: Span::new(start, self.previous_end()),
-                });
+                return Some(self.make_param(
+                    Span::new(start, self.previous_end()),
+                    Some(receiver),
+                    Some("self".to_string()),
+                    None,
+                ));
             }
-            self.pos = checkpoint;
+            self.tokens.rewind(checkpoint);
             let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
-            return Some(Param {
-                receiver: None,
-                name: None,
-                span: Span::new(start, ty.span.end),
-                ty: Some(ty),
-            });
+            return Some(self.make_param(Span::new(start, ty.span.end), None, None, Some(ty)));
         }
         let name = self.expect_text(TokenKind::Ident, "expected parameter name")?;
         if name == "self" {
-            return Some(Param {
-                receiver: Some(ReceiverKind::Value),
-                name: Some(name),
-                ty: None,
-                span: Span::new(start, self.previous_end()),
-            });
+            return Some(self.make_param(
+                Span::new(start, self.previous_end()),
+                Some(ReceiverKind::Value),
+                Some(name),
+                None,
+            ));
         }
         self.expect(TokenKind::Colon, "expected `:` after parameter name")?;
         let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RParen])?;
-        Some(Param {
-            receiver: None,
-            name: Some(name),
-            span: Span::new(start, ty.span.end),
-            ty: Some(ty),
-        })
+        Some(self.make_param(Span::new(start, ty.span.end), None, Some(name), Some(ty)))
     }
 
     fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {

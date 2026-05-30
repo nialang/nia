@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::fs;
-
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
     ImportAliasMap, ModuleGraph, ModuleMap, ResolvedImport, add_resolved_imports,
     collect_import_aliases, resolve_module_imports,
 };
-use nia_lexer::Token;
 use nia_query::{QueryDb, QueryKey};
-use nia_source::{SourceFile, SourcePath, SourceTable};
+use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
@@ -20,7 +17,21 @@ pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap
     let db = QueryDb::new(LoaderContext {
         root_path: SourcePath::new(root_path.into()),
         module_map,
-        sources: SourceTable::new(),
+        sources: SourceDatabase::new(),
+    });
+    db.query(LoadedProgramQuery)
+}
+
+#[cfg(test)]
+fn load_program_from_sources(
+    root_path: impl Into<String>,
+    module_map: ModuleMap,
+    sources: SourceDatabase,
+) -> LoadedProgram {
+    let db = QueryDb::new(LoaderContext {
+        root_path: SourcePath::new(root_path.into()),
+        module_map,
+        sources,
     });
     db.query(LoadedProgramQuery)
 }
@@ -33,7 +44,7 @@ fn load_program_trace(
     let db = QueryDb::new(LoaderContext {
         root_path: SourcePath::new(root_path.into()),
         module_map,
-        sources: SourceTable::new(),
+        sources: SourceDatabase::new(),
     });
     let _ = db.query(LoadedProgramQuery);
     db.query_trace()
@@ -42,7 +53,7 @@ fn load_program_trace(
 struct LoaderContext {
     root_path: SourcePath,
     module_map: ModuleMap,
-    sources: SourceTable,
+    sources: SourceDatabase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -89,7 +100,7 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
                 break;
             };
-            let imports = db.query(ModuleImportsQuery(node.path));
+            let imports = db.query(module_imports_query(db, node.path));
             add_resolved_imports(&mut graph, node.id, imports.imports);
             index += 1;
         }
@@ -126,7 +137,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
         let graph = db.query(ModuleGraphQuery);
         let mut diagnostics = Vec::new();
         for node in graph.modules() {
-            let parsed = db.query(ParsedModuleQuery(node.path.clone()));
+            let parsed = db.query(parsed_module_query(db, node.path.clone()));
             diagnostics.extend(module_diagnostics(
                 &node.path,
                 &parsed
@@ -137,7 +148,8 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
             ));
             diagnostics.extend(module_diagnostics(
                 &node.path,
-                &db.query(ModuleImportsQuery(node.path.clone())).diagnostics,
+                &db.query(module_imports_query(db, node.path.clone()))
+                    .diagnostics,
             ));
         }
         diagnostics
@@ -163,19 +175,24 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         let id = graph
             .module_id_for_path(self.0.as_str())
             .unwrap_or_else(|| panic!("missing module id for `{}`", self.0.as_str()));
-        let parsed = db.query(ParsedModuleQuery(self.0.clone()));
+        let parsed = db.query(parsed_module_query(db, self.0.clone()));
         LoadedModule {
             id,
             path: self.0.clone(),
+            source_version: parsed.source.version(),
             source: parsed.source.text,
             module: parsed.module,
+            origins: parsed.origins,
             parse_errors: parsed.parse_errors,
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ParsedModuleQuery(SourcePath);
+struct ParsedModuleQuery {
+    path: SourcePath,
+    version: SourceVersion,
+}
 
 impl QueryKey<LoaderContext> for ParsedModuleQuery {
     type Value = ParsedModule;
@@ -185,27 +202,22 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
     }
 
     fn description(&self) -> String {
-        format!("parsed_module({})", self.0.as_str())
+        format!("parsed_module({})@{:?}", self.path.as_str(), self.version)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.query(SourceTextQuery(self.0.clone()));
-        let tokens = db.query(TokenizedModuleQuery(self.0.clone()));
-        let text = source
-            .file
-            .as_ref()
-            .map(|file| file.text.as_str())
-            .unwrap_or("");
-        let (module, parse_errors) = nia_parser::parse_module_tokens(text, tokens);
+        let source = db.query(SourceTextQuery(self.path.clone()));
+        let syntax = db.query(SyntaxModuleQuery {
+            path: self.path.clone(),
+            version: self.version,
+        });
+        let (module, parse_errors, origins) = nia_parser::parse_module_syntax_with_origins(&syntax);
         ParsedModule {
-            source: source.file.unwrap_or_else(|| {
-                SourceFile::new(
-                    db.context().sources.id_for_path(&self.0),
-                    self.0.clone(),
-                    String::new(),
-                )
-            }),
+            source: source
+                .file
+                .unwrap_or_else(|| db.context().sources.empty_source(&self.path)),
             module,
+            origins,
             parse_errors,
             read_diagnostic: source.diagnostic,
         }
@@ -213,26 +225,30 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct TokenizedModuleQuery(SourcePath);
+struct SyntaxModuleQuery {
+    path: SourcePath,
+    version: SourceVersion,
+}
 
-impl QueryKey<LoaderContext> for TokenizedModuleQuery {
-    type Value = Vec<Token>;
+impl QueryKey<LoaderContext> for SyntaxModuleQuery {
+    type Value = nia_syntax::SyntaxTree;
 
     fn name() -> &'static str {
-        "tokenized_module"
+        "syntax_module"
     }
 
     fn description(&self) -> String {
-        format!("tokenized_module({})", self.0.as_str())
+        format!("syntax_module({})@{:?}", self.path.as_str(), self.version)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let source = db.query(SourceTextQuery(self.0.clone()));
+        let source = db.query(SourceTextQuery(self.path.clone()));
         source
             .file
             .as_ref()
-            .map(|file| nia_lexer::tokenize(&file.text))
-            .unwrap_or_else(|| nia_lexer::tokenize(""))
+            .filter(|file| file.version() == self.version)
+            .map(|file| nia_syntax::parse_source(&file.text, Some(file.version())))
+            .unwrap_or_else(|| nia_syntax::parse_source("", Some(self.version)))
     }
 }
 
@@ -240,6 +256,7 @@ impl QueryKey<LoaderContext> for TokenizedModuleQuery {
 struct ParsedModule {
     source: SourceFile,
     module: nia_ast::Module,
+    origins: nia_node_id::NodeOriginTable,
     parse_errors: Vec<nia_parser::ParseError>,
     read_diagnostic: Option<Diagnostic>,
 }
@@ -259,13 +276,9 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        match fs::read_to_string(self.0.as_str()) {
-            Ok(text) => SourceText {
-                file: Some(SourceFile::new(
-                    db.context().sources.id_for_path(&self.0),
-                    self.0.clone(),
-                    text,
-                )),
+        match db.context().sources.read_source(&self.0) {
+            Ok(file) => SourceText {
+                file: Some(file),
                 diagnostic: None,
             },
             Err(err) => SourceText {
@@ -286,7 +299,10 @@ struct SourceText {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ModuleImportsQuery(SourcePath);
+struct ModuleImportsQuery {
+    path: SourcePath,
+    version: SourceVersion,
+}
 
 impl QueryKey<LoaderContext> for ModuleImportsQuery {
     type Value = ModuleImports;
@@ -296,16 +312,19 @@ impl QueryKey<LoaderContext> for ModuleImportsQuery {
     }
 
     fn description(&self) -> String {
-        format!("module_imports({})", self.0.as_str())
+        format!("module_imports({})@{:?}", self.path.as_str(), self.version)
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        let parsed = db.query(ParsedModuleQuery(self.0.clone()));
+        let parsed = db.query(ParsedModuleQuery {
+            path: self.path.clone(),
+            version: self.version,
+        });
         let mut diagnostics = parsed.read_diagnostic.into_iter().collect::<Vec<_>>();
         let imports = if diagnostics.is_empty() && parsed.parse_errors.is_empty() {
             resolve_module_imports(
                 &mut diagnostics,
-                &self.0,
+                &self.path,
                 &parsed.module,
                 &db.context().module_map,
             )
@@ -323,6 +342,26 @@ impl QueryKey<LoaderContext> for ModuleImportsQuery {
 struct ModuleImports {
     imports: Vec<ResolvedImport>,
     diagnostics: Vec<Diagnostic>,
+}
+
+fn parsed_module_query(db: &QueryDb<LoaderContext>, path: SourcePath) -> ParsedModuleQuery {
+    let source = db.query(SourceTextQuery(path.clone()));
+    let version = source
+        .file
+        .as_ref()
+        .map(SourceFile::version)
+        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
+    ParsedModuleQuery { path, version }
+}
+
+fn module_imports_query(db: &QueryDb<LoaderContext>, path: SourcePath) -> ModuleImportsQuery {
+    let source = db.query(SourceTextQuery(path.clone()));
+    let version = source
+        .file
+        .as_ref()
+        .map(SourceFile::version)
+        .unwrap_or_else(|| db.context().sources.empty_source(&path).version());
+    ModuleImportsQuery { path, version }
 }
 
 fn module_diagnostics(path: &SourcePath, diagnostics: &[Diagnostic]) -> Vec<ProgramDiagnostic> {
@@ -396,6 +435,20 @@ mod tests {
     }
 
     #[test]
+    fn query_loader_accepts_in_memory_sources() {
+        let sources = SourceDatabase::new();
+        sources.set_source(SourcePath::new("main.nia"), "import .defs;");
+        sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+
+        let program = load_program_from_sources("main.nia", ModuleMap::default(), sources);
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.modules.len(), 2);
+        assert_eq!(program.modules[0].source, "import .defs;");
+        assert_eq!(program.modules[1].source, "pub fn value() i32 { 1 }");
+    }
+
+    #[test]
     fn query_trace_records_source_frontend_dependencies() {
         let root = temp_dir("query_trace_records_source_frontend_dependencies");
         let main_path = root.join("main.nia");
@@ -405,13 +458,104 @@ mod tests {
         let trace = load_program_trace(main_path.clone(), ModuleMap::default());
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.description == format!("parsed_module({main_path})")
-                && dependency.to.description == format!("tokenized_module({main_path})")
+            dependency
+                .from
+                .description
+                .starts_with(&format!("parsed_module({main_path})@"))
+                && dependency
+                    .to
+                    .description
+                    .starts_with(&format!("syntax_module({main_path})@"))
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.description == format!("tokenized_module({main_path})")
+            dependency
+                .from
+                .description
+                .starts_with(&format!("syntax_module({main_path})@"))
                 && dependency.to.description == format!("source_text({main_path})")
         }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency
+                .from
+                .description
+                .starts_with(&format!("module_imports({main_path})@"))
+                && dependency
+                    .to
+                    .description
+                    .starts_with(&format!("parsed_module({main_path})@"))
+        }));
+    }
+
+    #[test]
+    fn invalidates_source_dependents_after_in_memory_text_change() {
+        let sources = SourceDatabase::new();
+        let main = SourcePath::new("main.nia");
+        sources.set_source(main.clone(), "fn main() i32 { 0 }");
+        let db = QueryDb::new(LoaderContext {
+            root_path: main.clone(),
+            module_map: ModuleMap::default(),
+            sources: sources.clone(),
+        });
+
+        let first = db.query(LoadedProgramQuery);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert_eq!(first.modules[0].source, "fn main() i32 { 0 }");
+
+        sources.set_source(main.clone(), "fn main() i32 { 1 }");
+        let invalidation = db.invalidate(SourceTextQuery(main.clone()));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.description.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            invalidated.contains(&"source_text(main.nia)"),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated
+                .iter()
+                .any(|description| description.starts_with("parsed_module(main.nia)@")),
+            "{invalidated:?}"
+        );
+        assert!(
+            invalidated.contains(&"loaded_program::LoadedProgramQuery"),
+            "{invalidated:?}"
+        );
+
+        let second = db.query(LoadedProgramQuery);
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(second.modules[0].source, "fn main() i32 { 1 }");
+    }
+
+    #[test]
+    fn invalidates_import_graph_after_import_text_change() {
+        let sources = SourceDatabase::new();
+        let main = SourcePath::new("main.nia");
+        sources.set_source(main.clone(), "");
+        sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+        let db = QueryDb::new(LoaderContext {
+            root_path: main.clone(),
+            module_map: ModuleMap::default(),
+            sources: sources.clone(),
+        });
+
+        let first = db.query(LoadedProgramQuery);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert_eq!(first.modules.len(), 1);
+
+        sources.set_source(main.clone(), "import .defs;");
+        db.invalidate(SourceTextQuery(main));
+
+        let second = db.query(LoadedProgramQuery);
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert_eq!(second.modules.len(), 2);
+        assert!(
+            second
+                .modules
+                .iter()
+                .any(|module| module.path.as_str() == "defs.nia")
+        );
     }
 
     fn temp_dir(name: &str) -> PathBuf {

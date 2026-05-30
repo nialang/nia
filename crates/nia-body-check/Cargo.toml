@@ -16,6 +16,8 @@ nia-ids.workspace = true
 nia-item-signatures.workspace = true
 nia-layout.workspace = true
 nia-local-resolve.workspace = true
+nia-node-id.workspace = true
+nia-source.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-ty.workspace = true
@@ -25,6 +27,7 @@ nia-value-resolve.workspace = true
 
 [dev-dependencies]
 nia-parser.workspace = true
+nia-syntax.workspace = true
 nia-type-resolve.workspace = true
 
 [lib]

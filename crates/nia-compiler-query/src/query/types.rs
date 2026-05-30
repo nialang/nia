@@ -27,6 +27,10 @@ impl QueryKey<DriverContext> for TypeLoweringQuery {
         "type_lowering"
     }
 
+    fn description(&self) -> String {
+        format!("type_lowering({:?})", self.0)
+    }
+
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
         (db.context().providers.type_lowering)(db, self.0)
     }
@@ -42,38 +46,12 @@ impl QueryKey<DriverContext> for ItemSignaturesQuery {
         "item_signatures"
     }
 
+    fn description(&self) -> String {
+        format!("item_signatures({:?})", self.0)
+    }
+
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
         (db.context().providers.item_signatures)(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ItemSignaturesByModuleQuery;
-
-impl QueryKey<DriverContext> for ItemSignaturesByModuleQuery {
-    type Value = Vec<ItemSignatures>;
-
-    fn name() -> &'static str {
-        "item_signatures_by_module"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.item_signatures_by_module)(db)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct TypeLoweringsByModuleQuery;
-
-impl QueryKey<DriverContext> for TypeLoweringsByModuleQuery {
-    type Value = Vec<TypeLowering>;
-
-    fn name() -> &'static str {
-        "type_lowerings_by_module"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.type_lowerings_by_module)(db)
     }
 }
 
@@ -89,21 +67,6 @@ impl QueryKey<DriverContext> for TypeNormalizationQuery {
 
     fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
         (db.context().providers.type_normalization)(db, self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct TypeNormalizationsByModuleQuery;
-
-impl QueryKey<DriverContext> for TypeNormalizationsByModuleQuery {
-    type Value = Vec<TypeNormalization>;
-
-    fn name() -> &'static str {
-        "type_normalizations_by_module"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.type_normalizations_by_module)(db)
     }
 }
 

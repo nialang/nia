@@ -26,7 +26,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             {
                 self.emit_function_pointer(span, inner)
             }
-            UnaryOp::Ref | UnaryOp::RefConst => Ok(self.emit_addr_of(inner)?.into()),
+            UnaryOp::Ref | UnaryOp::RefConst => {
+                Err(self.error(span, "address-of place must be lowered to function IR"))
+            }
             UnaryOp::Deref => {
                 let ptr = self.emit_expr(inner)?.into_pointer_value()?;
                 let ty = self.module.llvm_basic_type(ty, span)?;

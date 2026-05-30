@@ -17,6 +17,19 @@ use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
+pub(crate) struct ModuleSignatureInput<'a> {
+    pub(crate) module_id: nia_ids::ModuleId,
+    pub(crate) lowering: &'a TypeLowering,
+    pub(crate) signatures: &'a ItemSignatures,
+}
+
+pub(crate) struct ExtensionModuleInput<'a> {
+    pub(crate) module: &'a LoadedModule,
+    pub(crate) defs: &'a DefCollection,
+    pub(crate) lowering: &'a TypeLowering,
+    pub(crate) normalization: &'a TypeNormalization,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct VisibleExtensionsForModule {
     pub(crate) methods: VisibleExtensionMethods,
@@ -24,21 +37,19 @@ pub(crate) struct VisibleExtensionsForModule {
 }
 
 pub(crate) fn collect_program_functions(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramFunctionSignature> {
     let mut functions = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.functions {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.functions {
             functions.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramFunctionSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -47,21 +58,19 @@ pub(crate) fn collect_program_functions(
 }
 
 pub(crate) fn collect_program_globals(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramGlobalSignature> {
     let mut globals = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.globals {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.globals {
             globals.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramGlobalSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -70,21 +79,19 @@ pub(crate) fn collect_program_globals(
 }
 
 pub(crate) fn collect_program_comptimes(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramComptimeSignature> {
     let mut comptimes = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.comptimes {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.comptimes {
             comptimes.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramComptimeSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -93,21 +100,19 @@ pub(crate) fn collect_program_comptimes(
 }
 
 pub(crate) fn collect_program_structs(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramStructSignature> {
     let mut structs = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.structs {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.structs {
             structs.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramStructSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -116,21 +121,19 @@ pub(crate) fn collect_program_structs(
 }
 
 pub(crate) fn collect_program_unions(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramUnionSignature> {
     let mut unions = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.unions {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.unions {
             unions.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramUnionSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -139,21 +142,19 @@ pub(crate) fn collect_program_unions(
 }
 
 pub(crate) fn collect_program_enums(
-    modules: &[LoadedModule],
-    lowerings: &[TypeLowering],
-    signatures: &[ItemSignatures],
+    modules: &[ModuleSignatureInput<'_>],
 ) -> HashMap<GlobalDefId, ProgramEnumSignature> {
     let mut enums = HashMap::new();
-    for ((module, lowering), signatures) in modules.iter().zip(lowerings).zip(signatures) {
-        for (def_id, signature) in &signatures.enums {
+    for module in modules {
+        for (def_id, signature) in &module.signatures.enums {
             enums.insert(
                 GlobalDefId {
-                    module_id: module.id,
+                    module_id: module.module_id,
                     def_id: *def_id,
                 },
                 ProgramEnumSignature {
                     signature: signature.clone(),
-                    interner: lowering.interner.clone(),
+                    interner: module.lowering.interner.clone(),
                 },
             );
         }
@@ -162,32 +163,25 @@ pub(crate) fn collect_program_enums(
 }
 
 pub(crate) fn collect_extension_methods(
-    modules: &[LoadedModule],
-    defs_by_module: &[DefCollection],
-    lowerings: &[TypeLowering],
-    normalizations: &[TypeNormalization],
+    modules: &[ExtensionModuleInput<'_>],
 ) -> (ExtensionMethods, Vec<Diagnostic>) {
     let mut extensions = ExtensionMethods::default();
     let mut diagnostics = Vec::new();
-    for (((module, defs), lowering), normalization) in modules
-        .iter()
-        .zip(defs_by_module)
-        .zip(lowerings)
-        .zip(normalizations)
-    {
-        for item in &module.module.items {
+    for module in modules {
+        for item in &module.module.module.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
             };
-            let Some(target_ty) = lowering.type_uses.get(&extend.target.span).copied() else {
+            let Some(target_ty) = module.lowering.type_uses.get(&extend.target.span).copied()
+            else {
                 diagnostics.push(Diagnostic::error(
                     extend.target.span,
                     "extend target must resolve to a nominal type",
                 ));
                 continue;
             };
-            let target_ty = normalization.normalize(target_ty);
-            if !is_extendable_target(&lowering.interner, target_ty) {
+            let target_ty = module.normalization.normalize(target_ty);
+            if !is_extendable_target(&module.lowering.interner, target_ty) {
                 diagnostics.push(Diagnostic::error(
                     extend.target.span,
                     "extend target must be an extendable value type",
@@ -195,14 +189,14 @@ pub(crate) fn collect_extension_methods(
                 continue;
             }
             for method in &extend.methods {
-                let Some(method_id) = defs.def_spans.get(method.function.span) else {
+                let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
                     continue;
                 };
                 extensions.insert(
-                    module.id,
+                    module.module.id,
                     ExtensionMethod {
                         def_id: GlobalDefId {
-                            module_id: module.id,
+                            module_id: module.module.id,
                             def_id: method_id,
                         },
                         target_ty,
@@ -234,17 +228,12 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
 pub(crate) fn visible_extensions_for_module(
     module_id: nia_ids::ModuleId,
     imports: &nia_imports::ImportAliasMap,
-    defs_by_module: &[DefCollection],
-    normalizations: &[TypeNormalization],
+    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
+    normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
     extensions: &ExtensionMethods,
 ) -> VisibleExtensionsForModule {
     let imported_modules = transitive_import_closure(module_id, imports);
-    let Some(current_normalization) = normalizations
-        .iter()
-        .zip(defs_by_module)
-        .find(|(_, defs)| defs.module_id == module_id)
-        .map(|(normalization, _)| normalization)
-    else {
+    let Some(current_normalization) = normalizations.get(&module_id) else {
         return VisibleExtensionsForModule {
             methods: VisibleExtensionMethods::default(),
             interner: TyInterner::default(),
@@ -253,25 +242,19 @@ pub(crate) fn visible_extensions_for_module(
     let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
     for method in extensions.visible_methods(module_id, imported_modules) {
-        let Some(method_defs) = defs_by_module
-            .iter()
-            .find(|defs| defs.module_id == method.def_id.module_id)
-        else {
+        let Some(method_defs) = defs_by_module.get(&method.def_id.module_id) else {
             continue;
         };
         let Some(method_def) = method_defs.defs.get(method.def_id.def_id) else {
             continue;
         };
-        let Some(method_module_index) = defs_by_module
-            .iter()
-            .position(|defs| defs.module_id == method.def_id.module_id)
-        else {
+        let Some(method_normalization) = normalizations.get(&method.def_id.module_id) else {
             continue;
         };
-        let target_ty = normalizations[method_module_index].normalize(method.target_ty);
+        let target_ty = method_normalization.normalize(method.target_ty);
         let target_ty = import_type_into(
             &mut target_interner,
-            &normalizations[method_module_index].interner,
+            &method_normalization.interner,
             target_ty,
         );
         visible.insert(

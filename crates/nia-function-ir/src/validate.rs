@@ -217,6 +217,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Unary { expr: inner, .. }
             | FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. } => self.validate_expr(inner)?,
+            FunctionExprKind::AddrOf(place) => self.validate_place(place)?,
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {

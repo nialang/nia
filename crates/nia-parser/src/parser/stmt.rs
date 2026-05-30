@@ -2,7 +2,7 @@
 use super::expr::expr_can_terminate_statement_without_semicolon;
 use super::*;
 
-impl<'a> Parser<'a> {
+impl Parser {
     pub(super) fn parse_stmt(&mut self) -> Option<Stmt> {
         let start = self.peek().span.start;
         if self.at(TokenKind::Pub) {
@@ -17,17 +17,17 @@ impl<'a> Parser<'a> {
             self.bump();
             let using = self.parse_using_after_keyword()?;
             self.expect(TokenKind::Semicolon, "expected `;` after using")?;
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Using(using),
-            });
+            return Some(self.make_stmt(
+                Span::new(start, self.previous_end()),
+                StmtKind::Using(using),
+            ));
         }
         if self.at(TokenKind::Comptime) || self.at(TokenKind::Var) || self.at(TokenKind::Const) {
             let binding = self.parse_binding_stmt()?;
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Binding(binding),
-            });
+            return Some(self.make_stmt(
+                Span::new(start, self.previous_end()),
+                StmtKind::Binding(binding),
+            ));
         }
         if self.eat(TokenKind::Return).is_some() {
             let value = if self.at(TokenKind::Semicolon) {
@@ -36,39 +36,32 @@ impl<'a> Parser<'a> {
                 Some(self.parse_expr()?)
             };
             self.expect(TokenKind::Semicolon, "expected `;` after return")?;
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Return(value),
-            });
+            return Some(self.make_stmt(
+                Span::new(start, self.previous_end()),
+                StmtKind::Return(value),
+            ));
         }
         if self.eat(TokenKind::Break).is_some() {
             self.expect(TokenKind::Semicolon, "expected `;` after break")?;
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Break,
-            });
+            return Some(self.make_stmt(Span::new(start, self.previous_end()), StmtKind::Break));
         }
         if self.eat(TokenKind::Continue).is_some() {
             self.expect(TokenKind::Semicolon, "expected `;` after continue")?;
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Continue,
-            });
+            return Some(self.make_stmt(Span::new(start, self.previous_end()), StmtKind::Continue));
         }
         if self.eat(TokenKind::Defer).is_some() {
             let expr = self.parse_expr_until_tokens(&[TokenKind::Semicolon, TokenKind::RBrace])?;
             self.expect(TokenKind::Semicolon, "expected `;` after defer")?;
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Defer(expr),
-            });
+            return Some(
+                self.make_stmt(Span::new(start, self.previous_end()), StmtKind::Defer(expr)),
+            );
         }
         if self.at(TokenKind::For) {
             let for_stmt = self.parse_for_stmt()?;
-            return Some(Stmt {
-                span: Span::new(start, for_stmt.body.span.end),
-                kind: StmtKind::For(Box::new(for_stmt)),
-            });
+            return Some(self.make_stmt(
+                Span::new(start, for_stmt.body.span.end),
+                StmtKind::For(Box::new(for_stmt)),
+            ));
         }
         None
     }
@@ -158,10 +151,7 @@ impl<'a> Parser<'a> {
             } else {
                 let cond = self.parse_expr().or_else(|| {
                     let span = self.collect_until(&[TokenKind::LBrace])?;
-                    Some(Expr {
-                        span,
-                        kind: ExprKind::Raw(self.source_text(span)),
-                    })
+                    Some(self.make_expr(span, ExprKind::Raw(self.source_text(span))))
                 })?;
                 if cond.span.start < header_start {
                     self.error_here("invalid for condition");
@@ -177,10 +167,7 @@ impl<'a> Parser<'a> {
         let start = self.peek().span.start;
         let switch = self.parse_switch()?;
         let end = self.previous_end();
-        Some(Expr {
-            span: Span::new(start, end),
-            kind: ExprKind::Switch(Box::new(switch)),
-        })
+        Some(self.make_expr(Span::new(start, end), ExprKind::Switch(Box::new(switch))))
     }
 
     fn parse_switch(&mut self) -> Option<SwitchStmt> {
@@ -231,34 +218,27 @@ impl<'a> Parser<'a> {
             } else {
                 Some(self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?)
             };
-            return Some(Stmt {
-                span: Span::new(
-                    start,
-                    value
-                        .as_ref()
-                        .map_or(self.previous_end(), |expr| expr.span.end),
+            return Some(
+                self.make_stmt(
+                    Span::new(
+                        start,
+                        value
+                            .as_ref()
+                            .map_or(self.previous_end(), |expr| expr.span.end),
+                    ),
+                    StmtKind::Return(value),
                 ),
-                kind: StmtKind::Return(value),
-            });
+            );
         }
         if self.eat(TokenKind::Break).is_some() {
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Break,
-            });
+            return Some(self.make_stmt(Span::new(start, self.previous_end()), StmtKind::Break));
         }
         if self.eat(TokenKind::Continue).is_some() {
-            return Some(Stmt {
-                span: Span::new(start, self.previous_end()),
-                kind: StmtKind::Continue,
-            });
+            return Some(self.make_stmt(Span::new(start, self.previous_end()), StmtKind::Continue));
         }
         if self.eat(TokenKind::Defer).is_some() {
             let expr = self.parse_expr_until(&[TokenKind::Comma, TokenKind::RBrace])?;
-            return Some(Stmt {
-                span: Span::new(start, expr.span.end),
-                kind: StmtKind::Defer(expr),
-            });
+            return Some(self.make_stmt(Span::new(start, expr.span.end), StmtKind::Defer(expr)));
         }
         self.parse_stmt()
     }
@@ -299,10 +279,7 @@ impl<'a> Parser<'a> {
                     self.error_at_end(expr.span, "expected `;` after expression");
                 }
                 let span = expr.span;
-                stmts.push(Stmt {
-                    span,
-                    kind: StmtKind::Expr(expr),
-                });
+                stmts.push(self.make_stmt(span, StmtKind::Expr(expr)));
             } else {
                 tail = Some(Box::new(expr));
                 break;

@@ -8,8 +8,10 @@ use nia_ast::{
     TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
     UsingSelector, Visibility,
 };
-use nia_lexer::{Token, TokenKind, tokenize};
+use nia_lexer::TokenKind;
+use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};
 use nia_span::Span;
+use nia_syntax::{SyntaxToken, SyntaxTokenCursor, SyntaxTree};
 
 mod expr;
 mod items;
@@ -17,52 +19,64 @@ mod stmt;
 mod types;
 
 pub fn parse_module(source: &str) -> (Module, Vec<ParseError>) {
-    Parser::new(source).parse_module()
+    let syntax = nia_syntax::parse_source(source, None);
+    parse_module_syntax(&syntax)
 }
 
-pub fn parse_module_tokens(source: &str, tokens: Vec<Token>) -> (Module, Vec<ParseError>) {
-    Parser::from_tokens(source, tokens).parse_module()
+pub fn parse_module_syntax(syntax: &SyntaxTree) -> (Module, Vec<ParseError>) {
+    let (module, errors, _) = parse_module_syntax_with_origins(syntax);
+    (module, errors)
+}
+
+pub fn parse_module_syntax_with_origins(
+    syntax: &SyntaxTree,
+) -> (Module, Vec<ParseError>, NodeOriginTable) {
+    Parser::from_syntax(syntax).parse_module()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub span: Span,
     pub message: String,
+    pub node_key: Option<NodeKey>,
 }
 
-pub struct Parser<'a> {
-    source: &'a str,
-    tokens: Vec<Token>,
-    pos: usize,
+pub struct Parser {
+    source: String,
+    tokens: SyntaxTokenCursor,
     errors: Vec<ParseError>,
+    origins: NodeOriginTable,
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(source: &'a str) -> Self {
-        let tokens = tokenize(source);
-        Self::from_tokens(source, tokens)
+impl Parser {
+    pub fn new(source: &str) -> Self {
+        let syntax = nia_syntax::parse_source(source, None);
+        Self::from_syntax(&syntax)
     }
 
-    pub fn from_tokens(source: &'a str, tokens: Vec<Token>) -> Self {
+    fn from_syntax(syntax: &SyntaxTree) -> Self {
+        let tokens = SyntaxTokenCursor::new(syntax);
         let errors = tokens
+            .tokens()
             .iter()
             .filter_map(|token| match &token.kind {
                 TokenKind::Error(error) => Some(ParseError {
                     span: token.span,
                     message: format!("lex error: {error:?}"),
+                    node_key: token.node_key(),
                 }),
                 _ => None,
             })
             .collect();
         Self {
-            source,
+            source: syntax.source().to_string(),
             tokens,
-            pos: 0,
             errors,
+            origins: NodeOriginTable::default(),
         }
     }
 
-    pub fn parse_module(mut self) -> (Module, Vec<ParseError>) {
+    pub fn parse_module(mut self) -> (Module, Vec<ParseError>, NodeOriginTable) {
         let mut items = Vec::new();
         while !self.at(TokenKind::Eof) {
             if let Some(item) = self.parse_item() {
@@ -71,13 +85,77 @@ impl<'a> Parser<'a> {
                 self.recover_to_item_boundary();
             }
         }
-        (Module { items }, self.errors)
+        (Module { items }, self.errors, self.origins)
+    }
+
+    fn record_origin(&mut self, kind: NodeSyntaxKind, span: Span) {
+        let start = self.tokens.token_at_or_after(span.start);
+        let end = self.tokens.token_before_or_at(span.end);
+        let (Some(start), Some(end)) = (start, end) else {
+            return;
+        };
+        let Some(version) = start.source_version() else {
+            return;
+        };
+        if end.source_version() != Some(version) {
+            return;
+        }
+        self.origins.insert(
+            kind,
+            span,
+            NodeKey::child_path_range(
+                version,
+                kind,
+                start.child_path().clone(),
+                end.child_path().clone(),
+            ),
+        );
+    }
+
+    fn make_item(&mut self, span: Span, vis: Visibility, kind: ItemKind) -> Item {
+        self.record_origin(NodeSyntaxKind::Item, span);
+        Item { span, vis, kind }
+    }
+
+    fn make_param(
+        &mut self,
+        span: Span,
+        receiver: Option<ReceiverKind>,
+        name: Option<String>,
+        ty: Option<TypeRef>,
+    ) -> Param {
+        self.record_origin(NodeSyntaxKind::Param, span);
+        Param {
+            receiver,
+            name,
+            ty,
+            span,
+        }
+    }
+
+    fn make_type_ref(&mut self, span: Span, kind: TypeKind) -> TypeRef {
+        self.record_origin(NodeSyntaxKind::Type, span);
+        TypeRef {
+            span,
+            text: self.source_text(span),
+            kind,
+        }
+    }
+
+    fn make_expr(&mut self, span: Span, kind: ExprKind) -> Expr {
+        self.record_origin(NodeSyntaxKind::Expr, span);
+        Expr { span, kind }
+    }
+
+    fn make_stmt(&mut self, span: Span, kind: StmtKind) -> Stmt {
+        self.record_origin(NodeSyntaxKind::Stmt, span);
+        Stmt { span, kind }
     }
 
     fn has_top_level_semicolon_before_lbrace(&self) -> bool {
         let mut depth = 0usize;
-        let mut index = self.pos;
-        while let Some(token) = self.tokens.get(index) {
+        let mut index = 0usize;
+        while let Some(token) = self.tokens.nth(index) {
             match token.kind {
                 TokenKind::LBrace if depth == 0 => return false,
                 TokenKind::Semicolon if depth == 0 => return true,
@@ -99,10 +177,7 @@ impl<'a> Parser<'a> {
             return expr;
         }
         let span = self.collect_until(stops)?;
-        Some(Expr {
-            span,
-            kind: ExprKind::Raw(self.source_text(span)),
-        })
+        Some(self.make_expr(span, ExprKind::Raw(self.source_text(span))))
     }
 
     fn collect_until(&mut self, stops: &[TokenKind]) -> Option<Span> {
@@ -158,7 +233,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn eat(&mut self, kind: TokenKind) -> Option<Token> {
+    fn eat(&mut self, kind: TokenKind) -> Option<SyntaxToken> {
         if self.at(kind) {
             Some(self.bump())
         } else {
@@ -167,33 +242,23 @@ impl<'a> Parser<'a> {
     }
 
     fn at(&self, kind: TokenKind) -> bool {
-        self.peek().kind == kind
+        self.tokens.at(kind)
     }
 
-    fn bump(&mut self) -> Token {
-        let token = self.peek().clone();
-        if token.kind != TokenKind::Eof {
-            self.pos += 1;
-        }
-        token
+    fn bump(&mut self) -> SyntaxToken {
+        self.tokens.bump()
     }
 
-    fn peek(&self) -> &Token {
-        &self.tokens[self.pos]
+    fn peek(&self) -> &SyntaxToken {
+        self.tokens.peek()
     }
 
     fn previous_end(&self) -> usize {
-        if self.pos == 0 {
-            0
-        } else {
-            self.tokens[self.pos - 1].span.end
-        }
+        self.tokens.previous_end()
     }
 
-    fn token_text(&self, token: &Token) -> &str {
-        self.source
-            .get(token.span.start..token.span.end)
-            .unwrap_or("")
+    fn token_text<'token>(&self, token: &'token SyntaxToken) -> &'token str {
+        &token.text
     }
 
     fn source_text(&self, span: Span) -> String {
@@ -208,6 +273,7 @@ impl<'a> Parser<'a> {
         self.errors.push(ParseError {
             span: self.peek().span,
             message: message.into(),
+            node_key: self.peek().node_key(),
         });
     }
 
@@ -215,6 +281,7 @@ impl<'a> Parser<'a> {
         self.errors.push(ParseError {
             span,
             message: message.into(),
+            node_key: None,
         });
     }
 

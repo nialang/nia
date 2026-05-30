@@ -3,11 +3,11 @@ use std::collections::HashMap;
 
 use crate::ModuleLowerer;
 use nia_backend_ir::{BackendFunction, BackendParam};
-use nia_body_ir::{
-    PlaceElem, TypedArrayElements, TypedAsmInput, TypedAsmOutput, TypedBinding, TypedBody,
-    TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit,
-    TypedInlineAsm, TypedLocal, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
-    TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+use nia_function_ir::{
+    FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBody,
+    FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit,
+    FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionOp, FunctionPlace,
+    FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::TyKind;
@@ -125,17 +125,17 @@ impl<'a> ModuleLowerer<'a> {
             .collect()
     }
 
-    pub(crate) fn instantiate_body(
+    pub(crate) fn instantiate_function_body(
         &mut self,
-        body: TypedBody,
+        body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedBody {
-        TypedBody {
+    ) -> FunctionBody {
+        FunctionBody {
             span: body.span,
             locals: body
                 .locals
                 .into_iter()
-                .map(|local| TypedLocal {
+                .map(|local| FunctionLocal {
                     id: local.id,
                     name: local.name,
                     kind: local.kind,
@@ -143,53 +143,85 @@ impl<'a> ModuleLowerer<'a> {
                     span: local.span,
                 })
                 .collect(),
-            stmts: body
-                .stmts
+            scopes: body.scopes,
+            blocks: body
+                .blocks
                 .into_iter()
-                .map(|stmt| self.instantiate_stmt(stmt, substitutions))
+                .map(|block| nia_function_ir::FunctionBlock {
+                    id: block.id,
+                    scope: block.scope,
+                    span: block.span,
+                    ops: block
+                        .ops
+                        .into_iter()
+                        .map(|op| self.instantiate_op(op, substitutions))
+                        .collect(),
+                    terminator: self.instantiate_terminator(block.terminator, substitutions),
+                })
                 .collect(),
-            tail: body
-                .tail
-                .map(|tail| Box::new(self.instantiate_expr(*tail, substitutions))),
+            entry: body.entry,
             ty: self.instantiate_ty(body.ty, substitutions),
         }
     }
 
-    fn instantiate_stmt(
+    fn instantiate_defer_body(
         &mut self,
-        stmt: TypedStmt,
+        body: FunctionDeferBody,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedStmt {
-        TypedStmt {
-            span: stmt.span,
-            kind: match stmt.kind {
-                TypedStmtKind::Binding(binding) => {
-                    TypedStmtKind::Binding(self.instantiate_binding(binding, substitutions))
-                }
-                TypedStmtKind::Expr(expr) => {
-                    TypedStmtKind::Expr(self.instantiate_expr(expr, substitutions))
-                }
-                TypedStmtKind::Return(value) => TypedStmtKind::Return(
-                    value.map(|expr| self.instantiate_expr(expr, substitutions)),
-                ),
-                TypedStmtKind::Break => TypedStmtKind::Break,
-                TypedStmtKind::Continue => TypedStmtKind::Continue,
-                TypedStmtKind::Defer(expr) => {
-                    TypedStmtKind::Defer(self.instantiate_expr(expr, substitutions))
-                }
-                TypedStmtKind::For(for_stmt) => {
-                    TypedStmtKind::For(Box::new(self.instantiate_for(*for_stmt, substitutions)))
-                }
+    ) -> FunctionDeferBody {
+        FunctionDeferBody {
+            span: body.span,
+            scopes: body.scopes,
+            blocks: body
+                .blocks
+                .into_iter()
+                .map(|block| nia_function_ir::FunctionBlock {
+                    id: block.id,
+                    scope: block.scope,
+                    span: block.span,
+                    ops: block
+                        .ops
+                        .into_iter()
+                        .map(|op| self.instantiate_op(op, substitutions))
+                        .collect(),
+                    terminator: self.instantiate_terminator(block.terminator, substitutions),
+                })
+                .collect(),
+            entry: body.entry,
+        }
+    }
+
+    fn instantiate_op(
+        &mut self,
+        op: FunctionOp,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> FunctionOp {
+        match op {
+            FunctionOp::Binding(binding) => {
+                FunctionOp::Binding(self.instantiate_binding(binding, substitutions))
+            }
+            FunctionOp::StoreLocal {
+                local_id,
+                value,
+                span,
+            } => FunctionOp::StoreLocal {
+                local_id,
+                value: self.instantiate_expr(value, substitutions),
+                span,
             },
+            FunctionOp::Expr(expr) => FunctionOp::Expr(self.instantiate_expr(expr, substitutions)),
+            FunctionOp::Defer(body) => {
+                FunctionOp::Defer(self.instantiate_defer_body(body, substitutions))
+            }
         }
     }
 
     fn instantiate_binding(
         &mut self,
-        binding: TypedBinding,
+        binding: FunctionBinding,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedBinding {
-        TypedBinding {
+    ) -> FunctionBinding {
+        FunctionBinding {
             local_id: binding.local_id,
             name: binding.name,
             ty: self.instantiate_ty(binding.ty, substitutions),
@@ -200,92 +232,108 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn instantiate_for(
+    fn instantiate_terminator(
         &mut self,
-        for_stmt: TypedFor,
+        terminator: FunctionTerminator,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedFor {
-        TypedFor {
-            header: match for_stmt.header {
-                TypedForHeader::Infinite => TypedForHeader::Infinite,
-                TypedForHeader::Condition(expr) => {
-                    TypedForHeader::Condition(self.instantiate_expr(expr, substitutions))
-                }
-                TypedForHeader::CStyle { init, cond, step } => TypedForHeader::CStyle {
-                    init: init.map(|init| {
-                        Box::new(match *init {
-                            TypedForInit::Binding(binding) => TypedForInit::Binding(
-                                self.instantiate_binding(binding, substitutions),
-                            ),
-                            TypedForInit::Expr(expr) => {
-                                TypedForInit::Expr(self.instantiate_expr(expr, substitutions))
-                            }
-                        })
-                    }),
-                    cond: cond.map(|expr| Box::new(self.instantiate_expr(*expr, substitutions))),
-                    step: step.map(|expr| Box::new(self.instantiate_expr(*expr, substitutions))),
-                },
+    ) -> FunctionTerminator {
+        match terminator {
+            FunctionTerminator::Branch { target, span } => {
+                FunctionTerminator::Branch { target, span }
+            }
+            FunctionTerminator::Next { target, span } => FunctionTerminator::Next { target, span },
+            FunctionTerminator::If {
+                cond,
+                then_target,
+                else_target,
+                span,
+            } => FunctionTerminator::If {
+                cond: self.instantiate_expr(cond, substitutions),
+                then_target,
+                else_target,
+                span,
             },
-            body: self.instantiate_body(for_stmt.body, substitutions),
+            FunctionTerminator::Switch {
+                target,
+                arms,
+                default,
+                fallback,
+                span,
+            } => FunctionTerminator::Switch {
+                target: self.instantiate_expr(target, substitutions),
+                arms: arms
+                    .into_iter()
+                    .map(|arm| nia_function_ir::FunctionSwitchArm {
+                        pattern: self.instantiate_expr(arm.pattern, substitutions),
+                        target: arm.target,
+                    })
+                    .collect(),
+                default,
+                fallback,
+                span,
+            },
+            FunctionTerminator::Loop {
+                header,
+                body,
+                continue_target,
+                break_target,
+                span,
+            } => FunctionTerminator::Loop {
+                header: self.instantiate_for_header(header, substitutions),
+                body,
+                continue_target,
+                break_target,
+                span,
+            },
+            FunctionTerminator::Return { value, span } => FunctionTerminator::Return {
+                value: value.map(|value| self.instantiate_expr(value, substitutions)),
+                span,
+            },
+            FunctionTerminator::Tail { value, span } => FunctionTerminator::Tail {
+                value: value.map(|value| self.instantiate_expr(value, substitutions)),
+                span,
+            },
         }
     }
 
-    fn instantiate_switch(
+    fn instantiate_for_header(
         &mut self,
-        switch: TypedSwitch,
+        header: FunctionForHeader,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedSwitch {
-        TypedSwitch {
-            target: self.instantiate_expr(switch.target, substitutions),
-            arms: switch
-                .arms
-                .into_iter()
-                .map(|arm| TypedSwitchArm {
-                    pattern: match arm.pattern {
-                        TypedSwitchPattern::Default => TypedSwitchPattern::Default,
-                        TypedSwitchPattern::Expr(expr) => {
-                            TypedSwitchPattern::Expr(self.instantiate_expr(expr, substitutions))
-                        }
-                    },
-                    body: match arm.body {
-                        TypedSwitchArmBody::Expr(expr) => {
-                            TypedSwitchArmBody::Expr(self.instantiate_expr(expr, substitutions))
-                        }
-                        TypedSwitchArmBody::Stmt(stmt) => TypedSwitchArmBody::Stmt(Box::new(
-                            self.instantiate_stmt(*stmt, substitutions),
-                        )),
-                        TypedSwitchArmBody::Block(block) => TypedSwitchArmBody::Block(Box::new(
-                            self.instantiate_body(*block, substitutions),
-                        )),
-                    },
-                    span: arm.span,
-                })
-                .collect(),
+    ) -> FunctionForHeader {
+        match header {
+            FunctionForHeader::Infinite => FunctionForHeader::Infinite,
+            FunctionForHeader::Condition(expr) => {
+                FunctionForHeader::Condition(self.instantiate_expr(expr, substitutions))
+            }
+            FunctionForHeader::CStyle { cond } => FunctionForHeader::CStyle {
+                cond: cond.map(|cond| Box::new(self.instantiate_expr(*cond, substitutions))),
+            },
         }
     }
 
     fn instantiate_expr(
         &mut self,
-        expr: TypedExpr,
+        expr: FunctionExpr,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedExpr {
-        TypedExpr {
+    ) -> FunctionExpr {
+        FunctionExpr {
             span: expr.span,
             ty: self.instantiate_ty(expr.ty, substitutions),
             kind: match expr.kind {
-                TypedExprKind::Error => TypedExprKind::Error,
-                TypedExprKind::Integer(text) => TypedExprKind::Integer(text),
-                TypedExprKind::Float(text) => TypedExprKind::Float(text),
-                TypedExprKind::String(scalars) => TypedExprKind::String(scalars),
-                TypedExprKind::ByteString(bytes) => TypedExprKind::ByteString(bytes),
-                TypedExprKind::Char(value) => TypedExprKind::Char(value),
-                TypedExprKind::ByteChar(text) => TypedExprKind::ByteChar(text),
-                TypedExprKind::Bool(value) => TypedExprKind::Bool(value),
-                TypedExprKind::Local(local) => TypedExprKind::Local(local),
-                TypedExprKind::Global(def_id) => TypedExprKind::Global(def_id),
-                TypedExprKind::Function(def_id) => TypedExprKind::Function(def_id),
-                TypedExprKind::FunctionInstance { def_id, args } => {
-                    TypedExprKind::FunctionInstance {
+                FunctionExprKind::Error => FunctionExprKind::Error,
+                FunctionExprKind::Integer(text) => FunctionExprKind::Integer(text),
+                FunctionExprKind::Float(text) => FunctionExprKind::Float(text),
+                FunctionExprKind::String(scalars) => FunctionExprKind::String(scalars),
+                FunctionExprKind::ByteString(bytes) => FunctionExprKind::ByteString(bytes),
+                FunctionExprKind::Char(value) => FunctionExprKind::Char(value),
+                FunctionExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text),
+                FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
+                FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
+                FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
+                FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
+                FunctionExprKind::FunctionInstance { def_id, args } => {
+                    FunctionExprKind::FunctionInstance {
                         def_id,
                         args: args
                             .into_iter()
@@ -293,151 +341,144 @@ impl<'a> ModuleLowerer<'a> {
                             .collect(),
                     }
                 }
-                TypedExprKind::EnumVariant(def_id) => TypedExprKind::EnumVariant(def_id),
-                TypedExprKind::BuiltinValue(value) => TypedExprKind::BuiltinValue(value),
-                TypedExprKind::Len(inner) => {
-                    TypedExprKind::Len(Box::new(self.instantiate_expr(*inner, substitutions)))
+                FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
+                FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value),
+                FunctionExprKind::Len(inner) => {
+                    FunctionExprKind::Len(Box::new(self.instantiate_expr(*inner, substitutions)))
                 }
-                TypedExprKind::Ptr(inner) => {
-                    TypedExprKind::Ptr(Box::new(self.instantiate_expr(*inner, substitutions)))
+                FunctionExprKind::Ptr(inner) => {
+                    FunctionExprKind::Ptr(Box::new(self.instantiate_expr(*inner, substitutions)))
                 }
-                TypedExprKind::InlineAsm(asm) => TypedExprKind::InlineAsm(TypedInlineAsm {
-                    code: asm.code,
-                    inputs: asm
-                        .inputs
-                        .into_iter()
-                        .map(|input| TypedAsmInput {
-                            constraint: input.constraint,
-                            value: self.instantiate_expr(input.value, substitutions),
-                            span: input.span,
-                        })
-                        .collect(),
-                    outputs: asm
-                        .outputs
-                        .into_iter()
-                        .map(|output| TypedAsmOutput {
-                            constraint: output.constraint,
-                            place: self.instantiate_place(output.place, substitutions),
-                            span: output.span,
-                        })
-                        .collect(),
-                    clobbers: asm.clobbers,
-                    options: asm.options,
-                }),
-                TypedExprKind::CStringPointer { array, is_const } => {
-                    TypedExprKind::CStringPointer {
+                FunctionExprKind::InlineAsm(asm) => {
+                    FunctionExprKind::InlineAsm(FunctionInlineAsm {
+                        code: asm.code,
+                        inputs: asm
+                            .inputs
+                            .into_iter()
+                            .map(|input| FunctionAsmInput {
+                                constraint: input.constraint,
+                                value: self.instantiate_expr(input.value, substitutions),
+                                span: input.span,
+                            })
+                            .collect(),
+                        outputs: asm
+                            .outputs
+                            .into_iter()
+                            .map(|output| FunctionAsmOutput {
+                                constraint: output.constraint,
+                                place: self.instantiate_place(output.place, substitutions),
+                                span: output.span,
+                            })
+                            .collect(),
+                        clobbers: asm.clobbers,
+                        options: asm.options,
+                    })
+                }
+                FunctionExprKind::CStringPointer { array, is_const } => {
+                    FunctionExprKind::CStringPointer {
                         array: Box::new(self.instantiate_expr(*array, substitutions)),
                         is_const,
                     }
                 }
-                TypedExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
+                FunctionExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                     elems: self.instantiate_array_elements(elems, substitutions),
                 },
-                TypedExprKind::StructLiteral { def_id, fields } => TypedExprKind::StructLiteral {
-                    def_id,
-                    fields: fields
-                        .into_iter()
-                        .map(|field| TypedFieldInit {
+                FunctionExprKind::StructLiteral { def_id, fields } => {
+                    FunctionExprKind::StructLiteral {
+                        def_id,
+                        fields: fields
+                            .into_iter()
+                            .map(|field| FunctionFieldInit {
+                                field: field.field,
+                                name: field.name,
+                                value: self.instantiate_expr(field.value, substitutions),
+                                span: field.span,
+                            })
+                            .collect(),
+                    }
+                }
+                FunctionExprKind::UnionLiteral { def_id, field } => {
+                    FunctionExprKind::UnionLiteral {
+                        def_id,
+                        field: Box::new(FunctionFieldInit {
                             field: field.field,
                             name: field.name,
                             value: self.instantiate_expr(field.value, substitutions),
                             span: field.span,
-                        })
-                        .collect(),
-                },
-                TypedExprKind::UnionLiteral { def_id, field } => TypedExprKind::UnionLiteral {
-                    def_id,
-                    field: Box::new(TypedFieldInit {
-                        field: field.field,
-                        name: field.name,
-                        value: self.instantiate_expr(field.value, substitutions),
-                        span: field.span,
-                    }),
-                },
-                TypedExprKind::Unary { op, expr } => TypedExprKind::Unary {
+                        }),
+                    }
+                }
+                FunctionExprKind::Unary { op, expr } => FunctionExprKind::Unary {
                     op,
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                 },
-                TypedExprKind::Binary { lhs, op, rhs } => TypedExprKind::Binary {
+                FunctionExprKind::AddrOf(place) => {
+                    FunctionExprKind::AddrOf(self.instantiate_place(place, substitutions))
+                }
+                FunctionExprKind::Binary { lhs, op, rhs } => FunctionExprKind::Binary {
                     lhs: Box::new(self.instantiate_expr(*lhs, substitutions)),
                     op,
                     rhs: Box::new(self.instantiate_expr(*rhs, substitutions)),
                 },
-                TypedExprKind::Assign { place, op, rhs } => TypedExprKind::Assign {
+                FunctionExprKind::Assign { place, op, rhs } => FunctionExprKind::Assign {
                     place: self.instantiate_place(place, substitutions),
                     op,
                     rhs: Box::new(self.instantiate_expr(*rhs, substitutions)),
                 },
-                TypedExprKind::Discard(expr) => {
-                    TypedExprKind::Discard(Box::new(self.instantiate_expr(*expr, substitutions)))
+                FunctionExprKind::Discard(expr) => {
+                    FunctionExprKind::Discard(Box::new(self.instantiate_expr(*expr, substitutions)))
                 }
-                TypedExprKind::Cast { expr, ty } => TypedExprKind::Cast {
+                FunctionExprKind::Cast { expr, ty } => FunctionExprKind::Cast {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                     ty: self.instantiate_ty(ty, substitutions),
                 },
-                TypedExprKind::Call { callee, args } => TypedExprKind::Call {
+                FunctionExprKind::Call { callee, args } => FunctionExprKind::Call {
                     callee: self.instantiate_callee(callee, substitutions),
                     args: args
                         .into_iter()
                         .map(|arg| self.instantiate_expr(arg, substitutions))
                         .collect(),
                 },
-                TypedExprKind::Field { lhs, field } => TypedExprKind::Field {
+                FunctionExprKind::Field { lhs, field } => FunctionExprKind::Field {
                     lhs: Box::new(self.instantiate_expr(*lhs, substitutions)),
                     field,
                 },
-                TypedExprKind::Index { lhs, index } => TypedExprKind::Index {
+                FunctionExprKind::Index { lhs, index } => FunctionExprKind::Index {
                     lhs: Box::new(self.instantiate_expr(*lhs, substitutions)),
                     index: Box::new(self.instantiate_expr(*index, substitutions)),
                 },
-                TypedExprKind::Slice {
+                FunctionExprKind::Slice {
                     lhs,
                     range,
                     is_const,
-                } => TypedExprKind::Slice {
+                } => FunctionExprKind::Slice {
                     lhs: Box::new(self.instantiate_expr(*lhs, substitutions)),
                     range: self.instantiate_slice_range(range, substitutions),
                     is_const,
                 },
-                TypedExprKind::Block(block) => {
-                    TypedExprKind::Block(self.instantiate_body(block, substitutions))
-                }
-                TypedExprKind::If {
-                    cond,
-                    then_branch,
-                    else_branch,
-                } => TypedExprKind::If {
-                    cond: Box::new(self.instantiate_expr(*cond, substitutions)),
-                    then_branch: self.instantiate_body(then_branch, substitutions),
-                    else_branch: else_branch
-                        .map(|expr| Box::new(self.instantiate_expr(*expr, substitutions))),
-                },
-                TypedExprKind::Switch(switch) => {
-                    TypedExprKind::Switch(Box::new(self.instantiate_switch(*switch, substitutions)))
-                }
             },
         }
     }
 
     fn instantiate_callee(
         &mut self,
-        callee: TypedCallee,
+        callee: FunctionCallee,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedCallee {
+    ) -> FunctionCallee {
         match callee {
-            TypedCallee::Function(def_id) => TypedCallee::Function(def_id),
-            TypedCallee::FunctionInstance { def_id, args } => TypedCallee::FunctionInstance {
+            FunctionCallee::Function(def_id) => FunctionCallee::Function(def_id),
+            FunctionCallee::FunctionInstance { def_id, args } => FunctionCallee::FunctionInstance {
                 def_id,
                 args: args
                     .into_iter()
                     .map(|arg| self.instantiate_ty(arg, substitutions))
                     .collect(),
             },
-            TypedCallee::Method {
+            FunctionCallee::Method {
                 def_id,
                 args,
                 receiver,
-            } => TypedCallee::Method {
+            } => FunctionCallee::Method {
                 def_id,
                 args: args
                     .into_iter()
@@ -445,29 +486,35 @@ impl<'a> ModuleLowerer<'a> {
                     .collect(),
                 receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
             },
-            TypedCallee::FunctionPointer(expr) => {
-                TypedCallee::FunctionPointer(Box::new(self.instantiate_expr(*expr, substitutions)))
-            }
+            FunctionCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
+                self.instantiate_expr(*expr, substitutions),
+            )),
         }
     }
 
     fn instantiate_place(
         &mut self,
-        place: TypedPlace,
+        place: FunctionPlace,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedPlace {
-        TypedPlace {
+    ) -> FunctionPlace {
+        FunctionPlace {
             span: place.span,
             ty: self.instantiate_ty(place.ty, substitutions),
-            base: place.base,
+            base: match place.base {
+                FunctionPlaceBase::Local(local_id) => FunctionPlaceBase::Local(local_id),
+                FunctionPlaceBase::Global(def_id) => FunctionPlaceBase::Global(def_id),
+                FunctionPlaceBase::Deref(expr) => {
+                    FunctionPlaceBase::Deref(Box::new(self.instantiate_expr(*expr, substitutions)))
+                }
+            },
             elems: place
                 .elems
                 .into_iter()
                 .map(|elem| match elem {
-                    PlaceElem::Field(field) => PlaceElem::Field(field),
-                    PlaceElem::Index(expr) => {
-                        PlaceElem::Index(Box::new(self.instantiate_expr(*expr, substitutions)))
-                    }
+                    FunctionPlaceElem::Field(field) => FunctionPlaceElem::Field(field),
+                    FunctionPlaceElem::Index(expr) => FunctionPlaceElem::Index(Box::new(
+                        self.instantiate_expr(*expr, substitutions),
+                    )),
                 })
                 .collect(),
         }
@@ -475,10 +522,10 @@ impl<'a> ModuleLowerer<'a> {
 
     fn instantiate_slice_range(
         &mut self,
-        range: TypedSliceRange,
+        range: FunctionSliceRange,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedSliceRange {
-        TypedSliceRange {
+    ) -> FunctionSliceRange {
+        FunctionSliceRange {
             start: range
                 .start
                 .map(|start| Box::new(self.instantiate_expr(*start, substitutions))),
@@ -491,17 +538,17 @@ impl<'a> ModuleLowerer<'a> {
 
     fn instantiate_array_elements(
         &mut self,
-        elems: TypedArrayElements,
+        elems: FunctionArrayElements,
         substitutions: &HashMap<String, InternedTyId>,
-    ) -> TypedArrayElements {
+    ) -> FunctionArrayElements {
         match elems {
-            TypedArrayElements::List(elems) => TypedArrayElements::List(
+            FunctionArrayElements::List(elems) => FunctionArrayElements::List(
                 elems
                     .into_iter()
                     .map(|elem| self.instantiate_expr(elem, substitutions))
                     .collect(),
             ),
-            TypedArrayElements::Repeat { value, count } => TypedArrayElements::Repeat {
+            FunctionArrayElements::Repeat { value, count } => FunctionArrayElements::Repeat {
                 value: Box::new(self.instantiate_expr(*value, substitutions)),
                 count,
             },
