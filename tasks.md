@@ -28,18 +28,18 @@ inside frontend queries.
 
 Tasks:
 
-- [ ] Design `nia-source` as the owner of source session state.
-- [ ] Add a source database/input type that stores `SourceFile` values by
+- [x] Design `nia-source` as the owner of source session state.
+- [x] Add a source database/input type that stores `SourceFile` values by
       `SourceId` and maps `SourcePath` to `SourceId`.
-- [ ] Keep `SourceTable` or replace it with the new database if the new type
+- [x] Keep `SourceTable` or replace it with the new database if the new type
       fully covers path interning.
-- [ ] Make source loading from disk a provider of source input, not logic hidden
+- [x] Make source loading from disk a provider of source input, not logic hidden
       in parse/import queries.
-- [ ] Support test/in-memory source injection without using temporary files as
+- [x] Support test/in-memory source injection without using temporary files as
       the only path.
-- [ ] Preserve `SourceRevision` on each source file and make text replacement
+- [x] Preserve `SourceRevision` on each source file and make text replacement
       advance the revision.
-- [ ] Document whether source ids are session-local only or intended to become
+- [x] Document whether source ids are session-local only or intended to become
       stable across sessions.
 
 Completion criteria:
@@ -52,9 +52,9 @@ Completion criteria:
 
 Verification:
 
-- [ ] `cargo test -p nia-source -p nia-loader-query`
-- [ ] `cargo test`
-- [ ] `cargo clippy --all-targets -- -D warnings`
+- [x] `cargo test -p nia-source -p nia-loader-query`
+- [x] `cargo test`
+- [x] `cargo clippy --all-targets -- -D warnings`
 
 ## Phase 2: SourceId And Revision Query Keys
 
@@ -270,4 +270,3 @@ Verification:
 - Partial reparsing optimizations beyond correctness-focused prototypes.
 - Query scheduler/runtime with priorities, cancellation, or a dedicated thread
   pool.
-

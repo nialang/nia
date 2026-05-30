@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::{
     collections::HashMap,
+    fs, io,
     sync::{Arc, Mutex},
 };
 
@@ -87,6 +88,56 @@ impl SourceTable {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SourceDatabase {
+    table: SourceTable,
+    files: Arc<Mutex<HashMap<SourceId, SourceFile>>>,
+}
+
+impl SourceDatabase {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
+        self.table.id_for_path(path)
+    }
+
+    pub fn source_for_path(&self, path: &SourcePath) -> Option<SourceFile> {
+        let id = self.id_for_path(path);
+        self.files
+            .lock()
+            .expect("source database lock poisoned")
+            .get(&id)
+            .cloned()
+    }
+
+    pub fn set_source(&self, path: SourcePath, text: impl Into<String>) -> SourceFile {
+        let id = self.id_for_path(&path);
+        let mut files = self.files.lock().expect("source database lock poisoned");
+        let revision = files
+            .get(&id)
+            .map(|file| file.revision.next())
+            .unwrap_or(SourceRevision::INITIAL);
+        let file = SourceFile::new(id, path, text.into()).with_revision(revision);
+        files.insert(id, file.clone());
+        file
+    }
+
+    pub fn read_source(&self, path: &SourcePath) -> io::Result<SourceFile> {
+        if let Some(file) = self.source_for_path(path) {
+            return Ok(file);
+        }
+
+        let text = fs::read_to_string(path.as_str())?;
+        Ok(self.set_source(path.clone(), text))
+    }
+
+    pub fn empty_source(&self, path: &SourcePath) -> SourceFile {
+        SourceFile::new(self.id_for_path(path), path.clone(), String::new())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +168,31 @@ mod tests {
         assert_eq!(table.id_for_path(&main), SourceId(0));
         assert_eq!(table.id_for_path(&defs), SourceId(1));
         assert_eq!(table.id_for_path(&main), SourceId(0));
+    }
+
+    #[test]
+    fn source_database_stores_in_memory_sources() {
+        let sources = SourceDatabase::new();
+        let path = SourcePath::new("main.nia");
+
+        let file = sources.set_source(path.clone(), "fn main() i32 { 0 }");
+
+        assert_eq!(file.id, SourceId(0));
+        assert_eq!(file.revision, SourceRevision::INITIAL);
+        assert_eq!(sources.source_for_path(&path), Some(file));
+    }
+
+    #[test]
+    fn source_database_replacement_advances_revision() {
+        let sources = SourceDatabase::new();
+        let path = SourcePath::new("main.nia");
+
+        let first = sources.set_source(path.clone(), "fn main() i32 { 0 }");
+        let second = sources.set_source(path.clone(), "fn main() i32 { 1 }");
+
+        assert_eq!(first.id, second.id);
+        assert_eq!(first.revision, SourceRevision::INITIAL);
+        assert_eq!(second.revision, SourceRevision(1));
+        assert_eq!(second.text, "fn main() i32 { 1 }");
     }
 }
