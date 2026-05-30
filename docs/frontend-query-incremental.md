@@ -37,6 +37,11 @@ can be added without moving compiler semantics into the driver.
 - `SourceFile` carries id, path, revision, and text;
 - `SourceTable` assigns stable ids for paths inside one compiler session.
 
+`SourceId` is session-local in the current design. It is stable while a compiler
+session lives, but it is not a persistent cross-session fingerprint. Persistent
+incremental compilation should add a separate source fingerprint or cache key
+rather than reusing `SourceId` for that purpose.
+
 `nia-imports` may use source paths, but it must not own source identity. Import
 resolution is a client of source identity, not its storage layer.
 

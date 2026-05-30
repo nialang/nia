@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::fs;
-
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
@@ -9,7 +7,7 @@ use nia_imports::{
 };
 use nia_lexer::Token;
 use nia_query::{QueryDb, QueryKey};
-use nia_source::{SourceFile, SourcePath, SourceTable};
+use nia_source::{SourceDatabase, SourceFile, SourcePath};
 use nia_span::Span;
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
@@ -20,7 +18,21 @@ pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap
     let db = QueryDb::new(LoaderContext {
         root_path: SourcePath::new(root_path.into()),
         module_map,
-        sources: SourceTable::new(),
+        sources: SourceDatabase::new(),
+    });
+    db.query(LoadedProgramQuery)
+}
+
+#[cfg(test)]
+fn load_program_from_sources(
+    root_path: impl Into<String>,
+    module_map: ModuleMap,
+    sources: SourceDatabase,
+) -> LoadedProgram {
+    let db = QueryDb::new(LoaderContext {
+        root_path: SourcePath::new(root_path.into()),
+        module_map,
+        sources,
     });
     db.query(LoadedProgramQuery)
 }
@@ -33,7 +45,7 @@ fn load_program_trace(
     let db = QueryDb::new(LoaderContext {
         root_path: SourcePath::new(root_path.into()),
         module_map,
-        sources: SourceTable::new(),
+        sources: SourceDatabase::new(),
     });
     let _ = db.query(LoadedProgramQuery);
     db.query_trace()
@@ -42,7 +54,7 @@ fn load_program_trace(
 struct LoaderContext {
     root_path: SourcePath,
     module_map: ModuleMap,
-    sources: SourceTable,
+    sources: SourceDatabase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -198,13 +210,9 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             .unwrap_or("");
         let (module, parse_errors) = nia_parser::parse_module_tokens(text, tokens);
         ParsedModule {
-            source: source.file.unwrap_or_else(|| {
-                SourceFile::new(
-                    db.context().sources.id_for_path(&self.0),
-                    self.0.clone(),
-                    String::new(),
-                )
-            }),
+            source: source
+                .file
+                .unwrap_or_else(|| db.context().sources.empty_source(&self.0)),
             module,
             parse_errors,
             read_diagnostic: source.diagnostic,
@@ -259,13 +267,9 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
     }
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
-        match fs::read_to_string(self.0.as_str()) {
-            Ok(text) => SourceText {
-                file: Some(SourceFile::new(
-                    db.context().sources.id_for_path(&self.0),
-                    self.0.clone(),
-                    text,
-                )),
+        match db.context().sources.read_source(&self.0) {
+            Ok(file) => SourceText {
+                file: Some(file),
                 diagnostic: None,
             },
             Err(err) => SourceText {
@@ -393,6 +397,20 @@ mod tests {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(program.imports.get(program.graph.root(), "io").is_some());
+    }
+
+    #[test]
+    fn query_loader_accepts_in_memory_sources() {
+        let sources = SourceDatabase::new();
+        sources.set_source(SourcePath::new("main.nia"), "import .defs;");
+        sources.set_source(SourcePath::new("defs.nia"), "pub fn value() i32 { 1 }");
+
+        let program = load_program_from_sources("main.nia", ModuleMap::default(), sources);
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.modules.len(), 2);
+        assert_eq!(program.modules[0].source, "import .defs;");
+        assert_eq!(program.modules[1].source, "pub fn value() i32 { 1 }");
     }
 
     #[test]
