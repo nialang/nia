@@ -30,14 +30,20 @@ use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 
 mod base;
+mod checked;
+mod checks;
 mod diagnostics;
-mod module;
 mod program;
+mod resolve;
+mod types;
 
 use base::*;
+use checked::*;
+use checks::*;
 use diagnostics::*;
-use module::*;
 use program::*;
+use resolve::*;
+use types::*;
 
 pub fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
     let db = QueryDb::new(DriverContext { loaded });
