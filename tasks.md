@@ -139,15 +139,15 @@ Tasks:
       already stable.
 - [x] Keep expression-level queries out of scope until stable node identity
       exists.
-- [ ] Make body-check outputs explicitly carry downstream decisions currently
+- [x] Make body-check outputs explicitly carry downstream decisions currently
       rediscovered by lowering/codegen, including:
       - bracket suffix resolution;
       - builtin call classification;
       - place/value classification where needed;
       - defer/control-flow facts needed by lowering.
-- [ ] Remove duplicated AST-shape inference in later passes when a semantic
+- [x] Remove duplicated AST-shape inference in later passes when a semantic
       query output can be consumed instead.
-- [ ] Add tests that intentionally exercise check/emit parity for module
+- [x] Add tests that intentionally exercise check/emit parity for module
       boundaries and control-flow edges.
 
 Completion criteria:

@@ -21,6 +21,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         expr: &FunctionExpr,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         match &expr.kind {
+            FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
             FunctionExprKind::Global(_)
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Unary {
@@ -70,6 +71,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .map_err(|_| self.error(span, "failed to build field address"))
             }
             FunctionExprKind::Index { lhs, index } => self.emit_index_expr_addr(span, lhs, index),
+            FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
             _ => Err(self.error(span, "expression is not a place")),
         }
     }

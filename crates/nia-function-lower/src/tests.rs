@@ -94,6 +94,49 @@ fn non_terminal_ops_branch_to_tail_block() {
 }
 
 #[test]
+fn lowers_address_of_places_to_function_place() {
+    let span = Span::default();
+    let ty = test_ty();
+    let body = TypedBody {
+        span,
+        locals: vec![TypedLocal {
+            id: LocalId(0),
+            name: "x".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        }],
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Unary {
+                op: nia_ast::UnaryOp::Ref,
+                expr: Box::new(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Local(LocalId(0)),
+                }),
+            },
+        })),
+        ty,
+    };
+
+    let function_body = lower_function_body(&body);
+
+    let FunctionTerminator::Tail {
+        value: Some(value), ..
+    } = &function_body.blocks[0].terminator
+    else {
+        panic!("expected address-of tail value");
+    };
+    let FunctionExprKind::AddrOf(place) = &value.kind else {
+        panic!("expected address-of place");
+    };
+    assert!(matches!(place.base, FunctionPlaceBase::Local(LocalId(0))));
+}
+
+#[test]
 fn return_terminates_block_before_later_statements() {
     let span = Span::default();
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
