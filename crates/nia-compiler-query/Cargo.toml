@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nia-abi-check.workspace = true
 nia-ast.workspace = true
+nia-backend-ir.workspace = true
 nia-backend-lower.workspace = true
 nia-body-check.workspace = true
 nia-comptime-check.workspace = true

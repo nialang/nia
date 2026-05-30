@@ -22,7 +22,7 @@ use nia_imports::{ImportAliasMap, ModuleGraph, SourcePath};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
-use nia_query::{QueryDb, QueryKey};
+use nia_query::{QueryDb, QueryError, QueryKey};
 use nia_span::Span;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -55,8 +55,58 @@ fn check_loaded_program_with_providers(
     loaded: LoadedProgram,
     providers: CompilerQueryProviders,
 ) -> CheckedProgram {
+    let graph = loaded.graph.clone();
+    let imports = loaded.imports.clone();
     let db = QueryDb::new(DriverContext { loaded, providers });
-    db.query(CheckedProgramQuery)
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        db.try_query(CheckedProgramQuery)
+    })) {
+        Ok(Ok(checked)) => checked,
+        Ok(Err(err)) => checked_program_from_query_error(graph, imports, err),
+        Err(payload) => match payload.downcast::<QueryError>() {
+            Ok(err) => checked_program_from_query_error(graph, imports, *err),
+            Err(payload) => std::panic::resume_unwind(payload),
+        },
+    }
+}
+
+fn checked_program_from_query_error(
+    graph: ModuleGraph,
+    imports: ImportAliasMap,
+    err: QueryError,
+) -> CheckedProgram {
+    CheckedProgram {
+        graph,
+        imports,
+        modules: Vec::new(),
+        monomorphization: nia_monomorphize::Monomorphization {
+            instances: Vec::new(),
+            diagnostics: Vec::new(),
+        },
+        backend_lowering: nia_backend_lower::BackendLowering {
+            program: nia_backend_ir::BackendProgram {
+                modules: Vec::new(),
+            },
+            diagnostics: Vec::new(),
+        },
+        diagnostics: vec![ProgramDiagnostic {
+            path: SourcePath::new("<query>"),
+            diagnostic: query_error_diagnostic(err),
+        }],
+    }
+}
+
+fn query_error_diagnostic(err: QueryError) -> Diagnostic {
+    match err {
+        QueryError::Cycle { cycle } => {
+            let mut message = String::from("query cycle detected");
+            for frame in cycle {
+                message.push_str("\n  ");
+                message.push_str(&frame.description);
+            }
+            Diagnostic::error(Span::default(), message)
+        }
+    }
 }
 
 struct DriverContext {
