@@ -251,8 +251,8 @@ Completion criteria:
 
 - Nia has one official syntax layer for lossless source representation.
 - Existing AST consumers either receive lowered AST or syntax-backed AST views.
-- Parser lowering consumes syntax tokens directly rather than adapting back
-  through lexer token vectors.
+- Parser lowering consumes red syntax tokens with child-path node identity
+  directly rather than adapting back through lexer token vectors.
 - Batch check/emit behavior is unchanged.
 - Red/green nodes participate in query dependencies through source revisions.
 

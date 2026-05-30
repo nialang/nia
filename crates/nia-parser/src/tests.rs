@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_ast::{ExprKind, SwitchArmBody};
+use nia_node_id::NodePosition;
+use nia_source::{SourceId, SourceRevision, SourceVersion};
 
 #[test]
 fn parses_top_level_items() {
@@ -54,6 +56,27 @@ fn parses_ast_from_lossless_syntax_tree() {
     assert_eq!(syntax.full_text(), source);
     assert_eq!(source_errors, syntax_errors);
     assert_eq!(from_source, from_syntax);
+}
+
+#[test]
+fn parse_errors_from_syntax_carry_red_token_node_keys() {
+    let version = SourceVersion {
+        id: SourceId(9),
+        revision: SourceRevision(3),
+    };
+    let syntax = nia_syntax::parse_source("fn bad(value) {}", Some(version));
+    let (_, errors) = parse_module_syntax(&syntax);
+
+    let error = errors
+        .iter()
+        .find(|error| error.message.contains("expected `:` after parameter name"))
+        .expect("parameter type error");
+    let key = error.node_key.as_ref().expect("red token node key");
+    assert_eq!(key.source_version(), version);
+    assert!(matches!(
+        &key.position,
+        NodePosition::ChildPath(path) if !path.steps().is_empty()
+    ));
 }
 
 #[test]

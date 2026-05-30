@@ -36,6 +36,8 @@ pub struct SyntaxToken {
     pub kind: TokenKind,
     pub span: Span,
     pub text: String,
+    path: NodeChildPath,
+    version: Option<SourceVersion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,9 +107,13 @@ impl TextEdit {
 impl SyntaxTokenCursor {
     pub fn new(tree: &SyntaxTree) -> Self {
         Self {
-            tokens: tree.tokens(),
+            tokens: tree.root().tokens(),
             pos: 0,
         }
+    }
+
+    pub fn tokens(&self) -> &[SyntaxToken] {
+        &self.tokens
     }
 
     pub fn checkpoint(&self) -> usize {
@@ -151,6 +157,21 @@ impl SyntaxTokenCursor {
     }
 }
 
+impl SyntaxToken {
+    pub fn child_path(&self) -> &NodeChildPath {
+        &self.path
+    }
+
+    pub fn node_key(&self) -> Option<NodeKey> {
+        let version = self.version?;
+        Some(NodeKey::child_path(
+            version,
+            NodeSyntaxKind::Token,
+            self.path.clone(),
+        ))
+    }
+}
+
 impl SyntaxTree {
     pub fn parse(source: &str, version: Option<SourceVersion>) -> Self {
         let tokens = tokenize_lossless(source);
@@ -191,9 +212,7 @@ impl SyntaxTree {
     }
 
     pub fn tokens(&self) -> Vec<SyntaxToken> {
-        let mut tokens = Vec::new();
-        self.root.push_tokens(&mut tokens);
-        tokens
+        self.root().tokens()
     }
 
     pub fn full_text(&self) -> String {
@@ -244,23 +263,6 @@ impl GreenNode {
             match child {
                 GreenElement::Node(node) => node.push_text(text),
                 GreenElement::Token(token) => text.push_str(&token.text),
-            }
-        }
-    }
-
-    fn push_tokens(&self, tokens: &mut Vec<SyntaxToken>) {
-        for child in &self.children {
-            match child {
-                GreenElement::Node(node) => node.push_tokens(tokens),
-                GreenElement::Token(token) => {
-                    if let SyntaxKind::Token(kind) = &token.kind {
-                        tokens.push(SyntaxToken {
-                            kind: kind.clone(),
-                            span: token.span,
-                            text: token.text.clone(),
-                        });
-                    }
-                }
             }
         }
     }
@@ -326,6 +328,38 @@ impl<'a> SyntaxNode<'a> {
                 GreenElement::Token(_) => None,
             })
             .collect()
+    }
+
+    pub fn tokens(&self) -> Vec<SyntaxToken> {
+        let mut tokens = Vec::new();
+        self.push_tokens(&mut tokens);
+        tokens
+    }
+
+    fn push_tokens(&self, tokens: &mut Vec<SyntaxToken>) {
+        for (index, child) in self.node.children.iter().enumerate() {
+            let mut path = self.path.clone();
+            path.push(index as u32);
+            match child {
+                GreenElement::Node(node) => SyntaxNode {
+                    tree: self.tree,
+                    path,
+                    node,
+                }
+                .push_tokens(tokens),
+                GreenElement::Token(token) => {
+                    if let SyntaxKind::Token(kind) = &token.kind {
+                        tokens.push(SyntaxToken {
+                            kind: kind.clone(),
+                            span: token.span,
+                            text: token.text.clone(),
+                            path: NodeChildPath::from_steps(path),
+                            version: self.tree.version,
+                        });
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -661,7 +695,11 @@ mod tests {
 
     #[test]
     fn tokens_filter_trivia_but_keep_source_text() {
-        let tree = parse_source("fn  main() // c\n{}", None);
+        let version = SourceVersion {
+            id: SourceId(5),
+            revision: SourceRevision(1),
+        };
+        let tree = parse_source("fn  main() // c\n{}", Some(version));
         let tokens = tree.tokens();
         let kinds = tokens
             .iter()
@@ -681,6 +719,14 @@ mod tests {
             ]
         );
         assert_eq!(tokens[1].text, "main");
+        assert!(matches!(
+            tokens[1].node_key().map(|key| key.position),
+            Some(NodePosition::ChildPath(path)) if !path.steps().is_empty()
+        ));
+        assert_eq!(
+            tokens[1].node_key().map(|key| key.source_version()),
+            Some(version)
+        );
     }
 
     #[test]
