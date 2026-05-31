@@ -14,6 +14,7 @@ use nia_body_ir::{
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
+use nia_trait_solve::TraitResolution;
 use nia_ty::{BuiltinTrait, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
@@ -1148,13 +1149,15 @@ impl<'a> BodyChecker<'a> {
                 true,
             )
         };
-        if self.builtin_deref_target_ty(receiver_ty).is_some()
-            || !self.current_context_proves_trait_obligation(
-                receiver_ty,
-                TraitId::Builtin(trait_id),
-                Vec::new(),
-            )
-        {
+        let resolution = self.current_context_resolve_trait_obligation(
+            receiver_ty,
+            TraitId::Builtin(trait_id),
+            Vec::new(),
+        );
+        if !matches!(
+            resolution,
+            TraitResolution::User(_) | TraitResolution::Assumed(_)
+        ) {
             return None;
         }
         let target = self.interner.intern(TyKind::Projection {
@@ -1206,15 +1209,15 @@ impl<'a> BodyChecker<'a> {
             )
         };
         let trait_args = vec![index_ty];
-        if self
-            .builtin_index_output_ty(receiver_ty, index_ty)
-            .is_some()
-            || !self.current_context_proves_trait_obligation(
-                receiver_ty,
-                TraitId::Builtin(trait_id),
-                trait_args.clone(),
-            )
-        {
+        let resolution = self.current_context_resolve_trait_obligation(
+            receiver_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        );
+        if !matches!(
+            resolution,
+            TraitResolution::User(_) | TraitResolution::Assumed(_)
+        ) {
             return None;
         }
         let output = self.interner.intern(TyKind::Projection {
@@ -1269,18 +1272,15 @@ impl<'a> BodyChecker<'a> {
         } else {
             (BuiltinTrait::Slice, BuiltinTraitMethod::Slice)
         };
-        let has_native_impl = if is_const {
-            self.builtin_slice_output_ty(lhs_ty, false).is_some()
-        } else {
-            self.builtin_mut_slice_output_ty(lhs_ty).is_some()
-        };
-        if has_native_impl
-            || !self.current_context_proves_trait_obligation(
-                lhs_ty,
-                TraitId::Builtin(trait_id),
-                vec![range_ty],
-            )
-        {
+        let resolution = self.current_context_resolve_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(trait_id),
+            vec![range_ty],
+        );
+        if !matches!(
+            resolution,
+            TraitResolution::User(_) | TraitResolution::Assumed(_)
+        ) {
             return TypedExprKind::Slice {
                 lhs: Box::new(self.lower_expr(lhs)),
                 range: self.lower_slice_range(range),

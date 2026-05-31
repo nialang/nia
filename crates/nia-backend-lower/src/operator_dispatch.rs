@@ -11,7 +11,7 @@ use nia_function_ir::{
     FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolver};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn resolve_builtin_operator_calls_in_body(
@@ -462,7 +462,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn dispatch_builtin_operator_call(
-        &self,
+        &mut self,
         operator: FunctionBuiltinOperator,
         args: Vec<FunctionExpr>,
     ) -> FunctionExprKind {
@@ -477,7 +477,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn dispatch_builtin_unary_operator(
-        &self,
+        &mut self,
         operator: FunctionBuiltinOperator,
         args: Vec<FunctionExpr>,
     ) -> FunctionExprKind {
@@ -487,7 +487,10 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             };
         };
-        if self.is_primitive_builtin_unary_operator_impl(operator.trait_id, receiver.ty) {
+        if matches!(
+            self.builtin_operator_resolution(operator.trait_id, receiver.ty, &[]),
+            TraitResolution::Intrinsic(_)
+        ) {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::BuiltinOperator(operator),
                 args,
@@ -515,7 +518,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn dispatch_builtin_binary_operator(
-        &self,
+        &mut self,
         operator: FunctionBuiltinOperator,
         args: Vec<FunctionExpr>,
     ) -> FunctionExprKind {
@@ -525,7 +528,10 @@ impl<'a> ModuleLowerer<'a> {
                 args,
             };
         };
-        if self.is_primitive_builtin_binary_operator_impl(operator.trait_id, lhs.ty, rhs.ty) {
+        if matches!(
+            self.builtin_operator_resolution(operator.trait_id, lhs.ty, &[rhs.ty]),
+            TraitResolution::Intrinsic(_)
+        ) {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::BuiltinOperator(operator),
                 args,
@@ -708,99 +714,40 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn is_primitive_builtin_unary_operator_impl(
-        &self,
-        trait_id: nia_ids::BuiltinTrait,
+    fn builtin_operator_resolution(
+        &mut self,
+        trait_id: BuiltinTrait,
         self_ty: InternedTyId,
-    ) -> bool {
-        match trait_id {
-            nia_ids::BuiltinTrait::Neg => self.is_numeric(self_ty),
-            nia_ids::BuiltinTrait::BitNot => self.is_integer(self_ty),
-            nia_ids::BuiltinTrait::Not => self.types_match(self_ty, self.bool_ty()),
-            _ => false,
-        }
-    }
-
-    fn is_primitive_builtin_binary_operator_impl(
-        &self,
-        trait_id: nia_ids::BuiltinTrait,
-        lhs_ty: InternedTyId,
-        rhs_ty: InternedTyId,
-    ) -> bool {
-        match trait_id {
-            nia_ids::BuiltinTrait::Add
-            | nia_ids::BuiltinTrait::Sub
-            | nia_ids::BuiltinTrait::Mul
-            | nia_ids::BuiltinTrait::Div
-            | nia_ids::BuiltinTrait::Rem => {
-                self.types_match(lhs_ty, rhs_ty) && self.is_numeric(lhs_ty)
-            }
-            nia_ids::BuiltinTrait::BitAnd
-            | nia_ids::BuiltinTrait::BitOr
-            | nia_ids::BuiltinTrait::BitXor => {
-                self.types_match(lhs_ty, rhs_ty) && self.is_integer(lhs_ty)
-            }
-            nia_ids::BuiltinTrait::Shl | nia_ids::BuiltinTrait::Shr => {
-                self.is_integer(lhs_ty) && self.is_integer(rhs_ty)
-            }
-            nia_ids::BuiltinTrait::Eq => {
-                self.types_match(lhs_ty, rhs_ty)
-                    && (self.is_numeric(lhs_ty)
-                        || self.types_match(lhs_ty, self.bool_ty())
-                        || self.is_pointer(lhs_ty)
-                        || self.is_enum(lhs_ty))
-            }
-            nia_ids::BuiltinTrait::Ord => {
-                self.types_match(lhs_ty, rhs_ty) && self.is_numeric(lhs_ty)
-            }
-            _ => false,
-        }
-    }
-
-    fn bool_ty(&self) -> InternedTyId {
-        self.interner.primitive(PrimitiveTy::Bool)
-    }
-
-    fn is_numeric(&self, ty: InternedTyId) -> bool {
-        self.is_integer(ty)
-            || matches!(
-                self.ty_kind(ty),
-                Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
-            )
-    }
-
-    fn is_integer(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.ty_kind(ty),
-            Some(TyKind::Primitive(
-                PrimitiveTy::I8
-                    | PrimitiveTy::I16
-                    | PrimitiveTy::I32
-                    | PrimitiveTy::I64
-                    | PrimitiveTy::I128
-                    | PrimitiveTy::Isize
-                    | PrimitiveTy::U8
-                    | PrimitiveTy::U16
-                    | PrimitiveTy::U32
-                    | PrimitiveTy::U64
-                    | PrimitiveTy::U128
-                    | PrimitiveTy::Usize
-            ))
-        )
-    }
-
-    fn is_pointer(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.ty_kind(ty),
-            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
-        )
-    }
-
-    fn is_enum(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.ty_kind(ty),
-            Some(TyKind::Nominal { def_id, .. }) if self.input.signatures.enums.contains_key(&def_id.def_id)
-        )
+        trait_args: &[InternedTyId],
+    ) -> TraitResolution {
+        let input = self.input;
+        let normalization = input.type_normalization;
+        let interner_snapshot = self.interner.clone();
+        let mut solver = TraitSolver {
+            interner: &mut self.interner,
+            normalization,
+            trait_impls: input.trait_impls,
+            assumptions: &[],
+            layouts: Some(input.layouts),
+            is_enum: move |ty| match normalization.normalize(ty) {
+                ty if ty.interner_id == interner_snapshot.interner_id() => {
+                    match interner_snapshot.get(ty) {
+                        Some(nia_ty::TyKind::Nominal { def_id, .. })
+                            if def_id.module_id == input.module_id =>
+                        {
+                            input.signatures.enums.contains_key(&def_id.def_id)
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
+        };
+        solver.resolve(TraitGoal {
+            self_ty,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args: trait_args.to_vec(),
+        })
     }
 }
 
