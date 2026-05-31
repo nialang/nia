@@ -89,6 +89,10 @@ pub enum ResolvedCall {
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
     },
+    BuiltinTraitMethod {
+        trait_id: BuiltinTrait,
+        op: BuiltinOperatorOp,
+    },
     FunctionPointer,
 }
 

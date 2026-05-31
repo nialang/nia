@@ -2955,8 +2955,18 @@ where T: Add[T, Output = T] {
     a + b
 }
 
+fn add_method[T](a: T, b: T) T
+where T: Add[T, Output = T] {
+    a.add(b)
+}
+
+fn add_associated[T](a: T, b: T) T
+where T: Add[T, Output = T] {
+    [T]::add(a, b)
+}
+
 fn main() i32 {
-    add_same[i32](1, 2)
+    add_same[i32](1, 2) + add_method[i32](3, 4) + add_associated[i32](5, 6)
 }
 "#,
     );
@@ -3032,7 +3042,37 @@ fn main() i32 {
     var one: Number = { value: 1 };
     var two: Number = { value: 2 };
     var three = one + two;
-    three.value
+    var seven = three.add({ value: 4 });
+    var nine = [Number]::add(seven, { value: 2 });
+    nine.value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_operator_method_names_do_not_shadow_plain_extension_methods() {
+    let root = temp_dir("builtin_operator_method_names_do_not_shadow_plain_extension_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Number {
+    value: i32,
+}
+
+extend Number {
+    fn add(self, rhs: Number) Number {
+        { value: self.value + rhs.value + 10 }
+    }
+}
+
+fn main() i32 {
+    var one: Number = { value: 1 };
+    var two: Number = { value: 2 };
+    one.add(two).value
 }
 "#,
     );

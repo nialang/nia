@@ -128,6 +128,31 @@ pub enum BuiltinTraitMethod {
 }
 
 impl BuiltinTraitMethod {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "add" => Some(Self::Add),
+            "sub" => Some(Self::Sub),
+            "mul" => Some(Self::Mul),
+            "div" => Some(Self::Div),
+            "rem" => Some(Self::Rem),
+            "neg" => Some(Self::Neg),
+            "not" => Some(Self::Not),
+            "bit_not" => Some(Self::BitNot),
+            "bit_and" => Some(Self::BitAnd),
+            "bit_or" => Some(Self::BitOr),
+            "bit_xor" => Some(Self::BitXor),
+            "shl" => Some(Self::Shl),
+            "shr" => Some(Self::Shr),
+            "eq" => Some(Self::Eq),
+            "ne" => Some(Self::Ne),
+            "lt" => Some(Self::Lt),
+            "le" => Some(Self::Le),
+            "gt" => Some(Self::Gt),
+            "ge" => Some(Self::Ge),
+            _ => None,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Add => "add",

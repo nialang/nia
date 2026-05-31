@@ -94,7 +94,9 @@ fn main() i32 {
     var one: Number = { value: 1 };
     var two: Number = { value: 2 };
     var three = one + two;
-    three.value
+    var seven = three.add({ value: 4 });
+    var nine = [Number]::add(seven, { value: 2 });
+    nine.value
 }
 "#,
     )

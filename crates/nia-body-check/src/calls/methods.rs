@@ -2,13 +2,13 @@
 use std::collections::HashMap;
 
 use crate::BodyChecker;
-use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
-use nia_body_ir::{BracketSuffixResolution, ResolvedCall};
+use nia_ast::{BinaryOp, BracketArg, Expr, ExprKind, ReceiverKind, UnaryOp};
+use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp, ResolvedCall};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, TyKind};
 
 struct MethodCall<'a> {
     span: Span,
@@ -87,6 +87,18 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
+        if candidates.is_empty()
+            && let Some(return_ty) = self.check_builtin_trait_associated_method_call(
+                span,
+                target_ty,
+                name,
+                method_type_args,
+                args,
+                expected,
+            )
+        {
+            return Some(return_ty);
+        }
         let Some(method_id) = self.single_method_candidate(span, name, candidates) else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -406,6 +418,7 @@ impl<'a> BodyChecker<'a> {
             && self
                 .trait_method_candidates_for_receiver(receiver_ty, name)
                 .is_empty()
+            && BuiltinTraitMethod::from_name(name).is_none()
         {
             return None;
         }
@@ -438,6 +451,7 @@ impl<'a> BodyChecker<'a> {
             && self
                 .trait_method_candidates_for_receiver(receiver_ty, name)
                 .is_empty()
+            && BuiltinTraitMethod::from_name(name).is_none()
         {
             return None;
         }
@@ -464,6 +478,11 @@ impl<'a> BodyChecker<'a> {
         };
         if candidates.is_empty() && !trait_candidates.is_empty() {
             return self.check_trait_method_call_with_receiver_ty(call, trait_candidates);
+        }
+        if candidates.is_empty()
+            && let Some(return_ty) = self.check_builtin_trait_method_call_with_receiver_ty(&call)
+        {
+            return Some(return_ty);
         }
         let method_id = self.single_method_candidate(call.span, call.name, candidates)?;
         let Some(signature) = self
@@ -554,6 +573,182 @@ impl<'a> BodyChecker<'a> {
         }
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
         Some(self.normalize_projection(return_type))
+    }
+
+    fn check_builtin_trait_method_call_with_receiver_ty(
+        &mut self,
+        call: &MethodCall<'_>,
+    ) -> Option<InternedTyId> {
+        let method = BuiltinTraitMethod::from_name(call.name)?;
+        if call.type_args.is_some() {
+            self.diagnostics.push(Diagnostic::error(
+                call.span,
+                "builtin trait methods do not take method generic arguments",
+            ));
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        let (trait_id, op) = builtin_trait_method_operator(method)?;
+        let Some(trait_args) = self.check_builtin_trait_method_value_args(
+            call.span,
+            trait_id,
+            method,
+            call.receiver_ty,
+            call.args,
+        ) else {
+            return Some(self.error());
+        };
+        if !self.current_context_proves_trait_obligation(
+            call.receiver_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            return None;
+        }
+        let output = self.builtin_trait_method_output(call.receiver_ty, trait_id, trait_args);
+        if let Some(expected) = call.expected {
+            self.expect_type(call.span, expected, output, "builtin trait method call");
+        }
+        self.record_resolved_call(call.span, ResolvedCall::BuiltinTraitMethod { trait_id, op });
+        Some(output)
+    }
+
+    fn check_builtin_trait_associated_method_call(
+        &mut self,
+        span: Span,
+        target_ty: InternedTyId,
+        name: &str,
+        method_type_args: Option<&[BracketArg]>,
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let method = BuiltinTraitMethod::from_name(name)?;
+        if method_type_args.is_some() {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "builtin trait methods do not take method generic arguments",
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        let (trait_id, op) = builtin_trait_method_operator(method)?;
+        let Some((receiver, value_args)) = args.split_first() else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("receiver method `{name}` requires a receiver argument"),
+            ));
+            return Some(self.error());
+        };
+        let receiver_ty = self.check_expr_with_expected(receiver, Some(target_ty));
+        self.expect_expr_type(receiver, target_ty, receiver_ty, "receiver argument");
+        let Some(trait_args) = self
+            .check_builtin_trait_method_value_args(span, trait_id, method, target_ty, value_args)
+        else {
+            return Some(self.error());
+        };
+        if !self.current_context_proves_trait_obligation(
+            target_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(target_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+        }
+        let output = self.builtin_trait_method_output(target_ty, trait_id, trait_args);
+        if let Some(expected) = expected {
+            self.expect_type(span, expected, output, "builtin trait method call");
+        }
+        self.record_resolved_call(span, ResolvedCall::BuiltinTraitMethod { trait_id, op });
+        Some(output)
+    }
+
+    fn check_builtin_trait_method_value_args(
+        &mut self,
+        span: Span,
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        self_ty: InternedTyId,
+        args: &[Expr],
+    ) -> Option<Vec<InternedTyId>> {
+        let value_param_count = method.param_count().saturating_sub(1);
+        self.check_call_arg_count(span, args.len(), value_param_count, false);
+        if args.len() != value_param_count {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return None;
+        }
+        match method.param_count() {
+            1 => Some(Vec::new()),
+            2 => {
+                let rhs = args.first()?;
+                let rhs_expected = if self.is_numeric_literal_expr(rhs) {
+                    Some(self_ty)
+                } else {
+                    None
+                };
+                let rhs_ty = self.check_expr_with_expected(rhs, rhs_expected);
+                if let Some(expected) = rhs_expected {
+                    self.expect_expr_type(rhs, expected, rhs_ty, "call argument");
+                }
+                let rhs_ty = self.expr_types.get(&rhs.span).copied().unwrap_or(rhs_ty);
+                Some(vec![rhs_ty])
+            }
+            _ => {
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!(
+                        "builtin trait method `{}` has unsupported arity",
+                        method.name()
+                    ),
+                ));
+                None
+            }
+        }
+        .map(|trait_args| {
+            if matches!(
+                trait_id,
+                BuiltinTrait::Neg | BuiltinTrait::Not | BuiltinTrait::BitNot
+            ) {
+                Vec::new()
+            } else {
+                trait_args
+            }
+        })
+    }
+
+    fn builtin_trait_method_output(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        trait_args: Vec<InternedTyId>,
+    ) -> InternedTyId {
+        if matches!(
+            trait_id,
+            BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
+        ) {
+            return self.bool();
+        }
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args,
+            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(output)
     }
 
     fn check_trait_method_call_with_receiver_ty(
@@ -1354,6 +1549,70 @@ impl<'a> BodyChecker<'a> {
             } else if !base.as_ref().is_some_and(|base| base.from_pointer) {
                 self.check_assignable(receiver, "receiver");
             }
+        }
+    }
+}
+
+fn builtin_trait_method_operator(
+    method: BuiltinTraitMethod,
+) -> Option<(BuiltinTrait, BuiltinOperatorOp)> {
+    match method {
+        BuiltinTraitMethod::Add => {
+            Some((BuiltinTrait::Add, BuiltinOperatorOp::Binary(BinaryOp::Add)))
+        }
+        BuiltinTraitMethod::Sub => {
+            Some((BuiltinTrait::Sub, BuiltinOperatorOp::Binary(BinaryOp::Sub)))
+        }
+        BuiltinTraitMethod::Mul => {
+            Some((BuiltinTrait::Mul, BuiltinOperatorOp::Binary(BinaryOp::Mul)))
+        }
+        BuiltinTraitMethod::Div => {
+            Some((BuiltinTrait::Div, BuiltinOperatorOp::Binary(BinaryOp::Div)))
+        }
+        BuiltinTraitMethod::Rem => {
+            Some((BuiltinTrait::Rem, BuiltinOperatorOp::Binary(BinaryOp::Rem)))
+        }
+        BuiltinTraitMethod::Neg => {
+            Some((BuiltinTrait::Neg, BuiltinOperatorOp::Unary(UnaryOp::Neg)))
+        }
+        BuiltinTraitMethod::Not => {
+            Some((BuiltinTrait::Not, BuiltinOperatorOp::Unary(UnaryOp::Not)))
+        }
+        BuiltinTraitMethod::BitNot => Some((
+            BuiltinTrait::BitNot,
+            BuiltinOperatorOp::Unary(UnaryOp::BitNot),
+        )),
+        BuiltinTraitMethod::BitAnd => Some((
+            BuiltinTrait::BitAnd,
+            BuiltinOperatorOp::Binary(BinaryOp::BitAnd),
+        )),
+        BuiltinTraitMethod::BitOr => Some((
+            BuiltinTrait::BitOr,
+            BuiltinOperatorOp::Binary(BinaryOp::BitOr),
+        )),
+        BuiltinTraitMethod::BitXor => Some((
+            BuiltinTrait::BitXor,
+            BuiltinOperatorOp::Binary(BinaryOp::BitXor),
+        )),
+        BuiltinTraitMethod::Shl => {
+            Some((BuiltinTrait::Shl, BuiltinOperatorOp::Binary(BinaryOp::Shl)))
+        }
+        BuiltinTraitMethod::Shr => {
+            Some((BuiltinTrait::Shr, BuiltinOperatorOp::Binary(BinaryOp::Shr)))
+        }
+        BuiltinTraitMethod::Eq => Some((BuiltinTrait::Eq, BuiltinOperatorOp::Binary(BinaryOp::Eq))),
+        BuiltinTraitMethod::Ne => Some((BuiltinTrait::Eq, BuiltinOperatorOp::Binary(BinaryOp::Ne))),
+        BuiltinTraitMethod::Lt => {
+            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Lt)))
+        }
+        BuiltinTraitMethod::Le => {
+            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Le)))
+        }
+        BuiltinTraitMethod::Gt => {
+            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Gt)))
+        }
+        BuiltinTraitMethod::Ge => {
+            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Ge)))
         }
     }
 }
