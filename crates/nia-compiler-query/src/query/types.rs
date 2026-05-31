@@ -79,7 +79,7 @@ pub(super) struct ProgramSignatures {
     pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
     pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
     pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub(super) trait_impls: Vec<nia_body_check::ProgramTraitImplSignature>,
+    pub(super) trait_impls: Vec<nia_item_signatures::ProgramTraitImplSignature>,
 }
 
 impl ProgramSignatures {

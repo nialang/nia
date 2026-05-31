@@ -6,13 +6,24 @@ use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{FunctionSignature, TraitImplSignature};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TraitId, TyKind};
+use nia_trait_solve::{TraitGoal, TraitSolver};
+use nia_ty::{TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TraitObligation {
     self_ty: InternedTyId,
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
+}
+
+impl From<TraitObligation> for TraitGoal {
+    fn from(obligation: TraitObligation) -> Self {
+        Self {
+            self_ty: obligation.self_ty,
+            trait_id: obligation.trait_id,
+            trait_args: obligation.trait_args,
+        }
+    }
 }
 
 impl<'a> BodyChecker<'a> {
@@ -61,6 +72,21 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
+    }
+
+    pub(crate) fn current_trait_goals(&mut self) -> Vec<TraitGoal> {
+        self.current_def_id
+            .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
+            .and_then(|def_id| {
+                let signature = self.signatures.functions.get(&def_id)?.clone();
+                Some(
+                    self.function_signature_trait_obligations(def_id, &signature)
+                        .into_iter()
+                        .map(TraitGoal::from)
+                        .collect(),
+                )
+            })
+            .unwrap_or_default()
     }
 
     fn function_signature_trait_obligations(
@@ -413,180 +439,41 @@ impl<'a> BodyChecker<'a> {
         obligations: &[TraitObligation],
         required: &TraitObligation,
     ) -> bool {
-        obligations
+        let assumptions = obligations
             .iter()
-            .any(|obligation| self.trait_obligations_equivalent(obligation, required))
-            || self.trait_obligation_has_matching_impl(required)
-    }
-
-    fn trait_obligation_has_matching_impl(&mut self, required: &TraitObligation) -> bool {
-        let impls = self.program_trait_impls.to_vec();
-        for impl_signature in impls {
-            if impl_signature.trait_id != required.trait_id {
-                continue;
-            }
-            let target_ty =
-                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
-            let target_ty = self.normalization.normalize(target_ty);
-            if !self.types_equivalent_without_projection_resolution(target_ty, required.self_ty) {
-                continue;
-            }
-            let trait_args = impl_signature
-                .trait_args
-                .iter()
-                .map(|arg| {
-                    let arg = self.import_type_from(&impl_signature.interner, *arg);
-                    self.normalization.normalize(arg)
-                })
-                .collect::<Vec<_>>();
-            if trait_args.len() == required.trait_args.len()
-                && trait_args
-                    .iter()
-                    .zip(&required.trait_args)
-                    .all(|(actual, required)| {
-                        self.types_equivalent_without_projection_resolution(*actual, *required)
-                    })
-            {
-                return true;
-            }
-        }
-        self.builtin_trait_obligation_has_matching_impl(required)
-    }
-
-    fn builtin_trait_obligation_has_matching_impl(&mut self, required: &TraitObligation) -> bool {
-        let TraitId::Builtin(trait_id) = required.trait_id else {
-            return false;
+            .cloned()
+            .map(TraitGoal::from)
+            .collect::<Vec<_>>();
+        let program_enums = self.program_enums;
+        let signatures = self.signatures;
+        let defs_module_id = self.defs.module_id;
+        let interner_snapshot = self.interner.clone();
+        let mut solver = TraitSolver {
+            interner: &mut self.interner,
+            normalization: self.normalization,
+            trait_impls: self.program_trait_impls,
+            assumptions: &assumptions,
+            layouts: Some(self.layouts),
+            is_enum: |ty| match self.normalization.normalize(ty) {
+                ty if ty.interner_id == interner_snapshot.interner_id() => {
+                    match interner_snapshot.get(ty) {
+                        Some(TyKind::Nominal { def_id, .. })
+                            if def_id.module_id == defs_module_id =>
+                        {
+                            signatures.enums.contains_key(&def_id.def_id)
+                        }
+                        Some(TyKind::Nominal { def_id, .. }) => program_enums.contains_key(def_id),
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
         };
-        let self_ty = self.normalization.normalize(required.self_ty);
-        match trait_id {
-            BuiltinTrait::Add
-            | BuiltinTrait::Sub
-            | BuiltinTrait::Mul
-            | BuiltinTrait::Div
-            | BuiltinTrait::Rem => {
-                let [rhs_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                let rhs_ty = self.normalization.normalize(*rhs_ty);
-                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
-                    && self.is_numeric(self_ty)
-            }
-            BuiltinTrait::BitAnd | BuiltinTrait::BitOr | BuiltinTrait::BitXor => {
-                let [rhs_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                let rhs_ty = self.normalization.normalize(*rhs_ty);
-                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
-                    && self.is_integer(self_ty)
-            }
-            BuiltinTrait::Shl | BuiltinTrait::Shr => {
-                let [rhs_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                let rhs_ty = self.normalization.normalize(*rhs_ty);
-                self.is_integer(self_ty) && self.is_integer(rhs_ty)
-            }
-            BuiltinTrait::Neg => required.trait_args.is_empty() && self.is_numeric(self_ty),
-            BuiltinTrait::BitNot => required.trait_args.is_empty() && self.is_integer(self_ty),
-            BuiltinTrait::Not => {
-                required.trait_args.is_empty()
-                    && self.types_equivalent_without_projection_resolution(self_ty, self.bool())
-            }
-            BuiltinTrait::Eq => {
-                let [rhs_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                let rhs_ty = self.normalization.normalize(*rhs_ty);
-                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
-                    && (self.is_numeric(self_ty)
-                        || self
-                            .types_equivalent_without_projection_resolution(self_ty, self.bool())
-                        || self.is_pointer(self_ty)
-                        || self.is_enum(self_ty))
-            }
-            BuiltinTrait::Ord => {
-                let [rhs_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                let rhs_ty = self.normalization.normalize(*rhs_ty);
-                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
-                    && self.is_numeric(self_ty)
-            }
-            BuiltinTrait::Sized => {
-                required.trait_args.is_empty() && self.layout_of(self_ty).is_some()
-            }
-            BuiltinTrait::DerefConst => {
-                required.trait_args.is_empty()
-                    && (self.current_context_has_source_trait_obligation(required)
-                        || self.builtin_deref_target_ty(self_ty).is_some())
-            }
-            BuiltinTrait::Deref => {
-                required.trait_args.is_empty()
-                    && (self.current_context_has_source_trait_obligation(required)
-                        || self.builtin_mut_deref_target_ty(self_ty).is_some())
-            }
-            BuiltinTrait::IndexConst => {
-                let [index_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                self.current_context_has_source_trait_obligation(required)
-                    || self.builtin_index_output_ty(self_ty, *index_ty).is_some()
-            }
-            BuiltinTrait::Index => {
-                let [index_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                self.current_context_has_source_trait_obligation(required)
-                    || self
-                        .builtin_mut_index_output_ty(self_ty, *index_ty)
-                        .is_some()
-            }
-            BuiltinTrait::SliceConst => {
-                let [range_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                self.current_context_has_source_trait_obligation(required)
-                    || (self.is_builtin_usize_range(*range_ty)
-                        && self.builtin_slice_output_ty(self_ty, false).is_some())
-            }
-            BuiltinTrait::Slice => {
-                let [range_ty] = required.trait_args.as_slice() else {
-                    return false;
-                };
-                self.current_context_has_source_trait_obligation(required)
-                    || (self.is_builtin_usize_range(*range_ty)
-                        && self.builtin_mut_slice_output_ty(self_ty).is_some())
-            }
-            BuiltinTrait::Len => {
-                required.trait_args.is_empty()
-                    && (self.current_context_has_source_trait_obligation(required)
-                        || self.builtin_len_output_ty(self_ty).is_some())
-            }
-            BuiltinTrait::GetPtrConst => {
-                required.trait_args.is_empty()
-                    && (self.current_context_has_source_trait_obligation(required)
-                        || self.builtin_get_ptr_target_ty(self_ty, false).is_some())
-            }
-            BuiltinTrait::GetPtr => {
-                required.trait_args.is_empty()
-                    && (self.current_context_has_source_trait_obligation(required)
-                        || self.builtin_get_ptr_target_ty(self_ty, true).is_some())
-            }
-        }
-    }
-
-    fn current_context_has_source_trait_obligation(&mut self, required: &TraitObligation) -> bool {
-        self.current_def_id
-            .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
-            .and_then(|def_id| {
-                let signature = self.signatures.functions.get(&def_id)?.clone();
-                Some(self.function_signature_trait_obligations(def_id, &signature))
-            })
-            .is_some_and(|obligations| {
-                obligations
-                    .iter()
-                    .any(|obligation| self.trait_obligations_equivalent(obligation, required))
-            })
+        solver.proves(TraitGoal {
+            self_ty: required.self_ty,
+            trait_id: required.trait_id,
+            trait_args: required.trait_args.clone(),
+        })
     }
 
     fn trait_obligations_equivalent(

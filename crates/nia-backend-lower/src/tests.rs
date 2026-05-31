@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_abi_check::check_module_abi;
-use nia_body_check::{
-    BodyCheckInput, ProgramSignatureMaps, check_module_bodies_with_program_signatures_and_layouts,
-};
+use nia_body_check::{BodyCheckInput, check_module_bodies_with_program_signatures_and_layouts};
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
 use nia_function_ir::{FunctionArrayElements, FunctionExprKind, FunctionOp, FunctionTerminator};
 use nia_function_lower::lower_function_body;
-use nia_item_signatures::collect_item_signatures;
+use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;

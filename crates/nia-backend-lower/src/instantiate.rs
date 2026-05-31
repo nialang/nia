@@ -11,7 +11,8 @@ use nia_function_ir::{
     FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
-use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
+use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolver};
+use nia_ty::{LayoutBuiltin, TyKind};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn generic_substitutions(
@@ -483,14 +484,23 @@ impl<'a> ModuleLowerer<'a> {
                     let callee = self.instantiate_callee(callee, substitutions);
                     if let FunctionCallee::BuiltinPlaceMethod {
                         trait_id,
-                        method: _,
+                        method,
                         self_ty,
                         trait_args,
                         receiver,
                         ..
                     } = &callee
+                        && matches!(
+                            self.resolve_builtin_trait_goal(
+                                *self_ty,
+                                *trait_id,
+                                trait_args.clone()
+                            ),
+                            TraitResolution::Intrinsic(_)
+                        )
                         && let Some(native_expr) = self.lower_native_builtin_place_method_call(
                             *trait_id,
+                            *method,
                             *self_ty,
                             trait_args,
                             receiver.as_ref().clone(),
@@ -507,40 +517,50 @@ impl<'a> ModuleLowerer<'a> {
                         receiver,
                     } = callee
                     {
-                        if let Some((def_id, target_args)) = self.resolve_builtin_place_method_impl(
-                            trait_id,
-                            &trait_args,
-                            method,
-                            self_ty,
-                        ) {
-                            return FunctionExpr {
-                                span: expr.span,
-                                ty: expr.ty,
-                                kind: FunctionExprKind::Call {
-                                    callee: FunctionCallee::Method {
-                                        def_id,
-                                        args: target_args,
-                                        receiver,
-                                    },
-                                    args,
-                                },
-                            };
-                        }
-                        if self.native_builtin_place_method_impl(trait_id, self_ty, &trait_args) {
-                            return FunctionExpr {
-                                span: expr.span,
-                                ty: expr.ty,
-                                kind: FunctionExprKind::Call {
-                                    callee: FunctionCallee::BuiltinPlaceMethod {
+                        match self.resolve_builtin_trait_goal(self_ty, trait_id, trait_args.clone())
+                        {
+                            TraitResolution::User(_) => {
+                                if let Some((def_id, target_args)) = self
+                                    .resolve_builtin_place_method_impl(
                                         trait_id,
+                                        &trait_args,
                                         method,
                                         self_ty,
-                                        trait_args,
-                                        receiver,
+                                    )
+                                {
+                                    return FunctionExpr {
+                                        span: expr.span,
+                                        ty: expr.ty,
+                                        kind: FunctionExprKind::Call {
+                                            callee: FunctionCallee::Method {
+                                                def_id,
+                                                args: target_args,
+                                                receiver,
+                                            },
+                                            args,
+                                        },
+                                    };
+                                }
+                            }
+                            TraitResolution::Intrinsic(_) => {
+                                return FunctionExpr {
+                                    span: expr.span,
+                                    ty: expr.ty,
+                                    kind: FunctionExprKind::Call {
+                                        callee: FunctionCallee::BuiltinPlaceMethod {
+                                            trait_id,
+                                            method,
+                                            self_ty,
+                                            trait_args,
+                                            receiver,
+                                        },
+                                        args,
                                     },
-                                    args,
-                                },
-                            };
+                                };
+                            }
+                            TraitResolution::Assumed(_)
+                            | TraitResolution::Unsatisfied
+                            | TraitResolution::Ambiguous => {}
                         }
                         self.diagnostics.push(nia_diagnostic::Diagnostic::error(
                             receiver.span,
@@ -889,15 +909,24 @@ impl<'a> ModuleLowerer<'a> {
     fn lower_native_builtin_place_method_call(
         &mut self,
         trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
         receiver: FunctionExpr,
         args: &[FunctionExpr],
     ) -> Option<FunctionExpr> {
         let receiver_span = receiver.span;
-        match (trait_id, trait_args, args) {
-            (BuiltinTrait::DerefConst | BuiltinTrait::Deref, [], []) => {
-                if !self.native_deref_trait_impl(trait_id, self_ty) {
+        match (trait_id, method, trait_args, args) {
+            (
+                BuiltinTrait::DerefConst | BuiltinTrait::Deref,
+                BuiltinTraitMethod::DerefConst | BuiltinTraitMethod::Deref,
+                [],
+                [],
+            ) => {
+                if !matches!(
+                    self.resolve_builtin_trait_goal(self_ty, trait_id, Vec::new()),
+                    TraitResolution::Intrinsic(_)
+                ) {
                     return None;
                 }
                 let elem = self.pointer_elem_ty(self_ty)?;
@@ -923,8 +952,16 @@ impl<'a> ModuleLowerer<'a> {
                     }),
                 })
             }
-            (BuiltinTrait::IndexConst | BuiltinTrait::Index, [index_ty], [index]) => {
-                if !self.native_index_trait_impl(trait_id, self_ty, *index_ty) {
+            (
+                BuiltinTrait::IndexConst | BuiltinTrait::Index,
+                BuiltinTraitMethod::IndexConst | BuiltinTraitMethod::Index,
+                [index_ty],
+                [index],
+            ) => {
+                if !matches!(
+                    self.resolve_builtin_trait_goal(self_ty, trait_id, vec![*index_ty]),
+                    TraitResolution::Intrinsic(_)
+                ) {
                     return None;
                 }
                 let elem = self.index_elem_ty(self_ty)?;
@@ -950,8 +987,16 @@ impl<'a> ModuleLowerer<'a> {
                     }),
                 })
             }
-            (BuiltinTrait::SliceConst | BuiltinTrait::Slice, [_range_ty], [range]) => {
-                if !self.native_slice_trait_impl(trait_id, self_ty) {
+            (
+                BuiltinTrait::SliceConst | BuiltinTrait::Slice,
+                BuiltinTraitMethod::SliceConst | BuiltinTraitMethod::Slice,
+                [_range_ty],
+                [range],
+            ) => {
+                if !matches!(
+                    self.resolve_builtin_trait_goal(self_ty, trait_id, trait_args.to_vec()),
+                    TraitResolution::Intrinsic(_)
+                ) {
                     return None;
                 }
                 let base = FunctionExpr {
@@ -981,110 +1026,40 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn native_deref_trait_impl(&self, trait_id: BuiltinTrait, self_ty: InternedTyId) -> bool {
-        match (trait_id, self.ty_kind(self_ty)) {
-            (BuiltinTrait::DerefConst, Some(TyKind::Pointer { elem, .. })) => !self.is_void(*elem),
-            (
-                BuiltinTrait::Deref,
-                Some(TyKind::Pointer {
-                    is_const: false,
-                    elem,
-                }),
-            ) => !self.is_void(*elem),
-            _ => false,
-        }
-    }
-
-    fn native_index_trait_impl(
-        &self,
-        trait_id: BuiltinTrait,
+    fn resolve_builtin_trait_goal(
+        &mut self,
         self_ty: InternedTyId,
-        index_ty: InternedTyId,
-    ) -> bool {
-        if !self.is_integral_ty(index_ty) {
-            return false;
-        }
-        match (trait_id, self.ty_kind(self_ty)) {
-            (
-                BuiltinTrait::IndexConst,
-                Some(TyKind::Array { .. } | TyKind::Pointer { .. } | TyKind::Slice { .. }),
-            ) => true,
-            (BuiltinTrait::Index, Some(TyKind::Array { .. })) => true,
-            (
-                BuiltinTrait::Index,
-                Some(
-                    TyKind::Pointer {
-                        is_const: false, ..
-                    }
-                    | TyKind::Slice {
-                        is_const: false, ..
-                    },
-                ),
-            ) => true,
-            _ => false,
-        }
-    }
-
-    fn native_slice_trait_impl(&self, trait_id: BuiltinTrait, self_ty: InternedTyId) -> bool {
-        match (trait_id, self.ty_kind(self_ty)) {
-            (
-                BuiltinTrait::SliceConst,
-                Some(TyKind::Array { .. } | TyKind::Pointer { .. } | TyKind::Slice { .. }),
-            ) => true,
-            (BuiltinTrait::Slice, Some(TyKind::Array { .. })) => true,
-            (
-                BuiltinTrait::Slice,
-                Some(
-                    TyKind::Pointer {
-                        is_const: false, ..
-                    }
-                    | TyKind::Slice {
-                        is_const: false, ..
-                    },
-                ),
-            ) => true,
-            _ => false,
-        }
-    }
-
-    fn native_builtin_place_method_impl(
-        &self,
         trait_id: BuiltinTrait,
-        self_ty: InternedTyId,
-        trait_args: &[InternedTyId],
-    ) -> bool {
-        if !trait_args.is_empty() {
-            return matches!(
-                (trait_id, self.ty_kind(self_ty)),
-                (
-                    BuiltinTrait::SliceConst,
-                    Some(TyKind::Array { .. } | TyKind::Pointer { .. } | TyKind::Slice { .. })
-                ) | (BuiltinTrait::Slice, Some(TyKind::Array { .. }))
-                    | (
-                        BuiltinTrait::Slice,
-                        Some(
-                            TyKind::Pointer {
-                                is_const: false,
-                                ..
-                            } | TyKind::Slice {
-                                is_const: false,
-                                ..
-                            }
-                        )
-                    )
-            );
-        }
-        match (trait_id, self.ty_kind(self_ty)) {
-            (BuiltinTrait::Len, Some(TyKind::Array { .. } | TyKind::Slice { .. })) => true,
-            (BuiltinTrait::GetPtrConst, Some(TyKind::Slice { .. })) => true,
-            (
-                BuiltinTrait::GetPtr,
-                Some(TyKind::Slice {
-                    is_const: false, ..
-                }),
-            ) => true,
-            _ => false,
-        }
+        trait_args: Vec<InternedTyId>,
+    ) -> TraitResolution {
+        let input = self.input;
+        let normalization = input.type_normalization;
+        let interner_snapshot = self.interner.clone();
+        let mut solver = TraitSolver {
+            interner: &mut self.interner,
+            normalization,
+            trait_impls: input.trait_impls,
+            assumptions: &[],
+            layouts: Some(input.layouts),
+            is_enum: move |ty| match normalization.normalize(ty) {
+                ty if ty.interner_id == interner_snapshot.interner_id() => {
+                    match interner_snapshot.get(ty) {
+                        Some(TyKind::Nominal { def_id, .. })
+                            if def_id.module_id == input.module_id =>
+                        {
+                            input.signatures.enums.contains_key(&def_id.def_id)
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
+        };
+        solver.resolve(TraitGoal {
+            self_ty,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args,
+        })
     }
 
     fn pointer_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
@@ -1101,30 +1076,6 @@ impl<'a> ModuleLowerer<'a> {
             | Some(TyKind::Slice { elem, .. }) => Some(*elem),
             _ => None,
         }
-    }
-
-    fn is_integral_ty(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.ty_kind(ty),
-            Some(TyKind::Primitive(
-                PrimitiveTy::I8
-                    | PrimitiveTy::I16
-                    | PrimitiveTy::I32
-                    | PrimitiveTy::I64
-                    | PrimitiveTy::I128
-                    | PrimitiveTy::Isize
-                    | PrimitiveTy::U8
-                    | PrimitiveTy::U16
-                    | PrimitiveTy::U32
-                    | PrimitiveTy::U64
-                    | PrimitiveTy::U128
-                    | PrimitiveTy::Usize
-            ))
-        )
-    }
-
-    fn is_void(&self, ty: InternedTyId) -> bool {
-        matches!(self.ty_kind(ty), Some(TyKind::Primitive(PrimitiveTy::Void)))
     }
 
     pub(crate) fn generic_params_in_extension_ty(&self, ty: InternedTyId) -> Vec<String> {
@@ -1367,37 +1318,30 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
-        for impl_signature in self.input.trait_impls {
-            if impl_signature.trait_id != trait_id {
-                continue;
-            }
-            let target_ty =
-                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
-            let impl_trait_args = impl_signature
-                .trait_args
-                .iter()
-                .map(|arg| self.import_type_from(&impl_signature.interner, *arg))
-                .collect::<Vec<_>>();
-            if !self.types_match(target_ty, self_ty)
-                || impl_trait_args.len() != trait_args.len()
-                || !impl_trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| self.types_match(*actual, *expected))
-            {
-                continue;
-            }
-            let associated_type = impl_signature
-                .associated_types
-                .iter()
-                .find(|associated_type| associated_type.name == name)?;
-            return Some(self.import_type_from(&impl_signature.interner, associated_type.ty));
-        }
-        None
-    }
-
-    fn import_type_from(&mut self, source: &nia_ty::TyInterner, ty: InternedTyId) -> InternedTyId {
-        nia_body_check::import_type_into(&mut self.interner, source, ty)
+        let input = self.input;
+        let normalization = input.type_normalization;
+        let interner_snapshot = self.interner.clone();
+        let mut solver = TraitSolver {
+            interner: &mut self.interner,
+            normalization,
+            trait_impls: input.trait_impls,
+            assumptions: &[],
+            layouts: Some(input.layouts),
+            is_enum: move |ty| match normalization.normalize(ty) {
+                ty if ty.interner_id == interner_snapshot.interner_id() => {
+                    match interner_snapshot.get(ty) {
+                        Some(TyKind::Nominal { def_id, .. })
+                            if def_id.module_id == input.module_id =>
+                        {
+                            input.signatures.enums.contains_key(&def_id.def_id)
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
+        };
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
     }
 
     fn import_extension_type(&mut self, ty: InternedTyId) -> InternedTyId {
@@ -1405,7 +1349,7 @@ impl<'a> ModuleLowerer<'a> {
             return ty;
         };
         if ty.interner_id == extension_interner.interner_id() {
-            nia_body_check::import_type_into(&mut self.interner, extension_interner, ty)
+            nia_ty::import_type_into(&mut self.interner, extension_interner, ty)
         } else {
             ty
         }

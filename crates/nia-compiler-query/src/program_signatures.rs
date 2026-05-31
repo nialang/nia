@@ -2,19 +2,19 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::LoadedModule;
-use nia_body_check::{
-    ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplSignature,
-    ProgramTraitSignature, ProgramUnionSignature, import_type_into,
-};
 use nia_defs::{
     DefCollection, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
     VisibleExtensionMethods,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId};
-use nia_item_signatures::{FunctionSignature, ItemSignatures, ParamSignature, TraitSignature};
-use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind};
+use nia_item_signatures::{
+    FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
+    ProgramTraitImplSignature, ProgramTraitSignature, ProgramUnionSignature, TraitSignature,
+};
+use nia_trait_solve::IntrinsicOverlap;
+use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind, import_type_into};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
@@ -701,87 +701,21 @@ fn builtin_trait_impl_overlaps_intrinsic(
         .as_ref()
         .and_then(|trait_ref| builtin_trait_ref_args(module, trait_ref, trait_id))
         .unwrap_or_default();
-    match trait_id {
-        BuiltinTrait::Add
-        | BuiltinTrait::Sub
-        | BuiltinTrait::Mul
-        | BuiltinTrait::Div
-        | BuiltinTrait::Rem => {
-            let Some(rhs_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_pattern_can_be_numeric(module, target_ty)
-                && type_patterns_can_match(module, target_ty, rhs_ty)
-        }
-        BuiltinTrait::BitAnd | BuiltinTrait::BitOr | BuiltinTrait::BitXor => {
-            let Some(rhs_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_pattern_can_be_integer(module, target_ty)
-                && type_patterns_can_match(module, target_ty, rhs_ty)
-        }
-        BuiltinTrait::Shl | BuiltinTrait::Shr => {
-            let Some(rhs_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_pattern_can_be_integer(module, target_ty)
-                && type_pattern_can_be_integer(module, rhs_ty)
-        }
-        BuiltinTrait::Neg => type_pattern_can_be_numeric(module, target_ty),
-        BuiltinTrait::BitNot => type_pattern_can_be_integer(module, target_ty),
-        BuiltinTrait::Not => type_pattern_can_be_bool(module, target_ty),
-        BuiltinTrait::Eq => {
-            let Some(rhs_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_patterns_can_match(module, target_ty, rhs_ty)
-                && (type_pattern_can_be_numeric(module, target_ty)
-                    || type_pattern_can_be_bool(module, target_ty)
-                    || type_pattern_can_be_pointer(module, target_ty)
-                    || type_pattern_can_be_enum(module, target_ty))
-        }
-        BuiltinTrait::Ord => {
-            let Some(rhs_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_patterns_can_match(module, target_ty, rhs_ty)
-                && type_pattern_can_be_numeric(module, target_ty)
-        }
-        BuiltinTrait::Sized => type_pattern_can_have_known_layout(module, target_ty),
-        BuiltinTrait::DerefConst => type_pattern_can_be_non_void_pointer(module, target_ty, false),
-        BuiltinTrait::Deref => type_pattern_can_be_non_void_pointer(module, target_ty, true),
-        BuiltinTrait::IndexConst => {
-            let Some(index_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_pattern_can_be_array_pointer_or_slice(module, target_ty, false)
-                && type_pattern_can_be_integer(module, index_ty)
-        }
-        BuiltinTrait::Index => {
-            let Some(index_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_pattern_can_be_array_pointer_or_slice(module, target_ty, true)
-                && type_pattern_can_be_integer(module, index_ty)
-        }
-        BuiltinTrait::SliceConst => {
-            let Some(range_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_pattern_can_be_array_pointer_or_slice(module, target_ty, false)
-                && type_pattern_can_be_usize_range(module, range_ty)
-        }
-        BuiltinTrait::Slice => {
-            let Some(range_ty) = trait_args.first().copied() else {
-                return false;
-            };
-            type_pattern_can_be_array_pointer_or_slice(module, target_ty, true)
-                && type_pattern_can_be_usize_range(module, range_ty)
-        }
-        BuiltinTrait::Len => type_pattern_can_be_array_or_slice(module, target_ty),
-        BuiltinTrait::GetPtrConst => type_pattern_can_be_slice(module, target_ty, false),
-        BuiltinTrait::GetPtr => type_pattern_can_be_slice(module, target_ty, true),
+    IntrinsicOverlap {
+        interner: &module.lowering.interner,
+        normalization: module.normalization,
+        is_enum: |ty| match module
+            .lowering
+            .interner
+            .get(module.normalization.normalize(ty))
+        {
+            Some(TyKind::Nominal { def_id, .. }) if def_id.module_id == module.module.id => {
+                module.signatures.enums.contains_key(&def_id.def_id)
+            }
+            _ => false,
+        },
     }
+    .overlaps_builtin_trait(target_ty, trait_id, &trait_args)
 }
 
 fn builtin_trait_method_signature_matches(
@@ -1157,261 +1091,6 @@ fn types_equivalent(
                     .zip(right_args)
                     .all(|(left, right)| types_equivalent(interner, *left, *right))
         }
-        _ => false,
-    }
-}
-
-fn type_patterns_can_match(
-    module: &ExtensionModuleInput<'_>,
-    left: nia_ids::InternedTyId,
-    right: nia_ids::InternedTyId,
-) -> bool {
-    let left = module.normalization.normalize(left);
-    let right = module.normalization.normalize(right);
-    if types_equivalent(&module.lowering.interner, left, right) {
-        return true;
-    }
-    match (
-        module.lowering.interner.get(left),
-        module.lowering.interner.get(right),
-    ) {
-        (Some(TyKind::GenericParam(_)), _) | (_, Some(TyKind::GenericParam(_))) => true,
-        (
-            Some(TyKind::Pointer {
-                is_const: left_const,
-                elem: left_elem,
-            }),
-            Some(TyKind::Pointer {
-                is_const: right_const,
-                elem: right_elem,
-            }),
-        )
-        | (
-            Some(TyKind::Slice {
-                is_const: left_const,
-                elem: left_elem,
-            }),
-            Some(TyKind::Slice {
-                is_const: right_const,
-                elem: right_elem,
-            }),
-        ) => left_const == right_const && type_patterns_can_match(module, *left_elem, *right_elem),
-        (
-            Some(TyKind::Array {
-                elem: left_elem, ..
-            }),
-            Some(TyKind::Array {
-                elem: right_elem, ..
-            }),
-        ) => type_patterns_can_match(module, *left_elem, *right_elem),
-        (
-            Some(TyKind::Range {
-                kind: left_kind,
-                bound: left_bound,
-            }),
-            Some(TyKind::Range {
-                kind: right_kind,
-                bound: right_bound,
-            }),
-        ) => {
-            left_kind == right_kind
-                && match (left_bound, right_bound) {
-                    (Some(left_bound), Some(right_bound)) => {
-                        type_patterns_can_match(module, *left_bound, *right_bound)
-                    }
-                    (None, None) => true,
-                    _ => false,
-                }
-        }
-        _ => false,
-    }
-}
-
-fn type_pattern_can_be_numeric(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-) -> bool {
-    type_pattern_can_be_integer(module, ty)
-        || matches!(
-            module
-                .lowering
-                .interner
-                .get(module.normalization.normalize(ty)),
-            Some(TyKind::GenericParam(_))
-                | Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
-        )
-}
-
-fn type_pattern_can_be_integer(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-) -> bool {
-    matches!(
-        module
-            .lowering
-            .interner
-            .get(module.normalization.normalize(ty)),
-        Some(TyKind::GenericParam(_))
-            | Some(TyKind::Primitive(
-                PrimitiveTy::I8
-                    | PrimitiveTy::I16
-                    | PrimitiveTy::I32
-                    | PrimitiveTy::I64
-                    | PrimitiveTy::I128
-                    | PrimitiveTy::Isize
-                    | PrimitiveTy::U8
-                    | PrimitiveTy::U16
-                    | PrimitiveTy::U32
-                    | PrimitiveTy::U64
-                    | PrimitiveTy::U128
-                    | PrimitiveTy::Usize
-            ))
-    )
-}
-
-fn type_pattern_can_be_bool(module: &ExtensionModuleInput<'_>, ty: nia_ids::InternedTyId) -> bool {
-    matches!(
-        module
-            .lowering
-            .interner
-            .get(module.normalization.normalize(ty)),
-        Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Bool))
-    )
-}
-
-fn type_pattern_can_be_pointer(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-) -> bool {
-    matches!(
-        module
-            .lowering
-            .interner
-            .get(module.normalization.normalize(ty)),
-        Some(TyKind::GenericParam(_))
-            | Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
-    )
-}
-
-fn type_pattern_can_be_enum(module: &ExtensionModuleInput<'_>, ty: nia_ids::InternedTyId) -> bool {
-    match module
-        .lowering
-        .interner
-        .get(module.normalization.normalize(ty))
-    {
-        Some(TyKind::GenericParam(_)) => true,
-        Some(TyKind::Nominal { def_id, .. }) if def_id.module_id == module.module.id => {
-            module.signatures.enums.contains_key(&def_id.def_id)
-        }
-        _ => false,
-    }
-}
-
-fn type_pattern_can_have_known_layout(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-) -> bool {
-    !matches!(
-        module
-            .lowering
-            .interner
-            .get(module.normalization.normalize(ty)),
-        Some(TyKind::Error | TyKind::Primitive(PrimitiveTy::Never)) | None
-    )
-}
-
-fn type_pattern_can_be_non_void_pointer(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-    mutable: bool,
-) -> bool {
-    match module
-        .lowering
-        .interner
-        .get(module.normalization.normalize(ty))
-    {
-        Some(TyKind::GenericParam(_)) => true,
-        Some(TyKind::Pointer { is_const, elem }) => {
-            (!mutable || !*is_const)
-                && !matches!(
-                    module
-                        .lowering
-                        .interner
-                        .get(module.normalization.normalize(*elem)),
-                    Some(TyKind::Primitive(PrimitiveTy::Void))
-                )
-        }
-        _ => false,
-    }
-}
-
-fn type_pattern_can_be_array_pointer_or_slice(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-    mutable: bool,
-) -> bool {
-    match module
-        .lowering
-        .interner
-        .get(module.normalization.normalize(ty))
-    {
-        Some(TyKind::GenericParam(_)) | Some(TyKind::Array { .. }) => true,
-        Some(TyKind::Pointer { is_const, .. } | TyKind::Slice { is_const, .. }) => {
-            !mutable || !*is_const
-        }
-        _ => false,
-    }
-}
-
-fn type_pattern_can_be_array_or_slice(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-) -> bool {
-    matches!(
-        module
-            .lowering
-            .interner
-            .get(module.normalization.normalize(ty)),
-        Some(TyKind::GenericParam(_)) | Some(TyKind::Array { .. } | TyKind::Slice { .. })
-    )
-}
-
-fn type_pattern_can_be_slice(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-    mutable: bool,
-) -> bool {
-    match module
-        .lowering
-        .interner
-        .get(module.normalization.normalize(ty))
-    {
-        Some(TyKind::GenericParam(_)) => true,
-        Some(TyKind::Slice { is_const, .. }) => !mutable || !*is_const,
-        _ => false,
-    }
-}
-
-fn type_pattern_can_be_usize_range(
-    module: &ExtensionModuleInput<'_>,
-    ty: nia_ids::InternedTyId,
-) -> bool {
-    match module
-        .lowering
-        .interner
-        .get(module.normalization.normalize(ty))
-    {
-        Some(TyKind::GenericParam(_)) => true,
-        Some(TyKind::Range { bound: None, .. }) => true,
-        Some(TyKind::Range {
-            bound: Some(bound), ..
-        }) => matches!(
-            module
-                .lowering
-                .interner
-                .get(module.normalization.normalize(*bound)),
-            Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Usize))
-        ),
         _ => false,
     }
 }

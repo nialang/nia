@@ -30,6 +30,7 @@ nia-source.workspace = true
 nia-span.workspace = true
 nia-static-check.workspace = true
 nia-ty.workspace = true
+nia-trait-solve.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true
 nia-type-resolve.workspace = true

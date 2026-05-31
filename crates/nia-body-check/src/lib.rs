@@ -12,7 +12,7 @@ mod projection_obligations;
 mod static_init;
 mod type_support;
 
-pub use calls::import_type_into;
+pub use nia_ty::import_type_into;
 
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, ForInit, FunctionItem, ItemKind, Module, Stmt, StmtKind,
@@ -24,10 +24,12 @@ use nia_body_ir::{
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, TraitId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{
-    ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
-    StructSignature, TraitSignature, UnionSignature,
+    EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
+    ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+    ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
@@ -43,69 +45,6 @@ use nia_value_resolve::ValueResolution;
 pub struct BodyCheck {
     pub ir: BodyIr,
     pub diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramFunctionSignature {
-    pub signature: FunctionSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramGlobalSignature {
-    pub signature: GlobalSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramComptimeSignature {
-    pub signature: ComptimeSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramStructSignature {
-    pub signature: StructSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramUnionSignature {
-    pub signature: UnionSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramEnumSignature {
-    pub signature: nia_item_signatures::EnumSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramTraitSignature {
-    pub signature: TraitSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramTraitImplSignature {
-    pub target_ty: InternedTyId,
-    pub trait_id: TraitId,
-    pub trait_args: Vec<InternedTyId>,
-    pub associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ProgramSignatureMaps<'a> {
-    pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
-    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
-    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
-    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
-    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 #[derive(Debug, Clone, Copy)]

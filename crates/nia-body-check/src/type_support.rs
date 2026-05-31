@@ -11,7 +11,8 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
+use nia_trait_solve::TraitSolver;
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
 use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
@@ -168,141 +169,33 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
-        let impls = self.program_trait_impls.to_vec();
-        let mut matches = Vec::new();
-        for impl_signature in impls {
-            if impl_signature.trait_id != trait_id {
-                continue;
-            }
-            let target_ty =
-                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
-            let impl_trait_args = impl_signature
-                .trait_args
-                .iter()
-                .map(|arg| self.import_type_from(&impl_signature.interner, *arg))
-                .collect::<Vec<_>>();
-            if !self.types_match(target_ty, self_ty)
-                || impl_trait_args.len() != trait_args.len()
-                || !impl_trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| self.types_match(*actual, *expected))
-            {
-                continue;
-            }
-            let Some(associated_type) = impl_signature
-                .associated_types
-                .iter()
-                .find(|associated_type| associated_type.name == name)
-            else {
-                continue;
-            };
-            matches.push(self.import_type_from(&impl_signature.interner, associated_type.ty));
-        }
-        match matches.as_slice() {
-            [ty] => Some(*ty),
-            _ => match trait_id {
-                TraitId::Builtin(trait_id) => self.resolve_builtin_associated_type_projection(
-                    self_ty, trait_id, trait_args, name,
-                ),
-                TraitId::Source(_) => None,
+        let assumptions = self.current_trait_goals();
+        let program_enums = self.program_enums;
+        let signatures = self.signatures;
+        let defs_module_id = self.defs.module_id;
+        let interner_snapshot = self.interner.clone();
+        let mut solver = TraitSolver {
+            interner: &mut self.interner,
+            normalization: self.normalization,
+            trait_impls: self.program_trait_impls,
+            assumptions: &assumptions,
+            layouts: Some(self.layouts),
+            is_enum: |ty| match self.normalization.normalize(ty) {
+                ty if ty.interner_id == interner_snapshot.interner_id() => {
+                    match interner_snapshot.get(ty) {
+                        Some(TyKind::Nominal { def_id, .. })
+                            if def_id.module_id == defs_module_id =>
+                        {
+                            signatures.enums.contains_key(&def_id.def_id)
+                        }
+                        Some(TyKind::Nominal { def_id, .. }) => program_enums.contains_key(def_id),
+                        _ => false,
+                    }
+                }
+                _ => false,
             },
-        }
-    }
-
-    fn resolve_builtin_associated_type_projection(
-        &mut self,
-        self_ty: InternedTyId,
-        trait_id: nia_ty::BuiltinTrait,
-        trait_args: &[InternedTyId],
-        name: &str,
-    ) -> Option<InternedTyId> {
-        if !trait_id.has_associated_type(name) {
-            return None;
-        }
-        if matches!(trait_id, BuiltinTrait::DerefConst | BuiltinTrait::Deref) {
-            if name != BuiltinTrait::TARGET_ASSOC_TYPE || !trait_args.is_empty() {
-                return None;
-            }
-            return self.builtin_deref_target_ty(self_ty);
-        }
-        if matches!(trait_id, BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr) {
-            if name != BuiltinTrait::TARGET_ASSOC_TYPE || !trait_args.is_empty() {
-                return None;
-            }
-            return self
-                .builtin_get_ptr_target_ty(self_ty, matches!(trait_id, BuiltinTrait::GetPtr));
-        }
-        if matches!(trait_id, BuiltinTrait::IndexConst | BuiltinTrait::Index) {
-            if name != BuiltinTrait::OUTPUT_ASSOC_TYPE {
-                return None;
-            }
-            let [index_ty] = trait_args else {
-                return None;
-            };
-            return self.builtin_index_output_ty(self_ty, *index_ty);
-        }
-        if matches!(trait_id, BuiltinTrait::SliceConst | BuiltinTrait::Slice) {
-            if name != BuiltinTrait::OUTPUT_ASSOC_TYPE {
-                return None;
-            }
-            let [range_ty] = trait_args else {
-                return None;
-            };
-            if !self.is_builtin_usize_range(*range_ty) {
-                return None;
-            }
-            return self.builtin_slice_output_ty(self_ty, matches!(trait_id, BuiltinTrait::Slice));
-        }
-        if name != BuiltinTrait::OUTPUT_ASSOC_TYPE {
-            return None;
-        }
-        let rhs_ty = trait_args.first().copied();
-        if self.current_context_proves_trait_obligation(
-            self_ty,
-            TraitId::Builtin(trait_id),
-            trait_args.to_vec(),
-        ) {
-            return Some(self_ty);
-        }
-        if let Some(rhs_ty) = rhs_ty
-            && self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
-            && ((self.is_numeric(self_ty)
-                && matches!(
-                    trait_id,
-                    nia_ty::BuiltinTrait::Add
-                        | nia_ty::BuiltinTrait::Sub
-                        | nia_ty::BuiltinTrait::Mul
-                        | nia_ty::BuiltinTrait::Div
-                        | nia_ty::BuiltinTrait::Rem
-                ))
-                || (self.is_integer(self_ty)
-                    && matches!(
-                        trait_id,
-                        nia_ty::BuiltinTrait::BitAnd
-                            | nia_ty::BuiltinTrait::BitOr
-                            | nia_ty::BuiltinTrait::BitXor
-                    )))
-        {
-            return Some(self_ty);
-        }
-        if let Some(rhs_ty) = rhs_ty
-            && self.is_integer(self_ty)
-            && self.is_integer(rhs_ty)
-            && matches!(
-                trait_id,
-                nia_ty::BuiltinTrait::Shl | nia_ty::BuiltinTrait::Shr
-            )
-        {
-            return Some(self_ty);
-        }
-        if trait_args.is_empty()
-            && ((self.is_numeric(self_ty) && matches!(trait_id, nia_ty::BuiltinTrait::Neg))
-                || (self.is_integer(self_ty) && matches!(trait_id, nia_ty::BuiltinTrait::BitNot)))
-        {
-            return Some(self_ty);
-        }
-        None
+        };
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
     }
 
     pub(crate) fn builtin_deref_target_ty(
@@ -319,19 +212,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn builtin_mut_deref_target_ty(
-        &mut self,
-        self_ty: InternedTyId,
-    ) -> Option<InternedTyId> {
-        match self.interner.get(self.normalization.normalize(self_ty)) {
-            Some(TyKind::Pointer {
-                is_const: false,
-                elem,
-            }) if self.normalization.normalize(*elem) != self.void() => Some(*elem),
-            _ => None,
-        }
-    }
-
     pub(crate) fn builtin_index_output_ty(
         &mut self,
         self_ty: InternedTyId,
@@ -344,28 +224,6 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Array { elem, .. })
             | Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::Slice { elem, .. }) => Some(*elem),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn builtin_mut_index_output_ty(
-        &mut self,
-        self_ty: InternedTyId,
-        index_ty: InternedTyId,
-    ) -> Option<InternedTyId> {
-        if !self.is_integer(index_ty) {
-            return None;
-        }
-        match self.interner.get(self.normalization.normalize(self_ty)) {
-            Some(TyKind::Array { elem, .. })
-            | Some(TyKind::Pointer {
-                is_const: false,
-                elem,
-            })
-            | Some(TyKind::Slice {
-                is_const: false,
-                elem,
-            }) => Some(*elem),
             _ => None,
         }
     }
@@ -404,52 +262,6 @@ impl<'a> BodyChecker<'a> {
                 elem: *elem,
             })),
             _ => None,
-        }
-    }
-
-    pub(crate) fn builtin_len_output_ty(&mut self, self_ty: InternedTyId) -> Option<InternedTyId> {
-        match self.interner.get(self.normalization.normalize(self_ty)) {
-            Some(TyKind::Array { .. } | TyKind::Slice { .. }) => {
-                Some(self.primitive(PrimitiveTy::Usize))
-            }
-            _ => None,
-        }
-    }
-
-    pub(crate) fn builtin_get_ptr_target_ty(
-        &mut self,
-        self_ty: InternedTyId,
-        is_mut: bool,
-    ) -> Option<InternedTyId> {
-        match self.interner.get(self.normalization.normalize(self_ty)) {
-            Some(TyKind::Slice {
-                is_const: false,
-                elem,
-            }) if is_mut => Some(*elem),
-            Some(TyKind::Slice {
-                is_const: true,
-                elem,
-            }) if !is_mut => Some(*elem),
-            Some(TyKind::Slice {
-                is_const: false,
-                elem,
-            }) if !is_mut => Some(*elem),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn is_builtin_usize_range(&self, ty: InternedTyId) -> bool {
-        let ty = self.normalization.normalize(ty);
-        let Some(TyKind::Range { kind, bound }) = self.interner.get(ty) else {
-            return false;
-        };
-        match (kind, bound) {
-            (nia_ty::RangeTyKind::Full, None) => true,
-            (_, Some(bound)) => self.types_equivalent_without_projection_resolution(
-                *bound,
-                self.primitive(PrimitiveTy::Usize),
-            ),
-            _ => false,
         }
     }
 
