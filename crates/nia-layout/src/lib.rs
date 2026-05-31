@@ -7,7 +7,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetDataLayout {
@@ -331,24 +331,20 @@ impl<'a> LayoutComputer<'a> {
                 };
                 value
             }
-            ArrayLenTy::Builtin { name, ty } => {
+            ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_ty(ty, span) else {
                     self.diagnostics.push(Diagnostic::error(
                         span,
-                        format!("cannot compute layout for array length builtin `@{name}`"),
+                        format!(
+                            "cannot compute layout for array length builtin `@{}`",
+                            builtin.name()
+                        ),
                     ));
                     return None;
                 };
-                match name.as_str() {
-                    "size" => layout.size,
-                    "align" => layout.align,
-                    _ => {
-                        self.diagnostics.push(Diagnostic::error(
-                            span,
-                            format!("unsupported array length builtin `@{name}`"),
-                        ));
-                        return None;
-                    }
+                match builtin {
+                    LayoutBuiltin::Size => layout.size,
+                    LayoutBuiltin::Align => layout.align,
                 }
             }
         };
@@ -700,8 +696,8 @@ fn substitute_array_len_generics(
     substitutions: &HashMap<String, InternedTyId>,
 ) -> ArrayLenTy {
     match len {
-        ArrayLenTy::Builtin { name, ty } => ArrayLenTy::Builtin {
-            name,
+        ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+            builtin,
             ty: substitute_generics(interner, ty, substitutions),
         },
         ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
@@ -831,18 +827,18 @@ fn main(xs: [@size[Pair]()]u8, ys: [@align[Pair]()]u8) {}
             matches!(
                 ty,
                 TyKind::Array {
-                    len: ArrayLenTy::Builtin { name, .. },
+                    len: ArrayLenTy::Builtin { builtin, .. },
                     ..
-                } if name == "size"
+                } if *builtin == LayoutBuiltin::Size
             ) && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 8, align: 1 })
         }));
         assert!(lowered.interner.iter().any(|(ty_id, ty)| {
             matches!(
                 ty,
                 TyKind::Array {
-                    len: ArrayLenTy::Builtin { name, .. },
+                    len: ArrayLenTy::Builtin { builtin, .. },
                     ..
-                } if name == "align"
+                } if *builtin == LayoutBuiltin::Align
             ) && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 4, align: 1 })
         }));
     }

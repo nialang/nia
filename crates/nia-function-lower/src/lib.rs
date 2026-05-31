@@ -1500,8 +1500,8 @@ impl FunctionLowerer {
     fn lower_builtin_value(value: &BuiltinConst) -> FunctionBuiltinValue {
         match value {
             BuiltinConst::Usize(value) => FunctionBuiltinValue::Usize(*value),
-            BuiltinConst::Layout { name, ty } => FunctionBuiltinValue::Layout {
-                name: name.clone(),
+            BuiltinConst::Layout { builtin, ty } => FunctionBuiltinValue::Layout {
+                builtin: *builtin,
                 ty: *ty,
             },
             BuiltinConst::Int(value) => FunctionBuiltinValue::Int(*value),

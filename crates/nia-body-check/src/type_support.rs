@@ -11,7 +11,7 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyKind};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
 use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
@@ -213,7 +213,7 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
-        if name != "Output" || !trait_id.has_associated_type(name) {
+        if name != nia_ty::BuiltinTrait::OUTPUT_ASSOC_TYPE || !trait_id.has_associated_type(name) {
             return None;
         }
         let rhs_ty = trait_args.first().copied();
@@ -725,16 +725,16 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(*id)
                 .ok_or_else(|| "array length was not evaluated by comptime".to_string()),
-            ArrayLenTy::Builtin { name, ty } => {
+            ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
                     return Err(format!(
-                        "cannot compute layout for array length builtin `@{name}`"
+                        "cannot compute layout for array length builtin `@{}`",
+                        builtin.name()
                     ));
                 };
-                match name.as_str() {
-                    "size" => Ok(layout.size),
-                    "align" => Ok(layout.align),
-                    _ => Err(format!("unsupported array length builtin `@{name}`")),
+                match builtin {
+                    LayoutBuiltin::Size => Ok(layout.size),
+                    LayoutBuiltin::Align => Ok(layout.align),
                 }
             }
             ArrayLenTy::Infer => Err(format!("array length at {span:?} is not concrete")),
@@ -802,7 +802,9 @@ impl<'a> BodyChecker<'a> {
                 .array_len_const_expr_value(*id)
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "<unevaluated const>".to_string()),
-            ArrayLenTy::Builtin { name, ty } => format!("@{name}[{}]()", self.ty_name(*ty)),
+            ArrayLenTy::Builtin { builtin, ty } => {
+                format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
+            }
         }
     }
 

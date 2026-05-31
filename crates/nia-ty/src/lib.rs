@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-pub use nia_ids::{BuiltinTrait, TraitId};
+pub use nia_ids::{BuiltinTrait, LayoutBuiltin, TraitId};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -69,7 +69,10 @@ pub enum ArrayLenTy {
     Infer,
     ConstValue(u64),
     ConstExpr(GlobalConstExprId),
-    Builtin { name: String, ty: InternedTyId },
+    Builtin {
+        builtin: LayoutBuiltin,
+        ty: InternedTyId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

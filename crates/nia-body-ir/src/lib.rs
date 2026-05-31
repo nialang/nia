@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
@@ -34,7 +34,10 @@ pub struct BodyIr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinValue {
     Usize(u64),
-    Layout { name: String, ty: InternedTyId },
+    Layout {
+        builtin: LayoutBuiltin,
+        ty: InternedTyId,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -294,7 +297,10 @@ pub struct TypedSliceRange {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BuiltinConst {
     Usize(u64),
-    Layout { name: String, ty: InternedTyId },
+    Layout {
+        builtin: LayoutBuiltin,
+        ty: InternedTyId,
+    },
     Int(i128),
 }
 

@@ -484,7 +484,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty: lhs_ty,
                 trait_id: TraitId::Builtin(trait_id),
                 trait_args,
-                name: "Output".to_string(),
+                name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
             });
             self.normalize_projection(output)
         };
@@ -530,7 +530,7 @@ impl<'a> BodyChecker<'a> {
             self_ty: inner_ty,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: Vec::new(),
-            name: "Output".to_string(),
+            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(output)
     }

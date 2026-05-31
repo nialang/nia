@@ -319,9 +319,9 @@ impl<'a> BodyChecker<'a> {
                 Some(BuiltinValue::Usize(value)) => {
                     TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
                 }
-                Some(BuiltinValue::Layout { name, ty }) => {
+                Some(BuiltinValue::Layout { builtin, ty }) => {
                     TypedExprKind::BuiltinValue(BuiltinConst::Layout {
-                        name: name.clone(),
+                        builtin: *builtin,
                         ty: *ty,
                     })
                 }

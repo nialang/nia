@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_ids::{InternedTyId, LocalId};
+use nia_ids::{InternedTyId, LayoutBuiltin, LocalId};
 use nia_span::Span;
 use nia_ty::BuiltinTrait;
 
@@ -236,7 +236,10 @@ pub struct FunctionInlineAsm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionBuiltinValue {
     Usize(u64),
-    Layout { name: String, ty: InternedTyId },
+    Layout {
+        builtin: LayoutBuiltin,
+        ty: InternedTyId,
+    },
     Int(i128),
 }
 
