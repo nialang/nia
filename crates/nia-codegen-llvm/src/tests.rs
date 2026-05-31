@@ -1595,8 +1595,8 @@ fn main() i32 {
     var cell: Cell = { value: 1 };
     var first = cell.*;
     cell.* = 3;
-    var second = cell[0usize];
-    cell[0usize] = 5;
+    var second = cell[0];
+    cell[0] = 5;
     first + second + cell.value
 }
 "#,

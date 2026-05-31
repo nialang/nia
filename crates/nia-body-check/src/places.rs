@@ -11,6 +11,61 @@ use nia_ty::{BuiltinTrait, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn check_assignment_lhs(&mut self, expr: &Expr) -> InternedTyId {
+        let ty = match &expr.kind {
+            ExprKind::Field { lhs, name } => {
+                let lhs_ty = self.check_assignment_lhs(lhs);
+                self.field_access_type_from_lhs_ty(expr.span, lhs_ty, name)
+            }
+            ExprKind::Index {
+                lhs,
+                index: IndexArg::Expr(index),
+            } => {
+                let lhs_ty = self.check_assignment_lhs(lhs);
+                let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
+                self.expect_integer(index.span, index_ty, "index");
+                let index_ty = self
+                    .expr_types
+                    .get(&index.span)
+                    .copied()
+                    .unwrap_or(index_ty);
+                if index_ty == self.error() {
+                    return self.error();
+                }
+                self.index_result_type_for_write_index(expr.span, lhs_ty, index_ty)
+            }
+            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr.span) => {
+                let lhs_ty = self.check_assignment_lhs(callee);
+                if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
+                    let index_ty =
+                        self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
+                    self.expect_integer(index.span, index_ty, "index");
+                    let index_ty = self
+                        .expr_types
+                        .get(&index.span)
+                        .copied()
+                        .unwrap_or(index_ty);
+                    if index_ty == self.error() {
+                        return self.error();
+                    }
+                    self.index_result_type_for_write_index(expr.span, lhs_ty, index_ty)
+                } else {
+                    self.check_expr(expr)
+                }
+            }
+            ExprKind::Unary {
+                op: UnaryOp::Deref,
+                expr: inner,
+            } => {
+                let inner_ty = self.check_expr(inner);
+                self.deref_result_type_for_write(expr.span, inner_ty)
+            }
+            _ => self.check_expr(expr),
+        };
+        self.record_expr_type(expr.span, ty);
+        ty
+    }
+
     pub(crate) fn assignable_expr_type(&mut self, expr: &Expr) -> InternedTyId {
         let ty = self
             .expr_types
@@ -373,6 +428,98 @@ impl<'a> BodyChecker<'a> {
         self.normalize_projection(output)
     }
 
+    pub(crate) fn index_result_type_for_write_index(
+        &mut self,
+        span: Span,
+        lhs_ty: InternedTyId,
+        index_ty: InternedTyId,
+    ) -> InternedTyId {
+        if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
+            return self.error();
+        }
+        let trait_args = vec![index_ty];
+        if !self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(BuiltinTrait::Index),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(BuiltinTrait::Index, &trait_args)
+                ),
+            ));
+            return self.error();
+        }
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: lhs_ty,
+            trait_id: TraitId::Builtin(BuiltinTrait::Index),
+            trait_args,
+            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(output)
+    }
+
+    pub(crate) fn check_index_expr_for_trait(
+        &mut self,
+        lhs_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        index: &Expr,
+    ) -> InternedTyId {
+        match self.index_literal_expected_type(lhs_ty, trait_id, index) {
+            IndexLiteralExpectedType::Known(index_expected) => {
+                let index_ty = self.check_expr_with_expected(index, Some(index_expected));
+                self.expect_expr_type(index, index_expected, index_ty, "index");
+                index_ty
+            }
+            IndexLiteralExpectedType::Ambiguous => {
+                self.check_expr(index);
+                self.diagnostics.push(Diagnostic::error(
+                    index.span,
+                    format!(
+                        "ambiguous index literal type for {}; add a literal suffix or type annotation",
+                        self.builtin_trait_ty_name(trait_id, &[])
+                    ),
+                ));
+                self.error()
+            }
+            IndexLiteralExpectedType::Unknown => self.check_expr(index),
+        }
+    }
+
+    fn index_literal_expected_type(
+        &mut self,
+        lhs_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        index: &Expr,
+    ) -> IndexLiteralExpectedType {
+        if self.numeric_literal_has_suffix(index) || !self.is_numeric_literal_expr(index) {
+            return IndexLiteralExpectedType::Unknown;
+        }
+        let candidates = self.visible_trait_arg_candidates(lhs_ty, TraitId::Builtin(trait_id));
+        let mut index_candidates = Vec::new();
+        for candidate in candidates {
+            let [index_ty] = candidate.as_slice() else {
+                continue;
+            };
+            let index_ty = self.normalization.normalize(*index_ty);
+            if self.is_integer(index_ty)
+                && !index_candidates.iter().any(|existing| {
+                    self.types_equivalent_without_projection_resolution(*existing, index_ty)
+                })
+            {
+                index_candidates.push(index_ty);
+            }
+        }
+        match index_candidates.as_slice() {
+            [index_ty] => IndexLiteralExpectedType::Known(*index_ty),
+            [] => IndexLiteralExpectedType::Unknown,
+            _ => IndexLiteralExpectedType::Ambiguous,
+        }
+    }
+
     fn index_write_not_assignable_reason(
         &mut self,
         lhs: &Expr,
@@ -436,6 +583,38 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(crate) fn deref_result_type_for_write(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+    ) -> InternedTyId {
+        let has_deref = self.current_context_proves_trait_obligation(
+            ty,
+            TraitId::Builtin(BuiltinTrait::Deref),
+            Vec::new(),
+        );
+        match self.interner.get(ty) {
+            Some(TyKind::Pointer { elem, .. })
+                if self.normalization.normalize(*elem) == self.void() =>
+            {
+                self.diagnostics
+                    .push(Diagnostic::error(span, "cannot dereference `&void`"));
+                self.error()
+            }
+            Some(TyKind::Error) | None => self.error(),
+            _ if has_deref => {
+                let target = self.interner.intern(TyKind::Projection {
+                    self_ty: ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::Deref),
+                    trait_args: Vec::new(),
+                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                });
+                self.normalize_projection(target)
+            }
+            _ => self.deref_result_type(span, ty),
+        }
+    }
+
     pub(crate) fn is_place_expr(&self, expr: &Expr) -> bool {
         if self.values.qualified_values.contains_key(&expr.span) {
             return true;
@@ -466,4 +645,10 @@ impl<'a> BodyChecker<'a> {
             Some(BracketSuffixResolution::Index)
         )
     }
+}
+
+enum IndexLiteralExpectedType {
+    Known(InternedTyId),
+    Ambiguous,
+    Unknown,
 }

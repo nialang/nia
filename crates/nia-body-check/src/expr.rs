@@ -142,7 +142,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     self.void()
                 } else {
-                    self.check_expr(lhs);
+                    self.check_assignment_lhs(lhs);
                     self.check_assignable(lhs, "assignment target");
                     let lhs_ty = self.assignable_expr_type(lhs);
                     let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
@@ -183,8 +183,20 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
                 match index {
                     IndexArg::Expr(index) => {
-                        let index_ty = self.check_expr(index);
+                        let index_ty = self.check_index_expr_for_trait(
+                            lhs_ty,
+                            BuiltinTrait::IndexConst,
+                            index,
+                        );
                         self.expect_integer(index.span, index_ty, "index");
+                        let index_ty = self
+                            .expr_types
+                            .get(&index.span)
+                            .copied()
+                            .unwrap_or(index_ty);
+                        if index_ty == self.error() {
+                            return self.error();
+                        }
                         self.index_result_type_for_index(expr.span, lhs_ty, index_ty)
                     }
                     IndexArg::Range(range) => {
@@ -625,8 +637,16 @@ impl<'a> BodyChecker<'a> {
             self.record_bracket_suffix_resolution(span, BracketSuffixResolution::Index);
             let lhs_expected = self.array_expected_from_index_expected(expected);
             let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
-            let index_ty = self.check_expr(index);
+            let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexConst, index);
             self.expect_integer(index.span, index_ty, "index");
+            let index_ty = self
+                .expr_types
+                .get(&index.span)
+                .copied()
+                .unwrap_or(index_ty);
+            if index_ty == self.error() {
+                return self.error();
+            }
             return self.index_result_type_for_index(span, lhs_ty, index_ty);
         }
         if args.len() > 1 {
