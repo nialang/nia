@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ids::{BuiltinAssociatedType, BuiltinTrait, InternedTyId, TraitId};
-use nia_item_signatures::ProgramTraitImplSignature;
+use std::collections::HashMap;
+
+use nia_ids::{
+    BuiltinAssociatedType, BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId, TraitId,
+};
+use nia_item_signatures::{EnumSignature, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
 use nia_ty::{PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
 use nia_type_normalize::TypeNormalization;
@@ -42,6 +46,48 @@ where
     pub assumptions: &'a [TraitGoal],
     pub layouts: Option<&'a Layouts>,
     pub is_enum: F,
+}
+
+pub struct TraitSolverContext<'a> {
+    pub normalization: &'a TypeNormalization,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
+    pub layouts: Option<&'a Layouts>,
+    pub local_module_id: ModuleId,
+    pub local_enums: &'a HashMap<DefId, EnumSignature>,
+    pub program_enums: Option<&'a HashMap<GlobalDefId, ProgramEnumSignature>>,
+}
+
+impl<'a> TraitSolverContext<'a> {
+    pub fn solver<'b>(
+        &'b self,
+        interner: &'b mut TyInterner,
+        assumptions: &'b [TraitGoal],
+    ) -> TraitSolver<'b, impl Fn(InternedTyId) -> bool + 'b> {
+        let interner_snapshot = interner.clone();
+        TraitSolver {
+            interner,
+            normalization: self.normalization,
+            trait_impls: self.trait_impls,
+            assumptions,
+            layouts: self.layouts,
+            is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
+        }
+    }
+
+    fn is_enum_with_interner(&self, interner: &TyInterner, ty: InternedTyId) -> bool {
+        let ty = self.normalization.normalize(ty);
+        if ty.interner_id != interner.interner_id() {
+            return false;
+        }
+        let Some(TyKind::Nominal { def_id, .. }) = interner.get(ty) else {
+            return false;
+        };
+        if def_id.module_id == self.local_module_id {
+            return self.local_enums.contains_key(&def_id.def_id);
+        }
+        self.program_enums
+            .is_some_and(|program_enums| program_enums.contains_key(def_id))
+    }
 }
 
 pub struct IntrinsicOverlap<'a, F>

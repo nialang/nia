@@ -12,7 +12,7 @@ use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_item_signatures::{ItemSignatures, ProgramTraitImplSignature};
+use nia_item_signatures::{ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
@@ -45,6 +45,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
+    pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 

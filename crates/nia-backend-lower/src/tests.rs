@@ -159,6 +159,7 @@ fn main() i32 {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_enums: &HashMap::new(),
         trait_impls: &[],
     };
     let lowering = lower_backend_program(
@@ -441,6 +442,7 @@ fn lower_source(source: &str) -> BackendLowering {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_enums: &HashMap::new(),
         trait_impls: &[],
     };
     let lowering = lower_backend_program(&[input], &monomorphization);

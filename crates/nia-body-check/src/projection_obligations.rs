@@ -6,7 +6,7 @@ use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{FunctionSignature, TraitImplSignature};
 use nia_span::Span;
-use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolver};
+use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -467,31 +467,15 @@ impl<'a> BodyChecker<'a> {
             .cloned()
             .map(TraitGoal::from)
             .collect::<Vec<_>>();
-        let program_enums = self.program_enums;
-        let signatures = self.signatures;
-        let defs_module_id = self.defs.module_id;
-        let interner_snapshot = self.interner.clone();
-        let mut solver = TraitSolver {
-            interner: &mut self.interner,
+        let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
-            assumptions: &assumptions,
             layouts: Some(self.layouts),
-            is_enum: |ty| match self.normalization.normalize(ty) {
-                ty if ty.interner_id == interner_snapshot.interner_id() => {
-                    match interner_snapshot.get(ty) {
-                        Some(TyKind::Nominal { def_id, .. })
-                            if def_id.module_id == defs_module_id =>
-                        {
-                            signatures.enums.contains_key(&def_id.def_id)
-                        }
-                        Some(TyKind::Nominal { def_id, .. }) => program_enums.contains_key(def_id),
-                        _ => false,
-                    }
-                }
-                _ => false,
-            },
+            local_module_id: self.defs.module_id,
+            local_enums: &self.signatures.enums,
+            program_enums: Some(self.program_enums),
         };
+        let mut solver = context.solver(&mut self.interner, &assumptions);
         solver.resolve(TraitGoal {
             self_ty: required.self_ty,
             trait_id: required.trait_id,

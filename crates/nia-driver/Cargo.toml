@@ -11,8 +11,11 @@ nia-imports.workspace = true
 nia-loader-query.workspace = true
 
 [dev-dependencies]
+nia-ast.workspace = true
+nia-function-ir.workspace = true
 nia-ids.workspace = true
 nia-layout.workspace = true
+nia-ty.workspace = true
 
 [lib]
 path = "src/lib.rs"

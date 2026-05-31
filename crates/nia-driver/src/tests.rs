@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_ast::BinaryOp;
+use nia_function_ir::{
+    FunctionCallee, FunctionExpr, FunctionExprKind, FunctionOp, FunctionTerminator,
+};
 use nia_ids::ModuleId;
 use std::{
     fs,
@@ -1826,6 +1830,46 @@ fn main() palette::Color {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn lowers_cross_module_enum_equality_as_intrinsic_operator() {
+    let root = temp_dir("lowers_cross_module_enum_equality_as_intrinsic_operator");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .palette;
+
+fn same(a: palette::Color, b: palette::Color) bool {
+    a == b
+}
+"#,
+    );
+    write(
+        &root.join("palette.nia"),
+        r#"pub enum Color: u8 { Red, Black, Green }"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let same = main_module
+        .functions
+        .iter()
+        .find(|function| function.name == "same")
+        .expect("same function");
+    let body = same.function_body.as_ref().expect("same body");
+    assert!(
+        function_body_contains_builtin_eq(body),
+        "{:#?}",
+        same.function_body
+    );
 }
 
 #[test]
@@ -4189,4 +4233,140 @@ fn temp_dir(name: &str) -> PathBuf {
 
 fn write(path: &Path, source: &str) {
     fs::write(path, source).expect("write source file");
+}
+
+fn function_body_contains_builtin_eq(body: &nia_function_ir::FunctionBody) -> bool {
+    body.blocks.iter().any(|block| {
+        block.ops.iter().any(function_op_contains_builtin_eq)
+            || function_terminator_contains_builtin_eq(&block.terminator)
+    })
+}
+
+fn function_op_contains_builtin_eq(op: &FunctionOp) -> bool {
+    match op {
+        FunctionOp::Binding(binding) => binding
+            .value
+            .as_ref()
+            .is_some_and(function_expr_contains_builtin_eq),
+        FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+            function_expr_contains_builtin_eq(value)
+        }
+        FunctionOp::Defer(body) => body.blocks.iter().any(|block| {
+            block.ops.iter().any(function_op_contains_builtin_eq)
+                || function_terminator_contains_builtin_eq(&block.terminator)
+        }),
+    }
+}
+
+fn function_terminator_contains_builtin_eq(terminator: &FunctionTerminator) -> bool {
+    match terminator {
+        FunctionTerminator::If { cond, .. } | FunctionTerminator::Switch { target: cond, .. } => {
+            function_expr_contains_builtin_eq(cond)
+        }
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
+            .as_ref()
+            .is_some_and(function_expr_contains_builtin_eq),
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. }
+        | FunctionTerminator::Loop { .. } => false,
+    }
+}
+
+fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
+    match &expr.kind {
+        FunctionExprKind::Call {
+            callee: FunctionCallee::BuiltinOperator(operator),
+            args,
+        } => {
+            (operator.trait_id == nia_ty::BuiltinTrait::Eq
+                && operator.op == nia_function_ir::FunctionBuiltinOperatorOp::Binary(BinaryOp::Eq))
+                || args.iter().any(function_expr_contains_builtin_eq)
+        }
+        FunctionExprKind::Call { args, .. } => args.iter().any(function_expr_contains_builtin_eq),
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::CStringPointer { array: expr, .. } => {
+            function_expr_contains_builtin_eq(expr)
+        }
+        FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
+            function_expr_contains_builtin_eq(lhs) || function_expr_contains_builtin_eq(rhs)
+        }
+        FunctionExprKind::Assign { place, rhs, .. } => {
+            function_place_contains_builtin_eq(place) || function_expr_contains_builtin_eq(rhs)
+        }
+        FunctionExprKind::AddrOf(place) => function_place_contains_builtin_eq(place),
+        FunctionExprKind::Field { lhs, .. } => function_expr_contains_builtin_eq(lhs),
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            function_expr_contains_builtin_eq(lhs)
+                || range
+                    .start
+                    .as_deref()
+                    .is_some_and(function_expr_contains_builtin_eq)
+                || range
+                    .end
+                    .as_deref()
+                    .is_some_and(function_expr_contains_builtin_eq)
+        }
+        FunctionExprKind::Range(range) => {
+            range
+                .start
+                .as_deref()
+                .is_some_and(function_expr_contains_builtin_eq)
+                || range
+                    .end
+                    .as_deref()
+                    .is_some_and(function_expr_contains_builtin_eq)
+        }
+        FunctionExprKind::ArrayLiteral { elems } => match elems {
+            nia_function_ir::FunctionArrayElements::List(elems) => {
+                elems.iter().any(function_expr_contains_builtin_eq)
+            }
+            nia_function_ir::FunctionArrayElements::Repeat { value, .. } => {
+                function_expr_contains_builtin_eq(value)
+            }
+        },
+        FunctionExprKind::StructLiteral { fields, .. } => fields
+            .iter()
+            .any(|field| function_expr_contains_builtin_eq(&field.value)),
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            function_expr_contains_builtin_eq(&field.value)
+        }
+        FunctionExprKind::InlineAsm(asm) => asm
+            .inputs
+            .iter()
+            .any(|input| function_expr_contains_builtin_eq(&input.value)),
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => false,
+    }
+}
+
+fn function_place_contains_builtin_eq(place: &nia_function_ir::FunctionPlace) -> bool {
+    let base_contains = match &place.base {
+        nia_function_ir::FunctionPlaceBase::Deref(expr) => function_expr_contains_builtin_eq(expr),
+        nia_function_ir::FunctionPlaceBase::Local(_)
+        | nia_function_ir::FunctionPlaceBase::Global(_)
+        | nia_function_ir::FunctionPlaceBase::Error => false,
+    };
+    base_contains
+        || place.elems.iter().any(|elem| match elem {
+            nia_function_ir::FunctionPlaceElem::Index(expr) => {
+                function_expr_contains_builtin_eq(expr)
+            }
+            nia_function_ir::FunctionPlaceElem::Field(_)
+            | nia_function_ir::FunctionPlaceElem::Error => false,
+        })
 }
