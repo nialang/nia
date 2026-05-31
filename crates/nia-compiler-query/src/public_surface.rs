@@ -223,11 +223,12 @@ pub(crate) fn compute_public_surfaces(
 fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
     match kind {
         DefKind::Function | DefKind::Global | DefKind::Comptime => Some(PublicNamespace::Value),
-        DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias => {
+        DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias => {
             Some(PublicNamespace::Type)
         }
         DefKind::Import
         | DefKind::Method
+        | DefKind::TraitMethod
         | DefKind::StructField
         | DefKind::UnionField
         | DefKind::EnumVariant => None,
@@ -833,7 +834,7 @@ fn resolve_current_single(
         && let Some(def) = current.defs.get(def_id)
         && matches!(
             def.kind,
-            DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
+            DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias
         )
     {
         entries.push(ResolvedEntry {

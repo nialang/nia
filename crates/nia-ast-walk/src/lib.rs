@@ -2,7 +2,7 @@
 use nia_ast::{
     ArrayElements, ArrayLen, Block, Expr, ExprKind, ForHeader, ForInit, FunctionItem, IndexArg,
     Item, ItemKind, Module, Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind,
-    TypeRef,
+    TypeRef, WhereClause,
 };
 
 pub trait Visitor<'ast> {
@@ -49,17 +49,29 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             }
         }
         ItemKind::Struct(item_struct) => {
+            walk_where_clause(visitor, &item_struct.where_clause);
             for field in &item_struct.fields {
                 visitor.visit_type(&field.ty);
             }
         }
         ItemKind::Union(item_union) => {
+            walk_where_clause(visitor, &item_union.where_clause);
             for field in &item_union.fields {
                 visitor.visit_type(&field.ty);
             }
         }
+        ItemKind::Trait(item_trait) => {
+            walk_where_clause(visitor, &item_trait.where_clause);
+            for method in &item_trait.methods {
+                visitor.visit_function(&method.function);
+            }
+        }
         ItemKind::Extend(extend) => {
             visitor.visit_type(&extend.target);
+            if let Some(trait_ref) = &extend.trait_ref {
+                visitor.visit_type(trait_ref);
+            }
+            walk_where_clause(visitor, &extend.where_clause);
             for method in &extend.methods {
                 visitor.visit_function(&method.function);
             }
@@ -74,8 +86,23 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
                 }
             }
         }
-        ItemKind::TypeAlias(alias) => visitor.visit_type(&alias.ty),
+        ItemKind::TypeAlias(alias) => {
+            walk_where_clause(visitor, &alias.where_clause);
+            visitor.visit_type(&alias.ty);
+        }
         ItemKind::Function(function) => visitor.visit_function(function),
+    }
+}
+
+pub fn walk_where_clause<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    clause: &'ast WhereClause,
+) {
+    for predicate in &clause.predicates {
+        visitor.visit_type(&predicate.ty);
+        for bound in &predicate.bounds {
+            visitor.visit_type(bound);
+        }
     }
 }
 
@@ -83,6 +110,7 @@ pub fn walk_function<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     function: &'ast FunctionItem,
 ) {
+    walk_where_clause(visitor, &function.where_clause);
     for param in &function.params {
         if let Some(ty) = &param.ty {
             visitor.visit_type(ty);
@@ -98,7 +126,11 @@ pub fn walk_function<'ast, V: Visitor<'ast> + ?Sized>(
 
 pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast TypeRef) {
     match &ty.kind {
-        TypeKind::Error | TypeKind::Infer | TypeKind::Void | TypeKind::Never => {}
+        TypeKind::Error
+        | TypeKind::Infer
+        | TypeKind::SelfType
+        | TypeKind::Void
+        | TypeKind::Never => {}
         TypeKind::Path { segments } => {
             for segment in segments {
                 for arg in &segment.args {

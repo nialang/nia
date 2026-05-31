@@ -232,6 +232,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
         structs: collect_program_structs(&modules),
         unions: collect_program_unions(&modules),
         enums: collect_program_enums(&modules),
+        traits: collect_program_traits(&modules),
     }
 }
 
@@ -252,6 +253,11 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
         .copied()
         .map(|module_id| db.query(TypeLoweringQuery(module_id)))
         .collect::<Vec<_>>();
+    let item_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
+        .collect::<Vec<_>>();
     let normalizations = module_ids
         .iter()
         .copied()
@@ -261,12 +267,14 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
         .iter()
         .zip(defs.iter())
         .zip(type_lowerings.iter())
+        .zip(item_signatures.iter())
         .zip(normalizations.iter())
         .map(
-            |(((module, defs), lowering), normalization)| ExtensionModuleInput {
+            |((((module, defs), lowering), signatures), normalization)| ExtensionModuleInput {
                 module,
                 defs,
                 lowering,
+                signatures,
                 normalization,
             },
         )

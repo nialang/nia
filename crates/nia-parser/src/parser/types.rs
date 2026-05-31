@@ -61,6 +61,8 @@ impl Parser {
         } else if self.at(TokenKind::Fn) {
             self.error_here("function pointer types must be written as `&const fn(...)`");
             return None;
+        } else if self.eat(TokenKind::SelfType).is_some() {
+            TypeKind::SelfType
         } else if self.eat(TokenKind::Void).is_some() {
             TypeKind::Void
         } else if self.eat(TokenKind::Bang).is_some() {
@@ -191,6 +193,7 @@ impl Parser {
                 | TokenKind::LBracket
                 | TokenKind::Ident
                 | TokenKind::Bool
+                | TokenKind::SelfType
                 | TokenKind::Void
                 | TokenKind::Bang
                 | TokenKind::Underscore
@@ -199,5 +202,53 @@ impl Parser {
 
     fn error_type_ref(&mut self, span: Span) -> TypeRef {
         self.make_type_ref(span, TypeKind::Error)
+    }
+
+    pub(super) fn parse_where_clause(&mut self) -> WhereClause {
+        let mut predicates = Vec::new();
+        if self.eat(TokenKind::Where).is_none() {
+            return WhereClause::default();
+        }
+        while !self.at(TokenKind::LBrace)
+            && !self.at(TokenKind::Semicolon)
+            && !self.at(TokenKind::Eof)
+        {
+            let start = self.peek().span.start;
+            let Some(ty) = self.parse_type_until(&[TokenKind::Colon]) else {
+                break;
+            };
+            if self
+                .expect(TokenKind::Colon, "expected `:` in where predicate")
+                .is_none()
+            {
+                break;
+            }
+            let mut bounds = Vec::new();
+            loop {
+                let Some(bound) = self.parse_type_until(&[
+                    TokenKind::Comma,
+                    TokenKind::Plus,
+                    TokenKind::LBrace,
+                    TokenKind::Semicolon,
+                ]) else {
+                    break;
+                };
+                let end = bound.span.end;
+                bounds.push(bound);
+                if self.eat(TokenKind::Plus).is_some() {
+                    continue;
+                }
+                predicates.push(WherePredicate {
+                    ty,
+                    bounds,
+                    span: Span::new(start, end),
+                });
+                break;
+            }
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        WhereClause { predicates }
     }
 }

@@ -77,6 +77,12 @@ pub enum ResolvedCall {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
     },
+    TraitMethod {
+        trait_id: GlobalDefId,
+        method_id: GlobalDefId,
+        self_ty: InternedTyId,
+        args: Vec<InternedTyId>,
+    },
     FunctionPointer,
 }
 
@@ -339,6 +345,13 @@ pub enum TypedCallee {
     },
     Method {
         def_id: GlobalDefId,
+        args: Vec<InternedTyId>,
+        receiver: Box<TypedExpr>,
+    },
+    TraitMethod {
+        trait_id: GlobalDefId,
+        method_id: GlobalDefId,
+        self_ty: InternedTyId,
         args: Vec<InternedTyId>,
         receiver: Box<TypedExpr>,
     },

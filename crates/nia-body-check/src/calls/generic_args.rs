@@ -65,6 +65,14 @@ impl<'a> BodyChecker<'a> {
             .map(|target| self.generic_params_in_ty(target.target_ty))
             .unwrap_or_default();
         if def_id.module_id == self.defs.module_id {
+            if self
+                .defs
+                .defs
+                .get(def_id.def_id)
+                .is_some_and(|def| def.kind == nia_defs::DefKind::TraitMethod)
+            {
+                generics.push("Self".to_string());
+            }
             if generics.is_empty() {
                 generics = self
                     .defs

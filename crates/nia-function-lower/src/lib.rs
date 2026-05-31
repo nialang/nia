@@ -1120,6 +1120,19 @@ impl FunctionLowerer {
                 args: args.clone(),
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
+            TypedCallee::TraitMethod {
+                trait_id,
+                method_id,
+                self_ty,
+                args,
+                receiver,
+            } => FunctionCallee::TraitMethod {
+                trait_id: *trait_id,
+                method_id: *method_id,
+                self_ty: *self_ty,
+                args: args.clone(),
+                receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
+            },
             TypedCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.lower_value_expr(expr, scope, current, ops, blocks),
             )),
@@ -1621,7 +1634,9 @@ impl FunctionLowerer {
 
         fn visit_callee(callee: &TypedCallee, max_id: &mut u32) {
             match callee {
-                TypedCallee::Method { receiver, .. } | TypedCallee::FunctionPointer(receiver) => {
+                TypedCallee::Method { receiver, .. }
+                | TypedCallee::TraitMethod { receiver, .. }
+                | TypedCallee::FunctionPointer(receiver) => {
                     visit_expr(receiver, max_id);
                 }
                 TypedCallee::Function(_) | TypedCallee::FunctionInstance { .. } => {}

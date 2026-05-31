@@ -48,6 +48,11 @@ impl FlowChecker<'_> {
         for item in &module.items {
             match &item.kind {
                 ItemKind::Function(function) => self.check_function(function),
+                ItemKind::Trait(item_trait) => {
+                    for method in &item_trait.methods {
+                        self.check_function(&method.function);
+                    }
+                }
                 ItemKind::Extend(extend) => {
                     for method in &extend.methods {
                         self.check_function(&method.function);

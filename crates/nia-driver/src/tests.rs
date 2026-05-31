@@ -2219,6 +2219,261 @@ fn main() i32 {
     );
 }
 
+#[test]
+fn trait_impl_methods_are_checked_against_trait_requirements() {
+    let root = temp_dir("trait_impl_methods_are_checked_against_trait_requirements");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Show {
+    fn show(&const self) i32;
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Show {
+    fn show(&const self) i32 {
+        self.x
+    }
+}
+
+fn main() i32 {
+    var point: Point = { x: 7 };
+    point.show()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_impl_rejects_extra_missing_and_mismatched_methods() {
+    let root = temp_dir("trait_impl_rejects_extra_missing_and_mismatched_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Show {
+    fn show(&const self) i32;
+    fn size(&const self) i32;
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Show {
+    fn show(&self) i32 {
+        self.x
+    }
+
+    fn debug(&const self) i32 {
+        self.x
+    }
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("does not match the trait signature")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("is not a member of implemented trait")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("missing implementation for trait method `size`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn trait_impl_substitutes_self_in_required_signatures() {
+    let root = temp_dir("trait_impl_substitutes_self_in_required_signatures");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Eq {
+    fn eq(&const self, other: &const Self) bool;
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Eq {
+    fn eq(&const self, other: &const Point) bool {
+        self.x == other.x
+    }
+}
+
+fn main() bool {
+    var a: Point = { x: 1 };
+    var b: Point = { x: 1 };
+    a.eq(&const b)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn cross_module_trait_impls_are_checked() {
+    let root = temp_dir("cross_module_trait_impls_are_checked");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .traits;
+
+struct Point {
+    x: i32,
+}
+
+extend Point : traits::Show {
+    fn show(&const self) i32 {
+        self.x
+    }
+
+    fn debug(&const self) i32 {
+        self.x
+    }
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+    write(
+        &root.join("traits.nia"),
+        r#"
+pub trait Show {
+    fn show(&const self) i32;
+    fn size(&const self) i32;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("is not a member of implemented trait")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("missing implementation for trait method `size`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn generic_where_bound_trait_methods_dispatch_to_impl_instances() {
+    let root = temp_dir("generic_where_bound_trait_methods_dispatch_to_impl_instances");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Eq {
+    fn eq(&const self, other: &const Self) bool;
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Eq {
+    fn eq(&const self, other: &const Point) bool {
+        self.x == other.x
+    }
+}
+
+fn same[T](a: &const T, b: &const T) bool
+where T: Eq {
+    a.eq(b)
+}
+
+fn main() bool {
+    var a: Point = { x: 1 };
+    var b: Point = { x: 1 };
+    same[Point](&const a, &const b)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_default_methods_are_used_when_impl_omits_method() {
+    let root = temp_dir("trait_default_methods_are_used_when_impl_omits_method");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Eq {
+    fn eq(&const self, other: &const Self) bool;
+
+    fn ne(&const self, other: &const Self) bool {
+        !self.eq(other)
+    }
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Eq {
+    fn eq(&const self, other: &const Point) bool {
+        self.x == other.x
+    }
+}
+
+fn different[T](a: &const T, b: &const T) bool
+where T: Eq {
+    a.ne(b)
+}
+
+fn main() bool {
+    var a: Point = { x: 1 };
+    var b: Point = { x: 2 };
+    different[Point](&const a, &const b)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("nia-driver-{name}"));
     let _ = fs::remove_dir_all(&dir);

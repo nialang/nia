@@ -223,14 +223,17 @@ impl<'a> Tokenizer<'a> {
             "or" => TokenKind::Or,
             "pub" => TokenKind::Pub,
             "return" => TokenKind::Return,
+            "Self" => TokenKind::SelfType,
             "struct" => TokenKind::Struct,
             "switch" => TokenKind::Switch,
+            "trait" => TokenKind::Trait,
             "true" => TokenKind::True,
             "type" => TokenKind::Type,
             "union" => TokenKind::Union,
             "using" => TokenKind::Using,
             "var" => TokenKind::Var,
             "void" => TokenKind::Void,
+            "where" => TokenKind::Where,
             _ => TokenKind::Ident,
         };
         self.token(kind, start, self.pos)

@@ -82,6 +82,7 @@ fn pipeline(source: &str) -> BodyCheck {
                         module_id: ModuleId(0),
                         def_id: method_id,
                     },
+                    trait_id: None,
                 },
             );
         }
@@ -115,6 +116,7 @@ fn pipeline(source: &str) -> BodyCheck {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+            traits: &HashMap::new(),
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -992,6 +994,7 @@ fn main() i32 {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+            traits: &HashMap::new(),
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -1094,6 +1097,7 @@ fn main() i32 {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+            traits: &HashMap::new(),
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),

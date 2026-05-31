@@ -78,6 +78,7 @@ pub(super) struct ProgramSignatures {
     pub(super) structs: HashMap<GlobalDefId, ProgramStructSignature>,
     pub(super) unions: HashMap<GlobalDefId, ProgramUnionSignature>,
     pub(super) enums: HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub(super) traits: HashMap<GlobalDefId, ProgramTraitSignature>,
 }
 
 impl ProgramSignatures {
@@ -89,6 +90,7 @@ impl ProgramSignatures {
             structs: &self.structs,
             unions: &self.unions,
             enums: &self.enums,
+            traits: &self.traits,
         }
     }
 }

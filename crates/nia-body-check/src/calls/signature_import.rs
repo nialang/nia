@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use crate::{BodyChecker, ProgramFunctionSignature, ResolvedFunctionSignature};
+use crate::{
+    BodyChecker, ProgramFunctionSignature, ProgramTraitSignature, ResolvedFunctionSignature,
+};
 use nia_ast::Expr;
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_item_signatures::FunctionSignature;
+use nia_item_signatures::{FunctionSignature, TraitSignature};
 use nia_ty::{TyInterner, TyKind};
 
 pub fn import_type_into(
@@ -91,6 +93,19 @@ impl<'a> BodyChecker<'a> {
         program_signature: &ProgramFunctionSignature,
     ) -> FunctionSignature {
         let mut signature = program_signature.signature.clone();
+        signature.where_predicates = signature
+            .where_predicates
+            .iter()
+            .map(|predicate| nia_item_signatures::WherePredicateSignature {
+                ty: self.import_type_from(&program_signature.interner, predicate.ty),
+                bounds: predicate
+                    .bounds
+                    .iter()
+                    .map(|bound| self.import_type_from(&program_signature.interner, *bound))
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect();
         signature.params = signature
             .params
             .iter()
@@ -102,6 +117,68 @@ impl<'a> BodyChecker<'a> {
             .collect();
         signature.return_type =
             self.import_type_from(&program_signature.interner, signature.return_type);
+        signature
+    }
+
+    pub(crate) fn resolved_trait_signature(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> Option<TraitSignature> {
+        if def_id.module_id == self.defs.module_id {
+            let signature = self.signatures.traits.get(&def_id.def_id)?.clone();
+            return Some(signature);
+        }
+        let program_signature = self.program_traits.get(&def_id)?.clone();
+        Some(self.import_program_trait_signature(&program_signature))
+    }
+
+    pub(crate) fn import_program_trait_signature(
+        &mut self,
+        program_signature: &ProgramTraitSignature,
+    ) -> TraitSignature {
+        let mut signature = program_signature.signature.clone();
+        signature.methods = signature
+            .methods
+            .iter()
+            .map(|method| {
+                let mut method = method.clone();
+                method.signature = self
+                    .import_function_signature_from(&program_signature.interner, &method.signature);
+                method
+            })
+            .collect();
+        signature
+    }
+
+    fn import_function_signature_from(
+        &mut self,
+        source: &TyInterner,
+        signature: &FunctionSignature,
+    ) -> FunctionSignature {
+        let mut signature = signature.clone();
+        signature.where_predicates = signature
+            .where_predicates
+            .iter()
+            .map(|predicate| nia_item_signatures::WherePredicateSignature {
+                ty: self.import_type_from(source, predicate.ty),
+                bounds: predicate
+                    .bounds
+                    .iter()
+                    .map(|bound| self.import_type_from(source, *bound))
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect();
+        signature.params = signature
+            .params
+            .iter()
+            .map(|param| {
+                let mut param = param.clone();
+                param.ty = self.import_type_from(source, param.ty);
+                param
+            })
+            .collect();
+        signature.return_type = self.import_type_from(source, signature.return_type);
         signature
     }
 

@@ -6,14 +6,15 @@ use crate::{
         ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
         collect_extension_methods, collect_program_comptimes, collect_program_enums,
         collect_program_functions, collect_program_globals, collect_program_structs,
-        collect_program_unions, visible_extensions_for_module,
+        collect_program_traits, collect_program_unions, visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_body_check::{
     ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramUnionSignature,
+    ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
+    ProgramUnionSignature,
 };
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};

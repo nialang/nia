@@ -158,7 +158,18 @@ impl<'a> LocalResolver<'a> {
         for item in &module.items {
             match &item.kind {
                 ItemKind::Function(function) => self.resolve_function(function),
+                ItemKind::Trait(item_trait) => {
+                    self.resolve_where_clause(&item_trait.where_clause);
+                    for method in &item_trait.methods {
+                        self.resolve_function(&method.function);
+                    }
+                }
                 ItemKind::Extend(extend) => {
+                    self.resolve_type(&extend.target);
+                    if let Some(trait_ref) = &extend.trait_ref {
+                        self.resolve_type(trait_ref);
+                    }
+                    self.resolve_where_clause(&extend.where_clause);
                     for method in &extend.methods {
                         self.resolve_function(&method.function);
                     }
@@ -189,6 +200,7 @@ impl<'a> LocalResolver<'a> {
 
     fn resolve_function(&mut self, function: &FunctionItem) {
         self.push_scope();
+        self.resolve_where_clause(&function.where_clause);
         for param in &function.params {
             if let Some(ty) = &param.ty {
                 self.resolve_type(ty);
@@ -292,7 +304,11 @@ impl<'a> LocalResolver<'a> {
 
     fn resolve_type(&mut self, ty: &TypeRef) {
         match &ty.kind {
-            TypeKind::Error | TypeKind::Void | TypeKind::Never | TypeKind::Infer => {}
+            TypeKind::Error
+            | TypeKind::SelfType
+            | TypeKind::Void
+            | TypeKind::Never
+            | TypeKind::Infer => {}
             TypeKind::Path { segments } => {
                 for segment in segments {
                     for arg in &segment.args {
@@ -322,6 +338,15 @@ impl<'a> LocalResolver<'a> {
                 if let Some(return_type) = return_type {
                     self.resolve_type(return_type);
                 }
+            }
+        }
+    }
+
+    fn resolve_where_clause(&mut self, clause: &nia_ast::WhereClause) {
+        for predicate in &clause.predicates {
+            self.resolve_type(&predicate.ty);
+            for bound in &predicate.bounds {
+                self.resolve_type(bound);
             }
         }
     }

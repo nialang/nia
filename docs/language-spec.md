@@ -20,6 +20,7 @@ Nia provides:
 - simple type generics for functions, structs, and methods, implemented by
   monomorphization;
 - methods declared in `extend` blocks;
+- traits implemented by `extend Type : Trait` blocks;
 - expression-oriented blocks and `if`;
 - C-style enums with namespaces and `switch` without fallthrough;
 - compile-time value bindings with `comptime`;
@@ -132,11 +133,13 @@ pub
 return
 struct
 switch
+trait
 true
 type
 using
 var
 void
+where
 ```
 
 Primitive type names such as `i32`, `u8`, `usize`, `bool`, `char`, and `void`
@@ -1374,10 +1377,24 @@ xs[1..3]    // range index
 id[i32](x) // explicit generic function call
 ```
 
+Generic declarations may use a `where` clause after the parameter list, target
+type, or generic parameter list:
+
+```nia
+fn eq[T](a: &const T, b: &const T) bool
+where T: Eq {
+    a.eq(b)
+}
+
+struct Box[T] where T: Eq {
+    value: T,
+}
+```
+
 Generics are implemented by monomorphization. Type parameters have no runtime
 representation. The current generic surface is explicit type parameters on
-functions, structs, unions, and methods. User-declared const generics are
-reserved for future design; array length is part of array type syntax.
+functions, structs, unions, traits, and methods. User-declared const generics
+are reserved for future design; array length is part of array type syntax.
 
 ## 10. Methods
 
@@ -1527,12 +1544,76 @@ var f: &const fn(&u8) bool = &const [&u8]::null;
 `[type]::name` is only an associated target path. It does not introduce a
 short name for the method, and it does not capture a receiver.
 
-## 11. Modules
+## 11. Traits
+
+Traits define required method signatures for static dispatch:
+
+```nia
+trait Eq {
+    fn eq(&const self, other: &const Self) bool;
+}
+```
+
+`Self` names the implementing type inside a trait declaration and inside an
+`extend` block. It is not a general type name outside those contexts.
+
+A type implements a trait with an `extend Type : Trait` block:
+
+```nia
+struct Point {
+    x: i32,
+}
+
+extend Point : Eq {
+    fn eq(&const self, other: &const Self) bool {
+        self.x == other.x
+    }
+}
+```
+
+A trait implementation block is only for implementing the named trait. It must
+not contain methods that are not members of that trait. Inherent methods still
+use ordinary `extend Type { ... }` blocks.
+
+Trait method declarations may include bodies. A body is a default method body.
+If an implementation omits a method that has a default body, calls to that
+method instantiate the default body with `Self` set to the implementing type:
+
+```nia
+trait Eq {
+    fn eq(&const self, other: &const Self) bool;
+
+    fn ne(&const self, other: &const Self) bool {
+        !self.eq(other)
+    }
+}
+```
+
+Trait bounds are written in `where` clauses:
+
+```nia
+fn same[T](a: &const T, b: &const T) bool
+where T: Eq {
+    a.eq(b)
+}
+```
+
+The current compiler parses and lowers trait bounds, validates trait
+implementation blocks, and supports receiver-method calls through generic
+`where` bounds. A call such as `a.eq(b)` in `fn same[T](...) where T: Eq` is
+kept as a trait-method obligation in the generic body and resolved to the
+visible concrete implementation when the generic function is instantiated.
+Default methods may call other methods from the same trait; those calls are
+resolved through the visible concrete implementation when available, or through
+another default body. Associated types are reserved for later implementation
+work.
+
+## 12. Modules
 
 Each `.nia` file is a module. Import resolution always produces one concrete
 source file path; directories and packages are not modules by themselves.
 
-### 11.1 Import
+### 12.1 Import
 
 `import` makes another `.nia` file available to the current file. The
 dot-separated import path is a portable spelling of a source file path. It has
@@ -1616,7 +1697,7 @@ diagnosed by the relevant compiler phase.
 `pub` cannot be applied to `import`. Import aliases are local to the current
 file. Re-export imported items with `pub using`.
 
-### 11.2 Using
+### 12.2 Using
 
 `using` shortens already visible namespaces in the current scope. It does not
 load files or organize modules; `import` remains the only operation that loads a
@@ -1675,7 +1756,7 @@ globals enter the value namespace; structs, enums, and type aliases enter the
 type namespace; enum variants enter the value namespace while preserving their
 enum identity.
 
-### 11.3 Pub Using
+### 12.3 Pub Using
 
 `pub using` re-exports selected items as part of the current module's public
 surface:
@@ -1719,7 +1800,7 @@ name re-exported items through the re-exporting module path, such as
 Wildcard `pub using mod::*` has the same expansion rule as `using mod::*`.
 Wildcard `pub using Enum::*` re-exports every enum variant.
 
-### 11.4 Visibility
+### 12.4 Visibility
 
 Modules are private by default. Only top-level declarations marked `pub` can be
 accessed by other modules through qualified paths or `using`:
@@ -1740,7 +1821,7 @@ declarations, and `using`. It may not be applied to `import`.
 Nia has no `mod` or `use` syntax. Package management is outside the language
 specification.
 
-## 12. ABI, Runtime, And Symbols
+## 13. ABI, Runtime, And Symbols
 
 Nia does not require a garbage collector, exception runtime, async runtime, or
 hidden allocator.
@@ -1763,7 +1844,7 @@ string literals may also be passed directly when `&u8` or `&const u8` is
 expected; this produces a pointer to a block-scoped temporary. If a stable C
 string address is required, bind the C string to top-level `const` storage.
 
-### 12.1 Internal Symbol Names
+### 13.1 Internal Symbol Names
 
 Nia uses deterministic, readable internal symbol names. The format is not meant
 to be compatible with C++ or Rust. It is meant to make debugging, linking, and
@@ -1815,7 +1896,7 @@ Array length encodings include:
 
 The rules should stay readable, deterministic, and structurally explicit.
 
-## 13. Required Compiler Surface
+## 14. Required Compiler Surface
 
 A conforming Nia compiler supports:
 
@@ -1836,6 +1917,7 @@ A conforming Nia compiler supports:
 - `extern` C declarations, definitions, and calls;
 - generic functions and structs via monomorphization;
 - methods declared through `extend`;
+- trait declarations and direct trait implementation checks;
 - lowering to a typed backend IR;
 - LLVM IR or object emission;
 - hosted executable emission when host linking is available.
@@ -1865,14 +1947,13 @@ temporary objects and invokes the host C linker.
 `build` is reserved for an external build system. The current CLI does not
 provide `run`; use `emit exe` and execute the result.
 
-## 14. Reserved Future Design Areas
+## 15. Reserved Future Design Areas
 
 The following areas are intentionally outside the current language surface.
 They are reserved for future design and should not be treated as specified by
 this document:
 
-- trait/protocol-style constraints, associated type families, and constrained
-  extension syntax;
+- associated type families and full trait obligation solving;
 - payload-carrying algebraic data types beyond current enums;
 - pattern matching beyond current switch expressions;
 - closures;
@@ -1886,7 +1967,7 @@ this document:
 - macros;
 - general compile-time execution beyond the current `comptime` value subset.
 
-## 15. Example
+## 16. Example
 
 ```nia
 extern fn printf(fmt: &const u8, ...);

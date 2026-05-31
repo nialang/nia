@@ -14,6 +14,7 @@ pub struct ExtensionMethods {
 pub struct ExtensionMethod {
     pub def_id: GlobalDefId,
     pub target_ty: InternedTyId,
+    pub trait_id: Option<GlobalDefId>,
     pub visibility: Visibility,
 }
 
@@ -26,6 +27,7 @@ pub struct VisibleExtensionMethods {
 pub struct VisibleExtensionMethod {
     pub name: String,
     pub def_id: GlobalDefId,
+    pub trait_id: Option<GlobalDefId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

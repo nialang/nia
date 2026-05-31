@@ -379,6 +379,18 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_struct_instances_expr(receiver, seen, out);
             }
+            FunctionCallee::TraitMethod {
+                self_ty,
+                args,
+                receiver,
+                ..
+            } => {
+                self.collect_struct_instance_ty(*self_ty, seen, out);
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                self.collect_struct_instances_expr(receiver, seen, out);
+            }
             FunctionCallee::FunctionPointer(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
@@ -696,6 +708,18 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             FunctionCallee::Method { args, receiver, .. } => {
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::TraitMethod {
+                self_ty,
+                args,
+                receiver,
+                ..
+            } => {
+                self.collect_union_instance_ty(*self_ty, seen, out);
                 for arg in args {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }

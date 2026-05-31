@@ -29,6 +29,14 @@ struct MethodGenericContext<'a> {
     expected: Option<InternedTyId>,
 }
 
+struct TraitMethodCandidate {
+    trait_id: GlobalDefId,
+    method_id: GlobalDefId,
+    self_ty: InternedTyId,
+    signature: FunctionSignature,
+    has_default: bool,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct MethodCandidate {
     pub(super) target_ty: InternedTyId,
@@ -391,10 +399,16 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
-        if candidates.is_empty() {
+        if candidates.is_empty()
+            && self
+                .trait_method_candidates_for_receiver(receiver_ty, name)
+                .is_empty()
+        {
             return None;
         }
-        self.single_method_candidate(span, name, candidates)?;
+        if !candidates.is_empty() {
+            self.single_method_candidate(span, name, candidates)?;
+        }
         self.check_method_call_with_receiver_ty(MethodCall {
             span,
             receiver,
@@ -417,10 +431,16 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
-        if candidates.is_empty() {
+        if candidates.is_empty()
+            && self
+                .trait_method_candidates_for_receiver(receiver_ty, name)
+                .is_empty()
+        {
             return None;
         }
-        self.single_method_candidate(span, name, candidates)?;
+        if !candidates.is_empty() {
+            self.single_method_candidate(span, name, candidates)?;
+        }
         self.check_method_call_with_receiver_ty(MethodCall {
             span,
             receiver,
@@ -434,6 +454,14 @@ impl<'a> BodyChecker<'a> {
 
     fn check_method_call_with_receiver_ty(&mut self, call: MethodCall<'_>) -> Option<InternedTyId> {
         let candidates = self.method_candidates_for_receiver(call.receiver_ty, call.name);
+        let trait_candidates = if candidates.is_empty() {
+            self.trait_method_candidates_for_receiver(call.receiver_ty, call.name)
+        } else {
+            Vec::new()
+        };
+        if candidates.is_empty() && !trait_candidates.is_empty() {
+            return self.check_trait_method_call_with_receiver_ty(call, trait_candidates);
+        }
         let method_id = self.single_method_candidate(call.span, call.name, candidates)?;
         let Some(signature) = self
             .resolved_function_signature(method_id)
@@ -524,6 +552,105 @@ impl<'a> BodyChecker<'a> {
         Some(self.substitute_generics(signature.return_type, &substitutions))
     }
 
+    fn check_trait_method_call_with_receiver_ty(
+        &mut self,
+        call: MethodCall<'_>,
+        candidates: Vec<TraitMethodCandidate>,
+    ) -> Option<InternedTyId> {
+        let candidate = match candidates.as_slice() {
+            [candidate] => candidate,
+            [] => return None,
+            _ => {
+                self.diagnostics.push(Diagnostic::error(
+                    call.span,
+                    format!("ambiguous trait method `{}`", call.name),
+                ));
+                return Some(self.error());
+            }
+        };
+        let Some(receiver_kind) = candidate
+            .signature
+            .params
+            .first()
+            .and_then(|param| param.receiver)
+        else {
+            self.diagnostics.push(Diagnostic::error(
+                call.span,
+                "associated trait functions are not supported by receiver method call syntax",
+            ));
+            return Some(self.error());
+        };
+        self.check_receiver_match(call.receiver, call.receiver_ty, receiver_kind);
+        let Some(method_instantiation_args) = self.lowered_method_type_args(call.type_args) else {
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        };
+        if call.type_args.is_some()
+            && candidate.signature.generics.len() != method_instantiation_args.len()
+        {
+            self.diagnostics.push(Diagnostic::error(
+                call.span,
+                format!(
+                    "generic argument count mismatch for trait method: expected {}, got {}",
+                    candidate.signature.generics.len(),
+                    method_instantiation_args.len()
+                ),
+            ));
+            for arg in call.args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        let mut substitutions = HashMap::from([("Self".to_string(), candidate.self_ty)]);
+        if call.type_args.is_some() {
+            substitutions.extend(
+                self.generic_substitutions(
+                    &candidate.signature.generics,
+                    &method_instantiation_args,
+                ),
+            );
+        } else if let Some(expected) = call.expected {
+            self.infer_generics_from_type(
+                candidate.signature.return_type,
+                expected,
+                &mut substitutions,
+                call.span,
+            );
+        }
+        let params: Vec<InternedTyId> = candidate
+            .signature
+            .params
+            .iter()
+            .skip(1)
+            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .collect();
+        if call.type_args.is_none() {
+            self.infer_method_generics_from_args(call.args, &params, &mut substitutions);
+            if !self.method_generics_are_complete(call.span, &candidate.signature, &substitutions) {
+                self.check_call_arg_count(call.span, call.args.len(), params.len(), false);
+                return Some(self.error());
+            }
+        }
+        self.check_direct_call_args(call.span, call.args, &params, false);
+        if candidate.has_default {
+            let mut instance_args = vec![candidate.self_ty];
+            instance_args.extend(method_instantiation_args.iter().copied());
+            self.record_generic_instantiation(candidate.method_id, &instance_args, call.span);
+        }
+        self.record_resolved_call(
+            call.span,
+            ResolvedCall::TraitMethod {
+                trait_id: candidate.trait_id,
+                method_id: candidate.method_id,
+                self_ty: candidate.self_ty,
+                args: method_instantiation_args,
+            },
+        );
+        Some(self.substitute_generics(candidate.signature.return_type, &substitutions))
+    }
+
     pub(super) fn method_candidates_for_struct(
         &mut self,
         struct_id: GlobalDefId,
@@ -593,6 +720,104 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => return Vec::new(),
             }
+        }
+    }
+
+    fn trait_method_candidates_for_receiver(
+        &mut self,
+        receiver_ty: InternedTyId,
+        name: &str,
+    ) -> Vec<TraitMethodCandidate> {
+        let Some(self_ty) = self.generic_receiver_self_ty(receiver_ty) else {
+            return Vec::new();
+        };
+        let mut candidates = Vec::new();
+        let Some(current_def_id) = self.current_def_id else {
+            return candidates;
+        };
+        let Some(signature) = self
+            .resolved_function_signature(current_def_id)
+            .map(|resolved| resolved.signature)
+        else {
+            return candidates;
+        };
+        if let Some(trait_id) = self.current_trait_method_parent(current_def_id) {
+            if let Some(trait_signature) = self.resolved_trait_signature(trait_id) {
+                for method in trait_signature.methods {
+                    if method.name == name {
+                        candidates.push(TraitMethodCandidate {
+                            trait_id,
+                            method_id: GlobalDefId {
+                                module_id: trait_id.module_id,
+                                def_id: method.def_id,
+                            },
+                            self_ty,
+                            signature: method.signature,
+                            has_default: method.has_default,
+                        });
+                    }
+                }
+            }
+        }
+        for predicate in &signature.where_predicates {
+            if !self.types_match(predicate.ty, self_ty) {
+                continue;
+            }
+            for bound in &predicate.bounds {
+                let Some(TyKind::Nominal {
+                    def_id: trait_id, ..
+                }) = self
+                    .interner
+                    .get(self.normalization.normalize(*bound))
+                    .cloned()
+                else {
+                    continue;
+                };
+                let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
+                    continue;
+                };
+                for method in trait_signature.methods {
+                    if method.name == name {
+                        candidates.push(TraitMethodCandidate {
+                            trait_id,
+                            method_id: GlobalDefId {
+                                module_id: trait_id.module_id,
+                                def_id: method.def_id,
+                            },
+                            self_ty,
+                            signature: method.signature,
+                            has_default: method.has_default,
+                        });
+                    }
+                }
+            }
+        }
+        candidates
+    }
+
+    fn current_trait_method_parent(&self, current_def_id: GlobalDefId) -> Option<GlobalDefId> {
+        if current_def_id.module_id != self.defs.module_id {
+            return None;
+        }
+        let def = self.defs.defs.get(current_def_id.def_id)?;
+        if def.kind != nia_defs::DefKind::TraitMethod {
+            return None;
+        }
+        Some(GlobalDefId {
+            module_id: current_def_id.module_id,
+            def_id: def.parent?,
+        })
+    }
+
+    fn generic_receiver_self_ty(&mut self, receiver_ty: InternedTyId) -> Option<InternedTyId> {
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        match self.interner.get(receiver_ty).cloned() {
+            Some(TyKind::GenericParam(_)) => Some(receiver_ty),
+            Some(TyKind::Pointer { elem, .. }) => {
+                let elem = self.normalization.normalize(elem);
+                matches!(self.interner.get(elem), Some(TyKind::GenericParam(_))).then_some(elem)
+            }
+            _ => None,
         }
     }
 
