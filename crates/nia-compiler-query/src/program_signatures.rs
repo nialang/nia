@@ -12,7 +12,7 @@ use nia_defs::{
     VisibleExtensionMethods,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{BuiltinTrait, GlobalDefId};
+use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId};
 use nia_item_signatures::{FunctionSignature, ItemSignatures, ParamSignature, TraitSignature};
 use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
@@ -282,6 +282,11 @@ pub(crate) fn collect_extension_methods(
             let trait_id = extend.trait_ref.as_ref().and_then(|trait_ref| {
                 trait_ref_id(module, trait_ref, &defs_by_module, &mut diagnostics)
             });
+            let trait_args = extend
+                .trait_ref
+                .as_ref()
+                .and_then(|trait_ref| trait_ref_ty_args(module, trait_ref, trait_id))
+                .unwrap_or_default();
             if trait_id.is_none() {
                 for associated_type in &extend.associated_types {
                     diagnostics.push(Diagnostic::error(
@@ -303,7 +308,14 @@ pub(crate) fn collect_extension_methods(
                     );
                 }
                 Some(TraitId::Builtin(trait_id)) => {
-                    validate_builtin_trait_impl(module, extend, trait_id, &mut diagnostics);
+                    validate_builtin_trait_impl(
+                        module,
+                        extend,
+                        target_ty,
+                        trait_id,
+                        &trait_impls,
+                        &mut diagnostics,
+                    );
                 }
                 None => {}
             }
@@ -320,6 +332,7 @@ pub(crate) fn collect_extension_methods(
                         },
                         target_ty,
                         trait_id,
+                        trait_args: trait_args.clone(),
                         visibility: method.vis,
                     },
                 );
@@ -526,18 +539,14 @@ fn validate_trait_impl(
 fn validate_builtin_trait_impl(
     module: &ExtensionModuleInput<'_>,
     extend: &nia_ast::ExtendItem,
+    target_ty: nia_ids::InternedTyId,
     trait_id: BuiltinTrait,
+    trait_impls: &[ProgramTraitImplSignature],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if matches!(
         trait_id,
-        BuiltinTrait::Sized
-            | BuiltinTrait::DerefConst
-            | BuiltinTrait::Deref
-            | BuiltinTrait::IndexConst
-            | BuiltinTrait::Index
-            | BuiltinTrait::SliceConst
-            | BuiltinTrait::Slice
+        BuiltinTrait::Sized | BuiltinTrait::SliceConst | BuiltinTrait::Slice
     ) {
         diagnostics.push(Diagnostic::error(
             extend.target.span,
@@ -559,17 +568,31 @@ fn validate_builtin_trait_impl(
             ));
         }
     }
-    if trait_id.has_associated_type(BuiltinTrait::OUTPUT_ASSOC_TYPE)
-        && !extend
-            .associated_types
-            .iter()
-            .any(|associated_type| associated_type.name == BuiltinTrait::OUTPUT_ASSOC_TYPE)
+    for associated_type_name in trait_id
+        .associated_types()
+        .iter()
+        .map(|associated_type| associated_type.name())
     {
-        diagnostics.push(Diagnostic::error(
-            extend.target.span,
-            "missing definition for associated type `Output`",
-        ));
+        if trait_id.has_associated_type(associated_type_name)
+            && !extend
+                .associated_types
+                .iter()
+                .any(|associated_type| associated_type.name == associated_type_name)
+        {
+            diagnostics.push(Diagnostic::error(
+                extend.target.span,
+                format!("missing definition for associated type `{associated_type_name}`"),
+            ));
+        }
     }
+    validate_builtin_supertrait_impls(
+        module,
+        extend,
+        target_ty,
+        trait_id,
+        trait_impls,
+        diagnostics,
+    );
     let expected_methods = trait_id.required_methods();
     for method in &extend.methods {
         if !expected_methods
@@ -606,9 +629,13 @@ fn validate_builtin_trait_impl(
                 let Some(actual) = module.signatures.functions.get(&method_id) else {
                     return;
                 };
-                if actual.params.len() != expected_method.param_count()
-                    || actual.return_type == module.lowering.interner.error()
-                {
+                if !builtin_trait_method_signature_matches(
+                    module,
+                    extend,
+                    actual,
+                    trait_id,
+                    *expected_method,
+                ) {
                     diagnostics.push(Diagnostic::error(
                         method.function.span,
                         format!(
@@ -629,6 +656,136 @@ fn validate_builtin_trait_impl(
     }
 }
 
+fn validate_builtin_supertrait_impls(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    target_ty: nia_ids::InternedTyId,
+    trait_id: BuiltinTrait,
+    trait_impls: &[ProgramTraitImplSignature],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for supertrait in trait_id.supertraits() {
+        let supertrait_args = if supertrait.preserves_trait_args {
+            extend
+                .trait_ref
+                .as_ref()
+                .and_then(|trait_ref| builtin_trait_ref_args(module, trait_ref, trait_id))
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if !has_matching_trait_impl(
+            &module.lowering.interner,
+            target_ty,
+            TraitId::Builtin(supertrait.trait_id),
+            &supertrait_args,
+            trait_impls,
+        ) {
+            diagnostics.push(Diagnostic::error(
+                extend.target.span,
+                format!(
+                    "implementation of trait requires explicit implementation of supertrait `{}`",
+                    supertrait.trait_id.name()
+                ),
+            ));
+        }
+    }
+}
+
+fn builtin_trait_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    actual: &FunctionSignature,
+    trait_id: BuiltinTrait,
+    method: BuiltinTraitMethod,
+) -> bool {
+    if actual.params.len() != method.param_count()
+        || actual.return_type == module.lowering.interner.error()
+    {
+        return false;
+    }
+    match (trait_id, method) {
+        (BuiltinTrait::DerefConst, BuiltinTraitMethod::DerefConst)
+        | (BuiltinTrait::Deref, BuiltinTraitMethod::Deref)
+        | (BuiltinTrait::IndexConst, BuiltinTraitMethod::IndexConst)
+        | (BuiltinTrait::Index, BuiltinTraitMethod::Index) => {
+            builtin_place_trait_method_signature_matches(module, extend, actual, trait_id, method)
+        }
+        _ => true,
+    }
+}
+
+fn builtin_place_trait_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    actual: &FunctionSignature,
+    trait_id: BuiltinTrait,
+    method: BuiltinTraitMethod,
+) -> bool {
+    let Some(receiver) = actual.params.first().and_then(|param| param.receiver) else {
+        return false;
+    };
+    let Some(expected_receiver) = method
+        .place_receiver_kind()
+        .map(receiver_kind_to_ast_receiver_kind)
+    else {
+        return false;
+    };
+    if receiver != expected_receiver {
+        return false;
+    }
+    let Some(TyKind::Pointer { is_const, elem }) = module.lowering.interner.get(actual.return_type)
+    else {
+        return false;
+    };
+    let expected_const = matches!(
+        trait_id,
+        BuiltinTrait::DerefConst | BuiltinTrait::IndexConst
+    );
+    if *is_const != expected_const {
+        return false;
+    }
+    let assoc_name = match trait_id {
+        BuiltinTrait::DerefConst | BuiltinTrait::Deref => BuiltinTrait::TARGET_ASSOC_TYPE,
+        BuiltinTrait::IndexConst | BuiltinTrait::Index => BuiltinTrait::OUTPUT_ASSOC_TYPE,
+        _ => return false,
+    };
+    let Some(associated_type) = extend
+        .associated_types
+        .iter()
+        .find(|associated_type| associated_type.name == assoc_name)
+        .and_then(|associated_type| module.lowering.type_uses.get(&associated_type.ty.span))
+        .copied()
+    else {
+        return false;
+    };
+    types_equivalent(&module.lowering.interner, *elem, associated_type)
+}
+
+fn receiver_kind_to_ast_receiver_kind(kind: BuiltinReceiverKind) -> nia_ast::ReceiverKind {
+    match kind {
+        BuiltinReceiverKind::RefConst => nia_ast::ReceiverKind::RefConst,
+        BuiltinReceiverKind::Ref => nia_ast::ReceiverKind::Ref,
+        BuiltinReceiverKind::Value => nia_ast::ReceiverKind::Value,
+    }
+}
+
+fn builtin_trait_ref_args(
+    module: &ExtensionModuleInput<'_>,
+    trait_ref: &nia_ast::TypeRef,
+    trait_id: BuiltinTrait,
+) -> Option<Vec<nia_ids::InternedTyId>> {
+    let ty = module.lowering.type_uses.get(&trait_ref.span).copied()?;
+    let ty = module.normalization.normalize(ty);
+    match module.lowering.interner.get(ty) {
+        Some(TyKind::BuiltinTrait {
+            trait_id: found,
+            args,
+        }) if *found == trait_id => Some(args.clone()),
+        _ => None,
+    }
+}
+
 fn trait_ref_args(
     module: &ExtensionModuleInput<'_>,
     trait_ref: &nia_ast::TypeRef,
@@ -638,6 +795,30 @@ fn trait_ref_args(
     let ty = module.normalization.normalize(ty);
     match module.lowering.interner.get(ty) {
         Some(TyKind::Nominal { def_id, args }) if *def_id == trait_id => Some(args.clone()),
+        _ => None,
+    }
+}
+
+fn trait_ref_ty_args(
+    module: &ExtensionModuleInput<'_>,
+    trait_ref: &nia_ast::TypeRef,
+    expected_trait_id: Option<TraitId>,
+) -> Option<Vec<nia_ids::InternedTyId>> {
+    let ty = module.lowering.type_uses.get(&trait_ref.span).copied()?;
+    let ty = module.normalization.normalize(ty);
+    match (expected_trait_id, module.lowering.interner.get(ty)) {
+        (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args }))
+            if *def_id == expected =>
+        {
+            Some(args.clone())
+        }
+        (
+            Some(TraitId::Builtin(expected)),
+            Some(TyKind::BuiltinTrait {
+                trait_id: found,
+                args,
+            }),
+        ) if *found == expected => Some(args.clone()),
         _ => None,
     }
 }
@@ -1168,6 +1349,14 @@ pub(crate) fn visible_extensions_for_module(
                 name: method_def.name.clone(),
                 def_id: method.def_id,
                 trait_id: method.trait_id,
+                trait_args: method
+                    .trait_args
+                    .iter()
+                    .map(|arg| {
+                        let arg = method_normalization.normalize(*arg);
+                        import_type_into(&mut target_interner, &method_normalization.interner, arg)
+                    })
+                    .collect(),
             },
         );
     }

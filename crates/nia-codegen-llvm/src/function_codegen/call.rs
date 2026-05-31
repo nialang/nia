@@ -193,6 +193,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "unresolved trait method call reached LLVM codegen",
             )),
+            FunctionCallee::BuiltinPlaceMethod { .. } => Err(self.error(
+                expr.span,
+                "unresolved builtin place method call reached LLVM codegen",
+            )),
             FunctionCallee::BuiltinOperator(_) => Err(self.error(
                 expr.span,
                 "builtin operator cannot be emitted as a raw call",

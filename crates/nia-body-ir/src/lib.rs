@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
+use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
@@ -372,6 +372,7 @@ pub enum TypedCallee {
         receiver: Box<TypedExpr>,
     },
     BuiltinOperator(BuiltinOperator),
+    BuiltinPlaceMethod(BuiltinPlaceMethod),
     FunctionPointer(Box<TypedExpr>),
 }
 
@@ -385,6 +386,15 @@ pub struct BuiltinOperator {
 pub enum BuiltinOperatorOp {
     Unary(UnaryOp),
     Binary(BinaryOp),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BuiltinPlaceMethod {
+    pub trait_id: BuiltinTrait,
+    pub method: BuiltinTraitMethod,
+    pub self_ty: InternedTyId,
+    pub trait_args: Vec<InternedTyId>,
+    pub receiver: Box<TypedExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

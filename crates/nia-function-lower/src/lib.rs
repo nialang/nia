@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::UnaryOp;
 use nia_body_ir::{
-    AsmOption, BuiltinConst, PlaceBase, PlaceElem, TypedArrayElements, TypedBinding, TypedBody,
-    TypedCallee, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedInlineAsm,
-    TypedLocal, TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
-    TypedSwitchArmBody, TypedSwitchPattern,
+    AsmOption, BuiltinConst, BuiltinPlaceMethod, PlaceBase, PlaceElem, TypedArrayElements,
+    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit,
+    TypedInlineAsm, TypedLocal, TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt,
+    TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;
@@ -1155,6 +1155,19 @@ impl FunctionLowerer {
                 args: args.clone(),
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
+            TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                trait_id,
+                method,
+                self_ty,
+                trait_args,
+                receiver,
+            }) => FunctionCallee::BuiltinPlaceMethod {
+                trait_id: *trait_id,
+                method: *method,
+                self_ty: *self_ty,
+                trait_args: trait_args.clone(),
+                receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
+            },
             TypedCallee::BuiltinOperator(operator) => {
                 FunctionCallee::BuiltinOperator(FunctionBuiltinOperator {
                     trait_id: operator.trait_id,
@@ -1677,6 +1690,7 @@ impl FunctionLowerer {
             match callee {
                 TypedCallee::Method { receiver, .. }
                 | TypedCallee::TraitMethod { receiver, .. }
+                | TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod { receiver, .. })
                 | TypedCallee::FunctionPointer(receiver) => {
                     visit_expr(receiver, max_id);
                 }

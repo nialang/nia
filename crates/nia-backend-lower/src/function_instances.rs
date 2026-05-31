@@ -272,6 +272,9 @@ impl<'a> ModuleLowerer<'a> {
                 instance_args.extend(args.iter().copied());
                 self.enqueue_function_instance(*method_id, &instance_args, seen, queue);
             }
+            FunctionCallee::BuiltinPlaceMethod { receiver, .. } => {
+                self.enqueue_function_instances_from_expr(receiver, seen, queue);
+            }
             FunctionCallee::Function(_)
             | FunctionCallee::BuiltinOperator(_)
             | FunctionCallee::FunctionPointer(_) => {}

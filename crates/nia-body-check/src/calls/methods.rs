@@ -948,10 +948,15 @@ impl<'a> BodyChecker<'a> {
         };
         if let Some(trait_id) = self.current_trait_method_parent(current_def_id) {
             if let Some(trait_signature) = self.resolved_trait_signature(trait_id) {
+                let trait_args = trait_signature
+                    .generics
+                    .iter()
+                    .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
+                    .collect::<Vec<_>>();
                 self.push_trait_method_candidates(
                     &mut candidates,
                     trait_id,
-                    Vec::new(),
+                    trait_args,
                     self_ty,
                     name,
                     &trait_signature,
@@ -1614,5 +1619,9 @@ fn builtin_trait_method_operator(
         BuiltinTraitMethod::Ge => {
             Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Ge)))
         }
+        BuiltinTraitMethod::DerefConst
+        | BuiltinTraitMethod::Deref
+        | BuiltinTraitMethod::IndexConst
+        | BuiltinTraitMethod::Index => None,
     }
 }

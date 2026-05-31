@@ -1549,6 +1549,74 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_builtin_place_trait_overload_calls() {
+    let root = temp_dir("emits_builtin_place_trait_overload_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Cell {
+    value: i32,
+}
+
+extend Cell : DerefConst {
+    type Target = i32;
+
+    fn deref_const(&const self) &const i32 {
+        &const self.value
+    }
+}
+
+extend Cell : Deref {
+    type Target = i32;
+
+    fn deref(&self) &i32 {
+        &self.value
+    }
+}
+
+extend Cell : IndexConst[usize] {
+    type Output = i32;
+
+    fn index_const(&const self, index: usize) &const i32 {
+        &const self.value
+    }
+}
+
+extend Cell : Index[usize] {
+    type Output = i32;
+
+    fn index(&self, index: usize) &i32 {
+        &self.value
+    }
+}
+
+fn main() i32 {
+    var cell: Cell = { value: 1 };
+    var first = cell.*;
+    cell.* = 3;
+    var second = cell[0usize];
+    cell[0usize] = 5;
+    first + second + cell.value
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("__deref_const"), "{ir}");
+    assert!(ir.contains("__deref"), "{ir}");
+    assert!(ir.contains("__index_const"), "{ir}");
+    assert!(ir.contains("__index"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
 fn emits_trait_bound_generic_method_calls() {
     let root = temp_dir("emits_trait_bound_generic_method_calls");
     let main = root.join("main.nia");

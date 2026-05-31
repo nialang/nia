@@ -223,37 +223,24 @@ impl<'a> BodyChecker<'a> {
             obligations.push(obligation.clone());
         }
         match obligation.trait_id {
-            TraitId::Builtin(BuiltinTrait::Deref) => self
-                .push_trait_obligation_with_supertraits_inner(
-                    obligations,
-                    TraitObligation {
-                        self_ty: obligation.self_ty,
-                        trait_id: TraitId::Builtin(BuiltinTrait::DerefConst),
-                        trait_args: Vec::new(),
-                    },
-                    visited,
-                ),
-            TraitId::Builtin(BuiltinTrait::Index) => self
-                .push_trait_obligation_with_supertraits_inner(
-                    obligations,
-                    TraitObligation {
-                        self_ty: obligation.self_ty,
-                        trait_id: TraitId::Builtin(BuiltinTrait::IndexConst),
-                        trait_args: obligation.trait_args.clone(),
-                    },
-                    visited,
-                ),
-            TraitId::Builtin(BuiltinTrait::Slice) => self
-                .push_trait_obligation_with_supertraits_inner(
-                    obligations,
-                    TraitObligation {
-                        self_ty: obligation.self_ty,
-                        trait_id: TraitId::Builtin(BuiltinTrait::SliceConst),
-                        trait_args: Vec::new(),
-                    },
-                    visited,
-                ),
-            TraitId::Builtin(_) => {}
+            TraitId::Builtin(trait_id) => {
+                for supertrait in trait_id.supertraits() {
+                    let trait_args = if supertrait.preserves_trait_args {
+                        obligation.trait_args.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    self.push_trait_obligation_with_supertraits_inner(
+                        obligations,
+                        TraitObligation {
+                            self_ty: obligation.self_ty,
+                            trait_id: TraitId::Builtin(supertrait.trait_id),
+                            trait_args,
+                        },
+                        visited,
+                    );
+                }
+            }
             TraitId::Source(source_trait_id) => {
                 let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
                     return;

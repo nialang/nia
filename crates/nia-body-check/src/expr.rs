@@ -142,9 +142,10 @@ impl<'a> BodyChecker<'a> {
                     }
                     self.void()
                 } else {
-                    let lhs_ty = self.check_expr(lhs);
-                    let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
+                    self.check_expr(lhs);
                     self.check_assignable(lhs, "assignment target");
+                    let lhs_ty = self.assignable_expr_type(lhs);
+                    let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
                     self.expect_expr_type(rhs, lhs_ty, rhs_ty, "assignment");
                     self.void()
                 }

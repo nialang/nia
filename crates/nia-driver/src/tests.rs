@@ -3249,7 +3249,7 @@ where P: DerefConst {
     ptr.*
 }
 
-fn write_ptr[P](ptr: P, value: [P as DerefConst]::Target) void
+fn write_ptr[P](ptr: P, value: [P as Deref]::Target) void
 where P: Deref {
     ptr.* = value;
 }
@@ -3259,12 +3259,12 @@ where C: IndexConst[usize] {
     items[index]
 }
 
-fn write_index[C](items: C, index: usize, value: [C as IndexConst[usize]]::Output) void
+fn write_index[C](items: C, index: usize, value: [C as Index[usize]]::Output) void
 where C: Index[usize] {
     items[index] = value;
 }
 
-fn write_index_i32[C](items: C, index: i32, value: [C as IndexConst[i32]]::Output) void
+fn write_index_i32[C](items: C, index: i32, value: [C as Index[i32]]::Output) void
 where C: Index[i32] {
     items[index] = value;
 }
@@ -3348,17 +3348,146 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn builtin_place_traits_are_compiler_proven_only() {
-    let root = temp_dir("builtin_place_traits_are_compiler_proven_only");
+fn builtin_deref_and_index_traits_allow_user_place_overloads() {
+    let root = temp_dir("builtin_deref_and_index_traits_allow_user_place_overloads");
     write(
         &root.join("main.nia"),
-        r#"
-struct Box {
+        r##"
+struct Cell {
     value: i32,
 }
 
-extend Box : DerefConst {
+extend Cell : DerefConst {
     type Target = i32;
+
+    fn deref_const(&const self) &const i32 {
+        &const self.value
+    }
+}
+
+extend Cell : Deref {
+    type Target = i32;
+
+    fn deref(&self) &i32 {
+        &self.value
+    }
+}
+
+extend Cell : IndexConst[usize] {
+    type Output = i32;
+
+    fn index_const(&const self, index: usize) &const i32 {
+        &const self.value
+    }
+}
+
+extend Cell : Index[usize] {
+    type Output = i32;
+
+    fn index(&self, index: usize) &i32 {
+        &self.value
+    }
+}
+
+fn read_deref[P](value: P) [P as DerefConst]::Target
+where P: DerefConst {
+    value.*
+}
+
+fn write_deref[P](value: P, next: [P as Deref]::Target) void
+where P: Deref {
+    value.* = next;
+}
+
+fn read_index[C](value: C) [C as IndexConst[usize]]::Output
+where C: IndexConst[usize] {
+    value[0usize]
+}
+
+fn write_index[C](value: C, next: [C as Index[usize]]::Output) void
+where C: Index[usize] {
+    value[0usize] = next;
+}
+
+fn main() i32 {
+    var cell: Cell = { value: 1 };
+    var first = read_deref[Cell](cell);
+    write_deref[Cell](cell, 3);
+    var second = read_index[Cell](cell);
+    write_index[Cell](cell, 5);
+    first + second + cell.value
+}
+"##,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn mutable_builtin_place_traits_require_const_supertrait_impls() {
+    let root = temp_dir("mutable_builtin_place_traits_require_const_supertrait_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Cell {
+    value: i32,
+}
+
+extend Cell : Deref {
+    type Target = i32;
+
+    fn deref(&self) &i32 {
+        &self.value
+    }
+}
+
+extend Cell : Index[usize] {
+    type Output = i32;
+
+    fn index(&self, index: usize) &i32 {
+        &self.value
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let messages = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("supertrait `DerefConst`")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("supertrait `IndexConst`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_slice_traits_are_compiler_proven_only() {
+    let root = temp_dir("builtin_slice_traits_are_compiler_proven_only");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Cell {
+    value: i32,
+}
+
+extend Cell : SliceConst {
+    type Output = &const [i32];
 }
 
 fn main() i32 { 0 }
