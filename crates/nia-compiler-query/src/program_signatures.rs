@@ -1148,6 +1148,19 @@ fn substitute_imported_type(
             );
             target_interner.intern(TyKind::Array { len, elem })
         }
+        Some(TyKind::Range { kind, bound }) => {
+            let bound = bound.map(|bound| {
+                substitute_imported_type(
+                    target_interner,
+                    module,
+                    source_interner,
+                    bound,
+                    substitutions,
+                    projection_context,
+                )
+            });
+            target_interner.intern(TyKind::Range { kind: *kind, bound })
+        }
         Some(TyKind::FunctionPointer {
             params,
             return_type,
@@ -1306,6 +1319,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::Nominal { .. }
             | TyKind::BuiltinTrait { .. }
             | TyKind::Projection { .. }
+            | TyKind::Range { .. }
             | TyKind::GenericParam(_),
         ) => true,
     }

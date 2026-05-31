@@ -126,6 +126,7 @@ impl StaticChecker<'_> {
             ExprKind::BracketSuffix { args, .. } if Self::bracket_index_arg(args).is_some() => {
                 self.static_address_path_reject_reason(expr)
             }
+            ExprKind::Range(_) => Some("range expression is not static data"),
             ExprKind::Block(_) => Some("block expressions require comptime execution"),
             ExprKind::If { .. } => Some("if expressions require comptime execution"),
             ExprKind::Switch(_) => Some("switch expressions require comptime execution"),

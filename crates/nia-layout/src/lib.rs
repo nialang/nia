@@ -261,7 +261,8 @@ impl<'a> LayoutComputer<'a> {
                 TyKind::Error
                 | TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
-                | TyKind::Projection { .. },
+                | TyKind::Projection { .. }
+                | TyKind::Range { .. },
             )
             | None => None,
         };

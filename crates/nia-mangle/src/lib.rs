@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId};
-use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind};
 
 pub fn sanitize_symbol_part(text: &str) -> String {
     let mut out: String = text
@@ -105,6 +105,23 @@ where
             mangle_array_len(len, interner, nominal_name, array_len),
             mangle_type_inner(interner, *elem, nominal_name, array_len)
         ),
+        Some(TyKind::Range { kind, bound }) => {
+            let kind = match kind {
+                RangeTyKind::Exclusive => "range",
+                RangeTyKind::Inclusive => "range_incl",
+                RangeTyKind::From => "range_from",
+                RangeTyKind::To => "range_to",
+                RangeTyKind::ToInclusive => "range_to_incl",
+                RangeTyKind::Full => "range_full",
+            };
+            match bound {
+                Some(bound) => format!(
+                    "{kind}__{}",
+                    mangle_type_inner(interner, *bound, nominal_name, array_len)
+                ),
+                None => kind.to_string(),
+            }
+        }
         Some(TyKind::FunctionPointer {
             params,
             return_type,

@@ -10,7 +10,9 @@ use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, TraitId, TyInterner, TyKind};
+use nia_ty::{
+    ArrayLenTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind,
+};
 use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,6 +270,11 @@ impl<'a> TypeLowerer<'a> {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            TypeKind::Range {
+                start,
+                end,
+                inclusive,
+            } => self.lower_range_type(ty.span, start.as_deref(), end.as_deref(), *inclusive),
             TypeKind::FunctionPointer {
                 params,
                 return_type,
@@ -354,6 +361,56 @@ impl<'a> TypeLowerer<'a> {
                 })
             }
         }
+    }
+
+    fn lower_range_type(
+        &mut self,
+        span: Span,
+        start: Option<&TypeRef>,
+        end: Option<&TypeRef>,
+        inclusive: bool,
+    ) -> InternedTyId {
+        let start_ty = start.map(|ty| self.lower_type_in_context(ty, TypeContext::Value));
+        let end_ty = end.map(|ty| self.lower_type_in_context(ty, TypeContext::Value));
+        let kind = match (start_ty, end_ty, inclusive) {
+            (Some(_), Some(_), false) => RangeTyKind::Exclusive,
+            (Some(_), Some(_), true) => RangeTyKind::Inclusive,
+            (Some(_), None, false) => RangeTyKind::From,
+            (None, Some(_), false) => RangeTyKind::To,
+            (None, Some(_), true) => RangeTyKind::ToInclusive,
+            (None, None, false) => RangeTyKind::Full,
+            (Some(_), None, true) | (None, None, true) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "inclusive range type requires an end bound",
+                ));
+                return self.interner.error();
+            }
+        };
+        let bound = match (start_ty, end_ty) {
+            (Some(start_ty), Some(end_ty)) => {
+                if !self.types_equivalent(start_ty, end_ty) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "range type bounds must have the same type",
+                    ));
+                    return self.interner.error();
+                }
+                Some(start_ty)
+            }
+            (Some(bound), None) | (None, Some(bound)) => Some(bound),
+            (None, None) => None,
+        };
+        if let Some(bound) = bound
+            && !self.is_integer(bound)
+        {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "range bound type must be an integer type",
+            ));
+            return self.interner.error();
+        }
+        self.interner.intern(TyKind::Range { kind, bound })
     }
 
     fn normalize_if_known(&self, ty: InternedTyId) -> InternedTyId {
@@ -656,6 +713,10 @@ impl<'a> TypeLowerer<'a> {
                     | PrimitiveTy::Usize
             ))
         )
+    }
+
+    fn types_equivalent(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        left == right || self.interner.get(left) == self.interner.get(right)
     }
 
     fn is_invalid_value_type(&self, ty: InternedTyId) -> bool {

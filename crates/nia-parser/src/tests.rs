@@ -1004,6 +1004,60 @@ trait Add[Rhs] {
 }
 
 #[test]
+fn parses_range_types_and_expressions() {
+    let (module, errors) = parse_module(
+        r#"
+trait SliceConst[R] {
+    type Output;
+}
+
+fn take[S](items: S, end: usize) [S as SliceConst[usize..usize]]::Output
+where S: SliceConst[..] {
+    0..end
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let return_ty = function.return_type.as_ref().expect("expected return type");
+    let TypeKind::Projection { trait_ref, .. } = &return_ty.kind else {
+        panic!("expected projection");
+    };
+    let TypeKind::Path { segments } = &trait_ref.kind else {
+        panic!("expected trait path");
+    };
+    assert!(matches!(
+        segments[0].args[0],
+        TypeArg::Type(TypeRef {
+            kind: TypeKind::Range { .. },
+            ..
+        })
+    ));
+    let bound = &function.where_clause.predicates[0].bounds[0];
+    let TypeKind::Path { segments } = &bound.kind else {
+        panic!("expected bound path");
+    };
+    assert!(matches!(
+        segments[0].args[0],
+        TypeArg::Type(TypeRef {
+            kind: TypeKind::Range {
+                start: None,
+                end: None,
+                ..
+            },
+            ..
+        })
+    ));
+    let body = function.body.as_ref().expect("expected body");
+    assert!(matches!(
+        body.tail.as_ref().map(|tail| &tail.kind),
+        Some(ExprKind::Range(_))
+    ));
+}
+
+#[test]
 fn parses_associated_type_bindings_in_where_bounds() {
     let (module, errors) = parse_module(
         r#"

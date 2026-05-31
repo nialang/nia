@@ -331,6 +331,14 @@ impl<'a> LocalResolver<'a> {
                 }
                 self.resolve_type(elem);
             }
+            TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.resolve_type(start);
+                }
+                if let Some(end) = end {
+                    self.resolve_type(end);
+                }
+            }
             TypeKind::FunctionPointer {
                 params,
                 return_type,
@@ -433,6 +441,14 @@ impl<'a> LocalResolver<'a> {
                             self.resolve_expr(end);
                         }
                     }
+                }
+            }
+            ExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.resolve_expr(start);
+                }
+                if let Some(end) = &range.end {
+                    self.resolve_expr(end);
                 }
             }
             ExprKind::Block(block) => self.resolve_block(block),

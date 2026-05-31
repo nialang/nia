@@ -8,7 +8,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -209,6 +209,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            ExprKind::Range(range) => self.check_range_expr(expr.span, range, expected),
             ExprKind::Block(block) => self.check_block_with_expected(block, expected),
             ExprKind::If {
                 cond,
@@ -227,6 +228,101 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_expr_type(expr.span, ty);
         ty
+    }
+
+    fn check_range_expr(
+        &mut self,
+        span: Span,
+        range: &nia_ast::SliceRange,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let expected = expected.and_then(|expected| self.expected_range_parts(expected));
+        let start_expected = expected.and_then(|expected| expected.bound);
+        let end_expected = expected.and_then(|expected| expected.bound);
+        let start_ty = range.start.as_ref().map(|start| {
+            let actual = self.check_expr_with_expected(start, start_expected);
+            if let Some(expected) = start_expected {
+                self.expect_expr_type(start, expected, actual, "range start");
+            }
+            self.expr_types.get(&start.span).copied().unwrap_or(actual)
+        });
+        let end_ty = range.end.as_ref().map(|end| {
+            let actual = self.check_expr_with_expected(end, end_expected);
+            if let Some(expected) = end_expected {
+                self.expect_expr_type(end, expected, actual, "range end");
+            }
+            self.expr_types.get(&end.span).copied().unwrap_or(actual)
+        });
+        for (ty, context) in [(start_ty, "range start"), (end_ty, "range end")] {
+            if let Some(ty) = ty {
+                self.expect_integer(span, ty, context);
+            }
+        }
+        let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
+            (true, true, false) => RangeTyKind::Exclusive,
+            (true, true, true) => RangeTyKind::Inclusive,
+            (true, false, false) => RangeTyKind::From,
+            (false, true, false) => RangeTyKind::To,
+            (false, true, true) => RangeTyKind::ToInclusive,
+            (false, false, false) => RangeTyKind::Full,
+            (true, false, true) | (false, false, true) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "inclusive range expression requires an end bound",
+                ));
+                return self.error();
+            }
+        };
+        if let Some(expected) = expected
+            && expected.kind != kind
+        {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "range kind mismatch: expected {}, got {}",
+                    self.ty_name(expected.ty),
+                    self.range_kind_name(kind)
+                ),
+            ));
+            return self.error();
+        }
+        let bound = match (start_ty, end_ty) {
+            (Some(start_ty), Some(end_ty)) => {
+                self.expect_type(span, start_ty, end_ty, "range bounds");
+                Some(start_ty)
+            }
+            (Some(bound), None) | (None, Some(bound)) => Some(bound),
+            (None, None) => None,
+        };
+        let range_ty = self.interner.intern(TyKind::Range { kind, bound });
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            "range expressions are only valid in slice syntax for now",
+        ));
+        range_ty
+    }
+
+    fn expected_range_parts(&self, expected: InternedTyId) -> Option<ExpectedRangeParts> {
+        let expected = self.normalization.normalize(expected);
+        let Some(TyKind::Range { kind, bound }) = self.interner.get(expected) else {
+            return None;
+        };
+        Some(ExpectedRangeParts {
+            ty: expected,
+            kind: *kind,
+            bound: *bound,
+        })
+    }
+
+    fn range_kind_name(&self, kind: RangeTyKind) -> &'static str {
+        match kind {
+            RangeTyKind::Exclusive => "`T..T`",
+            RangeTyKind::Inclusive => "`T..=T`",
+            RangeTyKind::From => "`T..`",
+            RangeTyKind::To => "`..T`",
+            RangeTyKind::ToInclusive => "`..=T`",
+            RangeTyKind::Full => "`..`",
+        }
     }
 
     fn integer_literal_type(&mut self, expr: &Expr) -> InternedTyId {
@@ -755,6 +851,13 @@ pub(crate) fn builtin_trait_for_binary_op(op: BinaryOp) -> Option<BuiltinTrait> 
         BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => Some(BuiltinTrait::Ord),
         BinaryOp::And | BinaryOp::Or => None,
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExpectedRangeParts {
+    ty: InternedTyId,
+    kind: RangeTyKind,
+    bound: Option<InternedTyId>,
 }
 
 pub(crate) fn builtin_trait_for_unary_op(op: UnaryOp) -> Option<BuiltinTrait> {

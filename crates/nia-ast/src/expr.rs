@@ -178,6 +178,7 @@ pub enum ExprKind {
         lhs: Box<Expr>,
         index: IndexArg,
     },
+    Range(SliceRange),
     Block(Block),
     If {
         cond: Box<Expr>,

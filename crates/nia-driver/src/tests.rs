@@ -3269,13 +3269,13 @@ where C: Index[i32] {
     items[index] = value;
 }
 
-fn slice_const[S](items: S) [S as SliceConst]::Output
-where S: SliceConst {
+fn slice_const[S](items: S) [S as SliceConst[..]]::Output
+where S: SliceConst[..] {
     &const items[..]
 }
 
-fn slice_mut[S](items: S) [S as Slice]::Output
-where S: Slice {
+fn slice_mut[S](items: S) [S as Slice[..]]::Output
+where S: Slice[..] {
     &items[..]
 }
 
@@ -3533,7 +3533,7 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : SliceConst {
+extend Cell : SliceConst[..] {
     type Output = &const [i32];
 }
 
@@ -3547,6 +3547,74 @@ fn main() i32 { 0 }
             .diagnostic
             .message
             .contains("compiler-proven trait")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_slice_ranges_infer_usize_bounds() {
+    let root = temp_dir("builtin_slice_ranges_infer_usize_bounds");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    var items: [4]i32 = [1, 2, 3, 4];
+    var part = &const items[0..2];
+    @len(part) as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_slice_ranges_require_usize_bounds() {
+    let root = temp_dir("builtin_slice_ranges_require_usize_bounds");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    var items: [4]i32 = [1, 2, 3, 4];
+    var end: i32 = 2;
+    var part = &const items[0..end];
+    @len(part) as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("slice range end")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn range_expressions_are_not_runtime_values_yet() {
+    let root = temp_dir("range_expressions_are_not_runtime_values_yet");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    _ = 0..2;
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("range expressions are only valid in slice syntax")),
         "{:?}",
         program.diagnostics
     );

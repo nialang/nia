@@ -220,6 +220,14 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                 }
                 self.visit_type(elem);
             }
+            TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.visit_type(start);
+                }
+                if let Some(end) = end {
+                    self.visit_type(end);
+                }
+            }
             TypeKind::FunctionPointer {
                 params,
                 return_type,

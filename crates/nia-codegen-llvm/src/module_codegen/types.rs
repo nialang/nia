@@ -184,6 +184,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
+                | TyKind::Range { .. }
                 | TyKind::Error,
             )
             | None => AbiParam::Direct(ty),
@@ -219,6 +220,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
+                | TyKind::Range { .. }
                 | TyKind::Error,
             )
             | None => AbiReturn::Direct(ty),
@@ -322,6 +324,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
+                | TyKind::Range { .. }
                 | TyKind::Error,
             )
             | None => Err(self.error(span, "type is not concrete enough for LLVM lowering")),

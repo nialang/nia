@@ -109,6 +109,11 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Array { elem, .. }) => {
                 self.collect_generic_params_in_ty(*elem, generics);
             }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_generic_params_in_ty(*bound, generics);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
