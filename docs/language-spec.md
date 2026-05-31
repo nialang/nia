@@ -581,9 +581,11 @@ There is no nominal built-in `Range` type. A range type is identified by its
 shape and, for bounded forms, by one integer bound type. `T..U` and `T..=U`
 require `T` and `U` to be the same integer type.
 
-Range expressions are currently only valid as part of slice syntax. Built-in
+Range expressions are runtime values with these structural range types. Built-in
 slice construction requires every explicit range bound to have type `usize`;
-unsuffixed integer literals in slice bounds are inferred as `usize`.
+unsuffixed integer literals in slice bounds are inferred as `usize`. Omitted
+slice bounds are interpreted by the slice operation, not by rewriting the range
+value to `0` or `usize::MAX`.
 
 Nia does not provide built-in runtime bounds checks. The programmer is
 responsible for ensuring that the selected memory range is valid.
@@ -1336,8 +1338,9 @@ Nia provides a small builtin surface:
 ```nia
 @size[T]()
 @align[T]()
-@len(value)
-@ptr(slice)
+value.len()
+slice.get_ptr_const()
+slice.get_ptr()
 @asm({...})
 ```
 
@@ -1361,11 +1364,18 @@ compile-time known values and may appear in array lengths, static initializers,
 and ordinary expressions. In generic code they remain layout values until the
 generic function is instantiated.
 
-`@len(value)` returns array or slice length as `usize`. For `[N]T`, it returns
-`N`. For `&[T]` and `&const [T]`, it returns the runtime slice length.
+`value.len()` calls the built-in `Len` trait method. Arrays and slices have
+compiler-proven `Len` implementations: for `[N]T`, it returns `N`; for `&[T]`
+and `&const [T]`, it returns the runtime slice length. User types may implement
+`Len`, but an implementation may not overlap a compiler-proven implementation.
 
-`@ptr(slice)` returns the slice element pointer. `@ptr(&[T])` has type `&T`.
-`@ptr(&const [T])` has type `&const T`.
+`slice.get_ptr_const()` and `slice.get_ptr()` call the built-in `GetPtrConst`
+and `GetPtr` trait methods. `&[T]` and `&const [T]` have compiler-proven
+`GetPtrConst` implementations. Mutable slices also have compiler-proven
+`GetPtr` implementations, whose `get_ptr()` method returns `&T`. Arrays
+intentionally do not implement `GetPtrConst` or `GetPtr`; form a slice first
+with `&array[..]`. User types may implement these traits for custom contiguous
+storage abstractions, but may not overlap compiler-proven slice implementations.
 
 `@asm({...})` is the inline assembly escape hatch for syscalls, special
 registers, port I/O, CPU instructions, and freestanding runtime glue. Its
@@ -1685,8 +1695,69 @@ traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
 `shl`, and `shr`. Unary traits use `neg`, `not`, and `bit_not`. `Eq` requires
 both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
 
-`Sized` is also a builtin trait. It is compiler-proven from layout information
-and cannot be implemented manually.
+`Sized`, `DerefConst`, `Deref`, `IndexConst`, `Index`, `SliceConst`, `Slice`,
+`Len`, `GetPtrConst`, and `GetPtr` are also builtin capability traits. Their
+names and required members are fixed by the language:
+
+```nia
+trait Sized {}
+
+trait DerefConst {
+    type Target;
+    fn deref_const(&const self) &const [Self as DerefConst]::Target;
+}
+
+trait Deref : DerefConst {
+    type Target;
+    fn deref(&self) &[Self as Deref]::Target;
+}
+
+trait IndexConst[I] {
+    type Output;
+    fn index_const(&const self, index: I) &const [Self as IndexConst[I]]::Output;
+}
+
+trait Index[I] : IndexConst[I] {
+    type Output;
+    fn index(&self, index: I) &[Self as Index[I]]::Output;
+}
+
+trait SliceConst[R] {
+    type Output;
+    fn slice_const(&const self, range: R) [Self as SliceConst[R]]::Output;
+}
+
+trait Slice[R] : SliceConst[R] {
+    type Output;
+    fn slice(&self, range: R) [Self as Slice[R]]::Output;
+}
+
+trait Len {
+    fn len(&const self) usize;
+}
+
+trait GetPtrConst {
+    type Target;
+    fn get_ptr_const(&const self) &const [Self as GetPtrConst]::Target;
+}
+
+trait GetPtr : GetPtrConst {
+    type Target;
+    fn get_ptr(&self) &[Self as GetPtr]::Target;
+}
+```
+
+The compiler proves builtin implementations for primitive operations,
+layout-known types, pointers, arrays, and slices where the operation is native
+to the language. User implementations of builtin traits are allowed when they
+do not overlap a compiler-proven implementation. For example, a custom
+container may implement `Len` or `SliceConst[..]`, but `[N]T` may not provide a
+manual `Len` implementation because array length is already compiler-proven.
+
+Index expressions lower through `IndexConst` or `Index`; slice expressions
+lower through `SliceConst` or `Slice`. Native array, pointer, and slice
+implementations require integer indices or range types whose bounds are
+`usize`.
 
 A trait implementation block is only for implementing the named trait. It must
 not contain methods that are not members of that trait. Inherent methods still
@@ -2163,7 +2234,7 @@ A conforming Nia compiler supports:
 - the three `for` forms;
 - `defer`;
 - `switch` and enum exhaustiveness checks;
-- `@size[T]()`, `@align[T]()`, `@len(value)`, `@ptr(slice)`, and `@asm({...})`;
+- `@size[T]()`, `@align[T]()`, `value.len()`, `slice.get_ptr_const()`, and `@asm({...})`;
 - relative file imports and module-map bare imports;
 - global static storage from top-level `var` and `const`;
 - top-level `pub` visibility;

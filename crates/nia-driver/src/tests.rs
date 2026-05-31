@@ -836,7 +836,7 @@ extend[T] Ptr[T] {
 }
 
 extend[T] &const [T] {
-    fn size(self) usize { @len(self) }
+    fn size(self) usize { self.len() }
 }
 
 extend[T] [3]T {
@@ -3287,13 +3287,75 @@ fn main(ptr: &i32, ro: &const [i32], rw: &[i32]) i32 {
     write_index_i32[&[i32]](rw, 0, y);
     var a = slice_const[&const [i32]](ro);
     var b = slice_mut[&[i32]](rw);
-    @len(a) as i32 + @len(b) as i32 + x + y
+    a.len() as i32 + b.len() as i32 + x + y
 }
 "##,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_len_and_get_ptr_traits_model_arrays_and_slices() {
+    let root = temp_dir("builtin_len_and_get_ptr_traits_model_arrays_and_slices");
+    write(
+        &root.join("main.nia"),
+        r##"
+fn len_of[T](value: T) usize
+where T: Len {
+    value.len()
+}
+
+fn ptr_const_value[S](slice: S) [S as GetPtrConst]::Target
+where S: GetPtrConst {
+    var ptr = slice.get_ptr_const();
+    ptr.*
+}
+
+fn ptr_value[S](slice: S) [S as GetPtr]::Target
+where S: GetPtr {
+    var ptr = slice.get_ptr();
+    ptr.*
+}
+
+fn main(slice_const: &const [usize], slice_mut: &[usize]) usize {
+    var array: [4]i32 = [1, 2, 3, 4];
+    len_of(array)
+        + len_of(slice_const)
+        + len_of(slice_mut)
+        + ptr_const_value(slice_const)
+        + ptr_value(slice_mut)
+}
+"##,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_get_ptr_traits_do_not_apply_to_arrays() {
+    let root = temp_dir("builtin_get_ptr_traits_do_not_apply_to_arrays");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    var array: [4]i32 = [1, 2, 3, 4];
+    array.get_ptr_const().*
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("field access base is not a struct or union value or pointer")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
@@ -3524,17 +3586,65 @@ fn main() i32 { 0 }
 }
 
 #[test]
-fn builtin_slice_traits_are_compiler_proven_only() {
-    let root = temp_dir("builtin_slice_traits_are_compiler_proven_only");
+fn builtin_slice_traits_allow_user_container_impls() {
+    let root = temp_dir("builtin_slice_traits_allow_user_container_impls");
     write(
         &root.join("main.nia"),
         r#"
-struct Cell {
-    value: i32,
-}
+struct Cell {}
+
+var backing: [3]i32 = [1, 2, 3];
 
 extend Cell : SliceConst[..] {
     type Output = &const [i32];
+
+    fn slice_const(&const self, range: ..) &const [i32] {
+        &const backing[..]
+    }
+}
+
+fn take[T](value: T) [T as SliceConst[..]]::Output
+where T: SliceConst[..] {
+    &const value[..]
+}
+
+fn main(cell: Cell) i32 {
+    var part = take(cell);
+    part.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
+    let root = temp_dir("builtin_trait_impls_cannot_overlap_compiler_proven_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+type Array4 = [4]i32;
+
+extend Array4 : Len {
+    fn len(&const self) usize { 4usize }
+}
+
+extend[T] &[T] : GetPtrConst {
+    type Target = T;
+
+    fn get_ptr_const(&const self) &const T {
+        self.get_ptr_const()
+    }
+}
+
+extend[T] [4]T : SliceConst[..] {
+    type Output = &const [T];
+
+    fn slice_const(&const self, range: ..) &const [T] {
+        &const self[..]
+    }
 }
 
 fn main() i32 { 0 }
@@ -3542,14 +3652,17 @@ fn main() i32 { 0 }
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .message
-            .contains("compiler-proven trait")),
-        "{:?}",
-        program.diagnostics
-    );
+    let overlap_count = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("overlaps a compiler-proven implementation")
+        })
+        .count();
+    assert!(overlap_count >= 3, "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -3561,7 +3674,7 @@ fn builtin_slice_ranges_infer_usize_bounds() {
 fn main() i32 {
     var items: [4]i32 = [1, 2, 3, 4];
     var part = &const items[0..2];
-    @len(part) as i32
+    part.len() as i32
 }
 "#,
     );
@@ -3580,7 +3693,7 @@ fn main() i32 {
     var items: [4]i32 = [1, 2, 3, 4];
     var end: i32 = 2;
     var part = &const items[0..end];
-    @len(part) as i32
+    part.len() as i32
 }
 "#,
     );
@@ -3597,27 +3710,20 @@ fn main() i32 {
 }
 
 #[test]
-fn range_expressions_are_not_runtime_values_yet() {
-    let root = temp_dir("range_expressions_are_not_runtime_values_yet");
+fn range_expressions_are_runtime_values() {
+    let root = temp_dir("range_expressions_are_runtime_values");
     write(
         &root.join("main.nia"),
         r#"
 fn main() i32 {
-    _ = 0..2;
+    var range: usize..usize = 0..2;
     0
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .message
-            .contains("range expressions are only valid in slice syntax")),
-        "{:?}",
-        program.diagnostics
-    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -3641,7 +3747,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .message
-            .contains("cannot be implemented manually")),
+            .contains("overlaps a compiler-proven implementation")),
         "{:?}",
         program.diagnostics
     );

@@ -304,7 +304,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(Span::default(), "failed to insert slice length"))
     }
 
-    fn extract_slice_ptr(
+    pub(super) fn extract_slice_ptr(
         &self,
         span: Span,
         slice: StructValue<'ctx>,
@@ -316,7 +316,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(value.into_pointer_value()?)
     }
 
-    fn extract_slice_len(
+    pub(super) fn extract_slice_len(
         &self,
         span: Span,
         slice: StructValue<'ctx>,
@@ -326,33 +326,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_extract_value(slice, 1, "slice.len")
             .map_err(|_| self.error(span, "failed to extract slice length"))?;
         Ok(value.into_int_value()?)
-    }
-
-    pub(super) fn emit_len(
-        &mut self,
-        span: Span,
-        inner: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        match self.module.ty_kind(inner.ty) {
-            Some(TyKind::Array { len, .. }) => {
-                let len = self.module.array_len(len, span)?;
-                Ok(self.module.context.i64_type().const_int(len, false).into())
-            }
-            Some(TyKind::Slice { .. }) => {
-                let slice = self.emit_expr(inner)?.into_struct_value()?;
-                self.extract_slice_len(span, slice).map(Into::into)
-            }
-            _ => Err(self.error(span, "`@len` requires an array or slice")),
-        }
-    }
-
-    pub(super) fn emit_ptr(
-        &mut self,
-        span: Span,
-        inner: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let slice = self.emit_expr(inner)?.into_struct_value()?;
-        self.extract_slice_ptr(span, slice).map(Into::into)
     }
 
     pub(super) fn emit_assign(

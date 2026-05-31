@@ -7,7 +7,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyInterner, TyKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetDataLayout {
@@ -255,14 +255,14 @@ impl<'a> LayoutComputer<'a> {
                 size: self.target.pointer_size * 2,
                 align: self.target.pointer_align,
             }),
+            Some(TyKind::Range { kind, bound }) => self.range_layout(span, kind, bound),
             Some(TyKind::Array { len, elem }) => self.array_layout(span, len, elem),
             Some(TyKind::Nominal { def_id, args }) => self.nominal_layout(span, def_id, &args),
             Some(
                 TyKind::Error
                 | TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
-                | TyKind::Projection { .. }
-                | TyKind::Range { .. },
+                | TyKind::Projection { .. },
             )
             | None => None,
         };
@@ -352,6 +352,30 @@ impl<'a> LayoutComputer<'a> {
         Some(TypeLayout {
             size: elem_layout.size.saturating_mul(len),
             align: elem_layout.align,
+        })
+    }
+
+    fn range_layout(
+        &mut self,
+        span: Span,
+        kind: RangeTyKind,
+        bound: Option<InternedTyId>,
+    ) -> Option<TypeLayout> {
+        let field_count = match kind {
+            RangeTyKind::Exclusive | RangeTyKind::Inclusive => 2,
+            RangeTyKind::From | RangeTyKind::To | RangeTyKind::ToInclusive => 1,
+            RangeTyKind::Full => 0,
+        };
+        let Some(bound) = bound else {
+            return (field_count == 0).then_some(TypeLayout { size: 0, align: 1 });
+        };
+        let bound_layout = self.layout_ty(bound, span)?;
+        Some(TypeLayout {
+            size: align_to(
+                bound_layout.size.saturating_mul(field_count),
+                bound_layout.align,
+            ),
+            align: bound_layout.align,
         })
     }
 

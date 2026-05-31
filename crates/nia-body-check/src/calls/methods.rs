@@ -5,7 +5,7 @@ use crate::BodyChecker;
 use nia_ast::{BinaryOp, BracketArg, Expr, ExprKind, ReceiverKind, UnaryOp};
 use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp, ResolvedCall};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
+use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, BuiltinTrait, TyKind};
@@ -590,6 +590,13 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
+        if let Some((trait_id, place_method)) = builtin_trait_place_method(method) {
+            return self.check_builtin_trait_place_method_call_with_receiver_ty(
+                call,
+                trait_id,
+                place_method,
+            );
+        }
         let (trait_id, op) = builtin_trait_method_operator(method)?;
         let Some(trait_args) = self.check_builtin_trait_method_value_args(
             call.span,
@@ -635,6 +642,17 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
+        if let Some((trait_id, place_method)) = builtin_trait_place_method(method) {
+            return self.check_builtin_trait_associated_place_method_call(
+                span,
+                target_ty,
+                name,
+                trait_id,
+                place_method,
+                args,
+                expected,
+            );
+        }
         let (trait_id, op) = builtin_trait_method_operator(method)?;
         let Some((receiver, value_args)) = args.split_first() else {
             self.diagnostics.push(Diagnostic::error(
@@ -670,6 +688,132 @@ impl<'a> BodyChecker<'a> {
         }
         self.record_resolved_call(span, ResolvedCall::BuiltinTraitMethod { trait_id, op });
         Some(output)
+    }
+
+    fn check_builtin_trait_place_method_call_with_receiver_ty(
+        &mut self,
+        call: &MethodCall<'_>,
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+    ) -> Option<InternedTyId> {
+        let Some(trait_args) = self
+            .check_builtin_trait_place_method_value_args(call.span, trait_id, method, call.args)
+        else {
+            return Some(self.error());
+        };
+        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
+            self.check_receiver_match(call.receiver, call.receiver_ty, ReceiverKind::Ref);
+        }
+        if !self.current_context_proves_trait_obligation(
+            call.receiver_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            return None;
+        }
+        let output =
+            self.builtin_trait_place_method_output(call.receiver_ty, trait_id, trait_args.clone());
+        if let Some(expected) = call.expected {
+            self.expect_type(call.span, expected, output, "builtin trait method call");
+        }
+        self.record_resolved_call(
+            call.span,
+            ResolvedCall::BuiltinPlaceMethod {
+                trait_id,
+                method,
+                self_ty: call.receiver_ty,
+                trait_args,
+            },
+        );
+        Some(output)
+    }
+
+    fn check_builtin_trait_associated_place_method_call(
+        &mut self,
+        span: Span,
+        target_ty: InternedTyId,
+        name: &str,
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let Some((receiver, value_args)) = args.split_first() else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("receiver method `{name}` requires a receiver argument"),
+            ));
+            return Some(self.error());
+        };
+        let Some(trait_args) =
+            self.check_builtin_trait_place_method_value_args(span, trait_id, method, value_args)
+        else {
+            return Some(self.error());
+        };
+        let receiver_ty = self.check_expr_with_expected(receiver, Some(target_ty));
+        self.expect_expr_type(receiver, target_ty, receiver_ty, "receiver argument");
+        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
+            self.check_receiver_match(receiver, target_ty, ReceiverKind::Ref);
+        }
+        if !self.current_context_proves_trait_obligation(
+            target_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(target_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+        }
+        let output =
+            self.builtin_trait_place_method_output(target_ty, trait_id, trait_args.clone());
+        if let Some(expected) = expected {
+            self.expect_type(span, expected, output, "builtin trait method call");
+        }
+        self.record_resolved_call(
+            span,
+            ResolvedCall::BuiltinPlaceMethod {
+                trait_id,
+                method,
+                self_ty: target_ty,
+                trait_args,
+            },
+        );
+        Some(output)
+    }
+
+    fn check_builtin_trait_place_method_value_args(
+        &mut self,
+        span: Span,
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        args: &[Expr],
+    ) -> Option<Vec<InternedTyId>> {
+        let value_param_count = method.param_count().saturating_sub(1);
+        self.check_call_arg_count(span, args.len(), value_param_count, false);
+        if args.len() != value_param_count {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return None;
+        }
+        match trait_id {
+            BuiltinTrait::SliceConst | BuiltinTrait::Slice => {
+                let range = args.first()?;
+                let range_ty = self.check_expr(range);
+                Some(vec![range_ty])
+            }
+            _ => {
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                Some(Vec::new())
+            }
+        }
     }
 
     fn check_builtin_trait_method_value_args(
@@ -749,6 +893,40 @@ impl<'a> BodyChecker<'a> {
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
         self.normalize_projection(output)
+    }
+
+    fn builtin_trait_place_method_output(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: BuiltinTrait,
+        trait_args: Vec<InternedTyId>,
+    ) -> InternedTyId {
+        match trait_id {
+            BuiltinTrait::Len => self.primitive(nia_ty::PrimitiveTy::Usize),
+            BuiltinTrait::SliceConst | BuiltinTrait::Slice => {
+                let output = self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id: TraitId::Builtin(trait_id),
+                    trait_args,
+                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                });
+                self.normalize_projection(output)
+            }
+            BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr => {
+                let target = self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id: TraitId::Builtin(trait_id),
+                    trait_args: Vec::new(),
+                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                });
+                let target = self.normalize_projection(target);
+                self.interner.intern(TyKind::Pointer {
+                    is_const: matches!(trait_id, BuiltinTrait::GetPtrConst),
+                    elem: target,
+                })
+            }
+            _ => self.error(),
+        }
     }
 
     fn check_trait_method_call_with_receiver_ty(
@@ -1653,6 +1831,24 @@ fn builtin_trait_method_operator(
         BuiltinTraitMethod::DerefConst
         | BuiltinTraitMethod::Deref
         | BuiltinTraitMethod::IndexConst
-        | BuiltinTraitMethod::Index => None,
+        | BuiltinTraitMethod::Index
+        | BuiltinTraitMethod::SliceConst
+        | BuiltinTraitMethod::Slice
+        | BuiltinTraitMethod::Len
+        | BuiltinTraitMethod::GetPtrConst
+        | BuiltinTraitMethod::GetPtr => None,
+    }
+}
+
+fn builtin_trait_place_method(
+    method: BuiltinTraitMethod,
+) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
+    match method {
+        BuiltinTraitMethod::Len => Some((BuiltinTrait::Len, method)),
+        BuiltinTraitMethod::SliceConst => Some((BuiltinTrait::SliceConst, method)),
+        BuiltinTraitMethod::Slice => Some((BuiltinTrait::Slice, method)),
+        BuiltinTraitMethod::GetPtrConst => Some((BuiltinTrait::GetPtrConst, method)),
+        BuiltinTraitMethod::GetPtr => Some((BuiltinTrait::GetPtr, method)),
+        _ => None,
     }
 }

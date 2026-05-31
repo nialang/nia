@@ -786,9 +786,9 @@ fn first(xs: &const [i32]) i32 {
 fn main() i32 {
     var xs: [4]i32 = [1, 2, 3, 4];
     var s = &const xs[1..=2];
-    var p = @ptr(s);
+    var p = s.get_ptr_const();
     var single = &const p[..];
-    first(s) + @len(s) as i32 + @len(single) as i32
+    first(s) + s.len() as i32 + single.len() as i32
 }
 "#,
     )
@@ -1929,7 +1929,7 @@ extend[T] Ptr[T] {
 
 extend[T] &const [T] {
     fn size(self) usize {
-        @len(self)
+        self.len()
     }
 }
 
@@ -2915,7 +2915,7 @@ fn main() i32 {
     var i: usize = 2;
     bag.items[i] = defs::make_item(5);
     var tail = &const bag.items[1..=2];
-    @len(bag.items) as i32 + @len(tail) as i32 + bag.items[i].value
+    bag.items.len() as i32 + tail.len() as i32 + bag.items[i].value
 }
 "#,
     )
@@ -3294,7 +3294,8 @@ fn emits_imported_array_length_size_builtin() {
 import .defs;
 
 fn main() i32 {
-    @len(defs::make_box().bytes) as i32
+    var b = defs::make_box();
+    b.bytes.len() as i32
 }
 "#,
     )
@@ -3985,7 +3986,7 @@ fn main() i32 {
                 r#"
 fn sum(xs: &const [i32]) i32 {
     var out = 0;
-    for var i: usize = 0; i < @len(xs); i += 1usize {
+    for var i: usize = 0; i < xs.len(); i += 1usize {
         out += xs[i];
     }
     out

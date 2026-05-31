@@ -684,7 +684,7 @@ fn take(xs: &const [i32], ys: &[i32]) usize {
     var d = &const xs[1..];
     var e = &const xs[..3];
     var f = &const xs[..=4];
-    @len(a) + @len(b) + @len(c) + @len(d) + @len(e) + @len(f)
+    a.len() + b.len() + c.len() + d.len() + e.len() + f.len()
 }
 "#,
     );

@@ -165,11 +165,16 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::FunctionInstance { def_id, args } => {
                 self.enqueue_function_instance(*def_id, args, seen, queue);
             }
-            FunctionExprKind::Len(inner)
-            | FunctionExprKind::Ptr(inner)
-            | FunctionExprKind::Discard(inner)
-            | FunctionExprKind::Cast { expr: inner, .. } => {
+            FunctionExprKind::Discard(inner) | FunctionExprKind::Cast { expr: inner, .. } => {
                 self.enqueue_function_instances_from_expr(inner, seen, queue);
+            }
+            FunctionExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.enqueue_function_instances_from_expr(start, seen, queue);
+                }
+                if let Some(end) = &range.end {
+                    self.enqueue_function_instances_from_expr(end, seen, queue);
+                }
             }
             FunctionExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {

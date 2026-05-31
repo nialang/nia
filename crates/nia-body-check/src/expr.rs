@@ -294,12 +294,7 @@ impl<'a> BodyChecker<'a> {
             (Some(bound), None) | (None, Some(bound)) => Some(bound),
             (None, None) => None,
         };
-        let range_ty = self.interner.intern(TyKind::Range { kind, bound });
-        self.diagnostics.push(Diagnostic::error(
-            span,
-            "range expressions are only valid in slice syntax for now",
-        ));
-        range_ty
+        self.interner.intern(TyKind::Range { kind, bound })
     }
 
     fn expected_range_parts(&self, expected: InternedTyId) -> Option<ExpectedRangeParts> {

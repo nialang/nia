@@ -4,7 +4,7 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{BuiltinTrait, TyKind};
 
 use super::FunctionCodegen;
 
@@ -43,6 +43,24 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         callee: &FunctionCallee,
         args: &[FunctionExpr],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if let FunctionCallee::BuiltinPlaceMethod {
+            trait_id,
+            self_ty,
+            receiver,
+            ..
+        } = callee
+        {
+            return match trait_id {
+                BuiltinTrait::Len => self.emit_builtin_len_method(expr.span, *self_ty, receiver),
+                BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr => {
+                    self.emit_builtin_get_ptr_method(expr.span, *self_ty, receiver)
+                }
+                _ => Err(self.error(
+                    expr.span,
+                    "unsupported builtin place method reached LLVM codegen",
+                )),
+            };
+        }
         if let FunctionCallee::BuiltinOperator(operator) = callee {
             return match operator.op {
                 FunctionBuiltinOperatorOp::Unary(op) => {
@@ -91,6 +109,65 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "void call cannot be used as a value"))
             }
         }
+    }
+
+    fn emit_builtin_len_method(
+        &mut self,
+        span: Span,
+        self_ty: nia_ids::InternedTyId,
+        receiver: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        match self.module.ty_kind(self_ty) {
+            Some(TyKind::Array { len, .. }) => {
+                let len = self.module.array_len(len, span)?;
+                Ok(self.module.context.i64_type().const_int(len, false).into())
+            }
+            Some(TyKind::Slice { .. }) => {
+                let slice = self.load_builtin_method_receiver_value(span, self_ty, receiver)?;
+                self.extract_slice_len(span, slice.into_struct_value()?)
+                    .map(Into::into)
+            }
+            _ => Err(self.error(span, "`Len.len` requires an array or slice")),
+        }
+    }
+
+    fn emit_builtin_get_ptr_method(
+        &mut self,
+        span: Span,
+        self_ty: nia_ids::InternedTyId,
+        receiver: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        match self.module.ty_kind(self_ty) {
+            Some(TyKind::Slice { .. }) => {
+                let slice = self.load_builtin_method_receiver_value(span, self_ty, receiver)?;
+                self.extract_slice_ptr(span, slice.into_struct_value()?)
+                    .map(Into::into)
+            }
+            _ => Err(self.error(span, "`GetPtr.get_ptr` requires a slice")),
+        }
+    }
+
+    fn load_builtin_method_receiver_value(
+        &mut self,
+        span: Span,
+        self_ty: nia_ids::InternedTyId,
+        receiver: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let receiver_value = self.emit_expr(receiver)?;
+        if matches!(
+            self.module.ty_kind(receiver.ty),
+            Some(TyKind::Pointer { .. })
+        ) {
+            return self
+                .builder
+                .build_load(
+                    self.module.llvm_basic_type(self_ty, span)?,
+                    receiver_value.into_pointer_value()?,
+                    "builtin.receiver",
+                )
+                .map_err(|_| self.error(span, "failed to load builtin method receiver"));
+        }
+        Ok(receiver_value)
     }
 
     pub(super) fn emit_call_raw(

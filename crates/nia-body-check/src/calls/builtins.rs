@@ -5,7 +5,7 @@ use nia_body_ir::BuiltinValue;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{InternedTyId, LayoutBuiltin, TraitId};
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_ty::PrimitiveTy;
 use nia_value_resolve::BuiltinResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -30,7 +30,7 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
                 self.require_sized_type(type_arg.span, ty, name);
             }
-            BuiltinResolution::Len | BuiltinResolution::Ptr | BuiltinResolution::Asm => {
+            BuiltinResolution::Asm => {
                 self.diagnostics.push(Diagnostic::error(
                     span,
                     format!("builtin `@{name}` must be called with value arguments"),
@@ -82,68 +82,6 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
                 self.check_builtin(builtin_span, name, type_arg)
-            }
-            BuiltinResolution::Len => {
-                if type_arg.is_some() {
-                    self.diagnostics.push(Diagnostic::error(
-                        builtin_span,
-                        "builtin `@len` does not take a type argument",
-                    ));
-                }
-                if args.len() != 1 {
-                    self.diagnostics.push(Diagnostic::error(
-                        call_span,
-                        "builtin `@len` requires exactly one argument",
-                    ));
-                    for arg in args {
-                        self.check_expr(arg);
-                    }
-                    return self.primitive(PrimitiveTy::Usize);
-                }
-                let arg_ty = self.check_expr(&args[0]);
-                match self.interner.get(arg_ty) {
-                    Some(TyKind::Array { .. } | TyKind::Slice { .. } | TyKind::Error) => {}
-                    _ => self.diagnostics.push(Diagnostic::error(
-                        args[0].span,
-                        "builtin `@len` requires an array or slice",
-                    )),
-                }
-                self.primitive(PrimitiveTy::Usize)
-            }
-            BuiltinResolution::Ptr => {
-                if type_arg.is_some() {
-                    self.diagnostics.push(Diagnostic::error(
-                        builtin_span,
-                        "builtin `@ptr` does not take a type argument",
-                    ));
-                }
-                if args.len() != 1 {
-                    self.diagnostics.push(Diagnostic::error(
-                        call_span,
-                        "builtin `@ptr` requires exactly one argument",
-                    ));
-                    for arg in args {
-                        self.check_expr(arg);
-                    }
-                    return self.error();
-                }
-                let arg_ty = self.check_expr(&args[0]);
-                match self.interner.get(arg_ty) {
-                    Some(TyKind::Slice { is_const, elem }) => {
-                        self.interner.intern(TyKind::Pointer {
-                            is_const: *is_const,
-                            elem: *elem,
-                        })
-                    }
-                    Some(TyKind::Error) | None => self.error(),
-                    _ => {
-                        self.diagnostics.push(Diagnostic::error(
-                            args[0].span,
-                            "builtin `@ptr` requires a slice",
-                        ));
-                        self.error()
-                    }
-                }
             }
             BuiltinResolution::Asm => self.check_asm_builtin_call(call_span, builtin_span, args),
             BuiltinResolution::Reserved => self.error(),
