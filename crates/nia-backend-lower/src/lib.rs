@@ -300,6 +300,24 @@ impl<'a> ModuleLowerer<'a> {
             .expect("array length used in backend symbol must be evaluated")
     }
 
+    pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
+        let ty = self.input.type_normalization.normalize(ty);
+        if let Some(layout) = self.input.layouts.types.get(&ty).cloned() {
+            return Some(layout);
+        }
+        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+            return None;
+        };
+        if def_id.module_id != self.input.module_id {
+            return None;
+        }
+        if args.is_empty() {
+            self.input.layouts.nominal_type_layout(*def_id, args)
+        } else {
+            self.input.layouts.nominal_type_layout(*def_id, args)
+        }
+    }
+
     fn error_ty(&self) -> InternedTyId {
         self.input.body_check.ir.interner.error()
     }

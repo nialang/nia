@@ -224,6 +224,7 @@ pub struct FieldInit {
 pub enum UnaryOp {
     Neg,
     Not,
+    BitNot,
     RefConst,
     Ref,
     Deref,

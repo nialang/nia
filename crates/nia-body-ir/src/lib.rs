@@ -31,9 +31,10 @@ pub struct BodyIr {
     pub node_function_references: HashMap<NodeKey, FunctionReference>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinValue {
     Usize(u64),
+    Layout { name: String, ty: InternedTyId },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,6 +294,7 @@ pub struct TypedSliceRange {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BuiltinConst {
     Usize(u64),
+    Layout { name: String, ty: InternedTyId },
     Int(i128),
 }
 
@@ -366,7 +368,13 @@ pub enum TypedCallee {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuiltinOperator {
     pub trait_id: BuiltinTrait,
-    pub op: BinaryOp,
+    pub op: BuiltinOperatorOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinOperatorOp {
+    Unary(UnaryOp),
+    Binary(BinaryOp),
 }
 
 #[derive(Debug, Clone, PartialEq)]

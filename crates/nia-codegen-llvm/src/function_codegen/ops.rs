@@ -54,6 +54,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_basic_not(value, "nottmp")
                     .map_err(|_| self.error(span, "failed to build not"))
             }
+            UnaryOp::BitNot => {
+                let value = self.emit_expr(inner)?;
+                self.builder
+                    .build_basic_not(value, "bitnottmp")
+                    .map_err(|_| self.error(span, "failed to build bitwise not"))
+            }
         }
     }
 

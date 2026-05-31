@@ -366,25 +366,62 @@ impl<'a> BodyChecker<'a> {
             return false;
         };
         let self_ty = self.normalization.normalize(required.self_ty);
-        let [rhs_ty] = required.trait_args.as_slice() else {
-            return false;
-        };
-        let rhs_ty = self.normalization.normalize(*rhs_ty);
         match trait_id {
             BuiltinTrait::Add
             | BuiltinTrait::Sub
             | BuiltinTrait::Mul
             | BuiltinTrait::Div
             | BuiltinTrait::Rem => {
+                let [rhs_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                let rhs_ty = self.normalization.normalize(*rhs_ty);
                 self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
                     && self.is_numeric(self_ty)
             }
             BuiltinTrait::BitAnd | BuiltinTrait::BitOr | BuiltinTrait::BitXor => {
+                let [rhs_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                let rhs_ty = self.normalization.normalize(*rhs_ty);
                 self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
                     && self.is_integer(self_ty)
             }
             BuiltinTrait::Shl | BuiltinTrait::Shr => {
+                let [rhs_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                let rhs_ty = self.normalization.normalize(*rhs_ty);
                 self.is_integer(self_ty) && self.is_integer(rhs_ty)
+            }
+            BuiltinTrait::Neg => required.trait_args.is_empty() && self.is_numeric(self_ty),
+            BuiltinTrait::BitNot => required.trait_args.is_empty() && self.is_integer(self_ty),
+            BuiltinTrait::Not => {
+                required.trait_args.is_empty()
+                    && self.types_equivalent_without_projection_resolution(self_ty, self.bool())
+            }
+            BuiltinTrait::Eq => {
+                let [rhs_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                let rhs_ty = self.normalization.normalize(*rhs_ty);
+                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
+                    && (self.is_numeric(self_ty)
+                        || self
+                            .types_equivalent_without_projection_resolution(self_ty, self.bool())
+                        || self.is_pointer(self_ty)
+                        || self.is_enum(self_ty))
+            }
+            BuiltinTrait::Ord => {
+                let [rhs_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                let rhs_ty = self.normalization.normalize(*rhs_ty);
+                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
+                    && self.is_numeric(self_ty)
+            }
+            BuiltinTrait::Sized => {
+                required.trait_args.is_empty() && self.layout_of(self_ty).is_some()
             }
         }
     }

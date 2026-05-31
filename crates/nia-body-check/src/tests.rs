@@ -2961,16 +2961,89 @@ fn main() i32 {
             .any(|diagnostic| diagnostic.message.contains("trait bound not satisfied"))
     );
     assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("ordered comparison"))
-    );
-    assert!(
         !checked
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.message.contains("explicit"))
+    );
+}
+
+#[test]
+fn checks_unary_operator_builtin_traits() {
+    let checked = pipeline(
+        r#"
+fn main(flag: bool, bits: u32, x: i32) bool {
+    var neg = -x;
+    var flipped = ~bits;
+    var logical = !flag;
+    neg < 0 and flipped != bits and logical
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_unary_operators_without_builtin_trait_impls() {
+    let checked = pipeline(
+        r#"
+fn main(flag: bool, x: i32) bool {
+    var bad_bits = ~flag;
+    var bad_not = !x;
+    bad_bits or bad_not
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("trait bound not satisfied: bool: BitNot")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("trait bound not satisfied: i32: Not")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn generic_layout_builtins_require_sized_bound() {
+    let checked = pipeline(
+        r#"
+fn bytes[T]() usize
+where T: Sized {
+    @size[T]() + @align[T]()
+}
+
+fn main() usize {
+    bytes[i32]()
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let rejected = pipeline(
+        r#"
+fn bytes[T]() usize {
+    @size[T]()
+}
+
+fn main() usize {
+    bytes[i32]()
+}
+"#,
+    );
+    assert!(
+        rejected
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("requires T: Sized")),
+        "{:?}",
+        rejected.diagnostics
     );
 }
 

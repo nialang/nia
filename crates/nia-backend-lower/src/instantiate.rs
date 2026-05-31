@@ -380,7 +380,9 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
-                FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value),
+                FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(
+                    self.instantiate_builtin_value(value, substitutions),
+                ),
                 FunctionExprKind::Len(inner) => {
                     FunctionExprKind::Len(Box::new(self.instantiate_expr(*inner, substitutions)))
                 }
@@ -583,6 +585,36 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.instantiate_expr(*expr, substitutions),
             )),
+        }
+    }
+
+    fn instantiate_builtin_value(
+        &mut self,
+        value: nia_function_ir::FunctionBuiltinValue,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> nia_function_ir::FunctionBuiltinValue {
+        match value {
+            nia_function_ir::FunctionBuiltinValue::Layout { name, ty } => {
+                let ty = self.instantiate_ty(ty, substitutions);
+                if let Some(layout) = self.layout_of(ty) {
+                    let value = match name.as_str() {
+                        "size" => layout.size,
+                        "align" => layout.align,
+                        _ => {
+                            return nia_function_ir::FunctionBuiltinValue::Layout { name, ty };
+                        }
+                    };
+                    nia_function_ir::FunctionBuiltinValue::Usize(value)
+                } else {
+                    nia_function_ir::FunctionBuiltinValue::Layout { name, ty }
+                }
+            }
+            nia_function_ir::FunctionBuiltinValue::Usize(value) => {
+                nia_function_ir::FunctionBuiltinValue::Usize(value)
+            }
+            nia_function_ir::FunctionBuiltinValue::Int(value) => {
+                nia_function_ir::FunctionBuiltinValue::Int(value)
+            }
         }
     }
 

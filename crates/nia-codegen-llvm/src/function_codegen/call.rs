@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::module_codegen::{AbiParam, AbiReturn};
 use nia_diagnostic::Diagnostic;
-use nia_function_ir::{FunctionCallee, FunctionExpr, FunctionExprKind};
+use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::TyKind;
@@ -44,15 +44,28 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         args: &[FunctionExpr],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         if let FunctionCallee::BuiltinOperator(operator) = callee {
-            let [lhs, rhs] = args else {
-                return Err(self.error(
-                    expr.span,
-                    "builtin operator reached LLVM codegen with invalid arity",
-                ));
+            return match operator.op {
+                FunctionBuiltinOperatorOp::Unary(op) => {
+                    let [inner] = args else {
+                        return Err(self.error(
+                            expr.span,
+                            "builtin unary operator reached LLVM codegen with invalid arity",
+                        ));
+                    };
+                    self.emit_unary(expr.span, expr.ty, op, inner)
+                }
+                FunctionBuiltinOperatorOp::Binary(op) => {
+                    let [lhs, rhs] = args else {
+                        return Err(self.error(
+                            expr.span,
+                            "builtin binary operator reached LLVM codegen with invalid arity",
+                        ));
+                    };
+                    let lhs = self.emit_expr(lhs)?;
+                    let rhs = self.emit_expr(rhs)?;
+                    self.emit_binary(expr.span, expr.ty, lhs, op, rhs)
+                }
             };
-            let lhs = self.emit_expr(lhs)?;
-            let rhs = self.emit_expr(rhs)?;
-            return self.emit_binary(expr.span, expr.ty, lhs, operator.op, rhs);
         }
         match self.module.classify_function_return(expr.ty) {
             AbiReturn::IndirectOut(ty) => {

@@ -236,6 +236,7 @@ pub struct FunctionInlineAsm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionBuiltinValue {
     Usize(u64),
+    Layout { name: String, ty: InternedTyId },
     Int(i128),
 }
 
@@ -303,7 +304,13 @@ pub enum FunctionCallee {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FunctionBuiltinOperator {
     pub trait_id: BuiltinTrait,
-    pub op: BinaryOp,
+    pub op: FunctionBuiltinOperatorOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionBuiltinOperatorOp {
+    Unary(UnaryOp),
+    Binary(BinaryOp),
 }
 
 #[derive(Debug, Clone, PartialEq)]

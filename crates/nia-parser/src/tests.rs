@@ -720,6 +720,29 @@ fn take(xs: &const [i32], ys: &[i32]) usize {
 }
 
 #[test]
+fn parses_bit_not_unary_operator() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(x: u32) u32 {
+    ~x
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    assert!(matches!(
+        body.tail.as_ref().map(|expr| &expr.kind),
+        Some(ExprKind::Unary {
+            op: UnaryOp::BitNot,
+            ..
+        })
+    ));
+}
+
+#[test]
 fn parses_nested_reference_slice_types() {
     let (module, errors) = parse_module(
         r#"
@@ -1418,7 +1441,7 @@ extend Box[i32] : Show where i32: Show {
 fn parses_supertraits_with_plus_bounds() {
     let (module, errors) = parse_module(
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 }
 
@@ -1426,8 +1449,8 @@ trait Show {
     fn show(&const self) i32;
 }
 
-trait Ord : Eq + Show
-where Self: Eq {
+trait Ranked : Same + Show
+where Self: Same {
     fn lt(&const self, other: &const Self) bool;
 }
 "#,

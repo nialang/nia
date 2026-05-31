@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::{Expr, TypeRef};
 use nia_body_ir::BuiltinValue;
 use nia_diagnostic::Diagnostic;
-use nia_ids::InternedTyId;
+use nia_ids::{InternedTyId, TraitId};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 use nia_value_resolve::BuiltinResolution;
@@ -26,16 +26,10 @@ impl<'a> BodyChecker<'a> {
             return self.primitive(PrimitiveTy::Usize);
         };
         let ty = self.ty_for_span(type_arg.span);
-        let Some(layout) = self.layout_of(ty) else {
-            self.diagnostics.push(Diagnostic::error(
-                type_arg.span,
-                format!("cannot compute layout for builtin `@{name}`"),
-            ));
-            return self.primitive(PrimitiveTy::Usize);
-        };
-        let value = match resolution {
-            BuiltinResolution::SizeOf => layout.size,
-            BuiltinResolution::AlignOf => layout.align,
+        match resolution {
+            BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
+                self.require_sized_type(type_arg.span, ty, name);
+            }
             BuiltinResolution::Len | BuiltinResolution::Ptr | BuiltinResolution::Asm => {
                 self.diagnostics.push(Diagnostic::error(
                     span,
@@ -44,8 +38,23 @@ impl<'a> BodyChecker<'a> {
                 return self.error();
             }
             BuiltinResolution::Reserved => return self.error(),
-        };
-        self.record_builtin_value(span, BuiltinValue::Usize(value));
+        }
+        if let Some(layout) = self.layout_of(ty) {
+            let value = match resolution {
+                BuiltinResolution::SizeOf => layout.size,
+                BuiltinResolution::AlignOf => layout.align,
+                _ => unreachable!("non-layout builtin returned above"),
+            };
+            self.record_builtin_value(span, BuiltinValue::Usize(value));
+        } else {
+            self.record_builtin_value(
+                span,
+                BuiltinValue::Layout {
+                    name: name.to_string(),
+                    ty,
+                },
+            );
+        }
         self.primitive(PrimitiveTy::Usize)
     }
 
@@ -138,5 +147,22 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::Asm => self.check_asm_builtin_call(call_span, builtin_span, args),
             BuiltinResolution::Reserved => self.error(),
         }
+    }
+
+    fn require_sized_type(&mut self, span: Span, ty: InternedTyId, builtin_name: &str) {
+        if self.current_context_proves_trait_obligation(
+            ty,
+            TraitId::Builtin(nia_ty::BuiltinTrait::Sized),
+            Vec::new(),
+        ) {
+            return;
+        }
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!(
+                "builtin `@{builtin_name}` requires {}: Sized",
+                self.ty_name(ty)
+            ),
+        ));
     }
 }
