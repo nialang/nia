@@ -118,6 +118,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         indices.push(self.context.i64_type().const_int(*index, false));
                         current_ty = self.array_elem_ty(current_ty, span)?;
                     }
+                    StaticAddressElem::Error => {
+                        return Err(self.error(span, "invalid static address path"));
+                    }
                 }
             }
             let pointee_ty =
@@ -263,7 +266,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let Some(init) = fields.first() else {
                 return Err(self.error(span, "missing union static field initializer"));
             };
-            let field_ty = self.field_ty(ty, init.field, span)?;
+            let Some(field_id) = init.field else {
+                return Err(self.error(span, "invalid union static field initializer"));
+            };
+            let field_ty = self.field_ty(ty, field_id, span)?;
             let value =
                 self.static_init_value_in(field_ty, &init.value, span, interner, layouts)?;
             let mut values = vec![value];
@@ -281,7 +287,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .map(|field| {
                 let init = fields
                     .iter()
-                    .find(|init| init.field == field.def_id)
+                    .find(|init| init.field == Some(field.def_id))
                     .ok_or_else(|| self.error(field.span, "missing static field initializer"))?;
                 self.static_init_value_in(field.ty, &init.value, field.span, interner, layouts)
             })

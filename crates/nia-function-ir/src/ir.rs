@@ -83,6 +83,9 @@ pub struct FunctionDeferBody {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionTerminator {
+    Error {
+        span: Span,
+    },
     Branch {
         target: FunctionBlockId,
         span: Span,
@@ -273,7 +276,7 @@ pub enum FunctionArrayElements {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionFieldInit {
-    pub field: nia_ids::GlobalDefId,
+    pub field: Option<nia_ids::GlobalDefId>,
     pub name: String,
     pub value: FunctionExpr,
     pub span: Span,
@@ -329,17 +332,20 @@ pub enum FunctionPlaceBase {
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
     Deref(Box<FunctionExpr>),
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionPlaceElem {
     Field(nia_ids::GlobalDefId),
     Index(Box<FunctionExpr>),
+    Error,
 }
 
 impl FunctionTerminator {
     pub fn successors(&self) -> Vec<FunctionBlockId> {
         match self {
+            FunctionTerminator::Error { .. } => Vec::new(),
             FunctionTerminator::Branch { target, .. } | FunctionTerminator::Next { target, .. } => {
                 vec![*target]
             }

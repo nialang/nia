@@ -340,7 +340,7 @@ pub enum TypedArrayElements {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedFieldInit {
-    pub field: GlobalDefId,
+    pub field: Option<GlobalDefId>,
     pub name: String,
     pub value: TypedExpr,
     pub span: Span,
@@ -396,10 +396,12 @@ pub enum PlaceBase {
     Local(LocalId),
     Global(GlobalDefId),
     Deref(Box<TypedExpr>),
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaceElem {
     Field(GlobalDefId),
     Index(Box<TypedExpr>),
+    Error,
 }

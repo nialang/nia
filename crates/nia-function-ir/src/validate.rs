@@ -188,7 +188,9 @@ impl<'a> FunctionIrValidator<'a> {
                     self.validate_expr(value)?;
                 }
             }
-            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+            FunctionTerminator::Error { .. }
+            | FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. } => {}
         }
         Ok(())
     }
@@ -299,11 +301,12 @@ impl<'a> FunctionIrValidator<'a> {
                 self.require_local(*local_id, place.span, "place local")?
             }
             FunctionPlaceBase::Deref(expr) => self.validate_expr(expr)?,
-            FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
-            if let FunctionPlaceElem::Index(index) = elem {
-                self.validate_expr(index)?;
+            match elem {
+                FunctionPlaceElem::Index(index) => self.validate_expr(index)?,
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
             }
         }
         Ok(())
@@ -370,7 +373,8 @@ impl FunctionBinding {
 impl FunctionTerminator {
     fn span(&self) -> Span {
         match self {
-            FunctionTerminator::Branch { span, .. }
+            FunctionTerminator::Error { span }
+            | FunctionTerminator::Branch { span, .. }
             | FunctionTerminator::Next { span, .. }
             | FunctionTerminator::If { span, .. }
             | FunctionTerminator::Switch { span, .. }

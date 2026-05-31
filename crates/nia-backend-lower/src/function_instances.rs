@@ -124,7 +124,8 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 nia_function_ir::FunctionTerminator::Branch { .. }
-                | nia_function_ir::FunctionTerminator::Next { .. } => {}
+                | nia_function_ir::FunctionTerminator::Next { .. }
+                | nia_function_ir::FunctionTerminator::Error { .. } => {}
             }
         }
     }

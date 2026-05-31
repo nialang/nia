@@ -111,6 +111,7 @@ impl<'a> ModuleLowerer<'a> {
         terminator: FunctionTerminator,
     ) -> FunctionTerminator {
         match terminator {
+            FunctionTerminator::Error { span } => FunctionTerminator::Error { span },
             FunctionTerminator::Branch { target, span } => {
                 FunctionTerminator::Branch { target, span }
             }
@@ -380,6 +381,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionPlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.resolve_builtin_operator_calls_in_expr(*expr),
                 )),
+                FunctionPlaceBase::Error => FunctionPlaceBase::Error,
             },
             elems: place
                 .elems
@@ -389,6 +391,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionPlaceElem::Index(expr) => FunctionPlaceElem::Index(Box::new(
                         self.resolve_builtin_operator_calls_in_expr(*expr),
                     )),
+                    FunctionPlaceElem::Error => FunctionPlaceElem::Error,
                 })
                 .collect(),
         }
