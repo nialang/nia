@@ -100,6 +100,7 @@ fn main() i32 {
                 def_id: make_id,
             },
             trait_id: None,
+            trait_args: Vec::new(),
         },
     );
     let origins = NodeOriginTable::default();

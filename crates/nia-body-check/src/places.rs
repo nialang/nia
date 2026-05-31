@@ -11,6 +11,68 @@ use nia_ty::{BuiltinTrait, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn assignable_expr_type(&mut self, expr: &Expr) -> InternedTyId {
+        let ty = self
+            .expr_types
+            .get(&expr.span)
+            .copied()
+            .unwrap_or_else(|| self.error());
+        match &expr.kind {
+            ExprKind::Unary {
+                op: UnaryOp::Deref,
+                expr: inner,
+            } => {
+                let Some(inner_ty) = self.expr_types.get(&inner.span).copied() else {
+                    return ty;
+                };
+                let target = self.interner.intern(TyKind::Projection {
+                    self_ty: inner_ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::Deref),
+                    trait_args: Vec::new(),
+                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                });
+                self.normalize_projection(target)
+            }
+            ExprKind::Index {
+                lhs,
+                index: IndexArg::Expr(index),
+            } => {
+                let Some(lhs_ty) = self.expr_types.get(&lhs.span).copied() else {
+                    return ty;
+                };
+                let Some(index_ty) = self.expr_types.get(&index.span).copied() else {
+                    return ty;
+                };
+                let output = self.interner.intern(TyKind::Projection {
+                    self_ty: lhs_ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::Index),
+                    trait_args: vec![index_ty],
+                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                });
+                self.normalize_projection(output)
+            }
+            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr.span) => {
+                let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) else {
+                    return ty;
+                };
+                let Some(lhs_ty) = self.expr_types.get(&callee.span).copied() else {
+                    return ty;
+                };
+                let Some(index_ty) = self.expr_types.get(&index.span).copied() else {
+                    return ty;
+                };
+                let output = self.interner.intern(TyKind::Projection {
+                    self_ty: lhs_ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::Index),
+                    trait_args: vec![index_ty],
+                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                });
+                self.normalize_projection(output)
+            }
+            _ => ty,
+        }
+    }
+
     pub(crate) fn check_assignable(&mut self, expr: &Expr, context: &str) {
         if let Some(reason) = self.not_assignable_reason(expr) {
             self.diagnostics.push(Diagnostic::error(

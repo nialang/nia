@@ -10,7 +10,7 @@ use nia_function_ir::{
     FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange,
     FunctionTerminator,
 };
-use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
+use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_ty::{PrimitiveTy, TyKind};
 
 impl<'a> ModuleLowerer<'a> {
@@ -305,6 +305,15 @@ impl<'a> ModuleLowerer<'a> {
                         FunctionCallee::BuiltinOperator(operator) => {
                             self.dispatch_builtin_operator_call(operator, args)
                         }
+                        FunctionCallee::BuiltinPlaceMethod {
+                            trait_id,
+                            method,
+                            self_ty,
+                            trait_args,
+                            receiver,
+                        } => self.dispatch_builtin_place_method_call(
+                            trait_id, method, self_ty, trait_args, *receiver, args,
+                        ),
                         callee => FunctionExprKind::Call { callee, args },
                     }
                 }
@@ -362,6 +371,19 @@ impl<'a> ModuleLowerer<'a> {
                 self_ty,
                 trait_args,
                 args,
+                receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
+            },
+            FunctionCallee::BuiltinPlaceMethod {
+                trait_id,
+                method,
+                self_ty,
+                trait_args,
+                receiver,
+            } => FunctionCallee::BuiltinPlaceMethod {
+                trait_id,
+                method,
+                self_ty,
+                trait_args,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),
@@ -463,7 +485,7 @@ impl<'a> ModuleLowerer<'a> {
             };
         }
         if let Some((def_id, method_args)) =
-            self.resolve_builtin_operator_impl_method(operator, receiver.ty)
+            self.resolve_builtin_operator_impl_method(operator, receiver.ty, &[])
         {
             let [receiver] = <[FunctionExpr; 1]>::try_from(args).ok().expect(
                 "builtin unary operator call arity was checked before dispatching to method call",
@@ -501,7 +523,7 @@ impl<'a> ModuleLowerer<'a> {
             };
         }
         if let Some((def_id, method_args)) =
-            self.resolve_builtin_operator_impl_method(operator, lhs.ty)
+            self.resolve_builtin_operator_impl_method(operator, lhs.ty, &[rhs.ty])
         {
             let [lhs, rhs] = <[FunctionExpr; 2]>::try_from(args).ok().expect(
                 "builtin binary operator call arity was checked before dispatching to method call",
@@ -521,10 +543,45 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
+    fn dispatch_builtin_place_method_call(
+        &self,
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        receiver: FunctionExpr,
+        args: Vec<FunctionExpr>,
+    ) -> FunctionExprKind {
+        if let Some((def_id, method_args)) =
+            self.resolve_builtin_place_impl_method(trait_id, &trait_args, method, self_ty)
+        {
+            FunctionExprKind::Call {
+                callee: FunctionCallee::Method {
+                    def_id,
+                    args: method_args,
+                    receiver: Box::new(receiver),
+                },
+                args,
+            }
+        } else {
+            FunctionExprKind::Call {
+                callee: FunctionCallee::BuiltinPlaceMethod {
+                    trait_id,
+                    method,
+                    self_ty,
+                    trait_args,
+                    receiver: Box::new(receiver),
+                },
+                args,
+            }
+        }
+    }
+
     fn resolve_builtin_operator_impl_method(
         &self,
         operator: FunctionBuiltinOperator,
         lhs_ty: InternedTyId,
+        trait_args: &[InternedTyId],
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let method = builtin_operator_method(operator)?;
         let candidates = self
@@ -536,6 +593,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.builtin_operator_impl_method_for_target(
                     target,
                     operator.trait_id,
+                    trait_args,
                     method.name(),
                     lhs_ty,
                 )
@@ -551,6 +609,7 @@ impl<'a> ModuleLowerer<'a> {
         &self,
         target: &VisibleExtensionTarget,
         trait_id: nia_ids::BuiltinTrait,
+        trait_args: &[InternedTyId],
         method_name: &str,
         lhs_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
@@ -558,10 +617,78 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let method = target.methods.iter().find(|method| {
-            method.name == method_name && method.trait_id == Some(TraitId::Builtin(trait_id))
+            method.name == method_name
+                && method.trait_id == Some(TraitId::Builtin(trait_id))
+                && method.trait_args.len() == trait_args.len()
+                && method
+                    .trait_args
+                    .iter()
+                    .zip(trait_args)
+                    .all(|(actual, expected)| self.types_match(*actual, *expected))
         })?;
         let mut substitutions = HashMap::new();
         self.match_extension_type_pattern(target.target_ty, lhs_ty, &mut substitutions)
+            .then(|| {
+                let args = self
+                    .generic_params_in_extension_ty(target.target_ty)
+                    .iter()
+                    .filter_map(|generic| substitutions.get(generic).copied())
+                    .collect::<Vec<_>>();
+                (method.def_id, args)
+            })
+    }
+
+    fn resolve_builtin_place_impl_method(
+        &self,
+        trait_id: BuiltinTrait,
+        trait_args: &[InternedTyId],
+        method: BuiltinTraitMethod,
+        self_ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let candidates = self
+            .input
+            .extensions
+            .targets()
+            .iter()
+            .filter_map(|target| {
+                self.dispatch_builtin_place_impl_method_for_target(
+                    target,
+                    trait_id,
+                    trait_args,
+                    method.name(),
+                    self_ty,
+                )
+            })
+            .collect::<Vec<_>>();
+        match candidates.as_slice() {
+            [candidate] => Some(candidate.clone()),
+            _ => None,
+        }
+    }
+
+    fn dispatch_builtin_place_impl_method_for_target(
+        &self,
+        target: &VisibleExtensionTarget,
+        trait_id: BuiltinTrait,
+        trait_args: &[InternedTyId],
+        method_name: &str,
+        self_ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
+            return None;
+        }
+        let method = target.methods.iter().find(|method| {
+            method.name == method_name
+                && method.trait_id == Some(TraitId::Builtin(trait_id))
+                && method.trait_args.len() == trait_args.len()
+                && method
+                    .trait_args
+                    .iter()
+                    .zip(trait_args)
+                    .all(|(actual, expected)| self.types_match(*actual, *expected))
+        })?;
+        let mut substitutions = HashMap::new();
+        self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
             .then(|| {
                 let args = self
                     .generic_params_in_extension_ty(target.target_ty)

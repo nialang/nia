@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_ids::{InternedTyId, LayoutBuiltin, LocalId};
+use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_span::Span;
 use nia_ty::BuiltinTrait;
 
@@ -301,6 +301,13 @@ pub enum FunctionCallee {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
+        receiver: Box<FunctionExpr>,
+    },
+    BuiltinPlaceMethod {
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
         receiver: Box<FunctionExpr>,
     },
     BuiltinOperator(FunctionBuiltinOperator),

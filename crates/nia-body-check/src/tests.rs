@@ -83,6 +83,7 @@ fn pipeline(source: &str) -> BodyCheck {
                         def_id: method_id,
                     },
                     trait_id: None,
+                    trait_args: Vec::new(),
                 },
             );
         }
