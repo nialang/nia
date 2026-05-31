@@ -73,6 +73,12 @@ pub enum BuiltinTrait {
     Eq,
     Ord,
     Sized,
+    DerefConst,
+    Deref,
+    IndexConst,
+    Index,
+    SliceConst,
+    Slice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -156,6 +162,7 @@ impl BuiltinTraitMethod {
 
 impl BuiltinTrait {
     pub const OUTPUT_ASSOC_TYPE: &'static str = "Output";
+    pub const TARGET_ASSOC_TYPE: &'static str = "Target";
 
     const ADD_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Add];
     const SUB_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Sub];
@@ -179,7 +186,7 @@ impl BuiltinTrait {
     ];
     const NO_METHODS: [BuiltinTraitMethod; 0] = [];
 
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 22] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -196,6 +203,12 @@ impl BuiltinTrait {
         Self::Eq,
         Self::Ord,
         Self::Sized,
+        Self::DerefConst,
+        Self::Deref,
+        Self::IndexConst,
+        Self::Index,
+        Self::SliceConst,
+        Self::Slice,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -216,6 +229,12 @@ impl BuiltinTrait {
             "Eq" => Some(Self::Eq),
             "Ord" => Some(Self::Ord),
             "Sized" => Some(Self::Sized),
+            "DerefConst" => Some(Self::DerefConst),
+            "Deref" => Some(Self::Deref),
+            "IndexConst" => Some(Self::IndexConst),
+            "Index" => Some(Self::Index),
+            "SliceConst" => Some(Self::SliceConst),
+            "Slice" => Some(Self::Slice),
             _ => None,
         }
     }
@@ -238,6 +257,12 @@ impl BuiltinTrait {
             Self::Eq => "Eq",
             Self::Ord => "Ord",
             Self::Sized => "Sized",
+            Self::DerefConst => "DerefConst",
+            Self::Deref => "Deref",
+            Self::IndexConst => "IndexConst",
+            Self::Index => "Index",
+            Self::SliceConst => "SliceConst",
+            Self::Slice => "Slice",
         }
     }
 
@@ -254,13 +279,22 @@ impl BuiltinTrait {
             | Self::Shl
             | Self::Shr
             | Self::Eq
-            | Self::Ord => 1,
-            Self::Neg | Self::Not | Self::BitNot | Self::Sized => 0,
+            | Self::Ord
+            | Self::IndexConst
+            | Self::Index => 1,
+            Self::Neg
+            | Self::Not
+            | Self::BitNot
+            | Self::Sized
+            | Self::DerefConst
+            | Self::Deref
+            | Self::SliceConst
+            | Self::Slice => 0,
         }
     }
 
     pub fn has_associated_type(self, name: &str) -> bool {
-        matches!(
+        (matches!(
             self,
             Self::Add
                 | Self::Sub
@@ -274,7 +308,12 @@ impl BuiltinTrait {
                 | Self::BitXor
                 | Self::Shl
                 | Self::Shr
-        ) && name == Self::OUTPUT_ASSOC_TYPE
+                | Self::IndexConst
+                | Self::Index
+                | Self::SliceConst
+                | Self::Slice
+        ) && name == Self::OUTPUT_ASSOC_TYPE)
+            || (matches!(self, Self::DerefConst | Self::Deref) && name == Self::TARGET_ASSOC_TYPE)
     }
 
     pub fn required_methods(self) -> &'static [BuiltinTraitMethod] {
@@ -294,7 +333,13 @@ impl BuiltinTrait {
             Self::Shr => &Self::SHR_METHODS,
             Self::Eq => &Self::EQ_METHODS,
             Self::Ord => &Self::ORD_METHODS,
-            Self::Sized => &Self::NO_METHODS,
+            Self::Sized
+            | Self::DerefConst
+            | Self::Deref
+            | Self::IndexConst
+            | Self::Index
+            | Self::SliceConst
+            | Self::Slice => &Self::NO_METHODS,
         }
     }
 }

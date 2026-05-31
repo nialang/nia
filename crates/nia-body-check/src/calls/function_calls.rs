@@ -75,6 +75,7 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let return_type = self.normalize_projection(return_type);
         Some(self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
@@ -356,7 +357,8 @@ impl<'a> BodyChecker<'a> {
             .map(|param| self.substitute_generics(param.ty, &substitutions))
             .collect();
         self.check_direct_call_args(span, args, &params, signature.is_variadic);
-        self.substitute_generics(signature.return_type, &substitutions)
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        self.normalize_projection(return_type)
     }
 
     fn check_inferred_generic_function_call(
@@ -435,7 +437,8 @@ impl<'a> BodyChecker<'a> {
                 self.expect_expr_type(arg, expected, actual, "call argument");
             }
         }
-        self.substitute_generics(signature.return_type, &substitutions)
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        self.normalize_projection(return_type)
     }
 
     pub(crate) fn infer_generics_from_type(

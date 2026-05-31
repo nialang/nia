@@ -7,7 +7,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{BuiltinTrait, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -29,7 +29,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn not_addressable_reason(&self, expr: &Expr) -> Option<&'static str> {
+    fn not_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
         if self.values.qualified_values.contains_key(&expr.span) {
             return None;
         }
@@ -56,38 +56,44 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn deref_addressable_reason(&self, expr: &Expr) -> Option<&'static str> {
-        match self
-            .expr_types
-            .get(&expr.span)
-            .and_then(|ty| self.interner.get(*ty))
-        {
-            Some(TyKind::Pointer { .. } | TyKind::Error) => None,
-            Some(_) => Some("expression does not dereference a pointer"),
+    fn deref_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+        let Some(ty) = self.expr_types.get(&expr.span).copied() else {
+            return Some("pointer type is not known");
+        };
+        let has_deref_const = self.current_context_proves_trait_obligation(
+            ty,
+            TraitId::Builtin(BuiltinTrait::DerefConst),
+            Vec::new(),
+        );
+        match self.interner.get(ty) {
+            Some(TyKind::Error) => None,
+            Some(_) if has_deref_const => None,
+            Some(_) => Some("expression does not implement DerefConst"),
             None => Some("pointer type is not known"),
         }
     }
 
-    fn not_assignable_reason(&self, expr: &Expr) -> Option<&'static str> {
+    fn not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
         if self.values.qualified_values.contains_key(&expr.span) {
             return Some("cross-module value is not assignable");
         }
         match &expr.kind {
             ExprKind::Ident(_) => self.ident_not_assignable_reason(expr.span),
-            ExprKind::Field { lhs, .. } => self
-                .not_assignable_reason(lhs)
-                .or_else(|| self.auto_deref_not_assignable_reason(lhs)),
+            ExprKind::Field { lhs, .. } => self.not_assignable_reason(lhs),
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Range(_) => Some("range index must be borrowed as a slice"),
-                IndexArg::Expr(_) => self
+                IndexArg::Expr(index) => self
                     .not_assignable_reason(lhs)
-                    .or_else(|| self.auto_deref_not_assignable_reason(lhs))
-                    .or_else(|| self.slice_not_assignable_reason(lhs)),
+                    .or_else(|| self.index_write_not_assignable_reason(lhs, index)),
             },
-            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr.span) => {
-                self.not_assignable_reason(callee)
-                    .or_else(|| self.auto_deref_not_assignable_reason(callee))
-                    .or_else(|| self.slice_not_assignable_reason(callee))
+            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr.span) => {
+                self.not_assignable_reason(callee).or_else(|| {
+                    args.first()
+                        .and_then(|arg| arg.expr.as_ref())
+                        .map_or(Some("index type is not known"), |index| {
+                            self.index_write_not_assignable_reason(callee, index)
+                        })
+                })
             }
             ExprKind::Unary {
                 op: UnaryOp::Deref,
@@ -154,41 +160,21 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn deref_not_assignable_reason(&self, expr: &Expr) -> Option<&'static str> {
-        match self
-            .expr_types
-            .get(&expr.span)
-            .and_then(|ty| self.interner.get(*ty))
-        {
-            Some(TyKind::Pointer {
-                is_const: false, ..
-            }) => None,
-            Some(TyKind::Pointer { is_const: true, .. }) => Some("pointer is const"),
+    fn deref_not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
+        let Some(ty) = self.expr_types.get(&expr.span).copied() else {
+            return Some("pointer type is not known");
+        };
+        let has_deref = self.current_context_proves_trait_obligation(
+            ty,
+            TraitId::Builtin(BuiltinTrait::Deref),
+            Vec::new(),
+        );
+        match self.interner.get(ty) {
             Some(TyKind::Error) => None,
-            Some(_) => Some("expression does not dereference a pointer"),
-            None => Some("pointer type is not known"),
-        }
-    }
-
-    fn auto_deref_not_assignable_reason(&self, expr: &Expr) -> Option<&'static str> {
-        match self
-            .expr_types
-            .get(&expr.span)
-            .and_then(|ty| self.interner.get(*ty))
-        {
+            Some(_) if has_deref => None,
             Some(TyKind::Pointer { is_const: true, .. }) => Some("pointer is const"),
-            _ => None,
-        }
-    }
-
-    fn slice_not_assignable_reason(&self, expr: &Expr) -> Option<&'static str> {
-        match self
-            .expr_types
-            .get(&expr.span)
-            .and_then(|ty| self.interner.get(*ty))
-        {
-            Some(TyKind::Slice { is_const: true, .. }) => Some("slice is const"),
-            _ => None,
+            Some(_) => Some("expression does not implement Deref"),
+            None => Some("pointer type is not known"),
         }
     }
 
@@ -236,47 +222,126 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         is_const: bool,
     ) -> InternedTyId {
-        match self.interner.get(lhs_ty) {
-            Some(TyKind::Array { elem, .. }) | Some(TyKind::Pointer { elem, .. }) => {
-                self.interner.intern(TyKind::Slice {
-                    is_const,
-                    elem: *elem,
-                })
-            }
-            Some(TyKind::Slice { elem, .. }) => self.interner.intern(TyKind::Slice {
-                is_const,
-                elem: *elem,
-            }),
-            Some(TyKind::Error) | None => self.error(),
-            _ => {
-                if span != Span::default() {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "slice range base must be an array, pointer, or slice",
-                    ));
-                }
-                self.error()
-            }
+        if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
+            return self.error();
         }
-    }
-
-    pub(crate) fn index_result_type(&mut self, span: Span, lhs_ty: InternedTyId) -> InternedTyId {
-        match self.interner.get(lhs_ty) {
-            Some(TyKind::Array { elem, .. })
-            | Some(TyKind::Pointer { elem, .. })
-            | Some(TyKind::Slice { elem, .. }) => *elem,
-            Some(TyKind::Error) | None => self.error(),
-            _ => {
+        if is_const {
+            if self.current_context_proves_trait_obligation(
+                lhs_ty,
+                TraitId::Builtin(BuiltinTrait::SliceConst),
+                Vec::new(),
+            ) {
+                let output = self.interner.intern(TyKind::Projection {
+                    self_ty: lhs_ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::SliceConst),
+                    trait_args: Vec::new(),
+                    name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+                });
+                return self.normalize_projection(output);
+            }
+            if span != Span::default() {
                 self.diagnostics.push(Diagnostic::error(
                     span,
-                    "index base must be an array, pointer, or slice",
+                    format!(
+                        "trait bound not satisfied: {}: {}",
+                        self.ty_name(lhs_ty),
+                        self.builtin_trait_ty_name(BuiltinTrait::SliceConst, &[])
+                    ),
                 ));
-                self.error()
             }
+            return self.error();
+        }
+        if self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(BuiltinTrait::Slice),
+            Vec::new(),
+        ) {
+            let output = self.interner.intern(TyKind::Projection {
+                self_ty: lhs_ty,
+                trait_id: TraitId::Builtin(BuiltinTrait::Slice),
+                trait_args: Vec::new(),
+                name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            });
+            return self.normalize_projection(output);
+        }
+        if span != Span::default() {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(BuiltinTrait::Slice, &[])
+                ),
+            ));
+        }
+        self.error()
+    }
+
+    pub(crate) fn index_result_type_for_index(
+        &mut self,
+        span: Span,
+        lhs_ty: InternedTyId,
+        index_ty: InternedTyId,
+    ) -> InternedTyId {
+        if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
+            return self.error();
+        }
+        let trait_args = vec![index_ty];
+        if !self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(BuiltinTrait::IndexConst),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(BuiltinTrait::IndexConst, &trait_args)
+                ),
+            ));
+            return self.error();
+        }
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: lhs_ty,
+            trait_id: TraitId::Builtin(BuiltinTrait::IndexConst),
+            trait_args,
+            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(output)
+    }
+
+    fn index_write_not_assignable_reason(
+        &mut self,
+        lhs: &Expr,
+        index: &Expr,
+    ) -> Option<&'static str> {
+        let Some(lhs_ty) = self.expr_types.get(&lhs.span).copied() else {
+            return Some("index base type is not known");
+        };
+        let Some(index_ty) = self.expr_types.get(&index.span).copied() else {
+            return Some("index type is not known");
+        };
+        let has_index = self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(BuiltinTrait::Index),
+            vec![index_ty],
+        );
+        match self.interner.get(self.normalization.normalize(lhs_ty)) {
+            Some(TyKind::Error) => None,
+            Some(_) if has_index => None,
+            Some(TyKind::Pointer { is_const: true, .. }) => Some("pointer is const"),
+            Some(TyKind::Slice { is_const: true, .. }) => Some("slice is const"),
+            _ => Some("expression does not implement Index"),
         }
     }
 
     pub(crate) fn deref_result_type(&mut self, span: Span, ty: InternedTyId) -> InternedTyId {
+        let has_deref_const = self.current_context_proves_trait_obligation(
+            ty,
+            TraitId::Builtin(BuiltinTrait::DerefConst),
+            Vec::new(),
+        );
         match self.interner.get(ty) {
             Some(TyKind::Pointer { elem, .. })
                 if self.normalization.normalize(*elem) == self.void() =>
@@ -285,12 +350,24 @@ impl<'a> BodyChecker<'a> {
                     .push(Diagnostic::error(span, "cannot dereference `&void`"));
                 self.error()
             }
-            Some(TyKind::Pointer { elem, .. }) => *elem,
             Some(TyKind::Error) | None => self.error(),
+            _ if has_deref_const => {
+                let target = self.interner.intern(TyKind::Projection {
+                    self_ty: ty,
+                    trait_id: TraitId::Builtin(BuiltinTrait::DerefConst),
+                    trait_args: Vec::new(),
+                    name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
+                });
+                self.normalize_projection(target)
+            }
             _ => {
                 self.diagnostics.push(Diagnostic::error(
                     span,
-                    "cannot dereference non-pointer type",
+                    format!(
+                        "trait bound not satisfied: {}: {}",
+                        self.ty_name(ty),
+                        self.builtin_trait_ty_name(BuiltinTrait::DerefConst, &[])
+                    ),
                 ));
                 self.error()
             }

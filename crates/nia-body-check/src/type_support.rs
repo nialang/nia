@@ -11,7 +11,7 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
 use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
@@ -213,7 +213,31 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
-        if name != nia_ty::BuiltinTrait::OUTPUT_ASSOC_TYPE || !trait_id.has_associated_type(name) {
+        if !trait_id.has_associated_type(name) {
+            return None;
+        }
+        if matches!(trait_id, BuiltinTrait::DerefConst | BuiltinTrait::Deref) {
+            if name != BuiltinTrait::TARGET_ASSOC_TYPE || !trait_args.is_empty() {
+                return None;
+            }
+            return self.builtin_deref_target_ty(self_ty);
+        }
+        if matches!(trait_id, BuiltinTrait::IndexConst | BuiltinTrait::Index) {
+            if name != BuiltinTrait::OUTPUT_ASSOC_TYPE {
+                return None;
+            }
+            let [index_ty] = trait_args else {
+                return None;
+            };
+            return self.builtin_index_output_ty(self_ty, *index_ty);
+        }
+        if matches!(trait_id, BuiltinTrait::SliceConst | BuiltinTrait::Slice) {
+            if name != BuiltinTrait::OUTPUT_ASSOC_TYPE || !trait_args.is_empty() {
+                return None;
+            }
+            return self.builtin_slice_output_ty(self_ty, matches!(trait_id, BuiltinTrait::Slice));
+        }
+        if name != BuiltinTrait::OUTPUT_ASSOC_TYPE {
             return None;
         }
         let rhs_ty = trait_args.first().copied();
@@ -262,6 +286,108 @@ impl<'a> BodyChecker<'a> {
             return Some(self_ty);
         }
         None
+    }
+
+    pub(crate) fn builtin_deref_target_ty(
+        &mut self,
+        self_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Pointer { elem, .. })
+                if self.normalization.normalize(*elem) != self.void() =>
+            {
+                Some(*elem)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn builtin_mut_deref_target_ty(
+        &mut self,
+        self_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Pointer {
+                is_const: false,
+                elem,
+            }) if self.normalization.normalize(*elem) != self.void() => Some(*elem),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn builtin_index_output_ty(
+        &mut self,
+        self_ty: InternedTyId,
+        index_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        if !self.is_integer(index_ty) {
+            return None;
+        }
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Array { elem, .. })
+            | Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. }) => Some(*elem),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn builtin_mut_index_output_ty(
+        &mut self,
+        self_ty: InternedTyId,
+        index_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        if !self.is_integer(index_ty) {
+            return None;
+        }
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Array { elem, .. })
+            | Some(TyKind::Pointer {
+                is_const: false,
+                elem,
+            })
+            | Some(TyKind::Slice {
+                is_const: false,
+                elem,
+            }) => Some(*elem),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn builtin_slice_output_ty(
+        &mut self,
+        self_ty: InternedTyId,
+        is_mut: bool,
+    ) -> Option<InternedTyId> {
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Array { elem, .. })
+            | Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. }) => Some(self.interner.intern(TyKind::Slice {
+                is_const: !is_mut,
+                elem: *elem,
+            })),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn builtin_mut_slice_output_ty(
+        &mut self,
+        self_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Array { elem, .. })
+            | Some(TyKind::Pointer {
+                is_const: false,
+                elem,
+            })
+            | Some(TyKind::Slice {
+                is_const: false,
+                elem,
+            }) => Some(self.interner.intern(TyKind::Slice {
+                is_const: false,
+                elem: *elem,
+            })),
+            _ => None,
+        }
     }
 
     pub(crate) fn expect_type(

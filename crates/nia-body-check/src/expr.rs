@@ -184,7 +184,7 @@ impl<'a> BodyChecker<'a> {
                     IndexArg::Expr(index) => {
                         let index_ty = self.check_expr(index);
                         self.expect_integer(index.span, index_ty, "index");
-                        self.index_result_type(expr.span, lhs_ty)
+                        self.index_result_type_for_index(expr.span, lhs_ty, index_ty)
                     }
                     IndexArg::Range(range) => {
                         self.check_slice_range_bounds(range);
@@ -626,7 +626,7 @@ impl<'a> BodyChecker<'a> {
             let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
             let index_ty = self.check_expr(index);
             self.expect_integer(index.span, index_ty, "index");
-            return self.index_result_type(span, lhs_ty);
+            return self.index_result_type_for_index(span, lhs_ty, index_ty);
         }
         if args.len() > 1 {
             self.diagnostics.push(Diagnostic::error(

@@ -2123,7 +2123,7 @@ fn main(param: i32, read: &const i32, write: &i32, cell: Cell, read_cell: &const
             .iter()
             .filter(|diagnostic| diagnostic.message.contains("pointer is const"))
             .count(),
-        2
+        1
     );
     assert!(
         !checked
