@@ -54,6 +54,7 @@ pub struct TypePathSegment {
 pub enum TypeArg {
     Type(TypeRef),
     Const(ExprStub),
+    AssocBinding { name: String, ty: TypeRef, span: Span },
 }
 
 #[derive(Debug, Clone, PartialEq)]

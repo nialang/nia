@@ -243,21 +243,21 @@ impl<'a> TypeResolver<'a> {
         if segments.len() > 1 {
             let resolution = self.resolve_qualified_type_path(span, segments);
             self.type_names.insert(span, resolution);
-            for segment in segments {
-                for arg in &segment.args {
-                    if let TypeArg::Type(ty) = arg {
-                        self.visit_type(ty);
-                    }
-                }
-            }
+            self.visit_type_path_args(segments);
             return;
         }
         let resolution = self.resolve_type_name(first, span);
         self.type_names.insert(span, resolution);
+        self.visit_type_path_args(segments);
+    }
+
+    fn visit_type_path_args(&mut self, segments: &[TypePathSegment]) {
         for segment in segments {
             for arg in &segment.args {
-                if let TypeArg::Type(ty) = arg {
-                    self.visit_type(ty);
+                match arg {
+                    TypeArg::Type(ty) => self.visit_type(ty),
+                    TypeArg::AssocBinding { ty, .. } => self.visit_type(ty),
+                    TypeArg::Const(_) => {}
                 }
             }
         }

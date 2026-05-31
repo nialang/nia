@@ -981,6 +981,61 @@ trait Add[Rhs] {
 }
 
 #[test]
+fn parses_associated_type_bindings_in_where_bounds() {
+    let (module, errors) = parse_module(
+        r#"
+trait Add[Rhs] {
+    type Output;
+}
+
+trait Mapper[A, B] {
+    type C;
+    type D;
+}
+
+fn add_same[T](a: T, b: T) T
+where T: Add[T, Output = T] {
+    a
+}
+
+fn mapped[T, A, B](value: T) T
+where T: Mapper[A, B, C = i32, D = bool] {
+    value
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(add_same) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let add_bound = &add_same.where_clause.predicates[0].bounds[0];
+    let TypeKind::Path { segments } = &add_bound.kind else {
+        panic!("expected path bound");
+    };
+    assert_eq!(segments[0].args.len(), 2);
+    assert!(matches!(
+        segments[0].args[1],
+        TypeArg::AssocBinding { ref name, .. } if name == "Output"
+    ));
+    let ItemKind::Function(mapped) = &module.items[3].kind else {
+        panic!("expected function");
+    };
+    let mapper_bound = &mapped.where_clause.predicates[0].bounds[0];
+    let TypeKind::Path { segments } = &mapper_bound.kind else {
+        panic!("expected path bound");
+    };
+    assert_eq!(segments[0].args.len(), 4);
+    assert!(matches!(
+        segments[0].args[2],
+        TypeArg::AssocBinding { ref name, .. } if name == "C"
+    ));
+    assert!(matches!(
+        segments[0].args[3],
+        TypeArg::AssocBinding { ref name, .. } if name == "D"
+    ));
+}
+
+#[test]
 fn parses_structural_type_targets_after_if_statements() {
     let (module, errors) = parse_module(
         r#"

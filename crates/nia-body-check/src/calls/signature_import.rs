@@ -4,7 +4,9 @@ use crate::{
 };
 use nia_ast::Expr;
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_item_signatures::{FunctionSignature, TraitSignature};
+use nia_item_signatures::{
+    AssociatedTypeBindingSignature, FunctionSignature, TraitSignature, WhereBoundSignature,
+};
 use nia_ty::{TyInterner, TyKind};
 
 pub fn import_type_into(
@@ -91,7 +93,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    pub(super) fn resolved_function_signature(
+    pub(crate) fn resolved_function_signature(
         &mut self,
         def_id: GlobalDefId,
     ) -> Option<ResolvedFunctionSignature> {
@@ -119,7 +121,20 @@ impl<'a> BodyChecker<'a> {
                 bounds: predicate
                     .bounds
                     .iter()
-                    .map(|bound| self.import_type_from(&program_signature.interner, *bound))
+                    .map(|bound| WhereBoundSignature {
+                        trait_ty: self
+                            .import_type_from(&program_signature.interner, bound.trait_ty),
+                        associated_type_bindings: bound
+                            .associated_type_bindings
+                            .iter()
+                            .map(|binding| AssociatedTypeBindingSignature {
+                                name: binding.name.clone(),
+                                ty: self.import_type_from(&program_signature.interner, binding.ty),
+                                span: binding.span,
+                            })
+                            .collect(),
+                        span: bound.span,
+                    })
                     .collect(),
                 span: predicate.span,
             })
@@ -173,7 +188,7 @@ impl<'a> BodyChecker<'a> {
         signature
     }
 
-    fn import_function_signature_from(
+    pub(crate) fn import_function_signature_from(
         &mut self,
         source: &TyInterner,
         signature: &FunctionSignature,
@@ -187,7 +202,19 @@ impl<'a> BodyChecker<'a> {
                 bounds: predicate
                     .bounds
                     .iter()
-                    .map(|bound| self.import_type_from(source, *bound))
+                    .map(|bound| WhereBoundSignature {
+                        trait_ty: self.import_type_from(source, bound.trait_ty),
+                        associated_type_bindings: bound
+                            .associated_type_bindings
+                            .iter()
+                            .map(|binding| AssociatedTypeBindingSignature {
+                                name: binding.name.clone(),
+                                ty: self.import_type_from(source, binding.ty),
+                                span: binding.span,
+                            })
+                            .collect(),
+                        span: bound.span,
+                    })
                     .collect(),
                 span: predicate.span,
             })

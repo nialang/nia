@@ -770,7 +770,7 @@ impl<'a> BodyChecker<'a> {
                     args: trait_args,
                 }) = self
                     .interner
-                    .get(self.normalization.normalize(*bound))
+                    .get(self.normalization.normalize(bound.trait_ty))
                     .cloned()
                 else {
                     continue;

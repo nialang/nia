@@ -64,7 +64,15 @@ impl<'a> BodyChecker<'a> {
                     .into_iter()
                     .map(|arg| self.normalize_projection(arg))
                     .collect::<Vec<_>>();
-                self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                self.resolve_associated_type_projection_from_current_bounds(
+                    self_ty,
+                    trait_id,
+                    &trait_args,
+                    &name,
+                )
+                .or_else(|| {
+                    self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                })
                     .unwrap_or_else(|| {
                         self.interner.intern(TyKind::Projection {
                             self_ty,
@@ -75,6 +83,64 @@ impl<'a> BodyChecker<'a> {
                     })
             }
             Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+        }
+    }
+
+    fn resolve_associated_type_projection_from_current_bounds(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: nia_ids::GlobalDefId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let current_def_id = self.current_def_id?;
+        let signature = self.current_function_signature_in_active_interner(current_def_id)?;
+        let mut matches = Vec::new();
+        for predicate in signature.where_predicates {
+            if !self.types_equivalent_without_projection_resolution(predicate.ty, self_ty) {
+                continue;
+            }
+            for bound in predicate.bounds {
+                let Some(TyKind::Nominal {
+                    def_id: bound_trait_id,
+                    args: bound_trait_args,
+                }) = self.interner.get(self.normalization.normalize(bound.trait_ty)).cloned()
+                else {
+                    continue;
+                };
+                if bound_trait_id != trait_id
+                    || bound_trait_args.len() != trait_args.len()
+                    || !bound_trait_args.iter().zip(trait_args).all(|(bound, required)| {
+                        self.types_equivalent_without_projection_resolution(*bound, *required)
+                    })
+                {
+                    continue;
+                }
+                matches.extend(
+                    bound
+                        .associated_type_bindings
+                        .iter()
+                        .filter(|binding| binding.name == name)
+                        .map(|binding| binding.ty),
+                );
+            }
+        }
+        match matches.as_slice() {
+            [ty] => Some(*ty),
+            _ => None,
+        }
+    }
+
+    fn current_function_signature_in_active_interner(
+        &mut self,
+        current_def_id: nia_ids::GlobalDefId,
+    ) -> Option<nia_item_signatures::FunctionSignature> {
+        if current_def_id.module_id == self.defs.module_id {
+            let signature = self.signatures.functions.get(&current_def_id.def_id)?.clone();
+            let source = self.normalization.interner.clone();
+            Some(self.import_function_signature_from(&source, &signature))
+        } else {
+            Some(self.resolved_function_signature(current_def_id)?.signature)
         }
     }
 

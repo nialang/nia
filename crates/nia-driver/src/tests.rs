@@ -2732,6 +2732,219 @@ fn main() i32 {
 }
 
 #[test]
+fn associated_type_bindings_normalize_open_projections() {
+    let root = temp_dir("associated_type_bindings_normalize_open_projections");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Add[Rhs] {
+    type Output;
+
+    fn add(&const self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+}
+
+struct Number {
+    value: i32,
+}
+
+extend Number : Add[Number] {
+    type Output = Number;
+
+    fn add(&const self, rhs: Number) Number {
+        { value: self.value + rhs.value }
+    }
+}
+
+fn add_same[T](a: &const T, b: T) T
+where T: Add[T, Output = T] {
+    a.add(b)
+}
+
+fn main() i32 {
+    var one: Number = { value: 1 };
+    var two: Number = { value: 2 };
+    add_same[Number](&const one, two).value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn associated_type_bound_bindings_are_not_positional_args() {
+    let root = temp_dir("associated_type_bound_bindings_are_not_positional_args");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Add[Rhs] {
+    type Output;
+}
+
+fn id[T](value: T) T
+where T: Add[T, Output = T] {
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        !program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("generic argument count mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn associated_type_bindings_do_not_forge_unbound_projection_equality() {
+    let root = temp_dir("associated_type_bindings_do_not_forge_unbound_projection_equality");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Add[Rhs] {
+    type Output;
+
+    fn add(&const self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+}
+
+fn bad[T](a: &const T, b: T) T
+where T: Add[T] {
+    a.add(b)
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn associated_type_bindings_are_validated() {
+    let root = temp_dir("associated_type_bindings_are_validated");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Add[Rhs] {
+    type Output;
+}
+
+struct NotTrait {}
+
+fn unknown[T](value: T) T
+where T: Add[T, Missing = T] {
+    value
+}
+
+fn duplicate[T](value: T) T
+where T: Add[T, Output = T, Output = i32] {
+    value
+}
+
+fn non_trait[T](value: T) T
+where T: NotTrait[Output = T] {
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("trait does not define associated type `Missing`")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("duplicate associated type binding `Output`")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("associated type bindings require a trait bound")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn associated_type_bindings_handle_multiple_outputs_and_generics() {
+    let root = temp_dir("associated_type_bindings_handle_multiple_outputs_and_generics");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Mapper[A, B] {
+    type C;
+    type D;
+
+    fn map_c(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fn map_d(&const self, a: A, b: B) [Self as Mapper[A, B]]::D;
+}
+
+struct Pairer {
+    seed: i32,
+}
+
+extend Pairer : Mapper[i32, bool] {
+    type C = i32;
+    type D = bool;
+
+    fn map_c(&const self, a: i32, b: bool) i32 {
+        if b { self.seed + a } else { self.seed }
+    }
+
+    fn map_d(&const self, a: i32, b: bool) bool {
+        if b { a > 0 } else { false }
+    }
+}
+
+fn map_c_i32[T](value: &const T) i32
+where T: Mapper[i32, bool, C = i32, D = bool] {
+    value.map_c(2, true)
+}
+
+fn map_d_bool[T](value: &const T) bool
+where T: Mapper[i32, bool, C = i32, D = bool] {
+    value.map_d(2, true)
+}
+
+fn main() i32 {
+    var p: Pairer = { seed: 3 };
+    if map_d_bool[Pairer](&const p) { map_c_i32[Pairer](&const p) } else { 0 }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn open_projection_does_not_forge_concrete_type() {
     let root = temp_dir("open_projection_does_not_forge_concrete_type");
     write(

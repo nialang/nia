@@ -41,7 +41,21 @@ pub struct FunctionSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WherePredicateSignature {
     pub ty: InternedTyId,
-    pub bounds: Vec<InternedTyId>,
+    pub bounds: Vec<WhereBoundSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhereBoundSignature {
+    pub trait_ty: InternedTyId,
+    pub associated_type_bindings: Vec<AssociatedTypeBindingSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssociatedTypeBindingSignature {
+    pub name: String,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -541,9 +555,39 @@ impl<'a> SignatureCollector<'a> {
                 bounds: predicate
                     .bounds
                     .iter()
-                    .map(|bound| self.ty_for_span(bound.span))
+                    .map(|bound| WhereBoundSignature {
+                        trait_ty: self.ty_for_span(bound.span),
+                        associated_type_bindings: self.associated_type_binding_signatures(bound),
+                        span: bound.span,
+                    })
                     .collect(),
                 span: predicate.span,
+            })
+            .collect()
+    }
+
+    fn associated_type_binding_signatures(
+        &mut self,
+        bound: &nia_ast::TypeRef,
+    ) -> Vec<AssociatedTypeBindingSignature> {
+        let nia_ast::TypeKind::Path { segments } = &bound.kind else {
+            return Vec::new();
+        };
+        let Some(segment) = segments.last() else {
+            return Vec::new();
+        };
+        segment
+            .args
+            .iter()
+            .filter_map(|arg| match arg {
+                nia_ast::TypeArg::AssocBinding { name, ty, span } => {
+                    Some(AssociatedTypeBindingSignature {
+                        name: name.clone(),
+                        ty: self.ty_for_span(ty.span),
+                        span: *span,
+                    })
+                }
+                nia_ast::TypeArg::Type(_) | nia_ast::TypeArg::Const(_) => None,
             })
             .collect()
     }

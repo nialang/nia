@@ -1674,6 +1674,28 @@ path syntax; it does not infer an associated type projection. Associated types
 also do not take their own generic parameters in this version. Generic
 associated type families are reserved for future design.
 
+Trait bounds may bind associated types in the same bracketed trait argument
+list. Positional trait arguments come first, followed by named associated type
+bindings:
+
+```nia
+fn add_same[T](a: &const T, b: T) T
+where T: Add[T, Output = T] {
+    a.add(b)
+}
+
+fn mapped[T](value: &const T) i32
+where T: Mapper[i32, bool, C = i32, D = bool] {
+    value.map_c(1, true)
+}
+```
+
+`T: Add[T, Output = T]` selects the `Add[T]` implementation for `T` and binds
+that selected implementation's `Output` associated type to `T`. The binding is
+part of the trait bound; it is not a separate global type equality predicate.
+Binding names must be associated types declared by the trait, and a single
+bound may not bind the same associated type more than once.
+
 Trait bounds are written in `where` clauses:
 
 ```nia
@@ -1701,9 +1723,10 @@ visible concrete implementation when the generic function is instantiated.
 Default methods may call other methods from the same trait; those calls are
 resolved through the visible concrete implementation when available, or through
 another default body. Associated type projections are normalized through the
-visible concrete trait implementation during checking and monomorphization.
-Supertrait method obligations are resolved through the same visible concrete
-implementation lookup.
+current function's associated type bound bindings or through the visible
+concrete trait implementation during checking and monomorphization. Supertrait
+method obligations are resolved through the same visible concrete implementation
+lookup.
 
 ## 12. Modules
 

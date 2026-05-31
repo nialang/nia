@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nia_ast::{
     ArrayLen, Expr, ExprKind, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
@@ -90,6 +90,7 @@ enum TypeContext {
     Return,
     Alias,
     SizeQuery,
+    TraitBound,
 }
 
 impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
@@ -229,7 +230,7 @@ impl<'a> TypeLowerer<'a> {
         lowered
     }
 
-    fn lower_type(&mut self, ty: &TypeRef, _context: TypeContext) -> InternedTyId {
+    fn lower_type(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         match &ty.kind {
             TypeKind::Error => self.interner.error(),
             TypeKind::Infer => {
@@ -312,41 +313,10 @@ impl<'a> TypeLowerer<'a> {
                                 module_id: self.module_id,
                                 def_id,
                             });
-                        let mut args = Vec::new();
-                        for arg in &type_segment.args {
-                            match arg {
-                                TypeArg::Type(arg_ty) => args
-                                    .push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
-                                TypeArg::Const(expr) => {
-                                    self.diagnostics.push(Diagnostic::error(
-                                        expr.span,
-                                        "const generic type arguments are not supported",
-                                    ));
-                                }
-                            }
-                        }
-                        self.check_type_arg_count(ty.span, def_id, args.len());
-                        self.interner.intern(TyKind::Nominal { def_id, args })
+                        self.lower_path_type(ty.span, type_segment, def_id, context)
                     }
                     Some(TypeNameResolution::External(global_id)) => {
-                        let mut args = Vec::new();
-                        for arg in &type_segment.args {
-                            match arg {
-                                TypeArg::Type(arg_ty) => args
-                                    .push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
-                                TypeArg::Const(expr) => {
-                                    self.diagnostics.push(Diagnostic::error(
-                                        expr.span,
-                                        "const generic type arguments are not supported",
-                                    ));
-                                }
-                            }
-                        }
-                        self.check_type_arg_count(ty.span, global_id, args.len());
-                        self.interner.intern(TyKind::Nominal {
-                            def_id: global_id,
-                            args,
-                        })
+                        self.lower_path_type(ty.span, type_segment, global_id, context)
                     }
                     Some(TypeNameResolution::Error) | None => self.interner.error(),
                 }
@@ -393,6 +363,73 @@ impl<'a> TypeLowerer<'a> {
 
     fn normalize_if_known(&self, ty: InternedTyId) -> InternedTyId {
         ty
+    }
+
+    fn lower_path_type(
+        &mut self,
+        span: Span,
+        segment: &TypePathSegment,
+        def_id: GlobalDefId,
+        context: TypeContext,
+    ) -> InternedTyId {
+        let mut args = Vec::new();
+        let mut seen_assoc_bindings = HashSet::new();
+        let mut seen_assoc_binding = false;
+        for arg in &segment.args {
+            match arg {
+                TypeArg::Type(arg_ty) => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::error(
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                }
+                TypeArg::Const(expr) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "const generic type arguments are not supported",
+                    ));
+                }
+                TypeArg::AssocBinding {
+                    name,
+                    span,
+                    ty: binding_ty,
+                } => {
+                    seen_assoc_binding = true;
+                    if context == TypeContext::TraitBound {
+                        self.lower_type_in_context(binding_ty, TypeContext::Value);
+                        if !self.is_trait_def(def_id) {
+                            self.diagnostics.push(Diagnostic::error(
+                                *span,
+                                "associated type bindings require a trait bound",
+                            ));
+                        } else {
+                            if !seen_assoc_bindings.insert(name.as_str()) {
+                                self.diagnostics.push(Diagnostic::error(
+                                    *span,
+                                    format!("duplicate associated type binding `{name}`"),
+                                ));
+                            }
+                            if !self.trait_has_associated_type(def_id, name) {
+                                self.diagnostics.push(Diagnostic::error(
+                                    *span,
+                                    format!("trait does not define associated type `{name}`"),
+                                ));
+                            }
+                        }
+                    } else {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            "associated type bindings are only valid in trait bounds",
+                        ));
+                    }
+                }
+            }
+        }
+        self.check_type_arg_count(span, def_id, args.len());
+        self.interner.intern(TyKind::Nominal { def_id, args })
     }
 
     fn is_trait_def(&self, def_id: GlobalDefId) -> bool {
@@ -450,9 +487,13 @@ impl<'a> TypeLowerer<'a> {
         for predicate in &clause.predicates {
             self.lower_type_in_context(&predicate.ty, TypeContext::Value);
             for bound in &predicate.bounds {
-                self.lower_type_in_context(bound, TypeContext::Value);
+                self.lower_trait_bound(bound);
             }
         }
+    }
+
+    fn lower_trait_bound(&mut self, bound: &nia_ast::TypeRef) {
+        self.lower_type_in_context(bound, TypeContext::TraitBound);
     }
 
     fn lower_array_len(&mut self, len: &ArrayLen) -> ArrayLenTy {
