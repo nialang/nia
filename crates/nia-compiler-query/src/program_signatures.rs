@@ -547,11 +547,11 @@ fn validate_builtin_trait_impl(
             ));
         }
     }
-    if trait_id.has_associated_type("Output")
+    if trait_id.has_associated_type(BuiltinTrait::OUTPUT_ASSOC_TYPE)
         && !extend
             .associated_types
             .iter()
-            .any(|associated_type| associated_type.name == "Output")
+            .any(|associated_type| associated_type.name == BuiltinTrait::OUTPUT_ASSOC_TYPE)
     {
         diagnostics.push(Diagnostic::error(
             extend.target.span,

@@ -11,7 +11,7 @@ use nia_function_ir::{
     FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId, TraitId};
-use nia_ty::TyKind;
+use nia_ty::{LayoutBuiltin, TyKind};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn generic_substitutions(
@@ -594,19 +594,16 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: &HashMap<String, InternedTyId>,
     ) -> nia_function_ir::FunctionBuiltinValue {
         match value {
-            nia_function_ir::FunctionBuiltinValue::Layout { name, ty } => {
+            nia_function_ir::FunctionBuiltinValue::Layout { builtin, ty } => {
                 let ty = self.instantiate_ty(ty, substitutions);
                 if let Some(layout) = self.layout_of(ty) {
-                    let value = match name.as_str() {
-                        "size" => layout.size,
-                        "align" => layout.align,
-                        _ => {
-                            return nia_function_ir::FunctionBuiltinValue::Layout { name, ty };
-                        }
+                    let value = match builtin {
+                        LayoutBuiltin::Size => layout.size,
+                        LayoutBuiltin::Align => layout.align,
                     };
                     nia_function_ir::FunctionBuiltinValue::Usize(value)
                 } else {
-                    nia_function_ir::FunctionBuiltinValue::Layout { name, ty }
+                    nia_function_ir::FunctionBuiltinValue::Layout { builtin, ty }
                 }
             }
             nia_function_ir::FunctionBuiltinValue::Usize(value) => {

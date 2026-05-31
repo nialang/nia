@@ -196,9 +196,9 @@ where
         ArrayLenTy::Infer => "infer".to_string(),
         ArrayLenTy::ConstValue(value) => format!("len__{value}"),
         ArrayLenTy::ConstExpr(id) => format!("len__{}", array_len(*id)),
-        ArrayLenTy::Builtin { name, ty } => format!(
+        ArrayLenTy::Builtin { builtin, ty } => format!(
             "builtin__{}__{}",
-            sanitize_symbol_part(name),
+            sanitize_symbol_part(builtin.name()),
             mangle_type_inner(interner, *ty, nominal_name, array_len)
         ),
     }

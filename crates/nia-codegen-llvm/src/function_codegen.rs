@@ -25,7 +25,7 @@ use nia_llvm::{
     values::{BasicValueEnum, FunctionValue, PointerValue},
 };
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
 
 pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     module: &'m ModuleCodegen<'ctx, 'a>,
@@ -264,14 +264,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .i64_type()
                 .const_int(*value, false)
                 .into()),
-            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Layout { name, ty }) => {
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Layout { builtin, ty }) => {
                 let Some(layout) = self.module.layout_of(*ty) else {
                     return Err(self.error(expr.span, "layout builtin type has no known layout"));
                 };
-                let value = match name.as_str() {
-                    "size" => layout.size,
-                    "align" => layout.align,
-                    _ => return Err(self.error(expr.span, "unknown layout builtin")),
+                let value = match builtin {
+                    LayoutBuiltin::Size => layout.size,
+                    LayoutBuiltin::Align => layout.align,
                 };
                 Ok(self
                     .module

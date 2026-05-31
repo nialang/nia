@@ -10,7 +10,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, TraitId, TyInterner, TyKind};
 use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -596,8 +596,9 @@ impl<'a> TypeLowerer<'a> {
             ExprKind::Builtin {
                 name,
                 type_arg: Some(type_arg),
-            } if name == "size" || name == "align" => ArrayLenTy::Builtin {
-                name: name.clone(),
+            } if LayoutBuiltin::from_name(name).is_some() => ArrayLenTy::Builtin {
+                builtin: LayoutBuiltin::from_name(name)
+                    .expect("layout builtin was checked in match guard"),
                 ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
             },
             ExprKind::Call { callee, args }
@@ -607,7 +608,7 @@ impl<'a> TypeLowerer<'a> {
                         ExprKind::Builtin {
                             name,
                             type_arg: Some(_),
-                        } if name == "size" || name == "align"
+                        } if LayoutBuiltin::from_name(name).is_some()
                     ) =>
             {
                 let ExprKind::Builtin {
@@ -618,7 +619,8 @@ impl<'a> TypeLowerer<'a> {
                     return self.register_const_array_len(expr);
                 };
                 ArrayLenTy::Builtin {
-                    name: name.clone(),
+                    builtin: LayoutBuiltin::from_name(name)
+                        .expect("layout builtin was checked in match guard"),
                     ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
                 }
             }

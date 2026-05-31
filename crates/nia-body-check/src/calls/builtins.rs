@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::{Expr, TypeRef};
 use nia_body_ir::BuiltinValue;
 use nia_diagnostic::Diagnostic;
-use nia_ids::{InternedTyId, TraitId};
+use nia_ids::{InternedTyId, LayoutBuiltin, TraitId};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyKind};
 use nia_value_resolve::BuiltinResolution;
@@ -50,7 +50,8 @@ impl<'a> BodyChecker<'a> {
             self.record_builtin_value(
                 span,
                 BuiltinValue::Layout {
-                    name: name.to_string(),
+                    builtin: LayoutBuiltin::from_name(name)
+                        .expect("layout builtin was resolved by value resolution"),
                     ty,
                 },
             );

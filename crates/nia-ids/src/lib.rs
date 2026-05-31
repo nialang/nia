@@ -76,6 +76,29 @@ pub enum BuiltinTrait {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LayoutBuiltin {
+    Size,
+    Align,
+}
+
+impl LayoutBuiltin {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "size" => Some(Self::Size),
+            "align" => Some(Self::Align),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Size => "size",
+            Self::Align => "align",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinTraitMethod {
     Add,
     Sub,
@@ -132,6 +155,8 @@ impl BuiltinTraitMethod {
 }
 
 impl BuiltinTrait {
+    pub const OUTPUT_ASSOC_TYPE: &'static str = "Output";
+
     const ADD_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Add];
     const SUB_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Sub];
     const MUL_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Mul];
@@ -249,7 +274,7 @@ impl BuiltinTrait {
                 | Self::BitXor
                 | Self::Shl
                 | Self::Shr
-        ) && name == "Output"
+        ) && name == Self::OUTPUT_ASSOC_TYPE
     }
 
     pub fn required_methods(self) -> &'static [BuiltinTraitMethod] {

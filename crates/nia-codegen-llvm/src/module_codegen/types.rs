@@ -11,7 +11,7 @@ use nia_llvm::{
     values::FunctionValue,
 };
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AbiParam {
@@ -364,23 +364,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .get(id)
                 .copied()
                 .ok_or_else(|| self.error(span, "array length was not evaluated by comptime")),
-            ArrayLenTy::Builtin { name, ty } => {
+            ArrayLenTy::Builtin { builtin, ty } => {
                 let owner_layouts = self.layouts_for(*ty);
                 let Some(layout) = owner_layouts
                     .types
                     .iter()
                     .find_map(|(layout_ty, layout)| (*layout_ty == *ty).then_some(layout))
                 else {
-                    return Err(
-                        self.error(span, format!("missing layout for `@{name}` array length"))
-                    );
+                    return Err(self.error(
+                        span,
+                        format!("missing layout for `@{}` array length", builtin.name()),
+                    ));
                 };
-                match name.as_str() {
-                    "size" => Ok(layout.size),
-                    "align" => Ok(layout.align),
-                    _ => {
-                        Err(self.error(span, format!("unsupported array length builtin `@{name}`")))
-                    }
+                match builtin {
+                    LayoutBuiltin::Size => Ok(layout.size),
+                    LayoutBuiltin::Align => Ok(layout.align),
                 }
             }
             ArrayLenTy::Infer => {
@@ -836,14 +834,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             (
                 ArrayLenTy::Builtin {
-                    name: left_name,
+                    builtin: left_builtin,
                     ty: left_ty,
                 },
                 ArrayLenTy::Builtin {
-                    name: right_name,
+                    builtin: right_builtin,
                     ty: right_ty,
                 },
-            ) => left_name == right_name && self.same_type(*left_ty, *right_ty),
+            ) => left_builtin == right_builtin && self.same_type(*left_ty, *right_ty),
             _ => false,
         }
     }
