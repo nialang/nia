@@ -318,6 +318,10 @@ impl<'a> LocalResolver<'a> {
                     }
                 }
             }
+            TypeKind::Projection { ty, trait_ref, .. } => {
+                self.resolve_type(ty);
+                self.resolve_type(trait_ref);
+            }
             TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
                 self.resolve_type(elem);
             }

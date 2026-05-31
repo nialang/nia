@@ -1123,13 +1123,17 @@ impl FunctionLowerer {
             TypedCallee::TraitMethod {
                 trait_id,
                 method_id,
+                method_name,
                 self_ty,
+                trait_args,
                 args,
                 receiver,
             } => FunctionCallee::TraitMethod {
                 trait_id: *trait_id,
                 method_id: *method_id,
+                method_name: method_name.clone(),
                 self_ty: *self_ty,
+                trait_args: trait_args.clone(),
                 args: args.clone(),
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },

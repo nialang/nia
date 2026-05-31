@@ -166,6 +166,28 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 self.interner.intern(TyKind::Nominal { def_id, args })
             }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = *self_ty;
+                let trait_id = *trait_id;
+                let trait_args = trait_args.clone();
+                let name = name.clone();
+                let self_ty = self.substitute_generics(self_ty, substitutions);
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
+            }
             Some(TyKind::Error | TyKind::Primitive(_)) | None => ty,
         }
     }

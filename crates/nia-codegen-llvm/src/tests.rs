@@ -1399,6 +1399,109 @@ fn main() bool {
 }
 
 #[test]
+fn emits_associated_type_projection_instances() {
+    let root = temp_dir("emits_associated_type_projection_instances");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    type Item = i32;
+
+    fn get(&const self) i32 {
+        self.value
+    }
+}
+
+fn read[T](value: &const T) [T as Source]::Item
+where T: Source {
+    value.get()
+}
+
+fn main() i32 {
+    var counter: Counter = { value: 42 };
+    read[Counter](&const counter)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call i32 @"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
+fn emits_generic_associated_type_default_method_instances() {
+    let root = temp_dir("emits_generic_associated_type_default_method_instances");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Mapper[A, B] {
+    type C;
+    type D;
+
+    fn map_c(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
+
+    fn map_d(&const self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
+        _ = self.map_c(a, b);
+        fallback
+    }
+}
+
+struct Pairer {
+    seed: i32,
+}
+
+extend Pairer : Mapper[i32, i32] {
+    type C = i32;
+    type D = i32;
+
+    fn map_c(&const self, a: i32, b: i32) i32 {
+        self.seed + a + b
+    }
+}
+
+fn mapped[T](value: &const T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
+where T: Mapper[i32, i32] {
+    value.map_d(1, 2, fallback)
+}
+
+fn main() i32 {
+    var p: Pairer = { seed: 3 };
+    mapped[Pairer](&const p, 9)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call i32 @"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
 fn emits_trait_default_method_instances() {
     let root = temp_dir("emits_trait_default_method_instances");
     let main = root.join("main.nia");

@@ -95,6 +95,24 @@ impl<'a> TypeNormalizer<'a> {
                     self.interner.intern(TyKind::Nominal { def_id, args })
                 }
             }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_ty(self_ty, stack);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
+            }
             Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty_id,
         };
         self.normalized.insert(ty_id, normalized);
@@ -190,6 +208,24 @@ impl<'a> TypeNormalizer<'a> {
                 } else {
                     self.interner.intern(TyKind::Nominal { def_id, args })
                 }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_ty_with_substitutions(self_ty, substitutions, stack);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
             }
             Some(TyKind::Error | TyKind::Primitive(_)) | None => self.normalize_ty(ty_id, stack),
         }

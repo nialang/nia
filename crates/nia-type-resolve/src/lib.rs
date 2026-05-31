@@ -197,6 +197,10 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
     fn visit_type(&mut self, ty: &'ast TypeRef) {
         match &ty.kind {
             TypeKind::Error | TypeKind::Infer | TypeKind::Void | TypeKind::Never => {}
+            TypeKind::Projection { ty, trait_ref, .. } => {
+                self.visit_type(ty);
+                self.visit_type(trait_ref);
+            }
             TypeKind::SelfType => {
                 if self.self_type_stack.is_empty() {
                     self.diagnostics.push(Diagnostic::error(

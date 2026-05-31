@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::LoadedModule;
 use nia_body_check::{
     ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature, ProgramUnionSignature,
-    import_type_into,
+    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitImplSignature,
+    ProgramTraitSignature, ProgramUnionSignature, import_type_into,
 };
 use nia_defs::{
     DefCollection, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
@@ -185,6 +185,31 @@ pub(crate) fn collect_program_traits(
     traits
 }
 
+pub(crate) fn collect_program_trait_impls(
+    modules: &[ModuleSignatureInput<'_>],
+) -> Vec<ProgramTraitImplSignature> {
+    let mut trait_impls = Vec::new();
+    for module in modules {
+        for impl_signature in &module.signatures.trait_impls {
+            let Some(trait_ty) = impl_signature.trait_ty else {
+                continue;
+            };
+            let Some(TyKind::Nominal { def_id, args }) = module.lowering.interner.get(trait_ty)
+            else {
+                continue;
+            };
+            trait_impls.push(ProgramTraitImplSignature {
+                target_ty: impl_signature.target_ty,
+                trait_id: *def_id,
+                trait_args: args.clone(),
+                associated_types: impl_signature.associated_types.clone(),
+                interner: module.lowering.interner.clone(),
+            });
+        }
+    }
+    trait_impls
+}
+
 pub(crate) fn collect_extension_methods(
     modules: &[ExtensionModuleInput<'_>],
 ) -> (ExtensionMethods, Vec<Diagnostic>) {
@@ -239,6 +264,14 @@ pub(crate) fn collect_extension_methods(
             let trait_id = extend.trait_ref.as_ref().and_then(|trait_ref| {
                 trait_ref_id(module, trait_ref, &defs_by_module, &mut diagnostics)
             });
+            if trait_id.is_none() {
+                for associated_type in &extend.associated_types {
+                    diagnostics.push(Diagnostic::error(
+                        associated_type.span,
+                        "associated type definitions are only allowed in trait implementations",
+                    ));
+                }
+            }
             if let Some(trait_id) = trait_id {
                 validate_trait_impl(
                     module,
@@ -325,6 +358,34 @@ fn validate_trait_impl(
     let Some(trait_signature) = trait_signatures.get(&trait_id).copied() else {
         return;
     };
+    for associated_type in &extend.associated_types {
+        if !trait_signature
+            .signature
+            .associated_types
+            .iter()
+            .any(|required| required.name == associated_type.name)
+        {
+            diagnostics.push(Diagnostic::error(
+                associated_type.span,
+                format!(
+                    "associated type `{}` is not a member of implemented trait",
+                    associated_type.name
+                ),
+            ));
+        }
+    }
+    for required in &trait_signature.signature.associated_types {
+        if !extend
+            .associated_types
+            .iter()
+            .any(|associated_type| associated_type.name == required.name)
+        {
+            diagnostics.push(Diagnostic::error(
+                extend.target.span,
+                format!("missing definition for associated type `{}`", required.name),
+            ));
+        }
+    }
     for method in &extend.methods {
         if !trait_signature
             .signature
@@ -372,11 +433,14 @@ fn validate_trait_impl(
         };
         let required_signature = import_trait_method_signature(
             &mut comparison_interner,
+            module,
             trait_signature.interner,
             &required.signature,
             &trait_signature.signature.generics,
             &trait_args,
             target_ty,
+            trait_id,
+            extend,
         );
         if !trait_method_signature_matches(&required_signature, actual) {
             diagnostics.push(Diagnostic::error(
@@ -405,11 +469,14 @@ fn trait_ref_args(
 
 fn import_trait_method_signature(
     target_interner: &mut TyInterner,
+    module: &ExtensionModuleInput<'_>,
     source_interner: &TyInterner,
     signature: &FunctionSignature,
     trait_generics: &[String],
     trait_args: &[nia_ids::InternedTyId],
     self_ty: nia_ids::InternedTyId,
+    trait_id: GlobalDefId,
+    extend: &nia_ast::ExtendItem,
 ) -> FunctionSignature {
     let mut substitutions = trait_generics
         .iter()
@@ -426,27 +493,51 @@ fn import_trait_method_signature(
             receiver: param.receiver,
             ty: substitute_imported_type(
                 target_interner,
+                module,
                 source_interner,
                 param.ty,
                 &substitutions,
+                Some(ProjectionImplContext {
+                    trait_id,
+                    trait_args,
+                    self_ty,
+                    extend,
+                }),
             ),
             span: param.span,
         })
         .collect();
     signature.return_type = substitute_imported_type(
         target_interner,
+        module,
         source_interner,
         signature.return_type,
         &substitutions,
+        Some(ProjectionImplContext {
+            trait_id,
+            trait_args,
+            self_ty,
+            extend,
+        }),
     );
     signature
 }
 
+#[derive(Clone, Copy)]
+struct ProjectionImplContext<'a> {
+    trait_id: GlobalDefId,
+    trait_args: &'a [nia_ids::InternedTyId],
+    self_ty: nia_ids::InternedTyId,
+    extend: &'a nia_ast::ExtendItem,
+}
+
 fn substitute_imported_type(
     target_interner: &mut TyInterner,
+    module: &ExtensionModuleInput<'_>,
     source_interner: &TyInterner,
     ty: nia_ids::InternedTyId,
     substitutions: &HashMap<String, nia_ids::InternedTyId>,
+    projection_context: Option<ProjectionImplContext<'_>>,
 ) -> nia_ids::InternedTyId {
     match source_interner.get(ty) {
         Some(TyKind::GenericParam(name)) => substitutions
@@ -455,20 +546,38 @@ fn substitute_imported_type(
             .unwrap_or_else(|| import_type_into(target_interner, source_interner, ty)),
         Some(TyKind::Pointer { is_const, elem }) => {
             let is_const = *is_const;
-            let elem =
-                substitute_imported_type(target_interner, source_interner, *elem, substitutions);
+            let elem = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *elem,
+                substitutions,
+                projection_context,
+            );
             target_interner.intern(TyKind::Pointer { is_const, elem })
         }
         Some(TyKind::Slice { is_const, elem }) => {
             let is_const = *is_const;
-            let elem =
-                substitute_imported_type(target_interner, source_interner, *elem, substitutions);
+            let elem = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *elem,
+                substitutions,
+                projection_context,
+            );
             target_interner.intern(TyKind::Slice { is_const, elem })
         }
         Some(TyKind::Array { len, elem }) => {
             let len = len.clone();
-            let elem =
-                substitute_imported_type(target_interner, source_interner, *elem, substitutions);
+            let elem = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *elem,
+                substitutions,
+                projection_context,
+            );
             target_interner.intern(TyKind::Array { len, elem })
         }
         Some(TyKind::FunctionPointer {
@@ -481,17 +590,21 @@ fn substitute_imported_type(
                 .map(|param| {
                     substitute_imported_type(
                         target_interner,
+                        module,
                         source_interner,
                         *param,
                         substitutions,
+                        projection_context,
                     )
                 })
                 .collect();
             let return_type = substitute_imported_type(
                 target_interner,
+                module,
                 source_interner,
                 *return_type,
                 substitutions,
+                projection_context,
             );
             target_interner.intern(TyKind::FunctionPointer {
                 params,
@@ -503,12 +616,70 @@ fn substitute_imported_type(
             let args = args
                 .iter()
                 .map(|arg| {
-                    substitute_imported_type(target_interner, source_interner, *arg, substitutions)
+                    substitute_imported_type(
+                        target_interner,
+                        module,
+                        source_interner,
+                        *arg,
+                        substitutions,
+                        projection_context,
+                    )
                 })
                 .collect();
             target_interner.intern(TyKind::Nominal {
                 def_id: *def_id,
                 args,
+            })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *self_ty,
+                substitutions,
+                projection_context,
+            );
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_type(
+                        target_interner,
+                        module,
+                        source_interner,
+                        *arg,
+                        substitutions,
+                        projection_context,
+                    )
+                })
+                .collect::<Vec<_>>();
+            if let Some(context) = projection_context
+                && *trait_id == context.trait_id
+                && self_ty == context.self_ty
+                && trait_args == context.trait_args
+                && let Some(associated_type) = context
+                    .extend
+                    .associated_types
+                    .iter()
+                    .find(|associated_type| associated_type.name == *name)
+            {
+                return module
+                    .lowering
+                    .type_uses
+                    .get(&associated_type.ty.span)
+                    .copied()
+                    .unwrap_or_else(|| target_interner.error());
+            }
+            target_interner.intern(TyKind::Projection {
+                self_ty,
+                trait_id: *trait_id,
+                trait_args,
+                name: name.clone(),
             })
         }
         Some(TyKind::Error | TyKind::Primitive(_)) | None => {
@@ -546,6 +717,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::Slice { .. }
             | TyKind::FunctionPointer { .. }
             | TyKind::Nominal { .. }
+            | TyKind::Projection { .. }
             | TyKind::GenericParam(_),
         ) => true,
     }

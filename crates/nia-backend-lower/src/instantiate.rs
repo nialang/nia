@@ -35,6 +35,16 @@ impl<'a> ModuleLowerer<'a> {
             .is_some_and(|def| def.kind == nia_defs::DefKind::TraitMethod)
         {
             let mut generics = vec!["Self".to_string()];
+            generics.extend(
+                self.input
+                    .defs
+                    .defs
+                    .get(def_id.def_id)
+                    .and_then(|def| def.parent)
+                    .and_then(|parent| self.input.defs.defs.get(parent))
+                    .map(|parent| parent.generics.clone())
+                    .unwrap_or_default(),
+            );
             generics.extend(own_generics.iter().cloned());
             return generics;
         }
@@ -96,6 +106,16 @@ impl<'a> ModuleLowerer<'a> {
             }
             Some(TyKind::Nominal { args, .. }) => {
                 for arg in args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_generic_params_in_ty(*self_ty, generics);
+                for arg in trait_args {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
@@ -501,18 +521,24 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::TraitMethod {
                 trait_id,
                 method_id,
+                method_name,
                 self_ty,
+                trait_args,
                 args,
                 receiver,
             } => {
                 let self_ty = self.instantiate_ty(self_ty, substitutions);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .collect::<Vec<_>>();
                 let args = args
                     .into_iter()
                     .map(|arg| self.instantiate_ty(arg, substitutions))
                     .collect::<Vec<_>>();
                 let receiver = Box::new(self.instantiate_expr(*receiver, substitutions));
                 if let Some((def_id, target_args)) =
-                    self.resolve_trait_method_impl(trait_id, method_id, self_ty)
+                    self.resolve_trait_method_impl(trait_id, method_id, &method_name, self_ty)
                 {
                     let mut instance_args = target_args;
                     instance_args.extend(args);
@@ -523,6 +549,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 } else if self.trait_method_has_default(method_id) {
                     let mut instance_args = vec![self_ty];
+                    instance_args.extend(trait_args.iter().copied());
                     instance_args.extend(args);
                     FunctionCallee::Method {
                         def_id: method_id,
@@ -537,7 +564,9 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionCallee::TraitMethod {
                         trait_id,
                         method_id,
+                        method_name,
                         self_ty,
+                        trait_args,
                         args,
                         receiver,
                     }
@@ -568,6 +597,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         trait_id: GlobalDefId,
         trait_method_id: GlobalDefId,
+        trait_method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let trait_method_name = self
@@ -575,6 +605,7 @@ impl<'a> ModuleLowerer<'a> {
             .defs
             .defs
             .get(trait_method_id.def_id)
+            .filter(|_| trait_method_id.module_id == self.input.module_id)
             .map(|def| def.name.clone())
             .or_else(|| {
                 self.input
@@ -584,7 +615,8 @@ impl<'a> ModuleLowerer<'a> {
                     .flat_map(|target| target.methods.iter())
                     .find(|method| method.def_id == trait_method_id)
                     .map(|method| method.name.clone())
-            })?;
+            })
+            .unwrap_or_else(|| trait_method_name.to_string());
         let candidates = self
             .input
             .extensions
@@ -607,7 +639,7 @@ impl<'a> ModuleLowerer<'a> {
         method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if !self.type_pattern_matches(target.target_ty, self_ty) {
+        if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
             return None;
         }
         let method = target
@@ -615,15 +647,63 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .find(|method| method.name == method_name && method.trait_id == Some(trait_id))?;
         let mut substitutions = HashMap::new();
-        self.match_type_pattern(target.target_ty, self_ty, &mut substitutions)
+        self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
             .then(|| {
                 let args = self
-                    .generic_params_in_ty(target.target_ty)
+                    .generic_params_in_extension_ty(target.target_ty)
                     .iter()
                     .filter_map(|generic| substitutions.get(generic).copied())
-                    .collect();
+                    .collect::<Vec<_>>();
                 (method.def_id, args)
             })
+    }
+
+    fn generic_params_in_extension_ty(&self, ty: InternedTyId) -> Vec<String> {
+        let mut generics = Vec::new();
+        self.collect_generic_params_in_extension_ty(ty, &mut generics);
+        generics
+    }
+
+    fn collect_generic_params_in_extension_ty(&self, ty: InternedTyId, generics: &mut Vec<String>) {
+        match self.extension_ty_kind(ty) {
+            Some(TyKind::GenericParam(name)) => {
+                if !generics.contains(name) {
+                    generics.push(name.clone());
+                }
+            }
+            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
+                self.collect_generic_params_in_extension_ty(*elem, generics);
+            }
+            Some(TyKind::Array { elem, .. }) => {
+                self.collect_generic_params_in_extension_ty(*elem, generics);
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                for param in params {
+                    self.collect_generic_params_in_extension_ty(*param, generics);
+                }
+                self.collect_generic_params_in_extension_ty(*return_type, generics);
+            }
+            Some(TyKind::Nominal { args, .. }) => {
+                for arg in args {
+                    self.collect_generic_params_in_extension_ty(*arg, generics);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_generic_params_in_extension_ty(*self_ty, generics);
+                for arg in trait_args {
+                    self.collect_generic_params_in_extension_ty(*arg, generics);
+                }
+            }
+            Some(TyKind::Error | TyKind::Primitive(_)) | None => {}
+        }
     }
 
     fn instantiate_place(
@@ -730,24 +810,94 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .copied()
                     .map(|arg| self.instantiate_ty(arg, substitutions))
-                    .collect();
+                    .collect::<Vec<_>>();
                 self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.instantiate_ty(self_ty, substitutions);
+                let trait_args = trait_args
+                    .iter()
+                    .copied()
+                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .collect::<Vec<_>>();
+                self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                    .unwrap_or_else(|| {
+                        self.interner.intern(TyKind::Projection {
+                            self_ty,
+                            trait_id,
+                            trait_args,
+                            name,
+                        })
+                    })
             }
             Some(TyKind::Error) | Some(TyKind::Primitive(_)) | None => ty,
         }
     }
 
-    pub(crate) fn type_pattern_matches(&self, pattern: InternedTyId, actual: InternedTyId) -> bool {
-        self.match_type_pattern(pattern, actual, &mut HashMap::new())
+    fn resolve_associated_type_projection(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: GlobalDefId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        for impl_signature in self.input.trait_impls {
+            if impl_signature.trait_id != trait_id {
+                continue;
+            }
+            let target_ty =
+                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
+            let impl_trait_args = impl_signature
+                .trait_args
+                .iter()
+                .map(|arg| self.import_type_from(&impl_signature.interner, *arg))
+                .collect::<Vec<_>>();
+            if !self.types_match(target_ty, self_ty)
+                || impl_trait_args.len() != trait_args.len()
+                || !impl_trait_args
+                    .iter()
+                    .zip(trait_args)
+                    .all(|(actual, expected)| self.types_match(*actual, *expected))
+            {
+                continue;
+            }
+            let associated_type = impl_signature
+                .associated_types
+                .iter()
+                .find(|associated_type| associated_type.name == name)?;
+            return Some(self.import_type_from(&impl_signature.interner, associated_type.ty));
+        }
+        None
     }
 
-    pub(crate) fn match_type_pattern(
+    fn import_type_from(&mut self, source: &nia_ty::TyInterner, ty: InternedTyId) -> InternedTyId {
+        nia_body_check::import_type_into(&mut self.interner, source, ty)
+    }
+
+    fn extension_type_pattern_matches(&self, pattern: InternedTyId, actual: InternedTyId) -> bool {
+        self.match_extension_type_pattern(pattern, actual, &mut HashMap::new())
+    }
+
+    fn extension_ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
+        self.input
+            .extension_interner
+            .filter(|interner| ty.interner_id == interner.interner_id())
+            .and_then(|interner| interner.get(ty))
+            .or_else(|| self.ty_kind(ty))
+    }
+
+    fn match_extension_type_pattern(
         &self,
         pattern: InternedTyId,
         actual: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
-        match self.ty_kind(pattern) {
+        match self.extension_ty_kind(pattern) {
             Some(TyKind::GenericParam(name)) => {
                 if let Some(existing) = substitutions.get(name).copied() {
                     self.types_match(existing, actual)
@@ -763,7 +913,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.ty_kind(actual),
                 Some(TyKind::Pointer { is_const, elem })
                     if is_const == pattern_const
-                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                        && self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
             ),
             Some(TyKind::Slice {
                 is_const: pattern_const,
@@ -772,14 +922,14 @@ impl<'a> ModuleLowerer<'a> {
                 self.ty_kind(actual),
                 Some(TyKind::Slice { is_const, elem })
                     if is_const == pattern_const
-                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                        && self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
             ),
             Some(TyKind::Array {
                 len: pattern_len,
                 elem: pattern_elem,
             }) => match self.ty_kind(actual) {
                 Some(TyKind::Array { len, elem }) if pattern_len == len => {
-                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                    self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
                 }
                 _ => false,
             },
@@ -794,8 +944,12 @@ impl<'a> ModuleLowerer<'a> {
                     is_variadic,
                 }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
-                        self.match_type_pattern(*pattern, *actual, substitutions)
-                    }) && self.match_type_pattern(*pattern_return, *return_type, substitutions)
+                        self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                    }) && self.match_extension_type_pattern(
+                        *pattern_return,
+                        *return_type,
+                        substitutions,
+                    )
                 }
                 _ => false,
             },
@@ -807,8 +961,33 @@ impl<'a> ModuleLowerer<'a> {
                     if pattern_def == def_id && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
-                        self.match_type_pattern(*pattern, *actual, substitutions)
+                        self.match_extension_type_pattern(*pattern, *actual, substitutions)
                     })
+                }
+                _ => false,
+            },
+            Some(TyKind::Projection {
+                self_ty: pattern_self,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                name: pattern_name,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                }) if pattern_trait == trait_id
+                    && pattern_name == name
+                    && pattern_args.len() == trait_args.len() =>
+                {
+                    self.match_extension_type_pattern(*pattern_self, *self_ty, substitutions)
+                        && pattern_args
+                            .iter()
+                            .zip(trait_args)
+                            .all(|(pattern, actual)| {
+                                self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                            })
                 }
                 _ => false,
             },
@@ -846,6 +1025,29 @@ impl<'a> ModuleLowerer<'a> {
             ) => {
                 left_def == right_def
                     && left_args.len() == right_args.len()
+                    && left_args
+                        .iter()
+                        .zip(right_args)
+                        .all(|(left, right)| self.types_match(*left, *right))
+            }
+            (
+                Some(TyKind::Projection {
+                    self_ty: left_self,
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    name: left_name,
+                }),
+                Some(TyKind::Projection {
+                    self_ty: right_self,
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    name: right_name,
+                }),
+            ) => {
+                left_trait == right_trait
+                    && left_name == right_name
+                    && left_args.len() == right_args.len()
+                    && self.types_match(*left_self, *right_self)
                     && left_args
                         .iter()
                         .zip(right_args)

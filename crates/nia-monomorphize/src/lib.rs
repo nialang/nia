@@ -130,6 +130,17 @@ impl MonoCollector<'_> {
         let Some(def) = defs.defs.get(def_id.def_id) else {
             return Vec::new();
         };
+        if def.kind == DefKind::TraitMethod {
+            let mut generics = vec!["Self".to_string()];
+            generics.extend(
+                def.parent
+                    .and_then(|parent| defs.defs.get(parent))
+                    .map(|parent| parent.generics.clone())
+                    .unwrap_or_default(),
+            );
+            generics.extend(def.generics.clone());
+            return generics;
+        }
         let mut generics = def
             .parent
             .and_then(|parent| defs.defs.get(parent))
@@ -287,6 +298,25 @@ impl MonoCollector<'_> {
                 interner.intern(TyKind::Nominal {
                     def_id: *def_id,
                     args,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.instantiate_ty(module_id, *self_ty, substitutions);
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
+                    .collect();
+                let mut interner = (*interner).clone();
+                interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id: *trait_id,
+                    trait_args,
+                    name: name.clone(),
                 })
             }
             _ => ty,

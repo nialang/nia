@@ -1546,7 +1546,8 @@ short name for the method, and it does not capture a receiver.
 
 ## 11. Traits
 
-Traits define required method signatures for static dispatch:
+Traits define required method signatures and associated type outputs for static
+dispatch:
 
 ```nia
 trait Eq {
@@ -1589,6 +1590,58 @@ trait Eq {
 }
 ```
 
+Traits may declare associated types. An associated type is a named type output
+selected by the implementing `Self` type and the trait's explicit generic
+arguments:
+
+```nia
+trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+
+trait Mapper[A, B] {
+    type C;
+    type D;
+
+    fn map(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
+}
+```
+
+Every trait implementation must define every associated type required by the
+trait, and it may not define associated types that the trait does not declare:
+
+```nia
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    type Item = i32;
+
+    fn get(&const self) i32 {
+        self.value
+    }
+}
+```
+
+Associated type definitions are only valid in trait implementation blocks.
+Ordinary inherent `extend Type { ... }` blocks cannot contain `type` members.
+
+Associated type projections are written explicitly:
+
+```nia
+[T as Source]::Item
+[Self as Mapper[A, B]]::C
+```
+
+Nia does not support shorthand projection syntax such as `T::Item` or
+`Self::Item`. Path syntax with `::` remains ordinary type or associated function
+path syntax; it does not infer an associated type projection. Associated types
+also do not take their own generic parameters in this version. Generic
+associated type families are reserved for future design.
+
 Trait bounds are written in `where` clauses:
 
 ```nia
@@ -1605,8 +1658,8 @@ kept as a trait-method obligation in the generic body and resolved to the
 visible concrete implementation when the generic function is instantiated.
 Default methods may call other methods from the same trait; those calls are
 resolved through the visible concrete implementation when available, or through
-another default body. Associated types are reserved for later implementation
-work.
+another default body. Associated type projections are normalized through the
+visible concrete trait implementation during checking and monomorphization.
 
 ## 12. Modules
 
@@ -1917,7 +1970,7 @@ A conforming Nia compiler supports:
 - `extern` C declarations, definitions, and calls;
 - generic functions and structs via monomorphization;
 - methods declared through `extend`;
-- trait declarations and direct trait implementation checks;
+- trait declarations, associated types, and direct trait implementation checks;
 - lowering to a typed backend IR;
 - LLVM IR or object emission;
 - hosted executable emission when host linking is available.

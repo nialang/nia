@@ -842,12 +842,16 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::TraitMethod {
                 trait_id,
                 method_id,
+                method_name,
                 self_ty,
+                trait_args,
                 args,
             } => TypedCallee::TraitMethod {
                 trait_id,
                 method_id,
+                method_name,
                 self_ty,
+                trait_args,
                 args,
                 receiver: Box::new(
                     self.lower_receiver_expr(callee)

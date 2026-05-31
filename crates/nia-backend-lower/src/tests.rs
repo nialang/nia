@@ -126,6 +126,7 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            trait_impls: &[],
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -159,6 +160,7 @@ fn main() i32 {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        trait_impls: &[],
     };
     let lowering = lower_backend_program(
         &[input],
@@ -393,6 +395,7 @@ fn lower_source(source: &str) -> BackendLowering {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            trait_impls: &[],
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -439,6 +442,7 @@ fn lower_source(source: &str) -> BackendLowering {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        trait_impls: &[],
     };
     let lowering = lower_backend_program(&[input], &monomorphization);
     assert!(
