@@ -153,6 +153,14 @@ pub enum BuiltinAssociatedType {
 }
 
 impl BuiltinAssociatedType {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "Output" => Some(Self::Output),
+            "Target" => Some(Self::Target),
+            _ => None,
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Output => "Output",

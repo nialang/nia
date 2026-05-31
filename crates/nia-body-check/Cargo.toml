@@ -20,6 +20,7 @@ nia-node-id.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
+nia-trait-solve.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true

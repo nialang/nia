@@ -7,7 +7,7 @@ use nia_ast::{
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::InternedTyId;
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_span::Span;
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
@@ -24,6 +24,69 @@ pub struct ItemSignatures {
     pub globals: HashMap<DefId, GlobalSignature>,
     pub comptimes: HashMap<DefId, ComptimeSignature>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramFunctionSignature {
+    pub signature: FunctionSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramGlobalSignature {
+    pub signature: GlobalSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramComptimeSignature {
+    pub signature: ComptimeSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramStructSignature {
+    pub signature: StructSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramUnionSignature {
+    pub signature: UnionSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramEnumSignature {
+    pub signature: EnumSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramTraitSignature {
+    pub signature: TraitSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramTraitImplSignature {
+    pub target_ty: InternedTyId,
+    pub trait_id: nia_ty::TraitId,
+    pub trait_args: Vec<InternedTyId>,
+    pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramSignatureMaps<'a> {
+    pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
+    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 #[derive(Debug, Clone, PartialEq)]

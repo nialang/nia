@@ -11,17 +11,16 @@ use crate::{
     public_surface::compute_public_surfaces,
 };
 use nia_backend_lower::BackendLowerModuleInput;
-use nia_body_check::{
-    ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
-    ProgramUnionSignature,
-};
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::{ImportAliasMap, ModuleGraph};
-use nia_item_signatures::ItemSignatures;
+use nia_item_signatures::{
+    ItemSignatures, ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
+    ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
+    ProgramUnionSignature,
+};
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
 use nia_query::{QueryDb, QueryError, QueryKey};

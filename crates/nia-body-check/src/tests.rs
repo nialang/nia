@@ -4,7 +4,7 @@ use nia_body_ir::{BracketSuffixResolution, BuiltinValue};
 use nia_defs::{
     DefKind, ModuleId, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs,
 };
-use nia_item_signatures::collect_item_signatures;
+use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
 use nia_parser::{parse_module, parse_module_syntax_with_origins};

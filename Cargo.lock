@@ -117,6 +117,7 @@ dependencies = [
  "nia-node-id",
  "nia-parser",
  "nia-span",
+ "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",
@@ -144,6 +145,7 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-syntax",
+ "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",
@@ -228,6 +230,7 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-static-check",
+ "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",
@@ -525,6 +528,17 @@ dependencies = [
  "nia-node-id",
  "nia-source",
  "nia-span",
+]
+
+[[package]]
+name = "nia-trait-solve"
+version = "0.2.2"
+dependencies = [
+ "nia-ids",
+ "nia-item-signatures",
+ "nia-layout",
+ "nia-ty",
+ "nia-type-normalize",
 ]
 
 [[package]]

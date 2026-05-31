@@ -7,8 +7,6 @@ mod generic_args;
 mod methods;
 mod signature_import;
 
-pub use signature_import::import_type_into;
-
 use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind};
 use nia_ids::InternedTyId;

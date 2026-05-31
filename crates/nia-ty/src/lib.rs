@@ -183,6 +183,95 @@ impl TyInterner {
     }
 }
 
+pub fn import_type_into(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    ty: InternedTyId,
+) -> InternedTyId {
+    match source.get(ty) {
+        Some(TyKind::Error) | None => target.error(),
+        Some(TyKind::Primitive(primitive)) => target.primitive(*primitive),
+        Some(TyKind::GenericParam(name)) => target.intern(TyKind::GenericParam(name.clone())),
+        Some(TyKind::Pointer { is_const, elem }) => {
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Pointer {
+                is_const: *is_const,
+                elem,
+            })
+        }
+        Some(TyKind::Slice { is_const, elem }) => {
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Slice {
+                is_const: *is_const,
+                elem,
+            })
+        }
+        Some(TyKind::Array { len, elem }) => {
+            let len = len.clone();
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Array { len, elem })
+        }
+        Some(TyKind::Range { kind, bound }) => {
+            let bound = bound.map(|bound| import_type_into(target, source, bound));
+            target.intern(TyKind::Range { kind: *kind, bound })
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        }) => {
+            let params = params
+                .iter()
+                .map(|param| import_type_into(target, source, *param))
+                .collect();
+            let return_type = import_type_into(target, source, *return_type);
+            target.intern(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: *is_variadic,
+            })
+        }
+        Some(TyKind::Nominal { def_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::Nominal {
+                def_id: *def_id,
+                args,
+            })
+        }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::BuiltinTrait {
+                trait_id: *trait_id,
+                args,
+            })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = import_type_into(target, source, *self_ty);
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::Projection {
+                self_ty,
+                trait_id: *trait_id,
+                trait_args,
+                name: name.clone(),
+            })
+        }
+    }
+}
+
 impl PrimitiveTy {
     pub const ALL: [Self; 18] = [
         Self::I8,
