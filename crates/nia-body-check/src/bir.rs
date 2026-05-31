@@ -504,6 +504,20 @@ impl<'a> BodyChecker<'a> {
                             args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
                         },
                     }
+                } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op }) =
+                    self.resolved_calls.get(&expr.span).cloned()
+                {
+                    let lowered_args = if let Some(receiver) = self.lower_receiver_expr(callee) {
+                        std::iter::once(receiver)
+                            .chain(args.iter().map(|arg| self.lower_expr(arg)))
+                            .collect()
+                    } else {
+                        args.iter().map(|arg| self.lower_expr(arg)).collect()
+                    };
+                    TypedExprKind::Call {
+                        callee: TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op }),
+                        args: lowered_args,
+                    }
                 } else {
                     TypedExprKind::Call {
                         callee: self.lower_callee(expr.span, callee),
@@ -882,6 +896,9 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or_else(|| self.lower_expr(callee)),
                 ),
             },
+            ResolvedCall::BuiltinTraitMethod { trait_id, op } => {
+                TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op })
+            }
             ResolvedCall::FunctionPointer => {
                 TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
             }
