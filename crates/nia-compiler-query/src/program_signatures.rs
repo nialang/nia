@@ -12,9 +12,9 @@ use nia_defs::{
     VisibleExtensionMethods,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::GlobalDefId;
+use nia_ids::{BuiltinTrait, GlobalDefId};
 use nia_item_signatures::{FunctionSignature, ItemSignatures, ParamSignature, TraitSignature};
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TraitId, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 
@@ -194,20 +194,34 @@ pub(crate) fn collect_program_trait_impls(
             let Some(trait_ty) = impl_signature.trait_ty else {
                 continue;
             };
-            let Some(TyKind::Nominal { def_id, args }) = module.lowering.interner.get(trait_ty)
+            let Some((trait_id, trait_args)) =
+                trait_id_and_args(&module.lowering.interner, trait_ty)
             else {
                 continue;
             };
             trait_impls.push(ProgramTraitImplSignature {
                 target_ty: impl_signature.target_ty,
-                trait_id: *def_id,
-                trait_args: args.clone(),
+                trait_id,
+                trait_args,
                 associated_types: impl_signature.associated_types.clone(),
                 interner: module.lowering.interner.clone(),
             });
         }
     }
     trait_impls
+}
+
+fn trait_id_and_args(
+    interner: &TyInterner,
+    ty: nia_ids::InternedTyId,
+) -> Option<(TraitId, Vec<nia_ids::InternedTyId>)> {
+    match interner.get(ty) {
+        Some(TyKind::Nominal { def_id, args }) => Some((TraitId::Source(*def_id), args.clone())),
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            Some((TraitId::Builtin(*trait_id), args.clone()))
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn collect_extension_methods(
@@ -276,16 +290,22 @@ pub(crate) fn collect_extension_methods(
                     ));
                 }
             }
-            if let Some(trait_id) = trait_id {
-                validate_trait_impl(
-                    module,
-                    extend,
-                    target_ty,
-                    trait_id,
-                    &trait_signatures,
-                    &trait_impls,
-                    &mut diagnostics,
-                );
+            match trait_id {
+                Some(TraitId::Source(trait_id)) => {
+                    validate_trait_impl(
+                        module,
+                        extend,
+                        target_ty,
+                        trait_id,
+                        &trait_signatures,
+                        &trait_impls,
+                        &mut diagnostics,
+                    );
+                }
+                Some(TraitId::Builtin(trait_id)) => {
+                    validate_builtin_trait_impl(module, extend, trait_id, &mut diagnostics);
+                }
+                None => {}
             }
             for method in &extend.methods {
                 let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
@@ -349,7 +369,7 @@ fn trait_ref_id(
     trait_ref: &nia_ast::TypeRef,
     defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Option<GlobalDefId> {
+) -> Option<TraitId> {
     let Some(ty) = module.lowering.type_uses.get(&trait_ref.span).copied() else {
         diagnostics.push(Diagnostic::error(
             trait_ref.span,
@@ -358,27 +378,32 @@ fn trait_ref_id(
         return None;
     };
     let ty = module.normalization.normalize(ty);
-    let Some(TyKind::Nominal { def_id, .. }) = module.lowering.interner.get(ty).cloned() else {
-        diagnostics.push(Diagnostic::error(
-            trait_ref.span,
-            "trait implementation target must be a trait",
-        ));
-        return None;
-    };
-    if !matches!(
-        defs_by_module
-            .get(&def_id.module_id)
-            .and_then(|defs| defs.defs.get(def_id.def_id))
-            .map(|def| def.kind),
-        Some(nia_defs::DefKind::Trait)
-    ) {
-        diagnostics.push(Diagnostic::error(
-            trait_ref.span,
-            "trait implementation target must be a trait",
-        ));
-        return None;
+    match module.lowering.interner.get(ty).cloned() {
+        Some(TyKind::Nominal { def_id, .. }) => {
+            if !matches!(
+                defs_by_module
+                    .get(&def_id.module_id)
+                    .and_then(|defs| defs.defs.get(def_id.def_id))
+                    .map(|def| def.kind),
+                Some(nia_defs::DefKind::Trait)
+            ) {
+                diagnostics.push(Diagnostic::error(
+                    trait_ref.span,
+                    "trait implementation target must be a trait",
+                ));
+                return None;
+            }
+            Some(TraitId::Source(def_id))
+        }
+        Some(TyKind::BuiltinTrait { trait_id, .. }) => Some(TraitId::Builtin(trait_id)),
+        _ => {
+            diagnostics.push(Diagnostic::error(
+                trait_ref.span,
+                "trait implementation target must be a trait",
+            ));
+            None
+        }
     }
-    Some(def_id)
 }
 
 fn validate_trait_impl(
@@ -498,6 +523,93 @@ fn validate_trait_impl(
     }
 }
 
+fn validate_builtin_trait_impl(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    trait_id: BuiltinTrait,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for associated_type in &extend.associated_types {
+        if !trait_id.has_associated_type(&associated_type.name) {
+            diagnostics.push(Diagnostic::error(
+                associated_type.span,
+                format!(
+                    "associated type `{}` is not a member of implemented trait",
+                    associated_type.name
+                ),
+            ));
+        }
+    }
+    if !extend
+        .associated_types
+        .iter()
+        .any(|associated_type| associated_type.name == "Output")
+    {
+        diagnostics.push(Diagnostic::error(
+            extend.target.span,
+            "missing definition for associated type `Output`",
+        ));
+    }
+    let expected_method = builtin_operator_method_name(trait_id);
+    for method in &extend.methods {
+        if method.function.name != expected_method {
+            diagnostics.push(Diagnostic::error(
+                method.function.span,
+                format!(
+                    "method `{}` is not a member of implemented trait",
+                    method.function.name
+                ),
+            ));
+        }
+    }
+    let matching_methods = extend
+        .methods
+        .iter()
+        .filter(|method| method.function.name == expected_method)
+        .collect::<Vec<_>>();
+    match matching_methods.as_slice() {
+        [] => diagnostics.push(Diagnostic::error(
+            extend.target.span,
+            format!("missing implementation for trait method `{expected_method}`"),
+        )),
+        [method] => {
+            let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
+                return;
+            };
+            let Some(actual) = module.signatures.functions.get(&method_id) else {
+                return;
+            };
+            if actual.params.len() != 2 || actual.return_type == module.lowering.interner.error() {
+                diagnostics.push(Diagnostic::error(
+                    method.function.span,
+                    format!(
+                        "implementation of trait method `{expected_method}` does not match the trait signature"
+                    ),
+                ));
+            }
+        }
+        _ => diagnostics.push(Diagnostic::error(
+            extend.target.span,
+            format!("duplicate implementation for trait method `{expected_method}`"),
+        )),
+    }
+}
+
+fn builtin_operator_method_name(trait_id: BuiltinTrait) -> &'static str {
+    match trait_id {
+        BuiltinTrait::Add => "add",
+        BuiltinTrait::Sub => "sub",
+        BuiltinTrait::Mul => "mul",
+        BuiltinTrait::Div => "div",
+        BuiltinTrait::Rem => "rem",
+        BuiltinTrait::BitAnd => "bit_and",
+        BuiltinTrait::BitOr => "bit_or",
+        BuiltinTrait::BitXor => "bit_xor",
+        BuiltinTrait::Shl => "shl",
+        BuiltinTrait::Shr => "shr",
+    }
+}
+
 fn trait_ref_args(
     module: &ExtensionModuleInput<'_>,
     trait_ref: &nia_ast::TypeRef,
@@ -540,7 +652,7 @@ fn validate_supertrait_impls(
         if !has_matching_trait_impl(
             &comparison_interner,
             target_ty,
-            supertrait_id,
+            TraitId::Source(supertrait_id),
             &supertrait_args,
             trait_impls,
         ) {
@@ -581,7 +693,7 @@ fn import_trait_bound(
 fn has_matching_trait_impl(
     interner: &TyInterner,
     target_ty: nia_ids::InternedTyId,
-    trait_id: GlobalDefId,
+    trait_id: TraitId,
     trait_args: &[nia_ids::InternedTyId],
     trait_impls: &[ProgramTraitImplSignature],
 ) -> bool {
@@ -887,6 +999,25 @@ fn substitute_imported_type(
                 args,
             })
         }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_type(
+                        target_interner,
+                        module,
+                        source_interner,
+                        *arg,
+                        substitutions,
+                        projection_context,
+                    )
+                })
+                .collect();
+            target_interner.intern(TyKind::BuiltinTrait {
+                trait_id: *trait_id,
+                args,
+            })
+        }
         Some(TyKind::Projection {
             self_ty,
             trait_id,
@@ -915,7 +1046,7 @@ fn substitute_imported_type(
                 })
                 .collect::<Vec<_>>();
             if let Some(context) = projection_context
-                && *trait_id == context.trait_id
+                && *trait_id == TraitId::Source(context.trait_id)
                 && self_ty == context.self_ty
                 && trait_args == context.trait_args
                 && let Some(associated_type) = context
@@ -973,6 +1104,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::Slice { .. }
             | TyKind::FunctionPointer { .. }
             | TyKind::Nominal { .. }
+            | TyKind::BuiltinTrait { .. }
             | TyKind::Projection { .. }
             | TyKind::GenericParam(_),
         ) => true,

@@ -24,7 +24,7 @@ use nia_body_ir::{
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId, TraitId};
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
     StructSignature, TraitSignature, UnionSignature,
@@ -90,7 +90,7 @@ pub struct ProgramTraitSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTraitImplSignature {
     pub target_ty: InternedTyId,
-    pub trait_id: GlobalDefId,
+    pub trait_id: TraitId,
     pub trait_args: Vec<InternedTyId>,
     pub associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
     pub interner: TyInterner,

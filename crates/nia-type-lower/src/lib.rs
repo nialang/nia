@@ -10,7 +10,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyInterner, TyKind};
 use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -300,6 +300,9 @@ impl<'a> TypeLowerer<'a> {
                     Some(TypeNameResolution::Primitive(primitive)) => {
                         self.interner.primitive(lower_primitive(primitive))
                     }
+                    Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
+                        self.lower_builtin_trait_type(ty.span, type_segment, trait_id, context)
+                    }
                     Some(TypeNameResolution::GenericParam) => self
                         .interner
                         .intern(TyKind::GenericParam(first.name.clone())),
@@ -329,22 +332,14 @@ impl<'a> TypeLowerer<'a> {
                 let self_ty = self.lower_type_in_context(ty, TypeContext::Value);
                 let trait_ty = self.lower_type_in_context(trait_ref, TypeContext::Value);
                 let trait_ty = self.normalize_if_known(trait_ty);
-                let Some(TyKind::Nominal { def_id, args }) = self.interner.get(trait_ty).cloned()
-                else {
+                let Some((trait_id, args)) = self.projection_trait_id(trait_ty) else {
                     self.diagnostics.push(Diagnostic::error(
                         trait_ref.span,
                         "projection trait must resolve to a trait",
                     ));
                     return self.interner.error();
                 };
-                if !self.is_trait_def(def_id) {
-                    self.diagnostics.push(Diagnostic::error(
-                        trait_ref.span,
-                        "projection trait must resolve to a trait",
-                    ));
-                    return self.interner.error();
-                }
-                if !self.trait_has_associated_type(def_id, name) {
+                if !self.trait_id_has_associated_type(trait_id, name) {
                     self.diagnostics.push(Diagnostic::error(
                         ty.span,
                         format!("trait does not define associated type `{name}`"),
@@ -353,7 +348,7 @@ impl<'a> TypeLowerer<'a> {
                 }
                 self.interner.intern(TyKind::Projection {
                     self_ty,
-                    trait_id: def_id,
+                    trait_id,
                     trait_args: args,
                     name: name.clone(),
                 })
@@ -432,6 +427,79 @@ impl<'a> TypeLowerer<'a> {
         self.interner.intern(TyKind::Nominal { def_id, args })
     }
 
+    fn lower_builtin_trait_type(
+        &mut self,
+        span: Span,
+        segment: &TypePathSegment,
+        trait_id: BuiltinTrait,
+        context: TypeContext,
+    ) -> InternedTyId {
+        let mut args = Vec::new();
+        let mut seen_assoc_bindings = HashSet::new();
+        let mut seen_assoc_binding = false;
+        for arg in &segment.args {
+            match arg {
+                TypeArg::Type(arg_ty) => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::error(
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                }
+                TypeArg::Const(expr) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "const generic type arguments are not supported",
+                    ));
+                }
+                TypeArg::AssocBinding {
+                    name,
+                    span,
+                    ty: binding_ty,
+                } => {
+                    seen_assoc_binding = true;
+                    if context == TypeContext::TraitBound {
+                        self.lower_type_in_context(binding_ty, TypeContext::Value);
+                        if !seen_assoc_bindings.insert(name.as_str()) {
+                            self.diagnostics.push(Diagnostic::error(
+                                *span,
+                                format!("duplicate associated type binding `{name}`"),
+                            ));
+                        }
+                        if !trait_id.has_associated_type(name) {
+                            self.diagnostics.push(Diagnostic::error(
+                                *span,
+                                format!("trait does not define associated type `{name}`"),
+                            ));
+                        }
+                    } else {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            "associated type bindings are only valid in trait bounds",
+                        ));
+                    }
+                }
+            }
+        }
+        self.check_builtin_trait_arg_count(span, trait_id, args.len());
+        self.interner
+            .intern(TyKind::BuiltinTrait { trait_id, args })
+    }
+
+    fn projection_trait_id(&self, trait_ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match self.interner.get(trait_ty) {
+            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def(*def_id) => {
+                Some((TraitId::Source(*def_id), args.clone()))
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                Some((TraitId::Builtin(*trait_id), args.clone()))
+            }
+            _ => None,
+        }
+    }
+
     fn is_trait_def(&self, def_id: GlobalDefId) -> bool {
         self.defs_for_module(def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id))
@@ -452,6 +520,13 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
+    fn trait_id_has_associated_type(&self, trait_id: TraitId, name: &str) -> bool {
+        match trait_id {
+            TraitId::Source(def_id) => self.trait_has_associated_type(def_id, name),
+            TraitId::Builtin(trait_id) => trait_id.has_associated_type(name),
+        }
+    }
+
     fn check_type_arg_count(&mut self, span: Span, def_id: GlobalDefId, actual: usize) {
         let Some(defs) = self.defs_for_module(def_id.module_id) else {
             return;
@@ -466,6 +541,19 @@ impl<'a> TypeLowerer<'a> {
                 format!(
                     "generic argument count mismatch for `{}`: expected {expected}, got {actual}",
                     def.name
+                ),
+            ));
+        }
+    }
+
+    fn check_builtin_trait_arg_count(&mut self, span: Span, trait_id: BuiltinTrait, actual: usize) {
+        let expected = trait_id.generic_count();
+        if expected != actual {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "generic argument count mismatch for `{}`: expected {expected}, got {actual}",
+                    trait_id.name()
                 ),
             ));
         }

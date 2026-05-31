@@ -43,6 +43,17 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         callee: &FunctionCallee,
         args: &[FunctionExpr],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if let FunctionCallee::BuiltinOperator(operator) = callee {
+            let [lhs, rhs] = args else {
+                return Err(self.error(
+                    expr.span,
+                    "builtin operator reached LLVM codegen with invalid arity",
+                ));
+            };
+            let lhs = self.emit_expr(lhs)?;
+            let rhs = self.emit_expr(rhs)?;
+            return self.emit_binary(expr.span, expr.ty, lhs, operator.op, rhs);
+        }
         match self.module.classify_function_return(expr.ty) {
             AbiReturn::IndirectOut(ty) => {
                 let result_ty = self.module.llvm_basic_type(ty, expr.span)?;
@@ -168,6 +179,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionCallee::TraitMethod { .. } => Err(self.error(
                 expr.span,
                 "unresolved trait method call reached LLVM codegen",
+            )),
+            FunctionCallee::BuiltinOperator(_) => Err(self.error(
+                expr.span,
+                "builtin operator cannot be emitted as a raw call",
             )),
             FunctionCallee::FunctionPointer(callee) => {
                 let Some(TyKind::FunctionPointer {

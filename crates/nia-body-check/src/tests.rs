@@ -2958,7 +2958,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("arithmetic operator"))
+            .any(|diagnostic| diagnostic.message.contains("trait bound not satisfied"))
     );
     assert!(
         checked
@@ -3096,14 +3096,14 @@ fn main(flag: bool) i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .message
-            .contains("shift operator requires integer right operand")),
+            .contains("trait bound not satisfied: i32: Shl[bool]")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .message
-            .contains("shift operator requires integer left operand")),
+            .contains("trait bound not satisfied: bool: Shl[i32]")),
         "{:?}",
         checked.diagnostics
     );

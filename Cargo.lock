@@ -316,6 +316,7 @@ dependencies = [
  "nia-ast",
  "nia-ids",
  "nia-span",
+ "nia-ty",
 ]
 
 [[package]]
@@ -577,6 +578,7 @@ dependencies = [
  "nia-imports",
  "nia-parser",
  "nia-span",
+ "nia-ty",
 ]
 
 [[package]]

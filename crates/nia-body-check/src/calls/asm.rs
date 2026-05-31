@@ -123,6 +123,7 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }
                 | TyKind::FunctionPointer { .. }
+                | TyKind::BuiltinTrait { .. }
                 | TyKind::Nominal { .. },
             ) => {}
             Some(TyKind::GenericParam(_) | TyKind::Projection { .. } | TyKind::Error) | None => {}

@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod function_instances;
 mod instantiate;
 mod items;
+mod operator_dispatch;
 mod struct_instances;
 
 use nia_ast::{Expr, ItemKind, Module};
-use nia_backend_ir::{
-    BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
-    BackendStructInstanceKey,
-};
+use nia_backend_ir::{BackendLayouts, BackendModule, BackendProgram, BackendStructInstanceKey};
 use nia_body_check::BodyCheck;
 use nia_body_check::ProgramTraitImplSignature;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
@@ -237,43 +236,6 @@ impl<'a> ModuleLowerer<'a> {
                 layouts.union_instances.push((key, layout));
             }
         }
-    }
-
-    fn lower_function_instances(
-        &mut self,
-        functions: &[BackendFunction],
-    ) -> Vec<BackendFunctionInstance> {
-        let mut instances = Vec::new();
-        for instance in &self.monomorphization.instances {
-            if instance.def_id.module_id != self.input.module_id {
-                continue;
-            }
-            let Some(base) = functions
-                .iter()
-                .find(|function| function.def_id == instance.def_id)
-            else {
-                continue;
-            };
-            let substitutions = self.effective_generic_substitutions(base.def_id, &instance.args);
-            let function_body = base
-                .function_body
-                .clone()
-                .map(|body| self.instantiate_function_body(body, &substitutions));
-            instances.push(BackendFunctionInstance {
-                def_id: instance.def_id,
-                name: base.name.clone(),
-                arg_module_id: instance.arg_module_id,
-                args: instance.args.clone(),
-                symbol: instance.symbol.clone(),
-                params: self.instantiate_params(base, &substitutions),
-                return_type: self.instantiate_ty(base.return_type, &substitutions),
-                is_extern: base.is_extern,
-                is_variadic: base.is_variadic,
-                function_body,
-                span: base.span,
-            });
-        }
-        instances
     }
 
     fn extend_target_has_generics(&self, extend: &nia_ast::ExtendItem) -> bool {

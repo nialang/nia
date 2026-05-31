@@ -6,16 +6,38 @@ use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{FunctionSignature, TraitImplSignature};
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{BuiltinTrait, TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct TraitObligation {
     self_ty: InternedTyId,
-    trait_id: GlobalDefId,
+    trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn current_context_proves_trait_obligation(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+    ) -> bool {
+        let obligations = self
+            .current_def_id
+            .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
+            .and_then(|def_id| {
+                let signature = self.signatures.functions.get(&def_id)?.clone();
+                Some(self.function_signature_trait_obligations(def_id, &signature))
+            })
+            .unwrap_or_default();
+        let required = TraitObligation {
+            self_ty,
+            trait_id,
+            trait_args,
+        };
+        self.proves_trait_obligation(&obligations, &required)
+    }
+
     pub(crate) fn check_function_signature_projection_obligations(
         &mut self,
         def_id: DefId,
@@ -80,7 +102,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: self
                         .interner
                         .intern(TyKind::GenericParam("Self".to_string())),
-                    trait_id,
+                    trait_id: TraitId::Source(trait_id),
                     trait_args,
                 })
             }
@@ -130,11 +152,18 @@ impl<'a> BodyChecker<'a> {
     fn trait_impl_signature_args(
         &mut self,
         impl_signature: &TraitImplSignature,
-        trait_id: GlobalDefId,
+        trait_id: TraitId,
     ) -> Option<Vec<InternedTyId>> {
         let trait_ty = self.normalization.normalize(impl_signature.trait_ty?);
         match self.interner.get(trait_ty) {
-            Some(TyKind::Nominal { def_id, args }) if *def_id == trait_id => Some(args.clone()),
+            Some(TyKind::Nominal { def_id, args }) if TraitId::Source(*def_id) == trait_id => {
+                Some(args.clone())
+            }
+            Some(TyKind::BuiltinTrait { trait_id: id, args })
+                if TraitId::Builtin(*id) == trait_id =>
+            {
+                Some(args.clone())
+            }
             _ => None,
         }
     }
@@ -146,23 +175,20 @@ impl<'a> BodyChecker<'a> {
         bound: InternedTyId,
     ) {
         let bound = self.normalization.normalize(bound);
-        let Some(TyKind::Nominal { def_id, args }) = self.interner.get(bound).cloned() else {
+        let Some((trait_id, args)) = self.trait_id_and_args(bound) else {
             return;
         };
-        if !self.is_trait_def_id(def_id) {
-            return;
-        }
         self.push_trait_obligation_with_supertraits(
             obligations,
             TraitObligation {
                 self_ty,
-                trait_id: def_id,
+                trait_id,
                 trait_args: args,
             },
         );
     }
 
-    fn is_trait_def_id(&self, def_id: GlobalDefId) -> bool {
+    pub(crate) fn is_trait_def_id(&self, def_id: GlobalDefId) -> bool {
         self.defs_for_module(def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id))
             .is_some_and(|def| def.kind == DefKind::Trait)
@@ -184,7 +210,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         obligations: &mut Vec<TraitObligation>,
         obligation: TraitObligation,
-        visited: &mut HashSet<(GlobalDefId, Vec<InternedTyId>)>,
+        visited: &mut HashSet<(TraitId, Vec<InternedTyId>)>,
     ) {
         let key = (obligation.trait_id, obligation.trait_args.clone());
         if !visited.insert(key) {
@@ -196,7 +222,10 @@ impl<'a> BodyChecker<'a> {
         {
             obligations.push(obligation.clone());
         }
-        let Some(trait_signature) = self.resolved_trait_signature(obligation.trait_id) else {
+        let TraitId::Source(source_trait_id) = obligation.trait_id else {
+            return;
+        };
+        let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
             return;
         };
         let substitutions =
@@ -215,7 +244,7 @@ impl<'a> BodyChecker<'a> {
                 obligations,
                 TraitObligation {
                     self_ty: obligation.self_ty,
-                    trait_id: supertrait_id,
+                    trait_id: TraitId::Source(supertrait_id),
                     trait_args: supertrait_args,
                 },
                 visited,
@@ -252,6 +281,11 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, arg, obligations);
                 }
             }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.check_type_projection_obligations(span, arg, obligations);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -273,7 +307,7 @@ impl<'a> BodyChecker<'a> {
                         format!(
                             "trait bound not satisfied: {}: {}",
                             self.ty_name(required.self_ty),
-                            self.nominal_ty_name(required.trait_id, &required.trait_args)
+                            self.trait_ty_name(required.trait_id, &required.trait_args)
                         ),
                     ));
                 }
@@ -324,7 +358,35 @@ impl<'a> BodyChecker<'a> {
                 return true;
             }
         }
-        false
+        self.builtin_trait_obligation_has_matching_impl(required)
+    }
+
+    fn builtin_trait_obligation_has_matching_impl(&mut self, required: &TraitObligation) -> bool {
+        let TraitId::Builtin(trait_id) = required.trait_id else {
+            return false;
+        };
+        let self_ty = self.normalization.normalize(required.self_ty);
+        let [rhs_ty] = required.trait_args.as_slice() else {
+            return false;
+        };
+        let rhs_ty = self.normalization.normalize(*rhs_ty);
+        match trait_id {
+            BuiltinTrait::Add
+            | BuiltinTrait::Sub
+            | BuiltinTrait::Mul
+            | BuiltinTrait::Div
+            | BuiltinTrait::Rem => {
+                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
+                    && self.is_numeric(self_ty)
+            }
+            BuiltinTrait::BitAnd | BuiltinTrait::BitOr | BuiltinTrait::BitXor => {
+                self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
+                    && self.is_integer(self_ty)
+            }
+            BuiltinTrait::Shl | BuiltinTrait::Shr => {
+                self.is_integer(self_ty) && self.is_integer(rhs_ty)
+            }
+        }
     }
 
     fn trait_obligations_equivalent(
@@ -423,6 +485,22 @@ impl<'a> BodyChecker<'a> {
                 }),
             ) => {
                 left_def == right_def
+                    && left_args.len() == right_args.len()
+                    && left_args.iter().zip(right_args).all(|(left, right)| {
+                        self.types_equivalent_without_projection_resolution(*left, *right)
+                    })
+            }
+            (
+                Some(TyKind::BuiltinTrait {
+                    trait_id: left_trait,
+                    args: left_args,
+                }),
+                Some(TyKind::BuiltinTrait {
+                    trait_id: right_trait,
+                    args: right_args,
+                }),
+            ) => {
+                left_trait == right_trait
                     && left_args.len() == right_args.len()
                     && left_args.iter().zip(right_args).all(|(left, right)| {
                         self.types_equivalent_without_projection_resolution(*left, *right)

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{BodyChecker, ReceiverBase};
 use nia_ast::ReceiverKind;
 use nia_defs::{DefId, DefKind};
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::FunctionSignature;
 use nia_ty::TyKind;
 
@@ -60,10 +60,7 @@ impl<'a> BodyChecker<'a> {
         None
     }
 
-    pub(crate) fn extension_trait_id_for_method(
-        &self,
-        method_id: GlobalDefId,
-    ) -> Option<GlobalDefId> {
+    pub(crate) fn extension_trait_id_for_method(&self, method_id: GlobalDefId) -> Option<TraitId> {
         self.extensions
             .targets()
             .iter()
@@ -177,6 +174,16 @@ impl<'a> BodyChecker<'a> {
                     .map(|arg| self.substitute_generics(*arg, substitutions))
                     .collect();
                 self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let trait_id = *trait_id;
+                let args = args.clone();
+                let args = args
+                    .iter()
+                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::Projection {
                 self_ty,

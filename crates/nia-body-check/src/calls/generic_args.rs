@@ -124,6 +124,11 @@ impl<'a> BodyChecker<'a> {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,

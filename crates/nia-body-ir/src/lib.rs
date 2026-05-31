@@ -6,7 +6,7 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
-use nia_ty::TyInterner;
+use nia_ty::{BuiltinTrait, TyInterner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
@@ -359,7 +359,14 @@ pub enum TypedCallee {
         args: Vec<InternedTyId>,
         receiver: Box<TypedExpr>,
     },
+    BuiltinOperator(BuiltinOperator),
     FunctionPointer(Box<TypedExpr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinOperator {
+    pub trait_id: BuiltinTrait,
+    pub op: BinaryOp,
 }
 
 #[derive(Debug, Clone, PartialEq)]

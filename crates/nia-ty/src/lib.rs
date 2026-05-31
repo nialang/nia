@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
+pub use nia_ids::{BuiltinTrait, TraitId};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -28,9 +29,13 @@ pub enum TyKind {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
     },
+    BuiltinTrait {
+        trait_id: BuiltinTrait,
+        args: Vec<InternedTyId>,
+    },
     Projection {
         self_ty: InternedTyId,
-        trait_id: GlobalDefId,
+        trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
         name: String,
     },

@@ -2,6 +2,7 @@
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;
+use nia_ty::BuiltinTrait;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionBlockId(pub u32);
@@ -295,7 +296,14 @@ pub enum FunctionCallee {
         args: Vec<InternedTyId>,
         receiver: Box<FunctionExpr>,
     },
+    BuiltinOperator(FunctionBuiltinOperator),
     FunctionPointer(Box<FunctionExpr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FunctionBuiltinOperator {
+    pub trait_id: BuiltinTrait,
+    pub op: BinaryOp,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -540,6 +540,22 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            Some(TyKind::BuiltinTrait {
+                trait_id: pattern_trait,
+                args: pattern_args,
+            }) => {
+                if let Some(TyKind::BuiltinTrait {
+                    trait_id: actual_trait,
+                    args: actual_args,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                {
+                    for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                }
+            }
             Some(TyKind::Projection {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,

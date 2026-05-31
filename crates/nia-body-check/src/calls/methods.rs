@@ -1008,6 +1008,25 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::BuiltinTrait {
+                trait_id: general_trait,
+                args: general_args,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::BuiltinTrait {
+                    trait_id: specific_trait,
+                    args: specific_args,
+                }) if general_trait == specific_trait
+                    && general_args.len() == specific_args.len() =>
+                {
+                    general_args
+                        .iter()
+                        .zip(specific_args)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::Projection {
                 self_ty: general_self,
                 trait_id: general_trait,
@@ -1211,6 +1230,19 @@ impl<'a> BodyChecker<'a> {
             }) => match self.interner.get(actual) {
                 Some(TyKind::Nominal { def_id, args })
                     if pattern_def == def_id && pattern_args.len() == args.len() =>
+                {
+                    pattern_args.iter().zip(args).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    })
+                }
+                _ => false,
+            },
+            Some(TyKind::BuiltinTrait {
+                trait_id: pattern_trait,
+                args: pattern_args,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::BuiltinTrait { trait_id, args })
+                    if pattern_trait == trait_id && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
                         self.match_type_pattern(*pattern, *actual, substitutions)
