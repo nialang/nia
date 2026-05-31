@@ -8,6 +8,7 @@ mod expr;
 mod helpers;
 mod literals;
 mod places;
+mod projection_obligations;
 mod static_init;
 mod type_support;
 
@@ -645,6 +646,7 @@ impl<'a> BodyChecker<'a> {
         let Some(signature) = self.signatures.functions.get(&def_id) else {
             return;
         };
+        self.check_function_signature_projection_obligations(def_id, signature);
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);

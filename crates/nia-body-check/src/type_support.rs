@@ -670,7 +670,11 @@ impl<'a> BodyChecker<'a> {
             .and_then(|comptime| comptime.array_lengths.get(&id).copied())
     }
 
-    fn nominal_ty_name(&self, def_id: nia_ids::GlobalDefId, args: &[InternedTyId]) -> String {
+    pub(crate) fn nominal_ty_name(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        args: &[InternedTyId],
+    ) -> String {
         let base = self
             .defs_for_module(def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id))
