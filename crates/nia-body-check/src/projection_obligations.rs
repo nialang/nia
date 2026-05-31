@@ -222,33 +222,65 @@ impl<'a> BodyChecker<'a> {
         {
             obligations.push(obligation.clone());
         }
-        let TraitId::Source(source_trait_id) = obligation.trait_id else {
-            return;
-        };
-        let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
-            return;
-        };
-        let substitutions =
-            self.generic_substitutions(&trait_signature.generics, &obligation.trait_args);
-        for supertrait in &trait_signature.supertraits {
-            let supertrait = self.substitute_generics(*supertrait, &substitutions);
-            let supertrait = self.normalization.normalize(supertrait);
-            let Some(TyKind::Nominal {
-                def_id: supertrait_id,
-                args: supertrait_args,
-            }) = self.interner.get(supertrait).cloned()
-            else {
-                continue;
-            };
-            self.push_trait_obligation_with_supertraits_inner(
-                obligations,
-                TraitObligation {
-                    self_ty: obligation.self_ty,
-                    trait_id: TraitId::Source(supertrait_id),
-                    trait_args: supertrait_args,
-                },
-                visited,
-            );
+        match obligation.trait_id {
+            TraitId::Builtin(BuiltinTrait::Deref) => self
+                .push_trait_obligation_with_supertraits_inner(
+                    obligations,
+                    TraitObligation {
+                        self_ty: obligation.self_ty,
+                        trait_id: TraitId::Builtin(BuiltinTrait::DerefConst),
+                        trait_args: Vec::new(),
+                    },
+                    visited,
+                ),
+            TraitId::Builtin(BuiltinTrait::Index) => self
+                .push_trait_obligation_with_supertraits_inner(
+                    obligations,
+                    TraitObligation {
+                        self_ty: obligation.self_ty,
+                        trait_id: TraitId::Builtin(BuiltinTrait::IndexConst),
+                        trait_args: obligation.trait_args.clone(),
+                    },
+                    visited,
+                ),
+            TraitId::Builtin(BuiltinTrait::Slice) => self
+                .push_trait_obligation_with_supertraits_inner(
+                    obligations,
+                    TraitObligation {
+                        self_ty: obligation.self_ty,
+                        trait_id: TraitId::Builtin(BuiltinTrait::SliceConst),
+                        trait_args: Vec::new(),
+                    },
+                    visited,
+                ),
+            TraitId::Builtin(_) => {}
+            TraitId::Source(source_trait_id) => {
+                let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
+                    return;
+                };
+                let substitutions =
+                    self.generic_substitutions(&trait_signature.generics, &obligation.trait_args);
+                for supertrait in &trait_signature.supertraits {
+                    let supertrait = self.substitute_generics(*supertrait, &substitutions);
+                    let supertrait = self.normalization.normalize(supertrait);
+                    let Some(TyKind::Nominal {
+                        def_id: supertrait_id,
+                        args: supertrait_args,
+                    }) = self.interner.get(supertrait).cloned()
+                    else {
+                        continue;
+                    };
+                    self.push_trait_obligation_with_supertraits_inner(
+                        obligations,
+                        TraitObligation {
+                            self_ty: obligation.self_ty,
+                            trait_id: TraitId::Source(supertrait_id),
+                            trait_args: supertrait_args,
+                        },
+                        visited,
+                    );
+                }
+            }
         }
     }
 
@@ -423,7 +455,57 @@ impl<'a> BodyChecker<'a> {
             BuiltinTrait::Sized => {
                 required.trait_args.is_empty() && self.layout_of(self_ty).is_some()
             }
+            BuiltinTrait::DerefConst => {
+                required.trait_args.is_empty()
+                    && (self.current_context_has_source_trait_obligation(required)
+                        || self.builtin_deref_target_ty(self_ty).is_some())
+            }
+            BuiltinTrait::Deref => {
+                required.trait_args.is_empty()
+                    && (self.current_context_has_source_trait_obligation(required)
+                        || self.builtin_mut_deref_target_ty(self_ty).is_some())
+            }
+            BuiltinTrait::IndexConst => {
+                let [index_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                self.current_context_has_source_trait_obligation(required)
+                    || self.builtin_index_output_ty(self_ty, *index_ty).is_some()
+            }
+            BuiltinTrait::Index => {
+                let [index_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                self.current_context_has_source_trait_obligation(required)
+                    || self
+                        .builtin_mut_index_output_ty(self_ty, *index_ty)
+                        .is_some()
+            }
+            BuiltinTrait::SliceConst => {
+                required.trait_args.is_empty()
+                    && (self.current_context_has_source_trait_obligation(required)
+                        || self.builtin_slice_output_ty(self_ty, false).is_some())
+            }
+            BuiltinTrait::Slice => {
+                required.trait_args.is_empty()
+                    && (self.current_context_has_source_trait_obligation(required)
+                        || self.builtin_mut_slice_output_ty(self_ty).is_some())
+            }
         }
+    }
+
+    fn current_context_has_source_trait_obligation(&mut self, required: &TraitObligation) -> bool {
+        self.current_def_id
+            .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
+            .and_then(|def_id| {
+                let signature = self.signatures.functions.get(&def_id)?.clone();
+                Some(self.function_signature_trait_obligations(def_id, &signature))
+            })
+            .is_some_and(|obligations| {
+                obligations
+                    .iter()
+                    .any(|obligation| self.trait_obligations_equivalent(obligation, required))
+            })
     }
 
     fn trait_obligations_equivalent(

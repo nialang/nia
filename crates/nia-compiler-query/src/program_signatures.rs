@@ -529,10 +529,22 @@ fn validate_builtin_trait_impl(
     trait_id: BuiltinTrait,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if trait_id == BuiltinTrait::Sized {
+    if matches!(
+        trait_id,
+        BuiltinTrait::Sized
+            | BuiltinTrait::DerefConst
+            | BuiltinTrait::Deref
+            | BuiltinTrait::IndexConst
+            | BuiltinTrait::Index
+            | BuiltinTrait::SliceConst
+            | BuiltinTrait::Slice
+    ) {
         diagnostics.push(Diagnostic::error(
             extend.target.span,
-            "`Sized` is a compiler-proven trait and cannot be implemented manually",
+            format!(
+                "`{}` is a compiler-proven trait and cannot be implemented manually",
+                trait_id.name()
+            ),
         ));
         return;
     }

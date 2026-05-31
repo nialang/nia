@@ -3199,6 +3199,144 @@ fn main() usize {
 }
 
 #[test]
+fn builtin_place_traits_allow_constrained_generic_deref_index_and_slice() {
+    let root = temp_dir("builtin_place_traits_allow_constrained_generic_deref_index_and_slice");
+    write(
+        &root.join("main.nia"),
+        r##"
+fn read_ptr[P](ptr: P) [P as DerefConst]::Target
+where P: DerefConst {
+    ptr.*
+}
+
+fn write_ptr[P](ptr: P, value: [P as DerefConst]::Target) void
+where P: Deref {
+    ptr.* = value;
+}
+
+fn read_index[C](items: C, index: usize) [C as IndexConst[usize]]::Output
+where C: IndexConst[usize] {
+    items[index]
+}
+
+fn write_index[C](items: C, index: usize, value: [C as IndexConst[usize]]::Output) void
+where C: Index[usize] {
+    items[index] = value;
+}
+
+fn write_index_i32[C](items: C, index: i32, value: [C as IndexConst[i32]]::Output) void
+where C: Index[i32] {
+    items[index] = value;
+}
+
+fn slice_const[S](items: S) [S as SliceConst]::Output
+where S: SliceConst {
+    &const items[..]
+}
+
+fn slice_mut[S](items: S) [S as Slice]::Output
+where S: Slice {
+    &items[..]
+}
+
+fn main(ptr: &i32, ro: &const [i32], rw: &[i32]) i32 {
+    var x = read_ptr[&i32](ptr);
+    write_ptr[&i32](ptr, x);
+    var y = read_index[&const [i32]](ro, 0);
+    write_index[&[i32]](rw, 0, y);
+    write_index_i32[&[i32]](rw, 0, y);
+    var a = slice_const[&const [i32]](ro);
+    var b = slice_mut[&[i32]](rw);
+    @len(a) as i32 + @len(b) as i32 + x + y
+}
+"##,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_place_traits_reject_unconstrained_generic_operations() {
+    let root = temp_dir("builtin_place_traits_reject_unconstrained_generic_operations");
+    write(
+        &root.join("main.nia"),
+        r##"
+fn bad_deref[T](value: T) void {
+    _ = value.*;
+}
+
+fn bad_index[T](value: T) void {
+    _ = value[0];
+}
+
+fn bad_slice[T](value: T) void {
+    _ = &const value[..];
+}
+
+fn main() i32 { 0 }
+"##,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let messages = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("DerefConst")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("IndexConst")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("SliceConst")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_place_traits_are_compiler_proven_only() {
+    let root = temp_dir("builtin_place_traits_are_compiler_proven_only");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Box {
+    value: i32,
+}
+
+extend Box : DerefConst {
+    type Target = i32;
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("compiler-proven trait")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn builtin_sized_trait_cannot_be_implemented_manually() {
     let root = temp_dir("builtin_sized_trait_cannot_be_implemented_manually");
     write(
@@ -3295,10 +3433,10 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
-        program.diagnostics.iter().any(|diagnostic| diagnostic
-            .diagnostic
-            .message
-            .contains("cannot dereference non-pointer type")),
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("DerefConst")),
         "{:?}",
         program.diagnostics
     );

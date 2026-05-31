@@ -197,7 +197,8 @@ impl<'a> BodyChecker<'a> {
         } else {
             self.record_resolved_call(span, ResolvedCall::Function(method_id));
         }
-        Some(self.substitute_generics(signature.return_type, &substitutions))
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        Some(self.normalize_projection(return_type))
     }
 
     pub(super) fn receiver_ty_for_target(
@@ -551,7 +552,8 @@ impl<'a> BodyChecker<'a> {
                 },
             );
         }
-        Some(self.substitute_generics(signature.return_type, &substitutions))
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        Some(self.normalize_projection(return_type))
     }
 
     fn check_trait_method_call_with_receiver_ty(
@@ -655,7 +657,8 @@ impl<'a> BodyChecker<'a> {
                 args: method_instantiation_args,
             },
         );
-        Some(self.substitute_generics(candidate.signature.return_type, &substitutions))
+        let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
+        Some(self.normalize_projection(return_type))
     }
 
     pub(super) fn method_candidates_for_struct(
