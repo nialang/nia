@@ -276,6 +276,7 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionTerminator {
         match terminator {
+            FunctionTerminator::Error { span } => FunctionTerminator::Error { span },
             FunctionTerminator::Branch { target, span } => {
                 FunctionTerminator::Branch { target, span }
             }
@@ -761,6 +762,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionPlaceBase::Deref(expr) => {
                     FunctionPlaceBase::Deref(Box::new(self.instantiate_expr(*expr, substitutions)))
                 }
+                FunctionPlaceBase::Error => FunctionPlaceBase::Error,
             },
             elems: place
                 .elems
@@ -770,6 +772,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionPlaceElem::Index(expr) => FunctionPlaceElem::Index(Box::new(
                         self.instantiate_expr(*expr, substitutions),
                     )),
+                    FunctionPlaceElem::Error => FunctionPlaceElem::Error,
                 })
                 .collect(),
         }

@@ -237,7 +237,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_expr(expr, seen, out);
                 }
             }
-            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+            FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. }
+            | FunctionTerminator::Error { .. } => {}
         }
     }
 
@@ -414,7 +416,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_struct_instances_expr(expr, seen, out);
                 }
@@ -591,7 +593,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_expr(expr, seen, out);
                 }
             }
-            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+            FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. }
+            | FunctionTerminator::Error { .. } => {}
         }
     }
 
@@ -768,7 +772,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_union_instances_expr(expr, seen, out);
                 }

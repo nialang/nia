@@ -5,7 +5,7 @@ use nia_function_ir::{
     FunctionExpr, FunctionExprKind, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
     FunctionSliceRange,
 };
-use nia_ids::{InternedTyId, LocalId};
+use nia_ids::InternedTyId;
 use nia_llvm::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
@@ -362,27 +362,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         op: AssignOp,
         value: BasicValueEnum<'ctx>,
     ) -> Result<(), Diagnostic> {
-        let FunctionPlaceBase::Local(LocalId(id)) = place.base else {
-            let ptr = self.emit_typed_place_addr(place)?;
-            let stored = if op == AssignOp::Assign {
-                value
-            } else {
-                let current = self
-                    .builder
-                    .build_load(
-                        self.module.llvm_basic_type(place.ty, place.span)?,
-                        ptr,
-                        "loadtmp",
-                    )
-                    .map_err(|_| self.error(span, "failed to load assignment target"))?;
-                self.emit_compound_assignment(span, place.ty, current, op, value)?
-            };
-            self.builder
-                .build_store(ptr, stored)
-                .map_err(|_| self.error(span, "failed to store assignment"))?;
-            return Ok(());
-        };
-        if id == u32::MAX {
+        if matches!(place.base, FunctionPlaceBase::Error) {
             return Ok(());
         }
         let ptr = self.emit_typed_place_addr(place)?;
@@ -422,6 +402,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(place.span, "missing global value"))?,
             FunctionPlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
+            FunctionPlaceBase::Error => return Err(self.error(place.span, "invalid place")),
         };
         let mut current_ty = self.place_base_ty(place);
         for elem in &place.elems {
@@ -452,6 +433,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     ptr = self.emit_index_addr(place.span, current_ty, ptr, index)?;
                     current_ty = self.array_elem_ty(current_ty, place.span)?;
                 }
+                FunctionPlaceElem::Error => return Err(self.error(place.span, "invalid place")),
             }
         }
         Ok(ptr)
@@ -491,6 +473,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Some(TyKind::Pointer { elem, .. }) => *elem,
                 _ => place.ty,
             },
+            FunctionPlaceBase::Error => place.ty,
         }
     }
 

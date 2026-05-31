@@ -143,11 +143,18 @@ impl FunctionLowerer {
                 return true;
             }
             TypedStmtKind::Break => {
-                let target = self
-                    .loop_targets
-                    .last()
-                    .map(|targets| targets.break_target)
-                    .unwrap_or(FunctionBlockId(u32::MAX));
+                let Some(target) = self.loop_targets.last().map(|targets| targets.break_target)
+                else {
+                    self.finish_block(
+                        blocks,
+                        *current,
+                        scope,
+                        stmt.span,
+                        std::mem::take(ops),
+                        FunctionTerminator::Error { span: stmt.span },
+                    );
+                    return true;
+                };
                 self.finish_block(
                     blocks,
                     *current,
@@ -162,11 +169,21 @@ impl FunctionLowerer {
                 return true;
             }
             TypedStmtKind::Continue => {
-                let target = self
+                let Some(target) = self
                     .loop_targets
                     .last()
                     .map(|targets| targets.continue_target)
-                    .unwrap_or(FunctionBlockId(u32::MAX));
+                else {
+                    self.finish_block(
+                        blocks,
+                        *current,
+                        scope,
+                        stmt.span,
+                        std::mem::take(ops),
+                        FunctionTerminator::Error { span: stmt.span },
+                    );
+                    return true;
+                };
                 self.finish_block(
                     blocks,
                     *current,
@@ -1228,6 +1245,7 @@ impl FunctionLowerer {
                 PlaceBase::Deref(expr) => FunctionPlaceBase::Deref(Box::new(
                     self.lower_value_expr(expr, scope, current, ops, blocks),
                 )),
+                PlaceBase::Error => FunctionPlaceBase::Error,
             },
             elems: place
                 .elems
@@ -1237,6 +1255,7 @@ impl FunctionLowerer {
                     PlaceElem::Index(index) => FunctionPlaceElem::Index(Box::new(
                         self.lower_value_expr(index, scope, current, ops, blocks),
                     )),
+                    PlaceElem::Error => FunctionPlaceElem::Error,
                 })
                 .collect(),
         }

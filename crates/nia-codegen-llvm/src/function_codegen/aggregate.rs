@@ -64,7 +64,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .build_alloca(struct_ty, "structtmp")
             .map_err(|_| self.error(expr.span, "failed to allocate struct literal"))?;
         for field in fields {
-            let field_index = self.field_index(expr.ty, field.field, field.span)?;
+            let Some(field_id) = field.field else {
+                return Err(self.error(field.span, "invalid struct field initializer"));
+            };
+            let field_index = self.field_index(expr.ty, field_id, field.span)?;
             let field_ptr = self
                 .builder
                 .build_struct_gep(struct_ty, ptr, field_index, "fieldptr")

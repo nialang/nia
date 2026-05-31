@@ -11,7 +11,6 @@ use nia_body_ir::{
     TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
     TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
 };
-use nia_ids::LocalId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
 use nia_ty::TyKind;
@@ -93,9 +92,10 @@ impl<'a> BodyChecker<'a> {
                 ty: self.error(),
                 kind: TypedExprKind::Error,
             }),
-            StmtKind::Binding(binding) => {
-                TypedStmtKind::Binding(self.lower_binding_stmt(stmt.span, binding))
-            }
+            StmtKind::Binding(binding) => self
+                .lower_binding_stmt(stmt.span, binding)
+                .map(TypedStmtKind::Binding)
+                .unwrap_or_else(|| TypedStmtKind::Expr(self.error_expr(stmt.span))),
             StmtKind::Expr(expr) => TypedStmtKind::Expr(self.lower_expr(expr)),
             StmtKind::Return(value) => {
                 TypedStmtKind::Return(value.as_ref().map(|value| self.lower_expr(value)))
@@ -114,13 +114,8 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn lower_binding_stmt(&mut self, span: Span, binding: &BindingStmt) -> TypedBinding {
-        let local_id = self
-            .locals
-            .local_defs
-            .get(&span)
-            .copied()
-            .unwrap_or(LocalId(u32::MAX));
+    fn lower_binding_stmt(&mut self, span: Span, binding: &BindingStmt) -> Option<TypedBinding> {
+        let local_id = self.locals.local_defs.get(&span).copied()?;
         let ty = self.local_types.get(&local_id).copied().unwrap_or_else(|| {
             binding.ty.as_ref().map_or_else(
                 || {
@@ -133,7 +128,7 @@ impl<'a> BodyChecker<'a> {
                 |ty| self.ty_for_span(ty.span),
             )
         });
-        TypedBinding {
+        Some(TypedBinding {
             local_id,
             name: binding.name.clone(),
             ty,
@@ -148,6 +143,14 @@ impl<'a> BodyChecker<'a> {
                 }
             }),
             is_const: binding.is_const,
+        })
+    }
+
+    fn error_expr(&mut self, span: Span) -> TypedExpr {
+        TypedExpr {
+            span,
+            ty: self.error(),
+            kind: TypedExprKind::Error,
         }
     }
 
@@ -166,7 +169,9 @@ impl<'a> BodyChecker<'a> {
                                     kind: TypedExprKind::Error,
                                 })
                             } else {
-                                TypedForInit::Binding(self.lower_binding_stmt(*span, binding))
+                                self.lower_binding_stmt(*span, binding)
+                                    .map(TypedForInit::Binding)
+                                    .unwrap_or_else(|| TypedForInit::Expr(self.error_expr(*span)))
                             }
                         }
                         ForInit::Expr(expr) => TypedForInit::Expr(self.lower_expr(expr)),
@@ -357,25 +362,27 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Field { lhs, name } => {
                 let lhs_expr = self.lower_expr(lhs);
-                let field = self
-                    .field_def_for_base_ty(lhs_expr.ty, name)
-                    .unwrap_or_else(|| self.global_error_def());
-                TypedExprKind::Field {
-                    lhs: Box::new(lhs_expr),
-                    field,
-                }
+                self.field_def_for_base_ty(lhs_expr.ty, name)
+                    .map(|field| TypedExprKind::Field {
+                        lhs: Box::new(lhs_expr),
+                        field,
+                    })
+                    .unwrap_or(TypedExprKind::Error)
             }
             ExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems),
             },
             ExprKind::StructLiteral { fields } => {
-                let def_id = self.nominal_global_def(ty);
-                let def_id = def_id.unwrap_or_else(|| self.global_error_def());
+                let Some(def_id) = self.nominal_global_def(ty) else {
+                    return TypedExpr {
+                        span: expr.span,
+                        ty,
+                        kind: TypedExprKind::Error,
+                    };
+                };
                 if self.is_union_def(def_id) {
                     let field = fields.first().map(|field| TypedFieldInit {
-                        field: self
-                            .field_def_for_struct_ty(ty, &field.name)
-                            .unwrap_or_else(|| self.global_error_def()),
+                        field: self.field_def_for_struct_ty(ty, &field.name),
                         name: field.name.clone(),
                         value: self.lower_expr(&field.value),
                         span: field.span,
@@ -383,7 +390,7 @@ impl<'a> BodyChecker<'a> {
                     TypedExprKind::UnionLiteral {
                         def_id,
                         field: Box::new(field.unwrap_or_else(|| TypedFieldInit {
-                            field: self.global_error_def(),
+                            field: None,
                             name: String::new(),
                             value: TypedExpr {
                                 span: expr.span,
@@ -399,9 +406,7 @@ impl<'a> BodyChecker<'a> {
                         fields: fields
                             .iter()
                             .map(|field| TypedFieldInit {
-                                field: self
-                                    .field_def_for_struct_ty(ty, &field.name)
-                                    .unwrap_or_else(|| self.global_error_def()),
+                                field: self.field_def_for_struct_ty(ty, &field.name),
                                 name: field.name.clone(),
                                 value: self.lower_expr(&field.value),
                                 span: field.span,
@@ -514,13 +519,12 @@ impl<'a> BodyChecker<'a> {
                     TypedExprKind::EnumVariant(variant)
                 } else {
                     let lhs_expr = self.lower_expr(lhs);
-                    let field = self
-                        .field_def_for_base_ty(lhs_expr.ty, name)
-                        .unwrap_or_else(|| self.global_error_def());
-                    TypedExprKind::Field {
-                        lhs: Box::new(lhs_expr),
-                        field,
-                    }
+                    self.field_def_for_base_ty(lhs_expr.ty, name)
+                        .map(|field| TypedExprKind::Field {
+                            lhs: Box::new(lhs_expr),
+                            field,
+                        })
+                        .unwrap_or(TypedExprKind::Error)
                 }
             }
             ExprKind::Index { lhs, index } => match index {
@@ -534,14 +538,13 @@ impl<'a> BodyChecker<'a> {
                     is_const: true,
                 },
             },
-            ExprKind::Block(block) if self.empty_struct_literal_expr(ty, block) => {
-                TypedExprKind::StructLiteral {
-                    def_id: self
-                        .nominal_global_def(ty)
-                        .unwrap_or_else(|| self.global_error_def()),
+            ExprKind::Block(block) if self.empty_struct_literal_expr(ty, block) => self
+                .nominal_global_def(ty)
+                .map(|def_id| TypedExprKind::StructLiteral {
+                    def_id,
                     fields: Vec::new(),
-                }
-            }
+                })
+                .unwrap_or(TypedExprKind::Error),
             ExprKind::Block(block) => TypedExprKind::Block(self.lower_body(block)),
             ExprKind::If {
                 cond,
@@ -680,13 +683,6 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(ty) {
             Some(TyKind::Nominal { def_id, .. }) => Some(*def_id),
             _ => None,
-        }
-    }
-
-    pub(crate) fn global_error_def(&self) -> nia_ids::GlobalDefId {
-        nia_ids::GlobalDefId {
-            module_id: self.defs.module_id,
-            def_id: nia_defs::DefId(u32::MAX),
         }
     }
 
@@ -931,7 +927,7 @@ impl<'a> BodyChecker<'a> {
 
     fn lower_place_inner(&mut self, expr: &Expr, elems: &mut Vec<PlaceElem>) -> PlaceBase {
         if self.values.variant_enums.contains_key(&expr.span) {
-            return PlaceBase::Local(LocalId(u32::MAX));
+            return PlaceBase::Error;
         }
         if let Some(def_id) = self.values.qualified_values.get(&expr.span).copied() {
             return PlaceBase::Global(def_id);
@@ -943,9 +939,9 @@ impl<'a> BodyChecker<'a> {
                     Some(ValueNameResolution::Def(def_id)) => {
                         PlaceBase::Global(self.global_def_id(*def_id))
                     }
-                    _ => PlaceBase::Local(LocalId(u32::MAX)),
+                    _ => PlaceBase::Error,
                 },
-                _ => PlaceBase::Local(LocalId(u32::MAX)),
+                _ => PlaceBase::Error,
             },
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
@@ -960,8 +956,9 @@ impl<'a> BodyChecker<'a> {
                     .unwrap_or_else(|| self.error());
                 let field = self
                     .field_def_for_base_ty(lhs_ty, name)
-                    .unwrap_or_else(|| self.global_error_def());
-                elems.push(PlaceElem::Field(field));
+                    .map(PlaceElem::Field)
+                    .unwrap_or(PlaceElem::Error);
+                elems.push(field);
                 base
             }
             ExprKind::Index { lhs, index } => {
@@ -982,10 +979,10 @@ impl<'a> BodyChecker<'a> {
                     }
                     base
                 } else {
-                    PlaceBase::Local(LocalId(u32::MAX))
+                    PlaceBase::Error
                 }
             }
-            _ => PlaceBase::Local(LocalId(u32::MAX)),
+            _ => PlaceBase::Error,
         }
     }
 }
