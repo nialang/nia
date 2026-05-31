@@ -50,7 +50,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
+    pub(crate) fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
         let method_id = self.global_def_id(def_id);
         for item in self.extensions.targets() {
             if item.methods.iter().any(|method| method.def_id == method_id) {
@@ -58,6 +58,18 @@ impl<'a> BodyChecker<'a> {
             }
         }
         None
+    }
+
+    pub(crate) fn extension_trait_id_for_method(
+        &self,
+        method_id: GlobalDefId,
+    ) -> Option<GlobalDefId> {
+        self.extensions
+            .targets()
+            .iter()
+            .flat_map(|target| target.methods.iter())
+            .find(|method| method.def_id == method_id)
+            .and_then(|method| method.trait_id)
     }
 
     pub(crate) fn receiver_base_type(&self, ty: InternedTyId) -> Option<ReceiverBase> {
