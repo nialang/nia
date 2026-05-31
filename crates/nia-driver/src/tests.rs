@@ -3401,12 +3401,12 @@ where P: Deref {
 
 fn read_index[C](value: C) [C as IndexConst[usize]]::Output
 where C: IndexConst[usize] {
-    value[0usize]
+    value[0]
 }
 
 fn write_index[C](value: C, next: [C as Index[usize]]::Output) void
 where C: Index[usize] {
-    value[0usize] = next;
+    value[0] = next;
 }
 
 fn main() i32 {
@@ -3422,6 +3422,53 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn index_literal_inference_rejects_ambiguous_index_bounds() {
+    let root = temp_dir("index_literal_inference_rejects_ambiguous_index_bounds");
+    write(
+        &root.join("main.nia"),
+        r##"
+struct Cell {
+    value: i32,
+}
+
+extend Cell : IndexConst[usize] {
+    type Output = i32;
+
+    fn index_const(&const self, index: usize) &const i32 {
+        &const self.value
+    }
+}
+
+extend Cell : IndexConst[i32] {
+    type Output = i32;
+
+    fn index_const(&const self, index: i32) &const i32 {
+        &const self.value
+    }
+}
+
+fn read_index(value: Cell) i32 {
+    value[0]
+}
+
+fn main() i32 {
+    read_index({ value: 1 })
+}
+"##,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("ambiguous index literal type")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

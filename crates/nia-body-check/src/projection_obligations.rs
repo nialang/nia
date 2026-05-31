@@ -250,25 +250,93 @@ impl<'a> BodyChecker<'a> {
                 for supertrait in &trait_signature.supertraits {
                     let supertrait = self.substitute_generics(*supertrait, &substitutions);
                     let supertrait = self.normalization.normalize(supertrait);
-                    let Some(TyKind::Nominal {
-                        def_id: supertrait_id,
-                        args: supertrait_args,
-                    }) = self.interner.get(supertrait).cloned()
-                    else {
+                    let Some((trait_id, trait_args)) = (match self.interner.get(supertrait).cloned()
+                    {
+                        Some(TyKind::Nominal {
+                            def_id: supertrait_id,
+                            args: supertrait_args,
+                        }) => Some((TraitId::Source(supertrait_id), supertrait_args)),
+                        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                            Some((TraitId::Builtin(trait_id), args))
+                        }
+                        _ => None,
+                    }) else {
                         continue;
                     };
                     self.push_trait_obligation_with_supertraits_inner(
                         obligations,
                         TraitObligation {
                             self_ty: obligation.self_ty,
-                            trait_id: TraitId::Source(supertrait_id),
-                            trait_args: supertrait_args,
+                            trait_id,
+                            trait_args,
                         },
                         visited,
                     );
                 }
             }
         }
+    }
+
+    pub(crate) fn visible_trait_arg_candidates(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+    ) -> Vec<Vec<InternedTyId>> {
+        let mut candidates = Vec::new();
+        let obligations = self
+            .current_def_id
+            .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
+            .and_then(|def_id| {
+                let signature = self.signatures.functions.get(&def_id)?.clone();
+                Some(self.function_signature_trait_obligations(def_id, &signature))
+            })
+            .unwrap_or_default();
+        for obligation in obligations {
+            if obligation.trait_id == trait_id
+                && self.types_equivalent_without_projection_resolution(obligation.self_ty, self_ty)
+            {
+                self.push_unique_trait_arg_candidate(&mut candidates, obligation.trait_args);
+            }
+        }
+
+        let impls = self.program_trait_impls.to_vec();
+        for impl_signature in impls {
+            if impl_signature.trait_id != trait_id {
+                continue;
+            }
+            let target_ty =
+                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
+            let target_ty = self.normalization.normalize(target_ty);
+            if !self.types_equivalent_without_projection_resolution(target_ty, self_ty) {
+                continue;
+            }
+            let trait_args = impl_signature
+                .trait_args
+                .iter()
+                .map(|arg| {
+                    let arg = self.import_type_from(&impl_signature.interner, *arg);
+                    self.normalization.normalize(arg)
+                })
+                .collect::<Vec<_>>();
+            self.push_unique_trait_arg_candidate(&mut candidates, trait_args);
+        }
+        candidates
+    }
+
+    fn push_unique_trait_arg_candidate(
+        &mut self,
+        candidates: &mut Vec<Vec<InternedTyId>>,
+        trait_args: Vec<InternedTyId>,
+    ) {
+        if candidates.iter().any(|candidate| {
+            candidate.len() == trait_args.len()
+                && candidate.iter().zip(&trait_args).all(|(left, right)| {
+                    self.types_equivalent_without_projection_resolution(*left, *right)
+                })
+        }) {
+            return;
+        }
+        candidates.push(trait_args);
     }
 
     fn check_type_projection_obligations(

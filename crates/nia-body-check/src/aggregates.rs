@@ -311,6 +311,15 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
         let lhs_ty = self.check_expr(lhs);
+        self.field_access_type_from_lhs_ty(span, lhs_ty, name)
+    }
+
+    pub(crate) fn field_access_type_from_lhs_ty(
+        &mut self,
+        span: Span,
+        lhs_ty: InternedTyId,
+        name: &str,
+    ) -> InternedTyId {
         let Some((def_id, args)) = self.field_base_type(lhs_ty) else {
             if lhs_ty != self.error() {
                 self.diagnostics.push(Diagnostic::error(
