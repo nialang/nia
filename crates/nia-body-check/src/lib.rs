@@ -86,6 +86,15 @@ pub struct ProgramTraitSignature {
     pub interner: TyInterner,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramTraitImplSignature {
+    pub target_ty: InternedTyId,
+    pub trait_id: GlobalDefId,
+    pub trait_args: Vec<InternedTyId>,
+    pub associated_types: Vec<nia_item_signatures::TraitImplAssociatedTypeSignature>,
+    pub interner: TyInterner,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramSignatureMaps<'a> {
     pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -95,6 +104,7 @@ pub struct ProgramSignatureMaps<'a> {
     pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -187,6 +197,7 @@ pub fn check_module_bodies(
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
     let empty_traits = HashMap::new();
+    let empty_trait_impls = Vec::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -212,6 +223,7 @@ pub fn check_module_bodies(
             unions: &empty_unions,
             enums: &empty_enums,
             traits: &empty_traits,
+            trait_impls: &empty_trait_impls,
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &empty_program_comptime,
@@ -288,6 +300,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
         program_traits: input.program_signatures.traits,
+        program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
         expr_types: HashMap::new(),
         bracket_suffix_resolutions: HashMap::new(),
@@ -364,6 +377,7 @@ struct BodyChecker<'a> {
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
     program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     expr_types: HashMap<Span, InternedTyId>,
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,

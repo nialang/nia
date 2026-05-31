@@ -229,6 +229,7 @@ fn namespace_for(kind: DefKind) -> Option<PublicNamespace> {
         DefKind::Import
         | DefKind::Method
         | DefKind::TraitMethod
+        | DefKind::TraitAssociatedType
         | DefKind::StructField
         | DefKind::UnionField
         | DefKind::EnumVariant => None,

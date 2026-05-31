@@ -9,6 +9,7 @@ use nia_backend_ir::{
     BackendStructInstanceKey,
 };
 use nia_body_check::BodyCheck;
+use nia_body_check::ProgramTraitImplSignature;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
@@ -46,6 +47,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 pub fn lower_backend_program(

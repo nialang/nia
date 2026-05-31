@@ -33,6 +33,7 @@ struct TraitMethodCandidate {
     trait_id: GlobalDefId,
     method_id: GlobalDefId,
     self_ty: InternedTyId,
+    trait_args: Vec<InternedTyId>,
     signature: FunctionSignature,
     has_default: bool,
 }
@@ -636,6 +637,7 @@ impl<'a> BodyChecker<'a> {
         self.check_direct_call_args(call.span, call.args, &params, false);
         if candidate.has_default {
             let mut instance_args = vec![candidate.self_ty];
+            instance_args.extend(candidate.trait_args.iter().copied());
             instance_args.extend(method_instantiation_args.iter().copied());
             self.record_generic_instantiation(candidate.method_id, &instance_args, call.span);
         }
@@ -644,7 +646,9 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::TraitMethod {
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
+                method_name: call.name.to_string(),
                 self_ty: candidate.self_ty,
+                trait_args: candidate.trait_args.clone(),
                 args: method_instantiation_args,
             },
         );
@@ -752,6 +756,7 @@ impl<'a> BodyChecker<'a> {
                                 def_id: method.def_id,
                             },
                             self_ty,
+                            trait_args: Vec::new(),
                             signature: method.signature,
                             has_default: method.has_default,
                         });
@@ -765,7 +770,8 @@ impl<'a> BodyChecker<'a> {
             }
             for bound in &predicate.bounds {
                 let Some(TyKind::Nominal {
-                    def_id: trait_id, ..
+                    def_id: trait_id,
+                    args: trait_args,
                 }) = self
                     .interner
                     .get(self.normalization.normalize(*bound))
@@ -785,6 +791,7 @@ impl<'a> BodyChecker<'a> {
                                 def_id: method.def_id,
                             },
                             self_ty,
+                            trait_args: trait_args.clone(),
                             signature: method.signature,
                             has_default: method.has_default,
                         });
@@ -957,6 +964,31 @@ impl<'a> BodyChecker<'a> {
                         .all(|(general, specific)| {
                             self.pattern_subsumes_inner(*general, *specific, substitutions)
                         })
+                }
+                _ => false,
+            },
+            Some(TyKind::Projection {
+                self_ty: general_self,
+                trait_id: general_trait,
+                trait_args: general_args,
+                name: general_name,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::Projection {
+                    self_ty: specific_self,
+                    trait_id: specific_trait,
+                    trait_args: specific_args,
+                    name: specific_name,
+                }) if general_trait == specific_trait
+                    && general_name == specific_name
+                    && general_args.len() == specific_args.len() =>
+                {
+                    self.pattern_subsumes_inner(*general_self, *specific_self, substitutions)
+                        && general_args
+                            .iter()
+                            .zip(specific_args)
+                            .all(|(general, specific)| {
+                                self.pattern_subsumes_inner(*general, *specific, substitutions)
+                            })
                 }
                 _ => false,
             },
@@ -1142,6 +1174,31 @@ impl<'a> BodyChecker<'a> {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
                         self.match_type_pattern(*pattern, *actual, substitutions)
                     })
+                }
+                _ => false,
+            },
+            Some(TyKind::Projection {
+                self_ty: pattern_self,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                name: pattern_name,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                }) if pattern_trait == trait_id
+                    && pattern_name == name
+                    && pattern_args.len() == trait_args.len() =>
+                {
+                    self.match_type_pattern(*pattern_self, *self_ty, substitutions)
+                        && pattern_args
+                            .iter()
+                            .zip(trait_args)
+                            .all(|(pattern, actual)| {
+                                self.match_type_pattern(*pattern, *actual, substitutions)
+                            })
                 }
                 _ => false,
             },

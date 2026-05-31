@@ -540,6 +540,28 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            Some(TyKind::Projection {
+                self_ty: pattern_self,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                name: pattern_name,
+            }) => {
+                if let Some(TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    name: actual_name,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_trait == actual_trait
+                    && pattern_name == actual_name
+                    && pattern_args.len() == actual_args.len()
+                {
+                    self.infer_generics_from_type(pattern_self, actual_self, substitutions, span);
+                    for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                }
+            }
             Some(TyKind::Error | TyKind::Primitive(_)) | None => {}
         }
     }

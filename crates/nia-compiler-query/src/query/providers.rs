@@ -233,6 +233,7 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
         unions: collect_program_unions(&modules),
         enums: collect_program_enums(&modules),
         traits: collect_program_traits(&modules),
+        trait_impls: crate::program_signatures::collect_program_trait_impls(&modules),
     }
 }
 
@@ -610,6 +611,7 @@ pub(super) fn provide_backend_lowering(
         .iter()
         .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let program_signatures = db.query(ProgramSignaturesQuery);
     let inputs = checked_modules
         .iter()
         .zip(loaded_modules.iter())
@@ -633,6 +635,7 @@ pub(super) fn provide_backend_lowering(
                     layouts: &checked_module.layouts,
                     function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
+                    trait_impls: &program_signatures.trait_impls,
                 }
             },
         )

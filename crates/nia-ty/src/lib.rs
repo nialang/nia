@@ -28,6 +28,12 @@ pub enum TyKind {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
     },
+    Projection {
+        self_ty: InternedTyId,
+        trait_id: GlobalDefId,
+        trait_args: Vec<InternedTyId>,
+        name: String,
+    },
     GenericParam(String),
 }
 

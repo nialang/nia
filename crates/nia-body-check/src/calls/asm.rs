@@ -125,7 +125,7 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::FunctionPointer { .. }
                 | TyKind::Nominal { .. },
             ) => {}
-            Some(TyKind::GenericParam(_) | TyKind::Error) | None => {}
+            Some(TyKind::GenericParam(_) | TyKind::Projection { .. } | TyKind::Error) | None => {}
         }
     }
 

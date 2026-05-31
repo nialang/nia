@@ -2397,6 +2397,357 @@ pub trait Show {
 }
 
 #[test]
+fn associated_types_resolve_explicit_projection_in_trait_methods() {
+    let root = temp_dir("associated_types_resolve_explicit_projection_in_trait_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    type Item = i32;
+
+    fn get(&const self) i32 {
+        self.value
+    }
+}
+
+fn read[T](value: &const T) [T as Source]::Item
+where T: Source {
+    value.get()
+}
+
+fn main() i32 {
+    var counter: Counter = { value: 3 };
+    read[Counter](&const counter)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trait_impls_require_associated_type_definitions() {
+    let root = temp_dir("trait_impls_require_associated_type_definitions");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Pair {
+    type A;
+    type B;
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Pair {
+    type A = i32;
+    type Extra = i32;
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("missing definition for associated type `B`")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("associated type `Extra` is not a member")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn associated_type_definitions_are_restricted_to_trait_impls() {
+    let root = temp_dir("associated_type_definitions_are_restricted_to_trait_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: i32,
+}
+
+extend Point {
+    type Item = i32;
+
+    fn get(&const self) i32 {
+        self.x
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("associated type definitions are only allowed in trait implementations")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn duplicate_associated_type_members_are_diagnosed() {
+    let root = temp_dir("duplicate_associated_type_members_are_diagnosed");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Pair {
+    type Item;
+    type Item;
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Pair {
+    type Item = i32;
+    type Item = i64;
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("duplicate trait associated type")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("duplicate associated type definition")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn projection_trait_must_be_a_trait() {
+    let root = temp_dir("projection_trait_must_be_a_trait");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct NotTrait {
+    value: i32,
+}
+
+fn bad[T](value: T) [T as NotTrait]::Item {
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("projection trait must resolve to a trait")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn projection_associated_type_must_exist_on_trait() {
+    let root = temp_dir("projection_associated_type_must_exist_on_trait");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+}
+
+fn bad[T](value: T) [T as Source]::Missing
+where T: Source {
+    value
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("trait does not define associated type `Missing`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn impl_method_signature_checks_associated_type_projection() {
+    let root = temp_dir("impl_method_signature_checks_associated_type_projection");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    type Item = i32;
+
+    fn get(&const self) bool {
+        true
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains(
+                "implementation of trait method `get` does not match the trait signature"
+            )),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn generic_trait_associated_types_support_multiple_outputs_and_defaults() {
+    let root = temp_dir("generic_trait_associated_types_support_multiple_outputs_and_defaults");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Mapper[A, B] {
+    type C;
+    type D;
+
+    fn map_c(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fn map_d(&const self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
+        _ = self.map_c(a, b);
+        fallback
+    }
+}
+
+struct Pairer {
+    seed: i32,
+}
+
+extend Pairer : Mapper[i32, i32] {
+    type C = i32;
+    type D = i32;
+
+    fn map_c(&const self, a: i32, b: i32) i32 {
+        self.seed + a + b
+    }
+}
+
+fn mapped[T](value: &const T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
+where T: Mapper[i32, i32] {
+    value.map_d(1, 2, fallback)
+}
+
+fn main() i32 {
+    var p: Pairer = { seed: 3 };
+    mapped[Pairer](&const p, 9)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn cross_module_associated_type_projection_resolves_impl_definition() {
+    let root = temp_dir("cross_module_associated_type_projection_resolves_impl_definition");
+    write(
+        &root.join("traits.nia"),
+        r#"
+pub trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .traits;
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : traits::Source {
+    type Item = i32;
+
+    fn get(&const self) i32 {
+        self.value
+    }
+}
+
+fn read[T](value: &const T) [T as traits::Source]::Item
+where T: traits::Source {
+    value.get()
+}
+
+fn main() i32 {
+    var counter: Counter = { value: 8 };
+    read[Counter](&const counter)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_where_bound_trait_methods_dispatch_to_impl_instances() {
     let root = temp_dir("generic_where_bound_trait_methods_dispatch_to_impl_instances");
     write(

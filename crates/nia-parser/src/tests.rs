@@ -914,6 +914,73 @@ fn main(triple: [3]i32) i32 {
 }
 
 #[test]
+fn parses_explicit_associated_type_projection() {
+    let (module, errors) = parse_module(
+        r#"
+trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+
+fn read[T](value: &const T) [T as Source]::Item
+where T: Source {
+    value.get()
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Trait(item_trait) = &module.items[0].kind else {
+        panic!("expected trait");
+    };
+    let return_ty = item_trait.methods[0]
+        .function
+        .return_type
+        .as_ref()
+        .expect("expected return type");
+    assert!(matches!(return_ty.kind, TypeKind::Projection { .. }));
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let return_ty = function.return_type.as_ref().expect("expected return type");
+    assert!(matches!(return_ty.kind, TypeKind::Projection { .. }));
+}
+
+#[test]
+fn parses_generic_trait_associated_type_projection() {
+    let (module, errors) = parse_module(
+        r#"
+trait Add[Rhs] {
+    type Output;
+
+    fn add(&const self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Trait(item_trait) = &module.items[0].kind else {
+        panic!("expected trait");
+    };
+    let return_ty = item_trait.methods[0]
+        .function
+        .return_type
+        .as_ref()
+        .expect("expected return type");
+    let TypeKind::Projection {
+        trait_ref, name, ..
+    } = &return_ty.kind
+    else {
+        panic!("expected projection");
+    };
+    assert_eq!(name, "Output");
+    let TypeKind::Path { segments } = &trait_ref.kind else {
+        panic!("expected trait path");
+    };
+    assert_eq!(segments[0].name, "Add");
+    assert_eq!(segments[0].args.len(), 1);
+}
+
+#[test]
 fn parses_structural_type_targets_after_if_statements() {
     let (module, errors) = parse_module(
         r#"

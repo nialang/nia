@@ -45,16 +45,20 @@ impl Parser {
         let kind = if self.eat(TokenKind::Amp).is_some() {
             self.parse_type_after_amp(start)?
         } else if self.eat(TokenKind::LBracket).is_some() {
-            let len = if self.eat(TokenKind::Underscore).is_some() {
-                ArrayLen::Infer
+            if let Some(kind) = self.parse_projection_type_after_open() {
+                kind
             } else {
-                ArrayLen::Expr(Box::new(self.parse_expr()?))
-            };
-            self.expect(TokenKind::RBracket, "expected `]` in array type")?;
-            let elem = self.parse_type()?;
-            TypeKind::Array {
-                len,
-                elem: Box::new(elem),
+                let len = if self.eat(TokenKind::Underscore).is_some() {
+                    ArrayLen::Infer
+                } else {
+                    ArrayLen::Expr(Box::new(self.parse_expr()?))
+                };
+                self.expect(TokenKind::RBracket, "expected `]` in array type")?;
+                let elem = self.parse_type()?;
+                TypeKind::Array {
+                    len,
+                    elem: Box::new(elem),
+                }
             }
         } else if self.eat(TokenKind::Underscore).is_some() {
             TypeKind::Infer
@@ -77,6 +81,50 @@ impl Parser {
         };
         let span = Span::new(start, self.previous_end());
         Some(self.make_type_ref(span, kind))
+    }
+
+    fn parse_projection_type_after_open(&mut self) -> Option<TypeKind> {
+        let checkpoint = self.tokens.checkpoint();
+        let errors_len = self.errors.len();
+        let Some(ty) = self.parse_type() else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        if self.eat(TokenKind::As).is_none() {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        }
+        let trait_ref = match self.parse_type() {
+            Some(trait_ref) => trait_ref,
+            None => {
+                self.tokens.rewind(checkpoint);
+                self.errors.truncate(errors_len);
+                return None;
+            }
+        };
+        if self
+            .expect(TokenKind::RBracket, "expected `]` after projection trait")
+            .is_none()
+            || self
+                .expect(TokenKind::ColonColon, "expected `::` after projection type")
+                .is_none()
+        {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        }
+        let Some(name) = self.expect_text(TokenKind::Ident, "expected associated type name") else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        Some(TypeKind::Projection {
+            ty: Box::new(ty),
+            trait_ref: Box::new(trait_ref),
+            name,
+        })
     }
 
     pub(super) fn parse_type_after_amp(&mut self, _start: usize) -> Option<TypeKind> {

@@ -16,6 +16,11 @@ pub enum TypeKind {
     Path {
         segments: Vec<TypePathSegment>,
     },
+    Projection {
+        ty: Box<TypeRef>,
+        trait_ref: Box<TypeRef>,
+        name: String,
+    },
     Pointer {
         is_const: bool,
         elem: Box<TypeRef>,

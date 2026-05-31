@@ -311,17 +311,22 @@ impl Parser {
         let generics = self.parse_generic_params();
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after trait name")?;
+        let mut associated_types = Vec::new();
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             if self.eat(TokenKind::Pub).is_some() {
-                self.error_here("trait methods cannot be marked `pub`");
+                self.error_here("trait members cannot be marked `pub`");
             }
-            if self.at(TokenKind::Fn) {
+            if self.at(TokenKind::Type) {
+                if let Some(associated_type) = self.parse_trait_associated_type() {
+                    associated_types.push(associated_type);
+                }
+            } else if self.at(TokenKind::Fn) {
                 if let Some(function) = self.parse_function(false) {
                     methods.push(TraitMethod { function });
                 }
             } else {
-                self.error_here("expected method in trait body");
+                self.error_here("expected associated type or method in trait body");
                 self.recover_to_member_boundary();
             }
         }
@@ -330,7 +335,29 @@ impl Parser {
             name,
             generics,
             where_clause,
+            associated_types,
             methods,
+        })
+    }
+
+    fn parse_trait_associated_type(&mut self) -> Option<TraitAssociatedType> {
+        let start = self.expect(TokenKind::Type, "expected `type`")?.start;
+        let name = self.expect_text(TokenKind::Ident, "expected associated type name")?;
+        if self.eat(TokenKind::LBracket).is_some() {
+            self.error_here("associated type generics are not supported");
+            self.collect_until(&[TokenKind::RBracket])?;
+            self.expect(
+                TokenKind::RBracket,
+                "expected `]` after associated type generics",
+            )?;
+        }
+        self.expect(
+            TokenKind::Semicolon,
+            "expected `;` after associated type declaration",
+        )?;
+        Some(TraitAssociatedType {
+            name,
+            span: Span::new(start, self.previous_end()),
         })
     }
 
@@ -346,6 +373,7 @@ impl Parser {
         };
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after extend target")?;
+        let mut associated_types = Vec::new();
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let vis = if self.eat(TokenKind::Pub).is_some() {
@@ -353,12 +381,19 @@ impl Parser {
             } else {
                 Visibility::Private
             };
-            if self.at(TokenKind::Fn) {
+            if self.at(TokenKind::Type) {
+                if vis == Visibility::Public {
+                    self.error_here("trait associated type definitions cannot be marked `pub`");
+                }
+                if let Some(associated_type) = self.parse_extend_associated_type() {
+                    associated_types.push(associated_type);
+                }
+            } else if self.at(TokenKind::Fn) {
                 if let Some(function) = self.parse_function(false) {
                     methods.push(ExtendMethod { vis, function });
                 }
             } else {
-                self.error_here("expected method in extend block");
+                self.error_here("expected associated type or method in extend block");
                 self.recover_to_member_boundary();
             }
         }
@@ -368,7 +403,32 @@ impl Parser {
             target,
             trait_ref,
             where_clause,
+            associated_types,
             methods,
+        })
+    }
+
+    fn parse_extend_associated_type(&mut self) -> Option<nia_ast::ExtendAssociatedType> {
+        let start = self.expect(TokenKind::Type, "expected `type`")?.start;
+        let name = self.expect_text(TokenKind::Ident, "expected associated type name")?;
+        if self.eat(TokenKind::LBracket).is_some() {
+            self.error_here("associated type generics are not supported");
+            self.collect_until(&[TokenKind::RBracket])?;
+            self.expect(
+                TokenKind::RBracket,
+                "expected `]` after associated type generics",
+            )?;
+        }
+        self.expect(TokenKind::Eq, "expected `=` in associated type definition")?;
+        let ty = self.parse_type_until(&[TokenKind::Semicolon])?;
+        self.expect(
+            TokenKind::Semicolon,
+            "expected `;` after associated type definition",
+        )?;
+        Some(nia_ast::ExtendAssociatedType {
+            name,
+            ty,
+            span: Span::new(start, self.previous_end()),
         })
     }
 

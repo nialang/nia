@@ -117,6 +117,7 @@ fn pipeline(source: &str) -> BodyCheck {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            trait_impls: &[],
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -995,6 +996,7 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            trait_impls: &[],
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -1098,6 +1100,7 @@ fn main() i32 {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
+            trait_impls: &[],
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),

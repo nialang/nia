@@ -72,6 +72,9 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
                 visitor.visit_type(trait_ref);
             }
             walk_where_clause(visitor, &extend.where_clause);
+            for associated_type in &extend.associated_types {
+                visitor.visit_type(&associated_type.ty);
+            }
             for method in &extend.methods {
                 visitor.visit_function(&method.function);
             }
@@ -139,6 +142,10 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
                     }
                 }
             }
+        }
+        TypeKind::Projection { ty, trait_ref, .. } => {
+            visitor.visit_type(ty);
+            visitor.visit_type(trait_ref);
         }
         TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => visitor.visit_type(elem),
         TypeKind::Array { len, elem } => {

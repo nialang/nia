@@ -219,6 +219,10 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context} cannot use generic parameter"),
             )),
+            Some(TyKind::Projection { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use unresolved associated type projection"),
+            )),
             Some(TyKind::Error) | None => {}
         }
     }

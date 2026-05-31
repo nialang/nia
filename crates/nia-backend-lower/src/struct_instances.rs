@@ -381,11 +381,15 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionCallee::TraitMethod {
                 self_ty,
+                trait_args,
                 args,
                 receiver,
                 ..
             } => {
                 self.collect_struct_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
                 for arg in args {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
@@ -449,6 +453,16 @@ impl<'a> ModuleLowerer<'a> {
                     && let Some(item) = self.lower_struct_instance(def_id.def_id, args)
                 {
                     out.push(item);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_struct_instance_ty(self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(arg, seen, out);
                 }
             }
             Some(TyKind::Error | TyKind::GenericParam(_) | TyKind::Primitive(_)) | None => {}
@@ -715,11 +729,15 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionCallee::TraitMethod {
                 self_ty,
+                trait_args,
                 args,
                 receiver,
                 ..
             } => {
                 self.collect_union_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
                 for arg in args {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
@@ -783,6 +801,16 @@ impl<'a> ModuleLowerer<'a> {
                     && let Some(item) = self.lower_union_instance(def_id.def_id, args)
                 {
                     out.push(item);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_union_instance_ty(self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(arg, seen, out);
                 }
             }
             Some(TyKind::Error | TyKind::GenericParam(_) | TyKind::Primitive(_)) | None => {}

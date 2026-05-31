@@ -57,6 +57,24 @@ pub fn import_type_into(
                 args,
             })
         }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = import_type_into(target, source, *self_ty);
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::Projection {
+                self_ty,
+                trait_id: *trait_id,
+                trait_args,
+                name: name.clone(),
+            })
+        }
     }
 }
 

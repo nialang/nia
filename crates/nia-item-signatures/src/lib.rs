@@ -18,6 +18,7 @@ pub struct ItemSignatures {
     pub structs: HashMap<DefId, StructSignature>,
     pub unions: HashMap<DefId, UnionSignature>,
     pub traits: HashMap<DefId, TraitSignature>,
+    pub trait_impls: Vec<TraitImplSignature>,
     pub enums: HashMap<DefId, EnumSignature>,
     pub type_aliases: HashMap<DefId, TypeAliasSignature>,
     pub globals: HashMap<DefId, GlobalSignature>,
@@ -71,7 +72,15 @@ pub struct UnionSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSignature {
     pub generics: Vec<String>,
+    pub associated_types: Vec<TraitAssociatedTypeSignature>,
     pub methods: Vec<TraitMethodSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitAssociatedTypeSignature {
+    pub def_id: DefId,
+    pub name: String,
     pub span: Span,
 }
 
@@ -81,6 +90,21 @@ pub struct TraitMethodSignature {
     pub name: String,
     pub signature: FunctionSignature,
     pub has_default: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitImplSignature {
+    pub target_ty: InternedTyId,
+    pub trait_ty: Option<InternedTyId>,
+    pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitImplAssociatedTypeSignature {
+    pub name: String,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -154,6 +178,7 @@ pub fn collect_item_signatures(
         structs: HashMap::new(),
         unions: HashMap::new(),
         traits: HashMap::new(),
+        trait_impls: Vec::new(),
         enums: HashMap::new(),
         type_aliases: HashMap::new(),
         globals: HashMap::new(),
@@ -273,6 +298,23 @@ impl<'a> SignatureCollector<'a> {
     }
 
     fn collect_extend(&mut self, signatures: &mut ItemSignatures, extend: &ExtendItem) {
+        signatures.trait_impls.push(TraitImplSignature {
+            target_ty: self.ty_for_span(extend.target.span),
+            trait_ty: extend
+                .trait_ref
+                .as_ref()
+                .map(|trait_ref| self.ty_for_span(trait_ref.span)),
+            associated_types: extend
+                .associated_types
+                .iter()
+                .map(|associated_type| TraitImplAssociatedTypeSignature {
+                    name: associated_type.name.clone(),
+                    ty: self.ty_for_span(associated_type.ty.span),
+                    span: associated_type.span,
+                })
+                .collect(),
+            span: extend.target.span,
+        });
         for method in &extend.methods {
             self.collect_method(signatures, &method.function);
         }
@@ -287,6 +329,19 @@ impl<'a> SignatureCollector<'a> {
         let Some(def_id) = self.def_id_for_span(item_span, DefKind::Trait) else {
             return;
         };
+        let mut associated_types = Vec::new();
+        for associated_type in &item_trait.associated_types {
+            let Some(associated_type_id) =
+                self.def_id_for_span(associated_type.span, DefKind::TraitAssociatedType)
+            else {
+                continue;
+            };
+            associated_types.push(TraitAssociatedTypeSignature {
+                def_id: associated_type_id,
+                name: associated_type.name.clone(),
+                span: associated_type.span,
+            });
+        }
         let mut methods = Vec::new();
         for method in &item_trait.methods {
             let Some(method_id) = self.def_id_for_span(method.function.span, DefKind::TraitMethod)
@@ -307,6 +362,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             TraitSignature {
                 generics: item_trait.generics.clone(),
+                associated_types,
                 methods,
                 span: item_span,
             },

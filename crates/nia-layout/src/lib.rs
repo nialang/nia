@@ -257,7 +257,9 @@ impl<'a> LayoutComputer<'a> {
             }),
             Some(TyKind::Array { len, elem }) => self.array_layout(span, len, elem),
             Some(TyKind::Nominal { def_id, args }) => self.nominal_layout(span, def_id, &args),
-            Some(TyKind::Error | TyKind::GenericParam(_)) | None => None,
+            Some(TyKind::Error | TyKind::GenericParam(_) | TyKind::Projection { .. }) | None => {
+                None
+            }
         };
         self.visiting.remove(&ty_id);
         if let Some(layout) = &layout {
@@ -658,6 +660,24 @@ fn substitute_generics(
                 .map(|arg| substitute_generics(interner, arg, substitutions))
                 .collect();
             interner.intern(TyKind::Nominal { def_id, args })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = substitute_generics(interner, self_ty, substitutions);
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_generics(interner, arg, substitutions))
+                .collect();
+            interner.intern(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            })
         }
         _ => ty,
     }

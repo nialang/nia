@@ -132,6 +132,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                     }
                     lowerer.with_self_type(self_ty, |lowerer| {
                         lowerer.lower_where_clause(&extend.where_clause);
+                        for associated_type in &extend.associated_types {
+                            lowerer.lower_type_in_context(&associated_type.ty, TypeContext::Value);
+                        }
                         for method in &extend.methods {
                             lowerer.visit_function(&method.function);
                         }
@@ -345,7 +348,68 @@ impl<'a> TypeLowerer<'a> {
                     Some(TypeNameResolution::Error) | None => self.interner.error(),
                 }
             }
+            TypeKind::Projection {
+                ty,
+                trait_ref,
+                name,
+            } => {
+                let self_ty = self.lower_type_in_context(ty, TypeContext::Value);
+                let trait_ty = self.lower_type_in_context(trait_ref, TypeContext::Value);
+                let trait_ty = self.normalize_if_known(trait_ty);
+                let Some(TyKind::Nominal { def_id, args }) = self.interner.get(trait_ty).cloned()
+                else {
+                    self.diagnostics.push(Diagnostic::error(
+                        trait_ref.span,
+                        "projection trait must resolve to a trait",
+                    ));
+                    return self.interner.error();
+                };
+                if !self.is_trait_def(def_id) {
+                    self.diagnostics.push(Diagnostic::error(
+                        trait_ref.span,
+                        "projection trait must resolve to a trait",
+                    ));
+                    return self.interner.error();
+                }
+                if !self.trait_has_associated_type(def_id, name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ty.span,
+                        format!("trait does not define associated type `{name}`"),
+                    ));
+                    return self.interner.error();
+                }
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id: def_id,
+                    trait_args: args,
+                    name: name.clone(),
+                })
+            }
         }
+    }
+
+    fn normalize_if_known(&self, ty: InternedTyId) -> InternedTyId {
+        ty
+    }
+
+    fn is_trait_def(&self, def_id: GlobalDefId) -> bool {
+        self.defs_for_module(def_id.module_id)
+            .and_then(|defs| defs.defs.get(def_id.def_id))
+            .is_some_and(|def| def.kind == nia_defs::DefKind::Trait)
+    }
+
+    fn trait_has_associated_type(&self, trait_id: GlobalDefId, name: &str) -> bool {
+        let Some(defs) = self.defs_for_module(trait_id.module_id) else {
+            return true;
+        };
+        let Some(members) = defs.scopes.struct_members.get(&trait_id.def_id) else {
+            return true;
+        };
+        members.fields.get(name).is_some_and(|def_id| {
+            defs.defs
+                .get(def_id)
+                .is_some_and(|def| def.kind == nia_defs::DefKind::TraitAssociatedType)
+        })
     }
 
     fn check_type_arg_count(&mut self, span: Span, def_id: GlobalDefId, actual: usize) {

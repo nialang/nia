@@ -114,7 +114,14 @@ pub struct TraitItem {
     pub name: String,
     pub generics: Vec<String>,
     pub where_clause: WhereClause,
+    pub associated_types: Vec<TraitAssociatedType>,
     pub methods: Vec<TraitMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitAssociatedType {
+    pub name: String,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -128,7 +135,15 @@ pub struct ExtendItem {
     pub target: TypeRef,
     pub trait_ref: Option<TypeRef>,
     pub where_clause: WhereClause,
+    pub associated_types: Vec<ExtendAssociatedType>,
     pub methods: Vec<ExtendMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtendAssociatedType {
+    pub name: String,
+    pub ty: TypeRef,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -12,8 +12,116 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
+        let ty = self.normalization.normalize(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Pointer { is_const, elem }) => {
+                let elem = self.normalize_projection(elem);
+                self.interner.intern(TyKind::Pointer { is_const, elem })
+            }
+            Some(TyKind::Slice { is_const, elem }) => {
+                let elem = self.normalize_projection(elem);
+                self.interner.intern(TyKind::Slice { is_const, elem })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let elem = self.normalize_projection(elem);
+                self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_projection(param))
+                    .collect();
+                let return_type = self.normalize_projection(return_type);
+                self.interner.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect();
+                self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_projection(self_ty);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect::<Vec<_>>();
+                self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                    .unwrap_or_else(|| {
+                        self.interner.intern(TyKind::Projection {
+                            self_ty,
+                            trait_id,
+                            trait_args,
+                            name,
+                        })
+                    })
+            }
+            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+        }
+    }
+
+    fn resolve_associated_type_projection(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: nia_ids::GlobalDefId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let impls = self.program_trait_impls.to_vec();
+        let mut matches = Vec::new();
+        for impl_signature in impls {
+            if impl_signature.trait_id != trait_id {
+                continue;
+            }
+            let target_ty =
+                self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
+            let impl_trait_args = impl_signature
+                .trait_args
+                .iter()
+                .map(|arg| self.import_type_from(&impl_signature.interner, *arg))
+                .collect::<Vec<_>>();
+            if !self.types_match(target_ty, self_ty)
+                || impl_trait_args.len() != trait_args.len()
+                || !impl_trait_args
+                    .iter()
+                    .zip(trait_args)
+                    .all(|(actual, expected)| self.types_match(*actual, *expected))
+            {
+                continue;
+            }
+            let Some(associated_type) = impl_signature
+                .associated_types
+                .iter()
+                .find(|associated_type| associated_type.name == name)
+            else {
+                continue;
+            };
+            matches.push(self.import_type_from(&impl_signature.interner, associated_type.ty));
+        }
+        match matches.as_slice() {
+            [ty] => Some(*ty),
+            _ => None,
+        }
+    }
+
     pub(crate) fn expect_type(
         &mut self,
         span: Span,
@@ -305,15 +413,23 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn types_match(&self, expected: InternedTyId, actual: InternedTyId) -> bool {
-        let expected = self.normalization.normalize(expected);
-        let actual = self.normalization.normalize(actual);
+        let mut checker = self.clone_for_type_compare();
+        checker.types_match_normalized(expected, actual)
+    }
+
+    fn types_match_normalized(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
+        let expected = self.normalize_projection(expected);
+        let actual = self.normalize_projection(actual);
         if self.is_never(actual) {
             return true;
         }
         if expected == actual {
             return true;
         }
-        match (self.interner.get(expected), self.interner.get(actual)) {
+        match (
+            self.interner.get(expected).cloned(),
+            self.interner.get(actual).cloned(),
+        ) {
             (
                 Some(TyKind::Array {
                     len: ArrayLenTy::Infer,
@@ -322,7 +438,7 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Array {
                     elem: actual_elem, ..
                 }),
-            ) if self.types_match(*expected_elem, *actual_elem) => true,
+            ) if self.types_match_normalized(expected_elem, actual_elem) => true,
             (
                 Some(TyKind::Array {
                     len: expected_len,
@@ -332,16 +448,91 @@ impl<'a> BodyChecker<'a> {
                     len: actual_len,
                     elem: actual_elem,
                 }),
-            ) if self.types_match(*expected_elem, *actual_elem) => {
-                let Ok(expected_len) = self.array_len_value(Span::default(), expected_len) else {
+            ) if self.types_match_normalized(expected_elem, actual_elem) => {
+                let Ok(expected_len) = self.array_len_value(Span::default(), &expected_len) else {
                     return false;
                 };
-                let Ok(actual_len) = self.array_len_value(Span::default(), actual_len) else {
+                let Ok(actual_len) = self.array_len_value(Span::default(), &actual_len) else {
                     return false;
                 };
                 expected_len == actual_len
             }
+            (
+                Some(TyKind::Projection {
+                    self_ty: expected_self,
+                    trait_id: expected_trait,
+                    trait_args: expected_args,
+                    name: expected_name,
+                }),
+                Some(TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    name: actual_name,
+                }),
+            ) => {
+                expected_trait == actual_trait
+                    && expected_name == actual_name
+                    && expected_args.len() == actual_args.len()
+                    && self.types_match_normalized(expected_self, actual_self)
+                    && expected_args
+                        .iter()
+                        .zip(actual_args.iter())
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+            }
             _ => false,
+        }
+    }
+
+    fn clone_for_type_compare(&self) -> BodyChecker<'a> {
+        BodyChecker {
+            source_version: self.source_version,
+            origins: self.origins,
+            module: self.module,
+            defs: self.defs,
+            program: self.program,
+            values: self.values,
+            locals: self.locals,
+            interner: self.interner.clone(),
+            type_uses: self.type_uses,
+            signatures: self.signatures,
+            normalization: self.normalization,
+            comptime: self.comptime,
+            layouts: self.layouts,
+            extensions: self.extensions,
+            program_functions: self.program_functions,
+            program_globals: self.program_globals,
+            program_comptimes: self.program_comptimes,
+            program_structs: self.program_structs,
+            program_unions: self.program_unions,
+            program_enums: self.program_enums,
+            program_traits: self.program_traits,
+            program_trait_impls: self.program_trait_impls,
+            program_comptime: self.program_comptime,
+            expr_types: HashMap::new(),
+            bracket_suffix_resolutions: HashMap::new(),
+            array_to_slice_coercions: HashMap::new(),
+            c_string_pointer_coercions: HashMap::new(),
+            builtin_values: HashMap::new(),
+            resolved_calls: HashMap::new(),
+            function_references: HashMap::new(),
+            node_expr_types: HashMap::new(),
+            node_bracket_suffix_resolutions: HashMap::new(),
+            node_array_to_slice_coercions: HashMap::new(),
+            node_c_string_pointer_coercions: HashMap::new(),
+            node_builtin_values: HashMap::new(),
+            node_resolved_calls: HashMap::new(),
+            node_function_references: HashMap::new(),
+            generic_instantiations: Vec::new(),
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+            local_types: HashMap::new(),
+            global_types: HashMap::new(),
+            comptime_types: HashMap::new(),
+            diagnostics: Vec::new(),
+            current_return: self.current_return,
+            current_def_id: self.current_def_id,
+            current_param_locals: self.current_param_locals.clone(),
         }
     }
 
@@ -442,6 +633,16 @@ impl<'a> BodyChecker<'a> {
                 format!("&const fn({}){return_part}", params.join(", "))
             }
             Some(TyKind::Nominal { def_id, args }) => self.nominal_ty_name(*def_id, args),
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.ty_name(*self_ty);
+                let trait_name = self.nominal_ty_name(*trait_id, trait_args);
+                format!("[{self_ty} as {trait_name}]::{name}")
+            }
             Some(TyKind::GenericParam(name)) => name.clone(),
             Some(TyKind::Error) => "<error type>".to_string(),
             None => "<unknown type>".to_string(),
