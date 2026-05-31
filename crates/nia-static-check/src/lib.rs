@@ -95,7 +95,9 @@ impl StaticChecker<'_> {
             ExprKind::Unary { op, expr: inner } => match op {
                 UnaryOp::Neg => self.int_const_expr_reject_reason(expr),
                 UnaryOp::Ref | UnaryOp::RefConst => self.static_address_path_reject_reason(inner),
-                UnaryOp::Not | UnaryOp::Deref => Some("unsupported unary operator"),
+                UnaryOp::Not | UnaryOp::BitNot | UnaryOp::Deref => {
+                    Some("unsupported unary operator")
+                }
             },
             ExprKind::Binary { .. } => self.int_const_expr_reject_reason(expr),
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),

@@ -213,10 +213,10 @@ impl<'a> BodyChecker<'a> {
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
-        if name != "Output" || trait_args.len() != 1 {
+        if name != "Output" || !trait_id.has_associated_type(name) {
             return None;
         }
-        let rhs_ty = trait_args[0];
+        let rhs_ty = trait_args.first().copied();
         if self.current_context_proves_trait_obligation(
             self_ty,
             TraitId::Builtin(trait_id),
@@ -224,7 +224,8 @@ impl<'a> BodyChecker<'a> {
         ) {
             return Some(self_ty);
         }
-        if self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
+        if let Some(rhs_ty) = rhs_ty
+            && self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
             && ((self.is_numeric(self_ty)
                 && matches!(
                     trait_id,
@@ -244,12 +245,19 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(self_ty);
         }
-        if self.is_integer(self_ty)
+        if let Some(rhs_ty) = rhs_ty
+            && self.is_integer(self_ty)
             && self.is_integer(rhs_ty)
             && matches!(
                 trait_id,
                 nia_ty::BuiltinTrait::Shl | nia_ty::BuiltinTrait::Shr
             )
+        {
+            return Some(self_ty);
+        }
+        if trait_args.is_empty()
+            && ((self.is_numeric(self_ty) && matches!(trait_id, nia_ty::BuiltinTrait::Neg))
+                || (self.is_integer(self_ty) && matches!(trait_id, nia_ty::BuiltinTrait::BitNot)))
         {
             return Some(self_ty);
         }

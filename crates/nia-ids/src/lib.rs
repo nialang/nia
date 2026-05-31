@@ -62,25 +62,37 @@ pub enum BuiltinTrait {
     Mul,
     Div,
     Rem,
+    Neg,
+    Not,
+    BitNot,
     BitAnd,
     BitOr,
     BitXor,
     Shl,
     Shr,
+    Eq,
+    Ord,
+    Sized,
 }
 
 impl BuiltinTrait {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 16] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
         Self::Div,
         Self::Rem,
+        Self::Neg,
+        Self::Not,
+        Self::BitNot,
         Self::BitAnd,
         Self::BitOr,
         Self::BitXor,
         Self::Shl,
         Self::Shr,
+        Self::Eq,
+        Self::Ord,
+        Self::Sized,
     ];
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -90,11 +102,17 @@ impl BuiltinTrait {
             "Mul" => Some(Self::Mul),
             "Div" => Some(Self::Div),
             "Rem" => Some(Self::Rem),
+            "Neg" => Some(Self::Neg),
+            "Not" => Some(Self::Not),
+            "BitNot" => Some(Self::BitNot),
             "BitAnd" => Some(Self::BitAnd),
             "BitOr" => Some(Self::BitOr),
             "BitXor" => Some(Self::BitXor),
             "Shl" => Some(Self::Shl),
             "Shr" => Some(Self::Shr),
+            "Eq" => Some(Self::Eq),
+            "Ord" => Some(Self::Ord),
+            "Sized" => Some(Self::Sized),
             _ => None,
         }
     }
@@ -106,19 +124,53 @@ impl BuiltinTrait {
             Self::Mul => "Mul",
             Self::Div => "Div",
             Self::Rem => "Rem",
+            Self::Neg => "Neg",
+            Self::Not => "Not",
+            Self::BitNot => "BitNot",
             Self::BitAnd => "BitAnd",
             Self::BitOr => "BitOr",
             Self::BitXor => "BitXor",
             Self::Shl => "Shl",
             Self::Shr => "Shr",
+            Self::Eq => "Eq",
+            Self::Ord => "Ord",
+            Self::Sized => "Sized",
         }
     }
 
     pub fn generic_count(self) -> usize {
-        1
+        match self {
+            Self::Add
+            | Self::Sub
+            | Self::Mul
+            | Self::Div
+            | Self::Rem
+            | Self::BitAnd
+            | Self::BitOr
+            | Self::BitXor
+            | Self::Shl
+            | Self::Shr
+            | Self::Eq
+            | Self::Ord => 1,
+            Self::Neg | Self::Not | Self::BitNot | Self::Sized => 0,
+        }
     }
 
     pub fn has_associated_type(self, name: &str) -> bool {
-        name == "Output"
+        matches!(
+            self,
+            Self::Add
+                | Self::Sub
+                | Self::Mul
+                | Self::Div
+                | Self::Rem
+                | Self::Neg
+                | Self::BitNot
+                | Self::BitAnd
+                | Self::BitOr
+                | Self::BitXor
+                | Self::Shl
+                | Self::Shr
+        ) && name == "Output"
     }
 }

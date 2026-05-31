@@ -75,6 +75,13 @@ impl<'a> BodyChecker<'a> {
                 }),
             ExprKind::Builtin { .. } => match self.builtin_values.get(&expr.span) {
                 Some(BuiltinValue::Usize(value)) => StaticInit::Int(*value as i128),
+                Some(BuiltinValue::Layout { .. }) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "generic layout builtin is not representable as static data",
+                    ));
+                    StaticInit::Zero
+                }
                 None => {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,

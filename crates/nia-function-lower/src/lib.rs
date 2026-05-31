@@ -11,11 +11,12 @@ use nia_span::Span;
 
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOption, FunctionAsmOutput, FunctionBinding,
-    FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinOperator, FunctionBuiltinValue,
-    FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit,
-    FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionOp,
-    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionScope, FunctionScopeId,
-    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinOperator,
+    FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
+    FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
+    FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
+    FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionSliceRange, FunctionSwitchArm,
+    FunctionTerminator,
 };
 
 #[cfg(test)]
@@ -1140,7 +1141,14 @@ impl FunctionLowerer {
             TypedCallee::BuiltinOperator(operator) => {
                 FunctionCallee::BuiltinOperator(FunctionBuiltinOperator {
                     trait_id: operator.trait_id,
-                    op: operator.op,
+                    op: match operator.op {
+                        nia_body_ir::BuiltinOperatorOp::Unary(op) => {
+                            FunctionBuiltinOperatorOp::Unary(op)
+                        }
+                        nia_body_ir::BuiltinOperatorOp::Binary(op) => {
+                            FunctionBuiltinOperatorOp::Binary(op)
+                        }
+                    },
                 })
             }
             TypedCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
@@ -1492,6 +1500,10 @@ impl FunctionLowerer {
     fn lower_builtin_value(value: &BuiltinConst) -> FunctionBuiltinValue {
         match value {
             BuiltinConst::Usize(value) => FunctionBuiltinValue::Usize(*value),
+            BuiltinConst::Layout { name, ty } => FunctionBuiltinValue::Layout {
+                name: name.clone(),
+                ty: *ty,
+            },
             BuiltinConst::Int(value) => FunctionBuiltinValue::Int(*value),
         }
     }

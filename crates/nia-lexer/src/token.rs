@@ -89,6 +89,7 @@ pub enum TokenKind {
     Amp,
     Pipe,
     Caret,
+    Tilde,
     Bang,
     Eq,
     Lt,

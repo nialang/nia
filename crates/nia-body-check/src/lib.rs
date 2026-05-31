@@ -455,7 +455,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn record_builtin_value(&mut self, span: Span, value: BuiltinValue) {
-        self.builtin_values.insert(span, value);
+        self.builtin_values.insert(span, value.clone());
         if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
             self.node_builtin_values.insert(key, value);
         }

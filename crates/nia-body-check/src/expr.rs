@@ -96,10 +96,8 @@ impl<'a> BodyChecker<'a> {
                 }
                 let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                 match op {
-                    UnaryOp::Neg => inner_ty,
-                    UnaryOp::Not => {
-                        self.expect_type(expr.span, self.bool(), inner_ty, "logical not");
-                        self.bool()
+                    UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
+                        self.check_builtin_unary_operator_expr(expr.span, *op, inner, inner_ty)
                     }
                     UnaryOp::RefConst => {
                         if self.is_invalid_temporary_type(inner_ty) {
@@ -365,19 +363,7 @@ impl<'a> BodyChecker<'a> {
             | BinaryOp::Ge
             | BinaryOp::Eq
             | BinaryOp::Ne => {
-                let (lhs_ty, _) =
-                    self.check_same_type_binary_operands(lhs, rhs, "binary comparison");
-                if matches!(
-                    op,
-                    BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
-                ) && !self.is_numeric(lhs_ty)
-                {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "ordered comparison requires numeric operands",
-                    ));
-                }
-                self.bool()
+                self.check_builtin_operator_expr(span, lhs, op, rhs, Some(self.bool()))
             }
             BinaryOp::And | BinaryOp::Or => {
                 let expected = self.bool();
@@ -408,11 +394,25 @@ impl<'a> BodyChecker<'a> {
         let Some(trait_id) = builtin_trait_for_binary_op(op) else {
             return self.error();
         };
-        let lhs_expected = if self.is_numeric_literal_expr(lhs) {
+        let output_is_bool = builtin_trait_output_is_bool(trait_id);
+        if output_is_bool && self.is_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs)
+        {
+            let rhs_actual = self.check_expr(rhs);
+            let rhs_ty = self
+                .expr_types
+                .get(&rhs.span)
+                .copied()
+                .unwrap_or(rhs_actual);
+            let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
+            self.expect_expr_type(lhs, rhs_ty, lhs_actual, "binary operator");
+            return self.finish_builtin_operator_expr(
+                span, trait_id, lhs, lhs_actual, rhs, rhs_actual, expected,
+            );
+        }
+
+        let lhs_expected = (!output_is_bool).then_some(()).and_then(|_| {
             expected.filter(|expected| self.can_expected_type_drive_builtin_operator(*expected, op))
-        } else {
-            expected.filter(|expected| self.can_expected_type_drive_builtin_operator(*expected, op))
-        };
+        });
         let lhs_actual = if let Some(expected) = lhs_expected {
             self.check_expr_with_expected(lhs, Some(expected))
         } else {
@@ -435,6 +435,26 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = rhs_expected {
             self.expect_expr_type(rhs, expected, rhs_actual, "binary operator");
         }
+        self.finish_builtin_operator_expr(
+            span, trait_id, lhs, lhs_actual, rhs, rhs_actual, expected,
+        )
+    }
+
+    fn finish_builtin_operator_expr(
+        &mut self,
+        span: Span,
+        trait_id: BuiltinTrait,
+        lhs: &Expr,
+        lhs_actual: InternedTyId,
+        rhs: &Expr,
+        rhs_actual: InternedTyId,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let lhs_ty = self
+            .expr_types
+            .get(&lhs.span)
+            .copied()
+            .unwrap_or(lhs_actual);
         let rhs_ty = self
             .expr_types
             .get(&rhs.span)
@@ -457,17 +477,62 @@ impl<'a> BodyChecker<'a> {
             ));
         }
 
-        let output = self.interner.intern(TyKind::Projection {
-            self_ty: lhs_ty,
-            trait_id: TraitId::Builtin(trait_id),
-            trait_args,
-            name: "Output".to_string(),
-        });
-        let output = self.normalize_projection(output);
+        let output = if builtin_trait_output_is_bool(trait_id) {
+            self.bool()
+        } else {
+            let output = self.interner.intern(TyKind::Projection {
+                self_ty: lhs_ty,
+                trait_id: TraitId::Builtin(trait_id),
+                trait_args,
+                name: "Output".to_string(),
+            });
+            self.normalize_projection(output)
+        };
         if let Some(expected) = expected {
             self.expect_type(span, expected, output, "binary operator");
         }
         output
+    }
+
+    fn check_builtin_unary_operator_expr(
+        &mut self,
+        span: Span,
+        op: UnaryOp,
+        inner: &Expr,
+        inner_ty: InternedTyId,
+    ) -> InternedTyId {
+        let Some(trait_id) = builtin_trait_for_unary_op(op) else {
+            return self.error();
+        };
+        let inner_ty = self
+            .expr_types
+            .get(&inner.span)
+            .copied()
+            .unwrap_or(inner_ty);
+        if !self.current_context_proves_trait_obligation(
+            inner_ty,
+            TraitId::Builtin(trait_id),
+            Vec::new(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(inner_ty),
+                    self.builtin_trait_ty_name(trait_id, &[])
+                ),
+            ));
+        }
+        if builtin_trait_output_is_bool(trait_id) {
+            return self.bool();
+        }
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: inner_ty,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args: Vec::new(),
+            name: "Output".to_string(),
+        });
+        self.normalize_projection(output)
     }
 
     fn can_expected_type_drive_builtin_operator(
@@ -484,37 +549,10 @@ impl<'a> BodyChecker<'a> {
             | BinaryOp::BitOr
             | BinaryOp::Shl
             | BinaryOp::Shr => self.is_integer(expected),
+            BinaryOp::Eq | BinaryOp::Ne => true,
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => self.is_numeric(expected),
             _ => false,
         }
-    }
-
-    fn check_same_type_binary_operands(
-        &mut self,
-        lhs: &Expr,
-        rhs: &Expr,
-        context: &str,
-    ) -> (InternedTyId, InternedTyId) {
-        if self.is_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs) {
-            let rhs_ty = self.check_expr(rhs);
-            let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
-            self.expect_expr_type(lhs, rhs_ty, lhs_actual, context);
-            let lhs_ty = self
-                .expr_types
-                .get(&lhs.span)
-                .copied()
-                .unwrap_or(lhs_actual);
-            return (lhs_ty, rhs_ty);
-        }
-
-        let lhs_ty = self.check_expr(lhs);
-        let rhs_actual = self.check_expr_with_expected(rhs, Some(lhs_ty));
-        self.expect_expr_type(rhs, lhs_ty, rhs_actual, context);
-        let rhs_ty = self
-            .expr_types
-            .get(&rhs.span)
-            .copied()
-            .unwrap_or(rhs_actual);
-        (lhs_ty, rhs_ty)
     }
 
     pub(crate) fn is_numeric_literal_expr(&self, expr: &Expr) -> bool {
@@ -692,13 +730,24 @@ pub(crate) fn builtin_trait_for_binary_op(op: BinaryOp) -> Option<BuiltinTrait> 
         BinaryOp::BitXor => Some(BuiltinTrait::BitXor),
         BinaryOp::Shl => Some(BuiltinTrait::Shl),
         BinaryOp::Shr => Some(BuiltinTrait::Shr),
-        BinaryOp::Lt
-        | BinaryOp::Le
-        | BinaryOp::Gt
-        | BinaryOp::Ge
-        | BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::And
-        | BinaryOp::Or => None,
+        BinaryOp::Eq | BinaryOp::Ne => Some(BuiltinTrait::Eq),
+        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => Some(BuiltinTrait::Ord),
+        BinaryOp::And | BinaryOp::Or => None,
     }
+}
+
+pub(crate) fn builtin_trait_for_unary_op(op: UnaryOp) -> Option<BuiltinTrait> {
+    match op {
+        UnaryOp::Neg => Some(BuiltinTrait::Neg),
+        UnaryOp::Not => Some(BuiltinTrait::Not),
+        UnaryOp::BitNot => Some(BuiltinTrait::BitNot),
+        UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+    }
+}
+
+fn builtin_trait_output_is_bool(trait_id: BuiltinTrait) -> bool {
+    matches!(
+        trait_id,
+        BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
+    )
 }

@@ -529,6 +529,13 @@ fn validate_builtin_trait_impl(
     trait_id: BuiltinTrait,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    if trait_id == BuiltinTrait::Sized {
+        diagnostics.push(Diagnostic::error(
+            extend.target.span,
+            "`Sized` is a compiler-proven trait and cannot be implemented manually",
+        ));
+        return;
+    }
     for associated_type in &extend.associated_types {
         if !trait_id.has_associated_type(&associated_type.name) {
             diagnostics.push(Diagnostic::error(
@@ -540,19 +547,20 @@ fn validate_builtin_trait_impl(
             ));
         }
     }
-    if !extend
-        .associated_types
-        .iter()
-        .any(|associated_type| associated_type.name == "Output")
+    if trait_id.has_associated_type("Output")
+        && !extend
+            .associated_types
+            .iter()
+            .any(|associated_type| associated_type.name == "Output")
     {
         diagnostics.push(Diagnostic::error(
             extend.target.span,
             "missing definition for associated type `Output`",
         ));
     }
-    let expected_method = builtin_operator_method_name(trait_id);
+    let expected_methods = builtin_operator_method_names(trait_id);
     for method in &extend.methods {
-        if method.function.name != expected_method {
+        if !expected_methods.contains(&method.function.name.as_str()) {
             diagnostics.push(Diagnostic::error(
                 method.function.span,
                 format!(
@@ -562,51 +570,69 @@ fn validate_builtin_trait_impl(
             ));
         }
     }
-    let matching_methods = extend
-        .methods
-        .iter()
-        .filter(|method| method.function.name == expected_method)
-        .collect::<Vec<_>>();
-    match matching_methods.as_slice() {
-        [] => diagnostics.push(Diagnostic::error(
-            extend.target.span,
-            format!("missing implementation for trait method `{expected_method}`"),
-        )),
-        [method] => {
-            let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
-                return;
-            };
-            let Some(actual) = module.signatures.functions.get(&method_id) else {
-                return;
-            };
-            if actual.params.len() != 2 || actual.return_type == module.lowering.interner.error() {
-                diagnostics.push(Diagnostic::error(
-                    method.function.span,
-                    format!(
-                        "implementation of trait method `{expected_method}` does not match the trait signature"
-                    ),
-                ));
+    for expected_method in expected_methods {
+        let matching_methods = extend
+            .methods
+            .iter()
+            .filter(|method| method.function.name == *expected_method)
+            .collect::<Vec<_>>();
+        match matching_methods.as_slice() {
+            [] => diagnostics.push(Diagnostic::error(
+                extend.target.span,
+                format!("missing implementation for trait method `{expected_method}`"),
+            )),
+            [method] => {
+                let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
+                    return;
+                };
+                let Some(actual) = module.signatures.functions.get(&method_id) else {
+                    return;
+                };
+                if actual.params.len() != builtin_operator_method_param_count(trait_id)
+                    || actual.return_type == module.lowering.interner.error()
+                {
+                    diagnostics.push(Diagnostic::error(
+                        method.function.span,
+                        format!(
+                            "implementation of trait method `{expected_method}` does not match the trait signature"
+                        ),
+                    ));
+                }
             }
+            _ => diagnostics.push(Diagnostic::error(
+                extend.target.span,
+                format!("duplicate implementation for trait method `{expected_method}`"),
+            )),
         }
-        _ => diagnostics.push(Diagnostic::error(
-            extend.target.span,
-            format!("duplicate implementation for trait method `{expected_method}`"),
-        )),
     }
 }
 
-fn builtin_operator_method_name(trait_id: BuiltinTrait) -> &'static str {
+fn builtin_operator_method_names(trait_id: BuiltinTrait) -> &'static [&'static str] {
     match trait_id {
-        BuiltinTrait::Add => "add",
-        BuiltinTrait::Sub => "sub",
-        BuiltinTrait::Mul => "mul",
-        BuiltinTrait::Div => "div",
-        BuiltinTrait::Rem => "rem",
-        BuiltinTrait::BitAnd => "bit_and",
-        BuiltinTrait::BitOr => "bit_or",
-        BuiltinTrait::BitXor => "bit_xor",
-        BuiltinTrait::Shl => "shl",
-        BuiltinTrait::Shr => "shr",
+        BuiltinTrait::Add => &["add"],
+        BuiltinTrait::Sub => &["sub"],
+        BuiltinTrait::Mul => &["mul"],
+        BuiltinTrait::Div => &["div"],
+        BuiltinTrait::Rem => &["rem"],
+        BuiltinTrait::Neg => &["neg"],
+        BuiltinTrait::Not => &["not"],
+        BuiltinTrait::BitNot => &["bit_not"],
+        BuiltinTrait::BitAnd => &["bit_and"],
+        BuiltinTrait::BitOr => &["bit_or"],
+        BuiltinTrait::BitXor => &["bit_xor"],
+        BuiltinTrait::Shl => &["shl"],
+        BuiltinTrait::Shr => &["shr"],
+        BuiltinTrait::Eq => &["eq", "ne"],
+        BuiltinTrait::Ord => &["lt", "le", "gt", "ge"],
+        BuiltinTrait::Sized => &[],
+    }
+}
+
+fn builtin_operator_method_param_count(trait_id: BuiltinTrait) -> usize {
+    match trait_id {
+        BuiltinTrait::Neg | BuiltinTrait::Not | BuiltinTrait::BitNot => 1,
+        BuiltinTrait::Sized => 0,
+        _ => 2,
     }
 }
 

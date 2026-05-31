@@ -2314,7 +2314,7 @@ fn trait_impl_substitutes_self_in_required_signatures() {
     write(
         &root.join("main.nia"),
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 }
 
@@ -2322,7 +2322,7 @@ struct Point {
     x: i32,
 }
 
-extend Point : Eq {
+extend Point : Same {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
@@ -3072,6 +3072,160 @@ fn main() i32 {
 }
 
 #[test]
+fn builtin_comparison_traits_allow_constrained_generic_comparison() {
+    let root = temp_dir("builtin_comparison_traits_allow_constrained_generic_comparison");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn same[T](a: T, b: T) bool
+where T: Eq[T] {
+    a == b
+}
+
+fn ordered[T](a: T, b: T) bool
+where T: Ord[T] {
+    a <= b
+}
+
+fn main() bool {
+    same[i32](1, 1) and ordered[i32](1, 2)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_comparison_traits_reject_unconstrained_generic_comparison() {
+    let root = temp_dir("builtin_comparison_traits_reject_unconstrained_generic_comparison");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn same_bad[T](a: T, b: T) bool {
+    a == b
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("trait bound not satisfied")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_unary_traits_allow_constrained_generic_unary_ops() {
+    let root = temp_dir("builtin_unary_traits_allow_constrained_generic_unary_ops");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn neg[T](value: T) [T as Neg]::Output
+where T: Neg {
+    -value
+}
+
+fn invert[T](value: T) [T as BitNot]::Output
+where T: BitNot {
+    ~value
+}
+
+fn main() i32 {
+    var a: i32 = neg[i32](1);
+    var b: i32 = invert[i32](0);
+    a + b
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_sized_trait_allows_generic_layout_builtins() {
+    let root = temp_dir("builtin_sized_trait_allows_generic_layout_builtins");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn bytes[T]() usize
+where T: Sized {
+    @size[T]() + @align[T]()
+}
+
+fn main() usize {
+    bytes[i32]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_sized_trait_rejects_unconstrained_generic_layout_builtins() {
+    let root = temp_dir("builtin_sized_trait_rejects_unconstrained_generic_layout_builtins");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn bytes[T]() usize {
+    @size[T]()
+}
+
+fn main() usize {
+    bytes[i32]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("requires T: Sized")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_sized_trait_cannot_be_implemented_manually() {
+    let root = temp_dir("builtin_sized_trait_cannot_be_implemented_manually");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Number {
+    value: i32,
+}
+
+extend Number : Sized {}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("cannot be implemented manually")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn open_projection_does_not_forge_concrete_type() {
     let root = temp_dir("open_projection_does_not_forge_concrete_type");
     write(
@@ -3282,11 +3436,11 @@ fn supertrait_impls_must_be_explicit() {
     write(
         &root.join("main.nia"),
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 }
 
-trait Ord : Eq {
+trait Ranked : Same {
     fn lt(&const self, other: &const Self) bool;
 }
 
@@ -3294,7 +3448,7 @@ struct Point {
     x: i32,
 }
 
-extend Point : Ord {
+extend Point : Ranked {
     fn lt(&const self, other: &const Point) bool {
         self.x < other.x
     }
@@ -3309,7 +3463,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .message
-            .contains("requires explicit implementation of supertrait `Eq`")),
+            .contains("requires explicit implementation of supertrait `Same`")),
         "{:?}",
         program.diagnostics
     );
@@ -3321,11 +3475,11 @@ fn where_bound_on_subtrait_exposes_supertrait_methods() {
     write(
         &root.join("main.nia"),
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 }
 
-trait Ord : Eq {
+trait Ranked : Same {
     fn lt(&const self, other: &const Self) bool;
 }
 
@@ -3333,20 +3487,20 @@ struct Point {
     x: i32,
 }
 
-extend Point : Eq {
+extend Point : Same {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
 }
 
-extend Point : Ord {
+extend Point : Ranked {
     fn lt(&const self, other: &const Point) bool {
         self.x < other.x
     }
 }
 
 fn same_ord[T](a: &const T, b: &const T) bool
-where T: Ord {
+where T: Ranked {
     a.eq(b)
 }
 
@@ -3426,7 +3580,7 @@ fn generic_where_bound_trait_methods_dispatch_to_impl_instances() {
     write(
         &root.join("main.nia"),
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 }
 
@@ -3434,14 +3588,14 @@ struct Point {
     x: i32,
 }
 
-extend Point : Eq {
+extend Point : Same {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
 }
 
 fn same[T](a: &const T, b: &const T) bool
-where T: Eq {
+where T: Same {
     a.eq(b)
 }
 
@@ -3463,7 +3617,7 @@ fn trait_default_methods_are_used_when_impl_omits_method() {
     write(
         &root.join("main.nia"),
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 
     fn ne(&const self, other: &const Self) bool {
@@ -3475,14 +3629,14 @@ struct Point {
     x: i32,
 }
 
-extend Point : Eq {
+extend Point : Same {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
 }
 
 fn different[T](a: &const T, b: &const T) bool
-where T: Eq {
+where T: Same {
     a.ne(b)
 }
 

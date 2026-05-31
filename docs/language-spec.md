@@ -1170,6 +1170,7 @@ Unary operators:
 ```text
 -       numeric negation
 !       boolean not
+~       bitwise not
 &       writable address
 &const  read-only address
 .*      pointer dereference
@@ -1212,9 +1213,9 @@ while calls, indexing, and field access are higher than unary operators.
 Nia has no built-in pointer arithmetic. Convert to an integer type explicitly,
 perform the arithmetic, and convert back explicitly when needed.
 
-Arithmetic, bitwise, and shift operators are type checked through core language
-operator traits. These traits are always available by name and are not provided
-by a source module:
+Arithmetic, bitwise, shift, comparison, and selected unary operators are type
+checked through core language operator traits. These traits are always available
+by name and are not provided by a source module:
 
 ```nia
 Add[Rhs]
@@ -1227,21 +1228,34 @@ BitOr[Rhs]
 BitXor[Rhs]
 Shl[Rhs]
 Shr[Rhs]
+Neg
+Not
+BitNot
+Eq[Rhs]
+Ord[Rhs]
 ```
 
-Each operator trait has an `Output` associated type. For example, `a + b`
-requires the bound `Lhs: Add[Rhs]` and has type `[Lhs as Add[Rhs]]::Output`.
-Generic code that uses `+` must state the needed capability explicitly:
+Arithmetic, bitwise, shift, `Neg`, and `BitNot` have an `Output` associated
+type. For example, `a + b` requires the bound `Lhs: Add[Rhs]` and has type
+`[Lhs as Add[Rhs]]::Output`. `Not`, `Eq`, and `Ord` return `bool`.
+Generic code that uses an operator must state the needed capability explicitly:
 
 ```nia
 fn add_same[T](a: T, b: T) T
 where T: Add[T, Output = T] {
     a + b
 }
+
+fn same[T](a: T, b: T) bool
+where T: Eq[T] {
+    a == b
+}
 ```
 
-Primitive numeric and integer operator implementations are compiler-known core
-implementations. Lowering represents these operators as builtin operator calls;
+Primitive numeric, integer, boolean, pointer, and enum implementations are
+compiler-known only for the operations they support. Lowering represents these
+operators as builtin operator calls; backend lowering either keeps a primitive
+builtin operator call or dispatches to the visible trait implementation method.
 LLVM code generation emits the corresponding primitive operation after generic
 instantiation.
 
@@ -1313,8 +1327,21 @@ Nia provides a small builtin surface:
 
 `@align[T]()` returns the ABI alignment of `T` in bytes as `usize`.
 
-`@size[T]()` and `@align[T]()` are compile-time known values and may appear in
-array lengths, static initializers, and ordinary expressions.
+`@size[T]()` and `@align[T]()` require `T: Sized`. For concrete layout-known
+types this predicate is compiler-proven. In generic code it must be written in
+the `where` clause:
+
+```nia
+fn bytes[T]() usize
+where T: Sized {
+    @size[T]() + @align[T]()
+}
+```
+
+When their type argument is concrete, `@size[T]()` and `@align[T]()` are
+compile-time known values and may appear in array lengths, static initializers,
+and ordinary expressions. In generic code they remain layout values until the
+generic function is instantiated.
 
 `@len(value)` returns array or slice length as `usize`. For `[N]T`, it returns
 `N`. For `&[T]` and `&const [T]`, it returns the runtime slice length.
@@ -1415,11 +1442,11 @@ type, or generic parameter list:
 
 ```nia
 fn eq[T](a: &const T, b: &const T) bool
-where T: Eq {
-    a.eq(b)
+where T: Eq[T] {
+    a == b
 }
 
-struct Box[T] where T: Eq {
+struct Box[T] where T: Eq[T] {
     value: T,
 }
 ```
@@ -1583,8 +1610,8 @@ Traits define required method signatures and associated type outputs for static
 dispatch:
 
 ```nia
-trait Eq {
-    fn eq(&const self, other: &const Self) bool;
+trait Show {
+    fn show(&const self) i32;
 }
 ```
 
@@ -1599,11 +1626,49 @@ struct Point {
 }
 
 extend Point : Eq {
-    fn eq(&const self, other: &const Self) bool {
+    fn eq(&const self, other: &const Point) bool {
         self.x == other.x
+    }
+
+    fn ne(&const self, other: &const Point) bool {
+        self.x != other.x
     }
 }
 ```
+
+Some trait names are builtin capability traits. They are still implemented with
+ordinary trait implementation syntax, but their names and required members are
+defined by the language. Operator expressions are checked through these traits:
+
+| Operator | Required trait | Result |
+| --- | --- | --- |
+| `a + b` | `Add[Rhs]` | `Output` |
+| `a - b` | `Sub[Rhs]` | `Output` |
+| `a * b` | `Mul[Rhs]` | `Output` |
+| `a / b` | `Div[Rhs]` | `Output` |
+| `a % b` | `Rem[Rhs]` | `Output` |
+| `-a` | `Neg` | `Output` |
+| `!a` | `Not` | `bool` |
+| `~a` | `BitNot` | `Output` |
+| `a & b` | `BitAnd[Rhs]` | `Output` |
+| `a | b` | `BitOr[Rhs]` | `Output` |
+| `a ^ b` | `BitXor[Rhs]` | `Output` |
+| `a << b` | `Shl[Rhs]` | `Output` |
+| `a >> b` | `Shr[Rhs]` | `Output` |
+| `a == b`, `a != b` | `Eq[Rhs]` | `bool` |
+| `a < b`, `a <= b`, `a > b`, `a >= b` | `Ord[Rhs]` | `bool` |
+
+`!` is boolean logical not. `~` is bitwise not. Primitive implementations are
+compiler-proven for the primitive types that support the operation. Non-primitive
+operator support comes from visible `extend Type : Trait[...]` implementations.
+
+Builtin operator traits have fixed method names. Binary arithmetic and bitwise
+traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
+`shl`, and `shr`. Unary traits use `neg`, `not`, and `bit_not`. `Eq` requires
+both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
+
+`Sized` is also a builtin trait. It is compiler-proven from layout information
+and cannot be implemented manually.
 
 A trait implementation block is only for implementing the named trait. It must
 not contain methods that are not members of that trait. Inherent methods still
@@ -1614,11 +1679,11 @@ If an implementation omits a method that has a default body, calls to that
 method instantiate the default body with `Self` set to the implementing type:
 
 ```nia
-trait Eq {
-    fn eq(&const self, other: &const Self) bool;
+trait Comparable {
+    fn same(&const self, other: &const Self) bool;
 
-    fn ne(&const self, other: &const Self) bool {
-        !self.eq(other)
+    fn different(&const self, other: &const Self) bool {
+        !self.same(other)
     }
 }
 ```
@@ -1627,7 +1692,7 @@ Traits may declare supertraits after `:`. Multiple supertraits are joined with
 `+`:
 
 ```nia
-trait Ord : Eq {
+trait Ordered : Comparable {
     fn lt(&const self, other: &const Self) bool;
 }
 
@@ -1646,11 +1711,27 @@ extend Point : Eq {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
+
+    fn ne(&const self, other: &const Point) bool {
+        self.x != other.x
+    }
 }
 
 extend Point : Ord {
     fn lt(&const self, other: &const Point) bool {
         self.x < other.x
+    }
+
+    fn le(&const self, other: &const Point) bool {
+        self.x <= other.x
+    }
+
+    fn gt(&const self, other: &const Point) bool {
+        self.x > other.x
+    }
+
+    fn ge(&const self, other: &const Point) bool {
+        self.x >= other.x
     }
 }
 ```
@@ -1733,8 +1814,8 @@ Trait bounds are written in `where` clauses:
 
 ```nia
 fn same[T](a: &const T, b: &const T) bool
-where T: Eq {
-    a.eq(b)
+where T: Eq[T] {
+    a == b
 }
 ```
 
@@ -1743,14 +1824,15 @@ separate predicates:
 
 ```nia
 fn ordered_show[T, U](value: &const T, other: &const U) bool
-where T: Ord + Show, U: Eq {
+where T: Ord[U] + Show, U: Eq[U] {
     value.show() == 0
 }
 ```
 
 The current compiler parses and lowers trait bounds, validates trait
 implementation blocks, and supports receiver-method calls through generic
-`where` bounds. A call such as `a.eq(b)` in `fn same[T](...) where T: Eq` is
+`where` bounds. A call such as `a.same(b)` in
+`fn same[T](...) where T: Comparable` is
 kept as a trait-method obligation in the generic body and resolved to the
 visible concrete implementation when the generic function is instantiated.
 Default methods may call other methods from the same trait; those calls are

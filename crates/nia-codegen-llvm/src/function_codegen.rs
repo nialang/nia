@@ -264,6 +264,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .i64_type()
                 .const_int(*value, false)
                 .into()),
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Layout { name, ty }) => {
+                let Some(layout) = self.module.layout_of(*ty) else {
+                    return Err(self.error(expr.span, "layout builtin type has no known layout"));
+                };
+                let value = match name.as_str() {
+                    "size" => layout.size,
+                    "align" => layout.align,
+                    _ => return Err(self.error(expr.span, "unknown layout builtin")),
+                };
+                Ok(self
+                    .module
+                    .context
+                    .i64_type()
+                    .const_int(value, false)
+                    .into())
+            }
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
                 let ty = self
                     .module

@@ -74,6 +74,8 @@ impl Parser {
             Some(UnaryOp::Neg)
         } else if self.eat(TokenKind::Bang).is_some() {
             Some(UnaryOp::Not)
+        } else if self.eat(TokenKind::Tilde).is_some() {
+            Some(UnaryOp::BitNot)
         } else if self.eat(TokenKind::Amp).is_some() {
             if self.eat(TokenKind::Const).is_some() {
                 Some(UnaryOp::RefConst)

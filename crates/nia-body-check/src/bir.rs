@@ -5,9 +5,9 @@ use nia_ast::{
     SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_body_ir::{
-    BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinValue, PlaceBase, PlaceElem,
-    ResolvedCall, TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr,
-    TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal,
+    BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinOperatorOp, BuiltinValue,
+    PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements, TypedBinding, TypedBody, TypedCallee,
+    TypedExpr, TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal,
     TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
     TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
 };
@@ -319,6 +319,12 @@ impl<'a> BodyChecker<'a> {
                 Some(BuiltinValue::Usize(value)) => {
                     TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
                 }
+                Some(BuiltinValue::Layout { name, ty }) => {
+                    TypedExprKind::BuiltinValue(BuiltinConst::Layout {
+                        name: name.clone(),
+                        ty: *ty,
+                    })
+                }
                 None => TypedExprKind::Error,
             },
             ExprKind::TypeTarget { .. } => TypedExprKind::Error,
@@ -404,6 +410,17 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            ExprKind::Unary { op, expr: inner }
+                if let Some(trait_id) = crate::expr::builtin_trait_for_unary_op(*op) =>
+            {
+                TypedExprKind::Call {
+                    callee: TypedCallee::BuiltinOperator(BuiltinOperator {
+                        trait_id,
+                        op: BuiltinOperatorOp::Unary(*op),
+                    }),
+                    args: vec![self.lower_expr(inner)],
+                }
+            }
             ExprKind::Unary { op, expr: inner } => {
                 if let ExprKind::Index {
                     lhs,
@@ -442,7 +459,10 @@ impl<'a> BodyChecker<'a> {
                 if let Some(trait_id) = crate::expr::builtin_trait_for_binary_op(*op) =>
             {
                 TypedExprKind::Call {
-                    callee: TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op: *op }),
+                    callee: TypedCallee::BuiltinOperator(BuiltinOperator {
+                        trait_id,
+                        op: BuiltinOperatorOp::Binary(*op),
+                    }),
                     args: vec![self.lower_expr(lhs), self.lower_expr(rhs)],
                 }
             }

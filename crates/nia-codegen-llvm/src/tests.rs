@@ -156,6 +156,115 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_struct_comparison_operator_overload_calls() {
+    let root = temp_dir("emits_struct_comparison_operator_overload_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Number {
+    value: i32,
+}
+
+extend Number : Eq[Number] {
+    fn eq(&const self, other: &const Number) bool {
+        self.value == other.value
+    }
+
+    fn ne(&const self, other: &const Number) bool {
+        self.value != other.value
+    }
+}
+
+extend Number : Ord[Number] {
+    fn lt(&const self, other: &const Number) bool {
+        self.value < other.value
+    }
+
+    fn le(&const self, other: &const Number) bool {
+        self.value <= other.value
+    }
+
+    fn gt(&const self, other: &const Number) bool {
+        self.value > other.value
+    }
+
+    fn ge(&const self, other: &const Number) bool {
+        self.value >= other.value
+    }
+}
+
+fn main() bool {
+    var one: Number = { value: 1 };
+    var two: Number = { value: 2 };
+    one != two and one < two
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("__ne"), "{ir}");
+    assert!(ir.contains("__lt"), "{ir}");
+    assert!(ir.contains("call i1 @"), "{ir}");
+    assert!(ir.contains("ret i1"), "{ir}");
+}
+
+#[test]
+fn emits_struct_unary_operator_overload_calls() {
+    let root = temp_dir("emits_struct_unary_operator_overload_calls");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Number {
+    value: i32,
+}
+
+extend Number : Neg {
+    type Output = Number;
+
+    fn neg(self) Number {
+        { value: -self.value }
+    }
+}
+
+extend Number : BitNot {
+    type Output = Number;
+
+    fn bit_not(self) Number {
+        { value: ~self.value }
+    }
+}
+
+fn main() i32 {
+    var one: Number = { value: 1 };
+    var neg = -one;
+    var bits = ~neg;
+    bits.value
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("__neg"), "{ir}");
+    assert!(ir.contains("__bit_not"), "{ir}");
+    assert!(ir.contains("call void @"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
 fn checks_hosted_main_signatures() {
     let root = temp_dir("checks_hosted_main_signatures");
     let good = root.join("good.nia");
@@ -1444,7 +1553,7 @@ fn emits_trait_bound_generic_method_calls() {
     std::fs::write(
         &main,
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 }
 
@@ -1452,14 +1561,14 @@ struct Point {
     x: i32,
 }
 
-extend Point : Eq {
+extend Point : Same {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
 }
 
 fn same[T](a: &const T, b: &const T) bool
-where T: Eq {
+where T: Same {
     a.eq(b)
 }
 
@@ -1489,11 +1598,11 @@ fn emits_supertrait_method_calls_from_subtrait_bounds() {
     std::fs::write(
         &main,
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 }
 
-trait Ord : Eq {
+trait Ranked : Same {
     fn lt(&const self, other: &const Self) bool;
 }
 
@@ -1501,20 +1610,20 @@ struct Point {
     x: i32,
 }
 
-extend Point : Eq {
+extend Point : Same {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
 }
 
-extend Point : Ord {
+extend Point : Ranked {
     fn lt(&const self, other: &const Point) bool {
         self.x < other.x
     }
 }
 
 fn same_ord[T](a: &const T, b: &const T) bool
-where T: Ord {
+where T: Ranked {
     a.eq(b)
 }
 
@@ -1647,7 +1756,7 @@ fn emits_trait_default_method_instances() {
     std::fs::write(
         &main,
         r#"
-trait Eq {
+trait Same {
     fn eq(&const self, other: &const Self) bool;
 
     fn ne(&const self, other: &const Self) bool {
@@ -1659,14 +1768,14 @@ struct Point {
     x: i32,
 }
 
-extend Point : Eq {
+extend Point : Same {
     fn eq(&const self, other: &const Point) bool {
         self.x == other.x
     }
 }
 
 fn different[T](a: &const T, b: &const T) bool
-where T: Eq {
+where T: Same {
     a.ne(b)
 }
 

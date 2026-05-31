@@ -5,9 +5,10 @@ use crate::ModuleLowerer;
 use nia_defs::VisibleExtensionTarget;
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding,
-    FunctionBuiltinOperator, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
-    FunctionFieldInit, FunctionForHeader, FunctionInlineAsm, FunctionOp, FunctionPlace,
-    FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange, FunctionTerminator,
+    FunctionBuiltinOperator, FunctionBuiltinOperatorOp, FunctionCallee, FunctionDeferBody,
+    FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
+    FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange,
+    FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId, TraitId};
 use nia_ty::{PrimitiveTy, TyKind};
@@ -431,23 +432,76 @@ impl<'a> ModuleLowerer<'a> {
         operator: FunctionBuiltinOperator,
         args: Vec<FunctionExpr>,
     ) -> FunctionExprKind {
-        let [lhs, rhs] = args.as_slice() else {
+        match operator.op {
+            FunctionBuiltinOperatorOp::Unary(_) => {
+                self.dispatch_builtin_unary_operator(operator, args)
+            }
+            FunctionBuiltinOperatorOp::Binary(_) => {
+                self.dispatch_builtin_binary_operator(operator, args)
+            }
+        }
+    }
+
+    fn dispatch_builtin_unary_operator(
+        &self,
+        operator: FunctionBuiltinOperator,
+        args: Vec<FunctionExpr>,
+    ) -> FunctionExprKind {
+        let [receiver] = args.as_slice() else {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::BuiltinOperator(operator),
                 args,
             };
         };
-        if self.is_primitive_builtin_operator_impl(operator.trait_id, lhs.ty, rhs.ty) {
+        if self.is_primitive_builtin_unary_operator_impl(operator.trait_id, receiver.ty) {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::BuiltinOperator(operator),
                 args,
             };
         }
         if let Some((def_id, method_args)) =
-            self.resolve_builtin_operator_impl_method(operator.trait_id, lhs.ty)
+            self.resolve_builtin_operator_impl_method(operator, receiver.ty)
+        {
+            let [receiver] = <[FunctionExpr; 1]>::try_from(args).ok().expect(
+                "builtin unary operator call arity was checked before dispatching to method call",
+            );
+            return FunctionExprKind::Call {
+                callee: FunctionCallee::Method {
+                    def_id,
+                    args: method_args,
+                    receiver: Box::new(receiver),
+                },
+                args: Vec::new(),
+            };
+        }
+        FunctionExprKind::Call {
+            callee: FunctionCallee::BuiltinOperator(operator),
+            args,
+        }
+    }
+
+    fn dispatch_builtin_binary_operator(
+        &self,
+        operator: FunctionBuiltinOperator,
+        args: Vec<FunctionExpr>,
+    ) -> FunctionExprKind {
+        let [lhs, rhs] = args.as_slice() else {
+            return FunctionExprKind::Call {
+                callee: FunctionCallee::BuiltinOperator(operator),
+                args,
+            };
+        };
+        if self.is_primitive_builtin_binary_operator_impl(operator.trait_id, lhs.ty, rhs.ty) {
+            return FunctionExprKind::Call {
+                callee: FunctionCallee::BuiltinOperator(operator),
+                args,
+            };
+        }
+        if let Some((def_id, method_args)) =
+            self.resolve_builtin_operator_impl_method(operator, lhs.ty)
         {
             let [lhs, rhs] = <[FunctionExpr; 2]>::try_from(args).ok().expect(
-                "builtin operator call arity was checked before dispatching to method call",
+                "builtin binary operator call arity was checked before dispatching to method call",
             );
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
@@ -466,17 +520,22 @@ impl<'a> ModuleLowerer<'a> {
 
     fn resolve_builtin_operator_impl_method(
         &self,
-        trait_id: nia_ids::BuiltinTrait,
+        operator: FunctionBuiltinOperator,
         lhs_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let method_name = builtin_operator_method_name(trait_id);
+        let method_name = builtin_operator_method_name(operator);
         let candidates = self
             .input
             .extensions
             .targets()
             .iter()
             .filter_map(|target| {
-                self.builtin_operator_impl_method_for_target(target, trait_id, method_name, lhs_ty)
+                self.builtin_operator_impl_method_for_target(
+                    target,
+                    operator.trait_id,
+                    method_name,
+                    lhs_ty,
+                )
             })
             .collect::<Vec<_>>();
         match candidates.as_slice() {
@@ -510,7 +569,20 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn is_primitive_builtin_operator_impl(
+    fn is_primitive_builtin_unary_operator_impl(
+        &self,
+        trait_id: nia_ids::BuiltinTrait,
+        self_ty: InternedTyId,
+    ) -> bool {
+        match trait_id {
+            nia_ids::BuiltinTrait::Neg => self.is_numeric(self_ty),
+            nia_ids::BuiltinTrait::BitNot => self.is_integer(self_ty),
+            nia_ids::BuiltinTrait::Not => self.types_match(self_ty, self.bool_ty()),
+            _ => false,
+        }
+    }
+
+    fn is_primitive_builtin_binary_operator_impl(
         &self,
         trait_id: nia_ids::BuiltinTrait,
         lhs_ty: InternedTyId,
@@ -532,7 +604,22 @@ impl<'a> ModuleLowerer<'a> {
             nia_ids::BuiltinTrait::Shl | nia_ids::BuiltinTrait::Shr => {
                 self.is_integer(lhs_ty) && self.is_integer(rhs_ty)
             }
+            nia_ids::BuiltinTrait::Eq => {
+                self.types_match(lhs_ty, rhs_ty)
+                    && (self.is_numeric(lhs_ty)
+                        || self.types_match(lhs_ty, self.bool_ty())
+                        || self.is_pointer(lhs_ty)
+                        || self.is_enum(lhs_ty))
+            }
+            nia_ids::BuiltinTrait::Ord => {
+                self.types_match(lhs_ty, rhs_ty) && self.is_numeric(lhs_ty)
+            }
+            _ => false,
         }
+    }
+
+    fn bool_ty(&self) -> InternedTyId {
+        self.interner.primitive(PrimitiveTy::Bool)
     }
 
     fn is_numeric(&self, ty: InternedTyId) -> bool {
@@ -562,19 +649,56 @@ impl<'a> ModuleLowerer<'a> {
             ))
         )
     }
+
+    fn is_pointer(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.ty_kind(ty),
+            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
+        )
+    }
+
+    fn is_enum(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.ty_kind(ty),
+            Some(TyKind::Nominal { def_id, .. }) if self.input.signatures.enums.contains_key(&def_id.def_id)
+        )
+    }
 }
 
-fn builtin_operator_method_name(trait_id: nia_ids::BuiltinTrait) -> &'static str {
-    match trait_id {
-        nia_ids::BuiltinTrait::Add => "add",
-        nia_ids::BuiltinTrait::Sub => "sub",
-        nia_ids::BuiltinTrait::Mul => "mul",
-        nia_ids::BuiltinTrait::Div => "div",
-        nia_ids::BuiltinTrait::Rem => "rem",
-        nia_ids::BuiltinTrait::BitAnd => "bit_and",
-        nia_ids::BuiltinTrait::BitOr => "bit_or",
-        nia_ids::BuiltinTrait::BitXor => "bit_xor",
-        nia_ids::BuiltinTrait::Shl => "shl",
-        nia_ids::BuiltinTrait::Shr => "shr",
+fn builtin_operator_method_name(operator: FunctionBuiltinOperator) -> &'static str {
+    match (operator.trait_id, operator.op) {
+        (nia_ids::BuiltinTrait::Add, _) => "add",
+        (nia_ids::BuiltinTrait::Sub, _) => "sub",
+        (nia_ids::BuiltinTrait::Mul, _) => "mul",
+        (nia_ids::BuiltinTrait::Div, _) => "div",
+        (nia_ids::BuiltinTrait::Rem, _) => "rem",
+        (nia_ids::BuiltinTrait::Neg, _) => "neg",
+        (nia_ids::BuiltinTrait::Not, _) => "not",
+        (nia_ids::BuiltinTrait::BitNot, _) => "bit_not",
+        (nia_ids::BuiltinTrait::BitAnd, _) => "bit_and",
+        (nia_ids::BuiltinTrait::BitOr, _) => "bit_or",
+        (nia_ids::BuiltinTrait::BitXor, _) => "bit_xor",
+        (nia_ids::BuiltinTrait::Shl, _) => "shl",
+        (nia_ids::BuiltinTrait::Shr, _) => "shr",
+        (nia_ids::BuiltinTrait::Eq, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Eq)) => {
+            "eq"
+        }
+        (nia_ids::BuiltinTrait::Eq, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Ne)) => {
+            "ne"
+        }
+        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Lt)) => {
+            "lt"
+        }
+        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Le)) => {
+            "le"
+        }
+        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Gt)) => {
+            "gt"
+        }
+        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Ge)) => {
+            "ge"
+        }
+        (nia_ids::BuiltinTrait::Sized, _) => "sized",
+        _ => "invalid",
     }
 }
