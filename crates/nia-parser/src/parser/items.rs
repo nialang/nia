@@ -309,6 +309,7 @@ impl Parser {
         self.expect(TokenKind::Trait, "expected `trait`")?;
         let name = self.expect_text(TokenKind::Ident, "expected trait name")?;
         let generics = self.parse_generic_params();
+        let supertraits = self.parse_supertraits();
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after trait name")?;
         let mut associated_types = Vec::new();
@@ -334,10 +335,30 @@ impl Parser {
         Some(TraitItem {
             name,
             generics,
+            supertraits,
             where_clause,
             associated_types,
             methods,
         })
+    }
+
+    fn parse_supertraits(&mut self) -> Vec<TypeRef> {
+        let mut supertraits = Vec::new();
+        if self.eat(TokenKind::Colon).is_none() {
+            return supertraits;
+        }
+        loop {
+            let Some(supertrait) =
+                self.parse_type_until(&[TokenKind::Plus, TokenKind::Where, TokenKind::LBrace])
+            else {
+                break;
+            };
+            supertraits.push(supertrait);
+            if self.eat(TokenKind::Plus).is_none() {
+                break;
+            }
+        }
+        supertraits
     }
 
     fn parse_trait_associated_type(&mut self) -> Option<TraitAssociatedType> {

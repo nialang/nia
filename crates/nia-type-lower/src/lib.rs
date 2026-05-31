@@ -117,6 +117,9 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                         .interner
                         .intern(TyKind::GenericParam("Self".to_string()));
                     lowerer.with_self_type(self_ty, |lowerer| {
+                        for supertrait in &item_trait.supertraits {
+                            lowerer.lower_type_in_context(supertrait, TypeContext::Value);
+                        }
                         lowerer.lower_where_clause(&item_trait.where_clause);
                         for method in &item_trait.methods {
                             lowerer.visit_function(&method.function);

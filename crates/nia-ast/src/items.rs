@@ -113,6 +113,7 @@ pub struct UnionItem {
 pub struct TraitItem {
     pub name: String,
     pub generics: Vec<String>,
+    pub supertraits: Vec<TypeRef>,
     pub where_clause: WhereClause,
     pub associated_types: Vec<TraitAssociatedType>,
     pub methods: Vec<TraitMethod>,

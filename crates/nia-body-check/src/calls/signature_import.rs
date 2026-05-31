@@ -155,6 +155,11 @@ impl<'a> BodyChecker<'a> {
         program_signature: &ProgramTraitSignature,
     ) -> TraitSignature {
         let mut signature = program_signature.signature.clone();
+        signature.supertraits = signature
+            .supertraits
+            .iter()
+            .map(|supertrait| self.import_type_from(&program_signature.interner, *supertrait))
+            .collect();
         signature.methods = signature
             .methods
             .iter()

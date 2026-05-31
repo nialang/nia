@@ -1590,6 +1590,38 @@ trait Eq {
 }
 ```
 
+Traits may declare supertraits after `:`. Multiple supertraits are joined with
+`+`:
+
+```nia
+trait Ord : Eq {
+    fn lt(&const self, other: &const Self) bool;
+}
+
+trait IndexedSource[I] : Source + Index[I] {
+    fn valid_index(&const self, index: I) bool;
+}
+```
+
+If `Child : Parent`, then a `where T: Child` bound also makes `Parent` methods
+available on `T`, and default methods in `Child` may call `Parent` methods.
+Implementing `Child` does not implicitly implement `Parent`; the parent trait
+implementation must be written explicitly:
+
+```nia
+extend Point : Eq {
+    fn eq(&const self, other: &const Point) bool {
+        self.x == other.x
+    }
+}
+
+extend Point : Ord {
+    fn lt(&const self, other: &const Point) bool {
+        self.x < other.x
+    }
+}
+```
+
 Traits may declare associated types. An associated type is a named type output
 selected by the implementing `Self` type and the trait's explicit generic
 arguments:
@@ -1651,6 +1683,16 @@ where T: Eq {
 }
 ```
 
+Within a single predicate, multiple trait bounds are joined with `+`; commas
+separate predicates:
+
+```nia
+fn ordered_show[T, U](value: &const T, other: &const U) bool
+where T: Ord + Show, U: Eq {
+    value.show() == 0
+}
+```
+
 The current compiler parses and lowers trait bounds, validates trait
 implementation blocks, and supports receiver-method calls through generic
 `where` bounds. A call such as `a.eq(b)` in `fn same[T](...) where T: Eq` is
@@ -1660,6 +1702,8 @@ Default methods may call other methods from the same trait; those calls are
 resolved through the visible concrete implementation when available, or through
 another default body. Associated type projections are normalized through the
 visible concrete trait implementation during checking and monomorphization.
+Supertrait method obligations are resolved through the same visible concrete
+implementation lookup.
 
 ## 12. Modules
 

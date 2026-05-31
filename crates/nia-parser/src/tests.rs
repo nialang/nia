@@ -1358,3 +1358,29 @@ extend Box[i32] : Show where i32: Show {
     assert!(extend.trait_ref.is_some());
     assert_eq!(extend.where_clause.predicates.len(), 1);
 }
+
+#[test]
+fn parses_supertraits_with_plus_bounds() {
+    let (module, errors) = parse_module(
+        r#"
+trait Eq {
+    fn eq(&const self, other: &const Self) bool;
+}
+
+trait Show {
+    fn show(&const self) i32;
+}
+
+trait Ord : Eq + Show
+where Self: Eq {
+    fn lt(&const self, other: &const Self) bool;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Trait(item_trait) = &module.items[2].kind else {
+        panic!("expected trait");
+    };
+    assert_eq!(item_trait.supertraits.len(), 2);
+    assert_eq!(item_trait.where_clause.predicates.len(), 1);
+}
