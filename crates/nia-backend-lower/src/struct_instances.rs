@@ -448,6 +448,11 @@ impl<'a> ModuleLowerer<'a> {
             | Some(TyKind::Array { elem, .. }) => {
                 self.collect_struct_instance_ty(elem, seen, out);
             }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_struct_instance_ty(bound, seen, out);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -815,6 +820,11 @@ impl<'a> ModuleLowerer<'a> {
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::Array { elem, .. }) => {
                 self.collect_union_instance_ty(elem, seen, out);
+            }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_union_instance_ty(bound, seen, out);
+                }
             }
             Some(TyKind::FunctionPointer {
                 params,

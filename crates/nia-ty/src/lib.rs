@@ -20,6 +20,10 @@ pub enum TyKind {
         len: ArrayLenTy,
         elem: InternedTyId,
     },
+    Range {
+        kind: RangeTyKind,
+        bound: Option<InternedTyId>,
+    },
     FunctionPointer {
         params: Vec<InternedTyId>,
         return_type: InternedTyId,
@@ -40,6 +44,16 @@ pub enum TyKind {
         name: String,
     },
     GenericParam(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RangeTyKind {
+    Exclusive,
+    Inclusive,
+    From,
+    To,
+    ToInclusive,
+    Full,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

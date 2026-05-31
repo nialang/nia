@@ -42,6 +42,38 @@ impl Parser {
 
     pub(super) fn parse_type(&mut self) -> Option<TypeRef> {
         let start = self.peek().span.start;
+        if self.eat(TokenKind::DotDot).is_some() {
+            let end = if self.type_can_start() {
+                Some(Box::new(self.parse_type()?))
+            } else {
+                None
+            };
+            let span = Span::new(
+                start,
+                end.as_ref().map_or(self.previous_end(), |end| end.span.end),
+            );
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: None,
+                    end,
+                    inclusive: false,
+                },
+            ));
+        }
+        if self.eat(TokenKind::DotDotEq).is_some() {
+            let end = self.parse_type()?;
+            let span = Span::new(start, end.span.end);
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: None,
+                    end: Some(Box::new(end)),
+                    inclusive: true,
+                },
+            ));
+        }
+
         let kind = if self.eat(TokenKind::Amp).is_some() {
             self.parse_type_after_amp(start)?
         } else if self.eat(TokenKind::LBracket).is_some() {
@@ -79,8 +111,40 @@ impl Parser {
             self.error_here("expected type");
             return None;
         };
-        let span = Span::new(start, self.previous_end());
-        Some(self.make_type_ref(span, kind))
+        let start_bound_end = self.previous_end();
+        let start_bound = self.make_type_ref(Span::new(start, start_bound_end), kind);
+        if self.eat(TokenKind::DotDot).is_some() {
+            let end = if self.type_can_start() {
+                Some(Box::new(self.parse_type()?))
+            } else {
+                None
+            };
+            let span = Span::new(
+                start,
+                end.as_ref().map_or(self.previous_end(), |end| end.span.end),
+            );
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: Some(Box::new(start_bound)),
+                    end,
+                    inclusive: false,
+                },
+            ));
+        }
+        if self.eat(TokenKind::DotDotEq).is_some() {
+            let end = self.parse_type()?;
+            let span = Span::new(start, end.span.end);
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: Some(Box::new(start_bound)),
+                    end: Some(Box::new(end)),
+                    inclusive: true,
+                },
+            ));
+        }
+        Some(start_bound)
     }
 
     fn parse_projection_type_after_open(&mut self) -> Option<TypeKind> {
@@ -210,6 +274,25 @@ impl Parser {
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             let checkpoint = self.tokens.checkpoint();
             let errors_len = self.errors.len();
+            if self.at(TokenKind::DotDot) || self.at(TokenKind::DotDotEq) {
+                if let Some(ty) = self.parse_type() {
+                    args.push(TypeArg::Type(ty));
+                } else {
+                    self.tokens.rewind(checkpoint);
+                    self.errors.truncate(errors_len);
+                    if let Some(span) = self.collect_until(&[TokenKind::Comma, TokenKind::RBracket])
+                    {
+                        args.push(TypeArg::Const(ExprStub {
+                            span,
+                            text: self.source_text(span),
+                        }));
+                    }
+                }
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+                continue;
+            }
             if self.at(TokenKind::Ident) {
                 let name_token = self.bump();
                 if self.eat(TokenKind::Eq).is_some() {
@@ -259,6 +342,8 @@ impl Parser {
             TokenKind::Amp
                 | TokenKind::LBracket
                 | TokenKind::Ident
+                | TokenKind::DotDot
+                | TokenKind::DotDotEq
                 | TokenKind::Bool
                 | TokenKind::SelfType
                 | TokenKind::Void

@@ -356,6 +356,17 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
+            ExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.check_expr_flow(start);
+                }
+                if let Some(end) = &range.end {
+                    self.check_expr_flow(end);
+                }
+                Flow {
+                    falls_through: true,
+                }
+            }
             ExprKind::Error
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
@@ -455,6 +466,14 @@ impl FlowChecker<'_> {
                             self.check_no_deferred_control_flow(end);
                         }
                     }
+                }
+            }
+            ExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.check_no_deferred_control_flow(start);
+                }
+                if let Some(end) = &range.end {
+                    self.check_no_deferred_control_flow(end);
                 }
             }
             ExprKind::Block(block) => self.check_no_deferred_control_flow_in_block(block),

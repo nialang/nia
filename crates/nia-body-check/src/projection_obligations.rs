@@ -353,6 +353,11 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Array { elem, .. }) => {
                 self.check_type_projection_obligations(span, elem, obligations);
             }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.check_type_projection_obligations(span, bound, obligations);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -537,14 +542,20 @@ impl<'a> BodyChecker<'a> {
                         .is_some()
             }
             BuiltinTrait::SliceConst => {
-                required.trait_args.is_empty()
-                    && (self.current_context_has_source_trait_obligation(required)
-                        || self.builtin_slice_output_ty(self_ty, false).is_some())
+                let [range_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                self.current_context_has_source_trait_obligation(required)
+                    || (self.is_builtin_usize_range(*range_ty)
+                        && self.builtin_slice_output_ty(self_ty, false).is_some())
             }
             BuiltinTrait::Slice => {
-                required.trait_args.is_empty()
-                    && (self.current_context_has_source_trait_obligation(required)
-                        || self.builtin_mut_slice_output_ty(self_ty).is_some())
+                let [range_ty] = required.trait_args.as_slice() else {
+                    return false;
+                };
+                self.current_context_has_source_trait_obligation(required)
+                    || (self.is_builtin_usize_range(*range_ty)
+                        && self.builtin_mut_slice_output_ty(self_ty).is_some())
             }
         }
     }
@@ -627,6 +638,27 @@ impl<'a> BodyChecker<'a> {
             ) => {
                 left_len == right_len
                     && self.types_equivalent_without_projection_resolution(*left_elem, *right_elem)
+            }
+            (
+                Some(TyKind::Range {
+                    kind: left_kind,
+                    bound: left_bound,
+                }),
+                Some(TyKind::Range {
+                    kind: right_kind,
+                    bound: right_bound,
+                }),
+            ) => {
+                left_kind == right_kind
+                    && match (left_bound, right_bound) {
+                        (Some(left_bound), Some(right_bound)) => self
+                            .types_equivalent_without_projection_resolution(
+                                *left_bound,
+                                *right_bound,
+                            ),
+                        (None, None) => true,
+                        _ => false,
+                    }
             }
             (
                 Some(TyKind::FunctionPointer {

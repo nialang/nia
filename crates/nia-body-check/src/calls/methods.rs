@@ -1168,6 +1168,22 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::Range {
+                kind: general_kind,
+                bound: general_bound,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::Range {
+                    kind: specific_kind,
+                    bound: specific_bound,
+                }) if general_kind == specific_kind => match (general_bound, specific_bound) {
+                    (Some(general_bound), Some(specific_bound)) => {
+                        self.pattern_subsumes_inner(*general_bound, *specific_bound, substitutions)
+                    }
+                    (None, None) => true,
+                    _ => false,
+                },
+                _ => false,
+            },
             Some(TyKind::FunctionPointer {
                 params: general_params,
                 return_type: general_return,
@@ -1408,6 +1424,21 @@ impl<'a> BodyChecker<'a> {
             }) => match self.interner.get(actual) {
                 Some(TyKind::Array { len, elem }) if self.array_lens_match(pattern_len, len) => {
                     self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Range {
+                kind: pattern_kind,
+                bound: pattern_bound,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::Range { kind, bound }) if pattern_kind == kind => {
+                    match (pattern_bound, bound) {
+                        (Some(pattern_bound), Some(bound)) => {
+                            self.match_type_pattern(*pattern_bound, *bound, substitutions)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
                 }
                 _ => false,
             },

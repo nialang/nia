@@ -147,6 +147,11 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.substitute_generics(elem, substitutions);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            Some(TyKind::Range { kind, bound }) => {
+                let kind = *kind;
+                let bound = bound.map(|bound| self.substitute_generics(bound, substitutions));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,

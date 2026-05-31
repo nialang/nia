@@ -187,6 +187,10 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context} cannot use array by value"),
             )),
+            Some(TyKind::Range { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use range by value"),
+            )),
             Some(TyKind::Nominal { def_id, .. }) => {
                 if self.is_enum_def(*def_id) {
                     self.diagnostics.push(Diagnostic::error(

@@ -113,6 +113,12 @@ impl<'a> BodyChecker<'a> {
                     format!("{context} cannot use aggregate type directly"),
                 ));
             }
+            Some(TyKind::Range { .. }) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("{context} cannot use range type directly"),
+                ));
+            }
             Some(TyKind::Nominal { def_id, .. }) if !self.is_enum_def(*def_id) => {
                 self.diagnostics.push(Diagnostic::error(
                     span,

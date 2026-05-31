@@ -7,7 +7,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TraitId, TyKind};
+use nia_ty::{BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -305,24 +305,43 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let lhs_expected = self.array_expected_from_slice_expected(expected);
         let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
-        self.check_slice_range_bounds(range);
+        let range_ty = self.check_slice_range_bounds(range);
         if is_const {
             self.check_addressable(lhs, "slice target");
         } else {
             self.check_assignable(lhs, "slice target");
         }
-        self.slice_result_type_with_context(span, lhs_ty, is_const)
+        self.slice_result_type_with_context(span, lhs_ty, is_const, range_ty)
     }
 
-    pub(crate) fn check_slice_range_bounds(&mut self, range: &SliceRange) {
+    pub(crate) fn check_slice_range_bounds(&mut self, range: &SliceRange) -> InternedTyId {
+        let expected = self.slice_range_expected_ty(range);
+        let usize_ty = self.primitive(PrimitiveTy::Usize);
         if let Some(start) = &range.start {
-            let start_ty = self.check_expr(start);
+            let start_ty = self.check_expr_with_expected(start, Some(usize_ty));
+            self.expect_expr_type(start, usize_ty, start_ty, "slice range start");
             self.expect_integer(start.span, start_ty, "slice range start");
         }
         if let Some(end) = &range.end {
-            let end_ty = self.check_expr(end);
+            let end_ty = self.check_expr_with_expected(end, Some(usize_ty));
+            self.expect_expr_type(end, usize_ty, end_ty, "slice range end");
             self.expect_integer(end.span, end_ty, "slice range end");
         }
+        expected
+    }
+
+    fn slice_range_expected_ty(&mut self, range: &SliceRange) -> InternedTyId {
+        let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
+            (true, true, false) => RangeTyKind::Exclusive,
+            (true, true, true) => RangeTyKind::Inclusive,
+            (true, false, false) => RangeTyKind::From,
+            (false, true, false) => RangeTyKind::To,
+            (false, true, true) => RangeTyKind::ToInclusive,
+            (false, false, false) => RangeTyKind::Full,
+            (true, false, true) | (false, false, true) => RangeTyKind::Full,
+        };
+        let bound = (kind != RangeTyKind::Full).then(|| self.primitive(PrimitiveTy::Usize));
+        self.interner.intern(TyKind::Range { kind, bound })
     }
 
     pub(crate) fn slice_result_type(
@@ -330,7 +349,11 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         is_const: bool,
     ) -> InternedTyId {
-        self.slice_result_type_with_context(Span::default(), lhs_ty, is_const)
+        let range_ty = self.interner.intern(TyKind::Range {
+            kind: RangeTyKind::Full,
+            bound: None,
+        });
+        self.slice_result_type_with_context(Span::default(), lhs_ty, is_const, range_ty)
     }
 
     fn slice_result_type_with_context(
@@ -338,6 +361,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         lhs_ty: InternedTyId,
         is_const: bool,
+        range_ty: InternedTyId,
     ) -> InternedTyId {
         if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
             return self.error();
@@ -346,12 +370,12 @@ impl<'a> BodyChecker<'a> {
             if self.current_context_proves_trait_obligation(
                 lhs_ty,
                 TraitId::Builtin(BuiltinTrait::SliceConst),
-                Vec::new(),
+                vec![range_ty],
             ) {
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
                     trait_id: TraitId::Builtin(BuiltinTrait::SliceConst),
-                    trait_args: Vec::new(),
+                    trait_args: vec![range_ty],
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
                 return self.normalize_projection(output);
@@ -362,7 +386,7 @@ impl<'a> BodyChecker<'a> {
                     format!(
                         "trait bound not satisfied: {}: {}",
                         self.ty_name(lhs_ty),
-                        self.builtin_trait_ty_name(BuiltinTrait::SliceConst, &[])
+                        self.builtin_trait_ty_name(BuiltinTrait::SliceConst, &[range_ty])
                     ),
                 ));
             }
@@ -371,12 +395,12 @@ impl<'a> BodyChecker<'a> {
         if self.current_context_proves_trait_obligation(
             lhs_ty,
             TraitId::Builtin(BuiltinTrait::Slice),
-            Vec::new(),
+            vec![range_ty],
         ) {
             let output = self.interner.intern(TyKind::Projection {
                 self_ty: lhs_ty,
                 trait_id: TraitId::Builtin(BuiltinTrait::Slice),
-                trait_args: Vec::new(),
+                trait_args: vec![range_ty],
                 name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
             });
             return self.normalize_projection(output);
@@ -387,7 +411,7 @@ impl<'a> BodyChecker<'a> {
                 format!(
                     "trait bound not satisfied: {}: {}",
                     self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(BuiltinTrait::Slice, &[])
+                    self.builtin_trait_ty_name(BuiltinTrait::Slice, &[range_ty])
                 ),
             ));
         }

@@ -30,6 +30,10 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.normalize_projection(elem);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.normalize_projection(bound));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -232,7 +236,13 @@ impl<'a> BodyChecker<'a> {
             return self.builtin_index_output_ty(self_ty, *index_ty);
         }
         if matches!(trait_id, BuiltinTrait::SliceConst | BuiltinTrait::Slice) {
-            if name != BuiltinTrait::OUTPUT_ASSOC_TYPE || !trait_args.is_empty() {
+            if name != BuiltinTrait::OUTPUT_ASSOC_TYPE {
+                return None;
+            }
+            let [range_ty] = trait_args else {
+                return None;
+            };
+            if !self.is_builtin_usize_range(*range_ty) {
                 return None;
             }
             return self.builtin_slice_output_ty(self_ty, matches!(trait_id, BuiltinTrait::Slice));
@@ -387,6 +397,21 @@ impl<'a> BodyChecker<'a> {
                 elem: *elem,
             })),
             _ => None,
+        }
+    }
+
+    pub(crate) fn is_builtin_usize_range(&self, ty: InternedTyId) -> bool {
+        let ty = self.normalization.normalize(ty);
+        let Some(TyKind::Range { kind, bound }) = self.interner.get(ty) else {
+            return false;
+        };
+        match (kind, bound) {
+            (nia_ty::RangeTyKind::Full, None) => true,
+            (_, Some(bound)) => self.types_equivalent_without_projection_resolution(
+                *bound,
+                self.primitive(PrimitiveTy::Usize),
+            ),
+            _ => false,
         }
     }
 
@@ -726,6 +751,22 @@ impl<'a> BodyChecker<'a> {
                 expected_len == actual_len
             }
             (
+                Some(TyKind::Range {
+                    kind: expected_kind,
+                    bound: expected_bound,
+                }),
+                Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }),
+            ) if expected_kind == actual_kind => match (expected_bound, actual_bound) {
+                (Some(expected_bound), Some(actual_bound)) => {
+                    self.types_match_normalized(expected_bound, actual_bound)
+                }
+                (None, None) => true,
+                _ => false,
+            },
+            (
                 Some(TyKind::Projection {
                     self_ty: expected_self,
                     trait_id: expected_trait,
@@ -881,6 +922,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Array { len, elem }) => {
                 format!("[{}]{}", self.array_len_name(len), self.ty_name(*elem))
             }
+            Some(TyKind::Range { kind, bound }) => self.range_ty_name(*kind, *bound),
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -917,6 +959,24 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::GenericParam(name)) => name.clone(),
             Some(TyKind::Error) => "<error type>".to_string(),
             None => "<unknown type>".to_string(),
+        }
+    }
+
+    fn range_ty_name(&self, kind: nia_ty::RangeTyKind, bound: Option<InternedTyId>) -> String {
+        match (kind, bound) {
+            (nia_ty::RangeTyKind::Exclusive, Some(bound)) => {
+                format!("{}..{}", self.ty_name(bound), self.ty_name(bound))
+            }
+            (nia_ty::RangeTyKind::Inclusive, Some(bound)) => {
+                format!("{}..={}", self.ty_name(bound), self.ty_name(bound))
+            }
+            (nia_ty::RangeTyKind::From, Some(bound)) => format!("{}..", self.ty_name(bound)),
+            (nia_ty::RangeTyKind::To, Some(bound)) => format!("..{}", self.ty_name(bound)),
+            (nia_ty::RangeTyKind::ToInclusive, Some(bound)) => {
+                format!("..={}", self.ty_name(bound))
+            }
+            (nia_ty::RangeTyKind::Full, None) => "..".to_string(),
+            _ => "<invalid range type>".to_string(),
         }
     }
 

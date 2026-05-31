@@ -282,7 +282,7 @@ impl BuiltinTrait {
     }];
     const SLICE_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
         trait_id: Self::SliceConst,
-        preserves_trait_args: false,
+        preserves_trait_args: true,
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
@@ -381,15 +381,12 @@ impl BuiltinTrait {
             | Self::Eq
             | Self::Ord
             | Self::IndexConst
-            | Self::Index => 1,
-            Self::Neg
-            | Self::Not
-            | Self::BitNot
-            | Self::Sized
-            | Self::DerefConst
-            | Self::Deref
+            | Self::Index
             | Self::SliceConst
-            | Self::Slice => 0,
+            | Self::Slice => 1,
+            Self::Neg | Self::Not | Self::BitNot | Self::Sized | Self::DerefConst | Self::Deref => {
+                0
+            }
         }
     }
 

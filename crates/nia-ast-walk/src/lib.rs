@@ -159,6 +159,14 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
             }
             visitor.visit_type(elem);
         }
+        TypeKind::Range { start, end, .. } => {
+            if let Some(start) = start {
+                visitor.visit_type(start);
+            }
+            if let Some(end) = end {
+                visitor.visit_type(end);
+            }
+        }
         TypeKind::FunctionPointer {
             params,
             return_type,
@@ -311,6 +319,14 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                         visitor.visit_expr(end);
                     }
                 }
+            }
+        }
+        ExprKind::Range(range) => {
+            if let Some(start) = &range.start {
+                visitor.visit_expr(start);
+            }
+            if let Some(end) = &range.end {
+                visitor.visit_expr(end);
             }
         }
         ExprKind::Block(block) => visitor.visit_block(block),

@@ -503,6 +503,20 @@ impl<'a> BodyChecker<'a> {
                     self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
                 }
             }
+            Some(TyKind::Range {
+                kind: pattern_kind,
+                bound: pattern_bound,
+            }) => {
+                if let Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_kind == actual_kind
+                    && let (Some(pattern_bound), Some(actual_bound)) = (pattern_bound, actual_bound)
+                {
+                    self.infer_generics_from_type(pattern_bound, actual_bound, substitutions, span);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params: pattern_params,
                 return_type: pattern_return,

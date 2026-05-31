@@ -94,6 +94,11 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Array { elem, .. }) => {
                 self.collect_generic_params_in_ty(*elem, generics);
             }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_generic_params_in_ty(*bound, generics);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -1035,6 +1040,11 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Array { elem, .. }) => {
                 self.collect_generic_params_in_extension_ty(*elem, generics);
             }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_generic_params_in_extension_ty(*bound, generics);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -1152,6 +1162,10 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.instantiate_ty(elem, substitutions);
                 self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.instantiate_ty(bound, substitutions));
+                self.interner.intern(TyKind::Range { kind, bound })
             }
             Some(TyKind::FunctionPointer {
                 params,
@@ -1322,6 +1336,21 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::Range {
+                kind: pattern_kind,
+                bound: pattern_bound,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::Range { kind, bound }) if pattern_kind == kind => {
+                    match (pattern_bound, bound) {
+                        (Some(pattern_bound), Some(bound)) => {
+                            self.match_extension_type_pattern(*pattern_bound, *bound, substitutions)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+                }
+                _ => false,
+            },
             Some(TyKind::FunctionPointer {
                 params: pattern_params,
                 return_type: pattern_return,
@@ -1448,6 +1477,25 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .zip(right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
+            }
+            (
+                Some(TyKind::Range {
+                    kind: left_kind,
+                    bound: left_bound,
+                }),
+                Some(TyKind::Range {
+                    kind: right_kind,
+                    bound: right_bound,
+                }),
+            ) => {
+                left_kind == right_kind
+                    && match (left_bound, right_bound) {
+                        (Some(left_bound), Some(right_bound)) => {
+                            self.types_match(*left_bound, *right_bound)
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
             }
             (
                 Some(TyKind::Projection {

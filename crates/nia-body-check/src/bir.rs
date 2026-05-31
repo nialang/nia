@@ -564,6 +564,7 @@ impl<'a> BodyChecker<'a> {
                     is_const: true,
                 },
             },
+            ExprKind::Range(_) => TypedExprKind::Error,
             ExprKind::Block(block) if self.empty_struct_literal_expr(ty, block) => self
                 .nominal_global_def(ty)
                 .map(|def_id| TypedExprKind::StructLiteral {

@@ -33,6 +33,11 @@ pub enum TypeKind {
         len: ArrayLen,
         elem: Box<TypeRef>,
     },
+    Range {
+        start: Option<Box<TypeRef>>,
+        end: Option<Box<TypeRef>>,
+        inclusive: bool,
+    },
     FunctionPointer {
         params: Vec<TypeRef>,
         return_type: Option<Box<TypeRef>>,

@@ -64,6 +64,10 @@ impl<'a> TypeNormalizer<'a> {
                 let len = normalize_array_len(len);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.normalize_ty(bound, stack));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -184,6 +188,11 @@ impl<'a> TypeNormalizer<'a> {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
                 let len = normalize_array_len(len);
                 self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound
+                    .map(|bound| self.normalize_ty_with_substitutions(bound, substitutions, stack));
+                self.interner.intern(TyKind::Range { kind, bound })
             }
             Some(TyKind::FunctionPointer {
                 params,

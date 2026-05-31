@@ -566,9 +566,27 @@ start..
 ..
 ```
 
-Range bounds must be integer expressions. Nia does not provide built-in runtime
-bounds checks. The programmer is responsible for ensuring that the selected
-memory range is valid.
+Range forms also exist as structural types:
+
+```nia
+usize..usize
+usize..=usize
+usize..
+..usize
+..=usize
+..
+```
+
+There is no nominal built-in `Range` type. A range type is identified by its
+shape and, for bounded forms, by one integer bound type. `T..U` and `T..=U`
+require `T` and `U` to be the same integer type.
+
+Range expressions are currently only valid as part of slice syntax. Built-in
+slice construction requires every explicit range bound to have type `usize`;
+unsuffixed integer literals in slice bounds are inferred as `usize`.
+
+Nia does not provide built-in runtime bounds checks. The programmer is
+responsible for ensuring that the selected memory range is valid.
 
 The base of a slice construction may be an array, another slice, or a
 single-element pointer:

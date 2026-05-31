@@ -33,6 +33,10 @@ pub fn import_type_into(
             let elem = import_type_into(target, source, *elem);
             target.intern(TyKind::Array { len, elem })
         }
+        Some(TyKind::Range { kind, bound }) => {
+            let bound = bound.map(|bound| import_type_into(target, source, bound));
+            target.intern(TyKind::Range { kind: *kind, bound })
+        }
         Some(TyKind::FunctionPointer {
             params,
             return_type,

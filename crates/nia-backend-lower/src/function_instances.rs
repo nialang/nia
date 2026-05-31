@@ -359,6 +359,9 @@ impl<'a> ModuleLowerer<'a> {
                 self.ty_contains_generic_param(*elem)
             }
             Some(TyKind::Array { elem, .. }) => self.ty_contains_generic_param(*elem),
+            Some(TyKind::Range { bound, .. }) => {
+                bound.is_some_and(|bound| self.ty_contains_generic_param(bound))
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
