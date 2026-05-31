@@ -41,8 +41,6 @@ pub enum ValueNameResolution {
 pub enum BuiltinResolution {
     SizeOf,
     AlignOf,
-    Len,
-    Ptr,
     Asm,
     Reserved,
 }
@@ -479,8 +477,6 @@ impl<'a> ValueResolver<'a> {
         match name {
             "size" => BuiltinResolution::SizeOf,
             "align" => BuiltinResolution::AlignOf,
-            "len" => BuiltinResolution::Len,
-            "ptr" => BuiltinResolution::Ptr,
             "asm" => BuiltinResolution::Asm,
             _ => {
                 self.diagnostics.push(Diagnostic::error(

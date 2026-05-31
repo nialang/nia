@@ -3,7 +3,7 @@ use nia_ast::UnaryOp;
 use nia_body_ir::{
     AsmOption, BuiltinConst, BuiltinPlaceMethod, PlaceBase, PlaceElem, TypedArrayElements,
     TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit,
-    TypedInlineAsm, TypedLocal, TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt,
+    TypedInlineAsm, TypedLocal, TypedLocalKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
     TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::{InternedTyId, LocalId};
@@ -15,8 +15,8 @@ use nia_function_ir::{
     FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
     FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
     FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
-    FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionSliceRange, FunctionSwitchArm,
-    FunctionTerminator,
+    FunctionPlaceElem, FunctionRange, FunctionScope, FunctionScopeId, FunctionSliceRange,
+    FunctionSwitchArm, FunctionTerminator,
 };
 
 #[cfg(test)]
@@ -641,12 +641,9 @@ impl FunctionLowerer {
             TypedExprKind::Switch(switch) => {
                 return self.lower_value_switch_expr(expr, switch, scope, current, ops, blocks);
             }
-            TypedExprKind::Len(inner) => FunctionExprKind::Len(Box::new(
-                self.lower_value_expr(inner, scope, current, ops, blocks),
-            )),
-            TypedExprKind::Ptr(inner) => FunctionExprKind::Ptr(Box::new(
-                self.lower_value_expr(inner, scope, current, ops, blocks),
-            )),
+            TypedExprKind::Range(range) => {
+                FunctionExprKind::Range(self.lower_range(range, scope, current, ops, blocks))
+            }
             TypedExprKind::CStringPointer { array, is_const } => FunctionExprKind::CStringPointer {
                 array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
                 is_const: *is_const,
@@ -1208,6 +1205,27 @@ impl FunctionLowerer {
         }
     }
 
+    fn lower_range(
+        &mut self,
+        range: &TypedRange,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionRange {
+        FunctionRange {
+            start: range
+                .start
+                .as_ref()
+                .map(|expr| Box::new(self.lower_value_expr(expr, scope, current, ops, blocks))),
+            end: range
+                .end
+                .as_ref()
+                .map(|expr| Box::new(self.lower_value_expr(expr, scope, current, ops, blocks))),
+            inclusive: range.inclusive,
+        }
+    }
+
     fn lower_inline_asm(
         &mut self,
         asm: &TypedInlineAsm,
@@ -1578,12 +1596,18 @@ impl FunctionLowerer {
                 TypedExprKind::Local(local_id) => {
                     *max_id = (*max_id).max(local_id.0.saturating_add(1));
                 }
-                TypedExprKind::Len(inner)
-                | TypedExprKind::Ptr(inner)
-                | TypedExprKind::CStringPointer { array: inner, .. }
+                TypedExprKind::CStringPointer { array: inner, .. }
                 | TypedExprKind::Unary { expr: inner, .. }
                 | TypedExprKind::Discard(inner)
                 | TypedExprKind::Cast { expr: inner, .. } => visit_expr(inner, max_id),
+                TypedExprKind::Range(range) => {
+                    if let Some(start) = &range.start {
+                        visit_expr(start, max_id);
+                    }
+                    if let Some(end) = &range.end {
+                        visit_expr(end, max_id);
+                    }
+                }
                 TypedExprKind::ArrayLiteral { elems } => match elems {
                     TypedArrayElements::List(elems) => {
                         for elem in elems {

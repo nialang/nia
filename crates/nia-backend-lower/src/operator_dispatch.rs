@@ -7,8 +7,8 @@ use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding,
     FunctionBuiltinOperator, FunctionBuiltinOperatorOp, FunctionCallee, FunctionDeferBody,
     FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
-    FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange,
-    FunctionTerminator,
+    FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionRange,
+    FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_ty::{PrimitiveTy, TyKind};
@@ -206,12 +206,9 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value),
-                FunctionExprKind::Len(inner) => FunctionExprKind::Len(Box::new(
-                    self.resolve_builtin_operator_calls_in_expr(*inner),
-                )),
-                FunctionExprKind::Ptr(inner) => FunctionExprKind::Ptr(Box::new(
-                    self.resolve_builtin_operator_calls_in_expr(*inner),
-                )),
+                FunctionExprKind::Range(range) => {
+                    FunctionExprKind::Range(self.resolve_builtin_operator_calls_in_range(range))
+                }
                 FunctionExprKind::InlineAsm(asm) => {
                     FunctionExprKind::InlineAsm(FunctionInlineAsm {
                         code: asm.code,
@@ -424,6 +421,18 @@ impl<'a> ModuleLowerer<'a> {
         range: FunctionSliceRange,
     ) -> FunctionSliceRange {
         FunctionSliceRange {
+            start: range
+                .start
+                .map(|start| Box::new(self.resolve_builtin_operator_calls_in_expr(*start))),
+            end: range
+                .end
+                .map(|end| Box::new(self.resolve_builtin_operator_calls_in_expr(*end))),
+            inclusive: range.inclusive,
+        }
+    }
+
+    fn resolve_builtin_operator_calls_in_range(&mut self, range: FunctionRange) -> FunctionRange {
+        FunctionRange {
             start: range
                 .start
                 .map(|start| Box::new(self.resolve_builtin_operator_calls_in_expr(*start))),

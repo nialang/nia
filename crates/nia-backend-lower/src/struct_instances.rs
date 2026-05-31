@@ -305,8 +305,13 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Discard(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
-            FunctionExprKind::Len(inner) | FunctionExprKind::Ptr(inner) => {
-                self.collect_struct_instances_expr(inner, seen, out);
+            FunctionExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.collect_struct_instances_expr(start, seen, out);
+                }
+                if let Some(end) = &range.end {
+                    self.collect_struct_instances_expr(end, seen, out);
+                }
             }
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.collect_struct_instances_expr(array, seen, out);
@@ -678,8 +683,13 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Discard(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
-            FunctionExprKind::Len(inner) | FunctionExprKind::Ptr(inner) => {
-                self.collect_union_instances_expr(inner, seen, out);
+            FunctionExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.collect_union_instances_expr(start, seen, out);
+                }
+                if let Some(end) = &range.end {
+                    self.collect_union_instances_expr(end, seen, out);
+                }
             }
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.collect_union_instances_expr(array, seen, out);

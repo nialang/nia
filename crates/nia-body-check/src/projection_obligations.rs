@@ -557,6 +557,21 @@ impl<'a> BodyChecker<'a> {
                     || (self.is_builtin_usize_range(*range_ty)
                         && self.builtin_mut_slice_output_ty(self_ty).is_some())
             }
+            BuiltinTrait::Len => {
+                required.trait_args.is_empty()
+                    && (self.current_context_has_source_trait_obligation(required)
+                        || self.builtin_len_output_ty(self_ty).is_some())
+            }
+            BuiltinTrait::GetPtrConst => {
+                required.trait_args.is_empty()
+                    && (self.current_context_has_source_trait_obligation(required)
+                        || self.builtin_get_ptr_target_ty(self_ty, false).is_some())
+            }
+            BuiltinTrait::GetPtr => {
+                required.trait_args.is_empty()
+                    && (self.current_context_has_source_trait_obligation(required)
+                        || self.builtin_get_ptr_target_ty(self_ty, true).is_some())
+            }
         }
     }
 

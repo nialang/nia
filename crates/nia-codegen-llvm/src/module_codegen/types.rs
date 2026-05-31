@@ -174,7 +174,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }
                 | TyKind::FunctionPointer { .. }
-                | TyKind::Slice { .. },
+                | TyKind::Slice { .. }
+                | TyKind::Range { .. },
             ) => AbiParam::Direct(ty),
             Some(TyKind::Nominal { def_id, .. }) if self.program.enums.contains_key(def_id) => {
                 AbiParam::Direct(ty)
@@ -184,7 +185,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
-                | TyKind::Range { .. }
                 | TyKind::Error,
             )
             | None => AbiParam::Direct(ty),
@@ -210,7 +210,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }
                 | TyKind::FunctionPointer { .. }
-                | TyKind::Slice { .. },
+                | TyKind::Slice { .. }
+                | TyKind::Range { .. },
             ) => AbiReturn::Direct(ty),
             Some(TyKind::Nominal { def_id, .. }) if self.program.enums.contains_key(def_id) => {
                 AbiReturn::Direct(ty)
@@ -220,7 +221,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
-                | TyKind::Range { .. }
                 | TyKind::Error,
             )
             | None => AbiReturn::Direct(ty),
@@ -278,6 +278,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 Ok(self.context.ptr_type(Default::default()).into())
             }
             Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
+            Some(TyKind::Range { kind, bound }) => self.range_type(*kind, *bound, span),
             Some(TyKind::Array { len, elem }) => {
                 let elem_layouts = self
                     .program
@@ -324,11 +325,32 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
-                | TyKind::Range { .. }
                 | TyKind::Error,
             )
             | None => Err(self.error(span, "type is not concrete enough for LLVM lowering")),
         }
+    }
+
+    pub(crate) fn range_type(
+        &self,
+        kind: nia_ty::RangeTyKind,
+        bound: Option<InternedTyId>,
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        let Some(bound) = bound else {
+            return Ok(self.context.struct_type(&[], false).into());
+        };
+        let bound_ty = self.llvm_basic_type(bound, span)?;
+        let fields = match kind {
+            nia_ty::RangeTyKind::Exclusive | nia_ty::RangeTyKind::Inclusive => {
+                vec![bound_ty, bound_ty]
+            }
+            nia_ty::RangeTyKind::From
+            | nia_ty::RangeTyKind::To
+            | nia_ty::RangeTyKind::ToInclusive => vec![bound_ty],
+            nia_ty::RangeTyKind::Full => Vec::new(),
+        };
+        Ok(self.context.struct_type(&fields, false).into())
     }
 
     fn primitive_type(

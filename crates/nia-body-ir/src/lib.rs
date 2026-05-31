@@ -93,6 +93,12 @@ pub enum ResolvedCall {
         trait_id: BuiltinTrait,
         op: BuiltinOperatorOp,
     },
+    BuiltinPlaceMethod {
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+    },
     FunctionPointer,
 }
 
@@ -228,8 +234,7 @@ pub enum TypedExprKind {
     },
     EnumVariant(GlobalDefId),
     BuiltinValue(BuiltinConst),
-    Len(Box<TypedExpr>),
-    Ptr(Box<TypedExpr>),
+    Range(TypedRange),
     InlineAsm(TypedInlineAsm),
     CStringPointer {
         array: Box<TypedExpr>,
@@ -293,6 +298,13 @@ pub enum TypedExprKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedSliceRange {
+    pub start: Option<Box<TypedExpr>>,
+    pub end: Option<Box<TypedExpr>>,
+    pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedRange {
     pub start: Option<Box<TypedExpr>>,
     pub end: Option<Box<TypedExpr>>,
     pub inclusive: bool,

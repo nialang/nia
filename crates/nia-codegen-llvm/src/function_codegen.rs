@@ -17,7 +17,7 @@ use nia_backend_ir::BackendFunction;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBody, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionLocal,
-    FunctionLocalKind, FunctionScopeId,
+    FunctionLocalKind, FunctionRange, FunctionScopeId,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -286,8 +286,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .into_int_type()?;
                 Ok(ty.const_u128(*value as u128).into())
             }
-            FunctionExprKind::Len(inner) => self.emit_len(expr.span, inner),
-            FunctionExprKind::Ptr(inner) => self.emit_ptr(expr.span, inner),
+            FunctionExprKind::Range(range) => self.emit_range(expr.span, expr.ty, range),
             FunctionExprKind::InlineAsm(asm) => {
                 self.emit_inline_asm(asm)?;
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
@@ -343,6 +342,57 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "cannot emit erroneous expression"))
             }
         }
+    }
+
+    fn emit_range(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+        range: &FunctionRange,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Range { bound, .. }) = self.module.ty_kind(ty) else {
+            return Err(self.error(span, "range expression target type is not a range"));
+        };
+        let Some(bound) = bound else {
+            return self
+                .module
+                .llvm_basic_type(ty, span)?
+                .const_zero()
+                .map_err(Into::into);
+        };
+        let mut value = self
+            .module
+            .range_type(
+                match self.module.ty_kind(ty) {
+                    Some(TyKind::Range { kind, .. }) => *kind,
+                    _ => unreachable!("range type checked above"),
+                },
+                Some(*bound),
+                span,
+            )?
+            .into_struct_type()?
+            .get_undef();
+        let mut index = 0u32;
+        if let Some(start) = &range.start {
+            let start_span = start.span;
+            let start = self.emit_expr(start)?;
+            value = self
+                .builder
+                .build_insert_value(value, start, index, "range.start")
+                .map_err(|_| self.error(start_span, "failed to insert range start"))?
+                .into_struct_value()?;
+            index += 1;
+        }
+        if let Some(end) = &range.end {
+            let end_span = end.span;
+            let end = self.emit_expr(end)?;
+            value = self
+                .builder
+                .build_insert_value(value, end, index, "range.end")
+                .map_err(|_| self.error(end_span, "failed to insert range end"))?
+                .into_struct_value()?;
+        }
+        Ok(value.into())
     }
 
     fn field_index(

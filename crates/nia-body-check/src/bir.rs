@@ -8,8 +8,8 @@ use nia_body_ir::{
     BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinOperatorOp, BuiltinPlaceMethod,
     BuiltinValue, PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements, TypedBinding, TypedBody,
     TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit,
-    TypedLocal, TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
-    TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedLocal, TypedLocalKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
+    TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -435,11 +435,7 @@ impl<'a> BodyChecker<'a> {
                 } = &inner.kind
                     && matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
                 {
-                    TypedExprKind::Slice {
-                        lhs: Box::new(self.lower_expr(lhs)),
-                        range: self.lower_slice_range(range),
-                        is_const: matches!(op, UnaryOp::RefConst),
-                    }
+                    self.lower_slice_expr(lhs, range, matches!(op, UnaryOp::RefConst))
                 } else if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
                     && let Some(function_item) = self.lower_function_item_ref(inner)
                 {
@@ -505,13 +501,33 @@ impl<'a> BodyChecker<'a> {
                 if let ExprKind::Builtin { name, .. } = &callee.kind {
                     match (name.as_str(), args.as_slice()) {
                         (_, []) => self.lower_expr(callee).kind,
-                        ("len", [arg]) => TypedExprKind::Len(Box::new(self.lower_expr(arg))),
-                        ("ptr", [arg]) => TypedExprKind::Ptr(Box::new(self.lower_expr(arg))),
                         ("asm", [arg]) => self.lower_inline_asm(arg),
                         _ => TypedExprKind::Call {
                             callee: self.lower_callee(expr.span, callee),
                             args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
                         },
+                    }
+                } else if let Some(ResolvedCall::BuiltinPlaceMethod {
+                    trait_id,
+                    method,
+                    self_ty,
+                    trait_args,
+                }) = self.resolved_calls.get(&expr.span).cloned()
+                {
+                    let receiver = self
+                        .lower_receiver_expr(callee)
+                        .unwrap_or_else(|| self.lower_expr(callee));
+                    TypedExprKind::Call {
+                        callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                            trait_id,
+                            method,
+                            self_ty,
+                            trait_args,
+                            receiver: Box::new(self.lower_typed_builtin_place_method_receiver(
+                                &receiver, self_ty, method,
+                            )),
+                        }),
+                        args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
                     }
                 } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op }) =
                     self.resolved_calls.get(&expr.span).cloned()
@@ -558,13 +574,9 @@ impl<'a> BodyChecker<'a> {
                             index: Box::new(self.lower_expr(index)),
                         })
                 }
-                IndexArg::Range(range) => TypedExprKind::Slice {
-                    lhs: Box::new(self.lower_expr(lhs)),
-                    range: self.lower_slice_range(range),
-                    is_const: true,
-                },
+                IndexArg::Range(range) => self.lower_slice_read_expr(lhs, range),
             },
-            ExprKind::Range(_) => TypedExprKind::Error,
+            ExprKind::Range(range) => TypedExprKind::Range(self.lower_range(range)),
             ExprKind::Block(block) if self.empty_struct_literal_expr(ty, block) => self
                 .nominal_global_def(ty)
                 .map(|def_id| TypedExprKind::StructLiteral {
@@ -880,6 +892,17 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn lower_range(&mut self, range: &SliceRange) -> TypedRange {
+        TypedRange {
+            start: range
+                .start
+                .as_ref()
+                .map(|start| Box::new(self.lower_expr(start))),
+            end: range.end.as_ref().map(|end| Box::new(self.lower_expr(end))),
+            inclusive: range.inclusive,
+        }
+    }
+
     fn lower_array_elements(&mut self, elems: &ArrayElements) -> TypedArrayElements {
         match elems {
             ArrayElements::List(elems) => {
@@ -938,6 +961,25 @@ impl<'a> BodyChecker<'a> {
             },
             ResolvedCall::BuiltinTraitMethod { trait_id, op } => {
                 TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op })
+            }
+            ResolvedCall::BuiltinPlaceMethod {
+                trait_id,
+                method,
+                self_ty,
+                trait_args,
+            } => {
+                let receiver = self
+                    .lower_receiver_expr(callee)
+                    .unwrap_or_else(|| self.lower_expr(callee));
+                TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                    trait_id,
+                    method,
+                    self_ty,
+                    trait_args,
+                    receiver: Box::new(
+                        self.lower_typed_builtin_place_method_receiver(&receiver, self_ty, method),
+                    ),
+                })
             }
             ResolvedCall::FunctionPointer => {
                 TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
@@ -1206,15 +1248,83 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
+    fn lower_slice_read_expr(&mut self, lhs: &Expr, range: &SliceRange) -> TypedExprKind {
+        self.lower_slice_expr(lhs, range, true)
+    }
+
+    fn lower_slice_expr(
+        &mut self,
+        lhs: &Expr,
+        range: &SliceRange,
+        is_const: bool,
+    ) -> TypedExprKind {
+        let lhs_ty = self
+            .expr_types
+            .get(&lhs.span)
+            .copied()
+            .unwrap_or_else(|| self.error());
+        let range_ty = self.check_slice_range_bounds(range);
+        let (trait_id, method) = if is_const {
+            (BuiltinTrait::SliceConst, BuiltinTraitMethod::SliceConst)
+        } else {
+            (BuiltinTrait::Slice, BuiltinTraitMethod::Slice)
+        };
+        let has_native_impl = if is_const {
+            self.builtin_slice_output_ty(lhs_ty, false).is_some()
+        } else {
+            self.builtin_mut_slice_output_ty(lhs_ty).is_some()
+        };
+        if has_native_impl
+            || !self.current_context_proves_trait_obligation(
+                lhs_ty,
+                TraitId::Builtin(trait_id),
+                vec![range_ty],
+            )
+        {
+            return TypedExprKind::Slice {
+                lhs: Box::new(self.lower_expr(lhs)),
+                range: self.lower_slice_range(range),
+                is_const,
+            };
+        }
+        TypedExprKind::Call {
+            callee: TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
+                trait_id,
+                method,
+                self_ty: lhs_ty,
+                trait_args: vec![range_ty],
+                receiver: Box::new(self.lower_builtin_place_method_receiver(lhs, lhs_ty, method)),
+            }),
+            args: vec![self.lower_range_as_expr(range, range_ty)],
+        }
+    }
+
+    fn lower_range_as_expr(&mut self, range: &SliceRange, ty: nia_ids::InternedTyId) -> TypedExpr {
+        TypedExpr {
+            span: self.slice_range_span(range),
+            ty,
+            kind: TypedExprKind::Range(self.lower_range(range)),
+        }
+    }
+
+    fn slice_range_span(&self, range: &SliceRange) -> Span {
+        match (&range.start, &range.end) {
+            (Some(start), Some(end)) => Span::new(start.span.start, end.span.end),
+            (Some(start), None) => start.span,
+            (None, Some(end)) => end.span,
+            (None, None) => Span::default(),
+        }
+    }
+
     fn lower_builtin_place_method_receiver(
         &mut self,
         receiver: &Expr,
         receiver_ty: nia_ids::InternedTyId,
         method: BuiltinTraitMethod,
     ) -> TypedExpr {
-        let Some(receiver_kind) = method.place_receiver_kind() else {
-            return self.lower_expr(receiver);
-        };
+        let receiver_kind = method
+            .place_receiver_kind()
+            .unwrap_or_else(|| method.receiver_kind());
         match receiver_kind {
             BuiltinReceiverKind::RefConst => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
@@ -1245,6 +1355,48 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             BuiltinReceiverKind::Value => self.lower_expr(receiver),
+        }
+    }
+
+    fn lower_typed_builtin_place_method_receiver(
+        &mut self,
+        receiver: &TypedExpr,
+        receiver_ty: nia_ids::InternedTyId,
+        method: BuiltinTraitMethod,
+    ) -> TypedExpr {
+        let receiver_kind = method
+            .place_receiver_kind()
+            .unwrap_or_else(|| method.receiver_kind());
+        match receiver_kind {
+            BuiltinReceiverKind::RefConst => {
+                let pointer_ty = self.interner.intern(TyKind::Pointer {
+                    is_const: true,
+                    elem: receiver_ty,
+                });
+                TypedExpr {
+                    span: receiver.span,
+                    ty: pointer_ty,
+                    kind: TypedExprKind::Unary {
+                        op: UnaryOp::RefConst,
+                        expr: Box::new(receiver.clone()),
+                    },
+                }
+            }
+            BuiltinReceiverKind::Ref => {
+                let pointer_ty = self.interner.intern(TyKind::Pointer {
+                    is_const: false,
+                    elem: receiver_ty,
+                });
+                TypedExpr {
+                    span: receiver.span,
+                    ty: pointer_ty,
+                    kind: TypedExprKind::Unary {
+                        op: UnaryOp::Ref,
+                        expr: Box::new(receiver.clone()),
+                    },
+                }
+            }
+            BuiltinReceiverKind::Value => receiver.clone(),
         }
     }
 }

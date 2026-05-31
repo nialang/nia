@@ -213,12 +213,18 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionExprKind::Local(local_id) => {
                 self.require_local(*local_id, expr.span, "local expression")?
             }
-            FunctionExprKind::Len(inner)
-            | FunctionExprKind::Ptr(inner)
-            | FunctionExprKind::CStringPointer { array: inner, .. }
+            FunctionExprKind::CStringPointer { array: inner, .. }
             | FunctionExprKind::Unary { expr: inner, .. }
             | FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. } => self.validate_expr(inner)?,
+            FunctionExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.validate_expr(start)?;
+                }
+                if let Some(end) = &range.end {
+                    self.validate_expr(end)?;
+                }
+            }
             FunctionExprKind::AddrOf(place) => self.validate_place(place)?,
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {

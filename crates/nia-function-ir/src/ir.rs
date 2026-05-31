@@ -163,8 +163,7 @@ pub enum FunctionExprKind {
     },
     EnumVariant(nia_ids::GlobalDefId),
     BuiltinValue(FunctionBuiltinValue),
-    Len(Box<FunctionExpr>),
-    Ptr(Box<FunctionExpr>),
+    Range(FunctionRange),
     InlineAsm(FunctionInlineAsm),
     CStringPointer {
         array: Box<FunctionExpr>,
@@ -222,6 +221,13 @@ pub enum FunctionExprKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSliceRange {
+    pub start: Option<Box<FunctionExpr>>,
+    pub end: Option<Box<FunctionExpr>>,
+    pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionRange {
     pub start: Option<Box<FunctionExpr>>,
     pub end: Option<Box<FunctionExpr>>,
     pub inclusive: bool,

@@ -226,6 +226,13 @@ impl<'a> BodyChecker<'a> {
             }
             return self.builtin_deref_target_ty(self_ty);
         }
+        if matches!(trait_id, BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr) {
+            if name != BuiltinTrait::TARGET_ASSOC_TYPE || !trait_args.is_empty() {
+                return None;
+            }
+            return self
+                .builtin_get_ptr_target_ty(self_ty, matches!(trait_id, BuiltinTrait::GetPtr));
+        }
         if matches!(trait_id, BuiltinTrait::IndexConst | BuiltinTrait::Index) {
             if name != BuiltinTrait::OUTPUT_ASSOC_TYPE {
                 return None;
@@ -396,6 +403,37 @@ impl<'a> BodyChecker<'a> {
                 is_const: false,
                 elem: *elem,
             })),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn builtin_len_output_ty(&mut self, self_ty: InternedTyId) -> Option<InternedTyId> {
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Array { .. } | TyKind::Slice { .. }) => {
+                Some(self.primitive(PrimitiveTy::Usize))
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn builtin_get_ptr_target_ty(
+        &mut self,
+        self_ty: InternedTyId,
+        is_mut: bool,
+    ) -> Option<InternedTyId> {
+        match self.interner.get(self.normalization.normalize(self_ty)) {
+            Some(TyKind::Slice {
+                is_const: false,
+                elem,
+            }) if is_mut => Some(*elem),
+            Some(TyKind::Slice {
+                is_const: true,
+                elem,
+            }) if !is_mut => Some(*elem),
+            Some(TyKind::Slice {
+                is_const: false,
+                elem,
+            }) if !is_mut => Some(*elem),
             _ => None,
         }
     }

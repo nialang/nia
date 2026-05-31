@@ -805,7 +805,7 @@ struct Item {
 }
 
 fn take(items: &const [Item]) i32 {
-    @len(items) as i32
+    items.len() as i32
 }
 
 fn main() i32 {
@@ -1028,7 +1028,7 @@ struct Pair {
 
 fn id(value: i32) i32 { value }
 fn call_ptr(f: &const fn(i32) i32, value: i32) i32 { f(value) }
-fn take(xs: &const [i32]) usize { @len(xs) }
+fn take(xs: &const [i32]) usize { xs.len() }
 fn cstr(value: &const u8) usize { 1 }
 
 fn main() i32 {
@@ -1346,8 +1346,8 @@ fn main() i32 {
     var t = &const xs[1..=2];
     var p = &const xs[0];
     var single = &const p[..];
-    _ = @ptr(s);
-    @len(xs) as i32 + @len(s) as i32 + @len(t) as i32 + @len(single) as i32 + read(s)
+    _ = s.get_ptr_const();
+    xs.len() as i32 + s.len() as i32 + t.len() as i32 + single.len() as i32 + read(s)
 }
 "#,
     );
@@ -1635,7 +1635,7 @@ fn checks_array_to_slice_coercions_and_rejects_address_of_rvalues() {
     let checked = pipeline(
         r#"
 fn take(xs: &const [i32]) i32 {
-    @len(xs) as i32
+    xs.len() as i32
 }
 
 fn mutate(xs: &[i32]) i32 {
@@ -1644,7 +1644,7 @@ fn mutate(xs: &[i32]) i32 {
 }
 
 fn bytes(xs: &const [u8]) i32 {
-    @len(xs) as i32
+    xs.len() as i32
 }
 
 fn main() i32 {

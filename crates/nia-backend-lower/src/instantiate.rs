@@ -8,7 +8,7 @@ use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBody,
     FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit,
     FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionOp, FunctionPlace,
-    FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange, FunctionTerminator,
+    FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
@@ -389,11 +389,8 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(
                     self.instantiate_builtin_value(value, substitutions),
                 ),
-                FunctionExprKind::Len(inner) => {
-                    FunctionExprKind::Len(Box::new(self.instantiate_expr(*inner, substitutions)))
-                }
-                FunctionExprKind::Ptr(inner) => {
-                    FunctionExprKind::Ptr(Box::new(self.instantiate_expr(*inner, substitutions)))
+                FunctionExprKind::Range(range) => {
+                    FunctionExprKind::Range(self.instantiate_range(range, substitutions))
                 }
                 FunctionExprKind::InlineAsm(asm) => {
                     FunctionExprKind::InlineAsm(FunctionInlineAsm {
@@ -523,6 +520,22 @@ impl<'a> ModuleLowerer<'a> {
                                     callee: FunctionCallee::Method {
                                         def_id,
                                         args: target_args,
+                                        receiver,
+                                    },
+                                    args,
+                                },
+                            };
+                        }
+                        if self.native_builtin_place_method_impl(trait_id, self_ty, &trait_args) {
+                            return FunctionExpr {
+                                span: expr.span,
+                                ty: expr.ty,
+                                kind: FunctionExprKind::Call {
+                                    callee: FunctionCallee::BuiltinPlaceMethod {
+                                        trait_id,
+                                        method,
+                                        self_ty,
+                                        trait_args,
                                         receiver,
                                     },
                                     args,
@@ -809,7 +822,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn resolve_builtin_place_method_impl(
-        &self,
+        &mut self,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
         method: BuiltinTraitMethod,
@@ -837,7 +850,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn builtin_place_impl_method_for_target(
-        &self,
+        &mut self,
         target: &VisibleExtensionTarget,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
@@ -848,11 +861,15 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let method = target.methods.iter().find(|method| {
+            let method_trait_args = method
+                .trait_args
+                .iter()
+                .map(|arg| self.import_extension_type(*arg))
+                .collect::<Vec<_>>();
             method.name == method_name
                 && method.trait_id == Some(TraitId::Builtin(trait_id))
-                && method.trait_args.len() == trait_args.len()
-                && method
-                    .trait_args
+                && method_trait_args.len() == trait_args.len()
+                && method_trait_args
                     .iter()
                     .zip(trait_args)
                     .all(|(actual, expected)| self.types_match(*actual, *expected))
@@ -933,6 +950,33 @@ impl<'a> ModuleLowerer<'a> {
                     }),
                 })
             }
+            (BuiltinTrait::SliceConst | BuiltinTrait::Slice, [_range_ty], [range]) => {
+                if !self.native_slice_trait_impl(trait_id, self_ty) {
+                    return None;
+                }
+                let base = FunctionExpr {
+                    span: receiver_span,
+                    ty: self_ty,
+                    kind: FunctionExprKind::Unary {
+                        op: nia_ast::UnaryOp::Deref,
+                        expr: Box::new(receiver),
+                    },
+                };
+                Some(FunctionExpr {
+                    span: range.span,
+                    ty: self.resolve_associated_type_projection(
+                        self_ty,
+                        TraitId::Builtin(trait_id),
+                        trait_args,
+                        BuiltinTrait::OUTPUT_ASSOC_TYPE,
+                    )?,
+                    kind: FunctionExprKind::Slice {
+                        lhs: Box::new(base),
+                        range: self.range_expr_to_slice_range(range)?,
+                        is_const: matches!(trait_id, BuiltinTrait::SliceConst),
+                    },
+                })
+            }
             _ => None,
         }
     }
@@ -976,6 +1020,68 @@ impl<'a> ModuleLowerer<'a> {
                         is_const: false, ..
                     },
                 ),
+            ) => true,
+            _ => false,
+        }
+    }
+
+    fn native_slice_trait_impl(&self, trait_id: BuiltinTrait, self_ty: InternedTyId) -> bool {
+        match (trait_id, self.ty_kind(self_ty)) {
+            (
+                BuiltinTrait::SliceConst,
+                Some(TyKind::Array { .. } | TyKind::Pointer { .. } | TyKind::Slice { .. }),
+            ) => true,
+            (BuiltinTrait::Slice, Some(TyKind::Array { .. })) => true,
+            (
+                BuiltinTrait::Slice,
+                Some(
+                    TyKind::Pointer {
+                        is_const: false, ..
+                    }
+                    | TyKind::Slice {
+                        is_const: false, ..
+                    },
+                ),
+            ) => true,
+            _ => false,
+        }
+    }
+
+    fn native_builtin_place_method_impl(
+        &self,
+        trait_id: BuiltinTrait,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+    ) -> bool {
+        if !trait_args.is_empty() {
+            return matches!(
+                (trait_id, self.ty_kind(self_ty)),
+                (
+                    BuiltinTrait::SliceConst,
+                    Some(TyKind::Array { .. } | TyKind::Pointer { .. } | TyKind::Slice { .. })
+                ) | (BuiltinTrait::Slice, Some(TyKind::Array { .. }))
+                    | (
+                        BuiltinTrait::Slice,
+                        Some(
+                            TyKind::Pointer {
+                                is_const: false,
+                                ..
+                            } | TyKind::Slice {
+                                is_const: false,
+                                ..
+                            }
+                        )
+                    )
+            );
+        }
+        match (trait_id, self.ty_kind(self_ty)) {
+            (BuiltinTrait::Len, Some(TyKind::Array { .. } | TyKind::Slice { .. })) => true,
+            (BuiltinTrait::GetPtrConst, Some(TyKind::Slice { .. })) => true,
+            (
+                BuiltinTrait::GetPtr,
+                Some(TyKind::Slice {
+                    is_const: false, ..
+                }),
             ) => true,
             _ => false,
         }
@@ -1122,6 +1228,33 @@ impl<'a> ModuleLowerer<'a> {
                 .end
                 .map(|end| Box::new(self.instantiate_expr(*end, substitutions))),
             inclusive: range.inclusive,
+        }
+    }
+
+    fn instantiate_range(
+        &mut self,
+        range: FunctionRange,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> FunctionRange {
+        FunctionRange {
+            start: range
+                .start
+                .map(|start| Box::new(self.instantiate_expr(*start, substitutions))),
+            end: range
+                .end
+                .map(|end| Box::new(self.instantiate_expr(*end, substitutions))),
+            inclusive: range.inclusive,
+        }
+    }
+
+    fn range_expr_to_slice_range(&self, range: &FunctionExpr) -> Option<FunctionSliceRange> {
+        match &range.kind {
+            FunctionExprKind::Range(range) => Some(FunctionSliceRange {
+                start: range.start.clone(),
+                end: range.end.clone(),
+                inclusive: range.inclusive,
+            }),
+            _ => None,
         }
     }
 
