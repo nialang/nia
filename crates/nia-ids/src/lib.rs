@@ -75,7 +75,85 @@ pub enum BuiltinTrait {
     Sized,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinTraitMethod {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Neg,
+    Not,
+    BitNot,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl BuiltinTraitMethod {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Add => "add",
+            Self::Sub => "sub",
+            Self::Mul => "mul",
+            Self::Div => "div",
+            Self::Rem => "rem",
+            Self::Neg => "neg",
+            Self::Not => "not",
+            Self::BitNot => "bit_not",
+            Self::BitAnd => "bit_and",
+            Self::BitOr => "bit_or",
+            Self::BitXor => "bit_xor",
+            Self::Shl => "shl",
+            Self::Shr => "shr",
+            Self::Eq => "eq",
+            Self::Ne => "ne",
+            Self::Lt => "lt",
+            Self::Le => "le",
+            Self::Gt => "gt",
+            Self::Ge => "ge",
+        }
+    }
+
+    pub fn param_count(self) -> usize {
+        match self {
+            Self::Neg | Self::Not | Self::BitNot => 1,
+            _ => 2,
+        }
+    }
+}
+
 impl BuiltinTrait {
+    const ADD_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Add];
+    const SUB_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Sub];
+    const MUL_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Mul];
+    const DIV_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Div];
+    const REM_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Rem];
+    const NEG_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Neg];
+    const NOT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Not];
+    const BIT_NOT_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::BitNot];
+    const BIT_AND_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::BitAnd];
+    const BIT_OR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::BitOr];
+    const BIT_XOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::BitXor];
+    const SHL_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Shl];
+    const SHR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Shr];
+    const EQ_METHODS: [BuiltinTraitMethod; 2] = [BuiltinTraitMethod::Eq, BuiltinTraitMethod::Ne];
+    const ORD_METHODS: [BuiltinTraitMethod; 4] = [
+        BuiltinTraitMethod::Lt,
+        BuiltinTraitMethod::Le,
+        BuiltinTraitMethod::Gt,
+        BuiltinTraitMethod::Ge,
+    ];
+    const NO_METHODS: [BuiltinTraitMethod; 0] = [];
+
     pub const ALL: [Self; 16] = [
         Self::Add,
         Self::Sub,
@@ -172,5 +250,26 @@ impl BuiltinTrait {
                 | Self::Shl
                 | Self::Shr
         ) && name == "Output"
+    }
+
+    pub fn required_methods(self) -> &'static [BuiltinTraitMethod] {
+        match self {
+            Self::Add => &Self::ADD_METHODS,
+            Self::Sub => &Self::SUB_METHODS,
+            Self::Mul => &Self::MUL_METHODS,
+            Self::Div => &Self::DIV_METHODS,
+            Self::Rem => &Self::REM_METHODS,
+            Self::Neg => &Self::NEG_METHODS,
+            Self::Not => &Self::NOT_METHODS,
+            Self::BitNot => &Self::BIT_NOT_METHODS,
+            Self::BitAnd => &Self::BIT_AND_METHODS,
+            Self::BitOr => &Self::BIT_OR_METHODS,
+            Self::BitXor => &Self::BIT_XOR_METHODS,
+            Self::Shl => &Self::SHL_METHODS,
+            Self::Shr => &Self::SHR_METHODS,
+            Self::Eq => &Self::EQ_METHODS,
+            Self::Ord => &Self::ORD_METHODS,
+            Self::Sized => &Self::NO_METHODS,
+        }
     }
 }

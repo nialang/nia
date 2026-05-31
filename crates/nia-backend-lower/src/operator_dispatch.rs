@@ -10,7 +10,7 @@ use nia_function_ir::{
     FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange,
     FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId, TraitId};
+use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_ty::{PrimitiveTy, TyKind};
 
 impl<'a> ModuleLowerer<'a> {
@@ -523,7 +523,7 @@ impl<'a> ModuleLowerer<'a> {
         operator: FunctionBuiltinOperator,
         lhs_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let method_name = builtin_operator_method_name(operator);
+        let method = builtin_operator_method(operator)?;
         let candidates = self
             .input
             .extensions
@@ -533,7 +533,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.builtin_operator_impl_method_for_target(
                     target,
                     operator.trait_id,
-                    method_name,
+                    method.name(),
                     lhs_ty,
                 )
             })
@@ -665,40 +665,39 @@ impl<'a> ModuleLowerer<'a> {
     }
 }
 
-fn builtin_operator_method_name(operator: FunctionBuiltinOperator) -> &'static str {
+fn builtin_operator_method(operator: FunctionBuiltinOperator) -> Option<BuiltinTraitMethod> {
     match (operator.trait_id, operator.op) {
-        (nia_ids::BuiltinTrait::Add, _) => "add",
-        (nia_ids::BuiltinTrait::Sub, _) => "sub",
-        (nia_ids::BuiltinTrait::Mul, _) => "mul",
-        (nia_ids::BuiltinTrait::Div, _) => "div",
-        (nia_ids::BuiltinTrait::Rem, _) => "rem",
-        (nia_ids::BuiltinTrait::Neg, _) => "neg",
-        (nia_ids::BuiltinTrait::Not, _) => "not",
-        (nia_ids::BuiltinTrait::BitNot, _) => "bit_not",
-        (nia_ids::BuiltinTrait::BitAnd, _) => "bit_and",
-        (nia_ids::BuiltinTrait::BitOr, _) => "bit_or",
-        (nia_ids::BuiltinTrait::BitXor, _) => "bit_xor",
-        (nia_ids::BuiltinTrait::Shl, _) => "shl",
-        (nia_ids::BuiltinTrait::Shr, _) => "shr",
+        (nia_ids::BuiltinTrait::Add, _) => Some(BuiltinTraitMethod::Add),
+        (nia_ids::BuiltinTrait::Sub, _) => Some(BuiltinTraitMethod::Sub),
+        (nia_ids::BuiltinTrait::Mul, _) => Some(BuiltinTraitMethod::Mul),
+        (nia_ids::BuiltinTrait::Div, _) => Some(BuiltinTraitMethod::Div),
+        (nia_ids::BuiltinTrait::Rem, _) => Some(BuiltinTraitMethod::Rem),
+        (nia_ids::BuiltinTrait::Neg, _) => Some(BuiltinTraitMethod::Neg),
+        (nia_ids::BuiltinTrait::Not, _) => Some(BuiltinTraitMethod::Not),
+        (nia_ids::BuiltinTrait::BitNot, _) => Some(BuiltinTraitMethod::BitNot),
+        (nia_ids::BuiltinTrait::BitAnd, _) => Some(BuiltinTraitMethod::BitAnd),
+        (nia_ids::BuiltinTrait::BitOr, _) => Some(BuiltinTraitMethod::BitOr),
+        (nia_ids::BuiltinTrait::BitXor, _) => Some(BuiltinTraitMethod::BitXor),
+        (nia_ids::BuiltinTrait::Shl, _) => Some(BuiltinTraitMethod::Shl),
+        (nia_ids::BuiltinTrait::Shr, _) => Some(BuiltinTraitMethod::Shr),
         (nia_ids::BuiltinTrait::Eq, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Eq)) => {
-            "eq"
+            Some(BuiltinTraitMethod::Eq)
         }
         (nia_ids::BuiltinTrait::Eq, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Ne)) => {
-            "ne"
+            Some(BuiltinTraitMethod::Ne)
         }
         (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Lt)) => {
-            "lt"
+            Some(BuiltinTraitMethod::Lt)
         }
         (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Le)) => {
-            "le"
+            Some(BuiltinTraitMethod::Le)
         }
         (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Gt)) => {
-            "gt"
+            Some(BuiltinTraitMethod::Gt)
         }
         (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Ge)) => {
-            "ge"
+            Some(BuiltinTraitMethod::Ge)
         }
-        (nia_ids::BuiltinTrait::Sized, _) => "sized",
-        _ => "invalid",
+        _ => None,
     }
 }
