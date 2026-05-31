@@ -210,6 +210,25 @@ impl Parser {
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             let checkpoint = self.tokens.checkpoint();
             let errors_len = self.errors.len();
+            if self.at(TokenKind::Ident) {
+                let name_token = self.bump();
+                if self.eat(TokenKind::Eq).is_some() {
+                    let Some(ty) = self.parse_type() else {
+                        self.error_here("expected associated type binding value");
+                        break;
+                    };
+                    args.push(TypeArg::AssocBinding {
+                        name: self.token_text(&name_token).to_string(),
+                        span: Span::new(name_token.span.start, ty.span.end),
+                        ty,
+                    });
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
+                self.tokens.rewind(checkpoint);
+            }
             if let Some(ty) = self.parse_type() {
                 args.push(TypeArg::Type(ty));
             } else {

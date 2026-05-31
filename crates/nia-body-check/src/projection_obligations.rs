@@ -29,7 +29,14 @@ impl<'a> BodyChecker<'a> {
         for predicate in &signature.where_predicates {
             self.check_type_projection_obligations(predicate.span, predicate.ty, &obligations);
             for bound in &predicate.bounds {
-                self.check_type_projection_obligations(predicate.span, *bound, &obligations);
+                self.check_type_projection_obligations(
+                    predicate.span,
+                    bound.trait_ty,
+                    &obligations,
+                );
+                for binding in &bound.associated_type_bindings {
+                    self.check_type_projection_obligations(binding.span, binding.ty, &obligations);
+                }
             }
         }
     }
@@ -45,7 +52,11 @@ impl<'a> BodyChecker<'a> {
         }
         for predicate in &signature.where_predicates {
             for bound in &predicate.bounds {
-                self.push_trait_obligation_from_bound(&mut obligations, predicate.ty, *bound);
+                self.push_trait_obligation_from_bound(
+                    &mut obligations,
+                    predicate.ty,
+                    bound.trait_ty,
+                );
             }
         }
         obligations
@@ -333,7 +344,7 @@ impl<'a> BodyChecker<'a> {
                 })
     }
 
-    fn types_equivalent_without_projection_resolution(
+    pub(crate) fn types_equivalent_without_projection_resolution(
         &self,
         left: InternedTyId,
         right: InternedTyId,

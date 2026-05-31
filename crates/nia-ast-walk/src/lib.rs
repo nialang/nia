@@ -140,8 +140,10 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
         TypeKind::Path { segments } => {
             for segment in segments {
                 for arg in &segment.args {
-                    if let TypeArg::Type(ty) = arg {
-                        visitor.visit_type(ty);
+                    match arg {
+                        TypeArg::Type(ty) => visitor.visit_type(ty),
+                        TypeArg::AssocBinding { ty, .. } => visitor.visit_type(ty),
+                        TypeArg::Const(_) => {}
                     }
                 }
             }
