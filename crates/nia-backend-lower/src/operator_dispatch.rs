@@ -11,7 +11,7 @@ use nia_function_ir::{
     FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
-use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolver};
+use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn resolve_builtin_operator_calls_in_body(
@@ -720,29 +720,15 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
         trait_args: &[InternedTyId],
     ) -> TraitResolution {
-        let input = self.input;
-        let normalization = input.type_normalization;
-        let interner_snapshot = self.interner.clone();
-        let mut solver = TraitSolver {
-            interner: &mut self.interner,
-            normalization,
-            trait_impls: input.trait_impls,
-            assumptions: &[],
-            layouts: Some(input.layouts),
-            is_enum: move |ty| match normalization.normalize(ty) {
-                ty if ty.interner_id == interner_snapshot.interner_id() => {
-                    match interner_snapshot.get(ty) {
-                        Some(nia_ty::TyKind::Nominal { def_id, .. })
-                            if def_id.module_id == input.module_id =>
-                        {
-                            input.signatures.enums.contains_key(&def_id.def_id)
-                        }
-                        _ => false,
-                    }
-                }
-                _ => false,
-            },
+        let context = TraitSolverContext {
+            normalization: self.input.type_normalization,
+            trait_impls: self.input.trait_impls,
+            layouts: Some(self.input.layouts),
+            local_module_id: self.input.module_id,
+            local_enums: &self.input.signatures.enums,
+            program_enums: Some(self.input.program_enums),
         };
+        let mut solver = context.solver(&mut self.interner, &[]);
         solver.resolve(TraitGoal {
             self_ty,
             trait_id: TraitId::Builtin(trait_id),
