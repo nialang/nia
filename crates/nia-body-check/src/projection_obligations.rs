@@ -6,7 +6,7 @@ use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{FunctionSignature, TraitImplSignature};
 use nia_span::Span;
-use nia_trait_solve::{TraitGoal, TraitSolver};
+use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolver};
 use nia_ty::{TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -33,6 +33,18 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> bool {
+        matches!(
+            self.current_context_resolve_trait_obligation(self_ty, trait_id, trait_args),
+            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
+        )
+    }
+
+    pub(crate) fn current_context_resolve_trait_obligation(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+    ) -> TraitResolution {
         let obligations = self
             .current_def_id
             .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
@@ -46,7 +58,7 @@ impl<'a> BodyChecker<'a> {
             trait_id,
             trait_args,
         };
-        self.proves_trait_obligation(&obligations, &required)
+        self.resolve_trait_obligation(&obligations, &required)
     }
 
     pub(crate) fn check_function_signature_projection_obligations(
@@ -439,6 +451,17 @@ impl<'a> BodyChecker<'a> {
         obligations: &[TraitObligation],
         required: &TraitObligation,
     ) -> bool {
+        matches!(
+            self.resolve_trait_obligation(obligations, required),
+            TraitResolution::Intrinsic(_) | TraitResolution::User(_) | TraitResolution::Assumed(_)
+        )
+    }
+
+    fn resolve_trait_obligation(
+        &mut self,
+        obligations: &[TraitObligation],
+        required: &TraitObligation,
+    ) -> TraitResolution {
         let assumptions = obligations
             .iter()
             .cloned()
@@ -469,7 +492,7 @@ impl<'a> BodyChecker<'a> {
                 _ => false,
             },
         };
-        solver.proves(TraitGoal {
+        solver.resolve(TraitGoal {
             self_ty: required.self_ty,
             trait_id: required.trait_id,
             trait_args: required.trait_args.clone(),
