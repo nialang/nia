@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use crate::BodyChecker;
-use nia_ast::{BinaryOp, BracketArg, Expr, ExprKind, ReceiverKind, UnaryOp};
+use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
 use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp, ResolvedCall};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
@@ -590,14 +590,17 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
-        if let Some((trait_id, place_method)) = builtin_trait_place_method(method) {
+        if method.is_place_method() {
             return self.check_builtin_trait_place_method_call_with_receiver_ty(
                 call,
-                trait_id,
-                place_method,
+                method.trait_id(),
+                method,
             );
         }
-        let (trait_id, op) = builtin_trait_method_operator(method)?;
+        let Some(op) = BuiltinOperatorOp::from_method(method) else {
+            return None;
+        };
+        let trait_id = method.trait_id();
         let Some(trait_args) = self.check_builtin_trait_method_value_args(
             call.span,
             trait_id,
@@ -642,18 +645,21 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
-        if let Some((trait_id, place_method)) = builtin_trait_place_method(method) {
+        if method.is_place_method() {
             return self.check_builtin_trait_associated_place_method_call(
                 span,
                 target_ty,
                 name,
-                trait_id,
-                place_method,
+                method.trait_id(),
+                method,
                 args,
                 expected,
             );
         }
-        let (trait_id, op) = builtin_trait_method_operator(method)?;
+        let Some(op) = BuiltinOperatorOp::from_method(method) else {
+            return None;
+        };
+        let trait_id = method.trait_id();
         let Some((receiver, value_args)) = args.split_first() else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -1764,91 +1770,5 @@ impl<'a> BodyChecker<'a> {
                 self.check_assignable(receiver, "receiver");
             }
         }
-    }
-}
-
-fn builtin_trait_method_operator(
-    method: BuiltinTraitMethod,
-) -> Option<(BuiltinTrait, BuiltinOperatorOp)> {
-    match method {
-        BuiltinTraitMethod::Add => {
-            Some((BuiltinTrait::Add, BuiltinOperatorOp::Binary(BinaryOp::Add)))
-        }
-        BuiltinTraitMethod::Sub => {
-            Some((BuiltinTrait::Sub, BuiltinOperatorOp::Binary(BinaryOp::Sub)))
-        }
-        BuiltinTraitMethod::Mul => {
-            Some((BuiltinTrait::Mul, BuiltinOperatorOp::Binary(BinaryOp::Mul)))
-        }
-        BuiltinTraitMethod::Div => {
-            Some((BuiltinTrait::Div, BuiltinOperatorOp::Binary(BinaryOp::Div)))
-        }
-        BuiltinTraitMethod::Rem => {
-            Some((BuiltinTrait::Rem, BuiltinOperatorOp::Binary(BinaryOp::Rem)))
-        }
-        BuiltinTraitMethod::Neg => {
-            Some((BuiltinTrait::Neg, BuiltinOperatorOp::Unary(UnaryOp::Neg)))
-        }
-        BuiltinTraitMethod::Not => {
-            Some((BuiltinTrait::Not, BuiltinOperatorOp::Unary(UnaryOp::Not)))
-        }
-        BuiltinTraitMethod::BitNot => Some((
-            BuiltinTrait::BitNot,
-            BuiltinOperatorOp::Unary(UnaryOp::BitNot),
-        )),
-        BuiltinTraitMethod::BitAnd => Some((
-            BuiltinTrait::BitAnd,
-            BuiltinOperatorOp::Binary(BinaryOp::BitAnd),
-        )),
-        BuiltinTraitMethod::BitOr => Some((
-            BuiltinTrait::BitOr,
-            BuiltinOperatorOp::Binary(BinaryOp::BitOr),
-        )),
-        BuiltinTraitMethod::BitXor => Some((
-            BuiltinTrait::BitXor,
-            BuiltinOperatorOp::Binary(BinaryOp::BitXor),
-        )),
-        BuiltinTraitMethod::Shl => {
-            Some((BuiltinTrait::Shl, BuiltinOperatorOp::Binary(BinaryOp::Shl)))
-        }
-        BuiltinTraitMethod::Shr => {
-            Some((BuiltinTrait::Shr, BuiltinOperatorOp::Binary(BinaryOp::Shr)))
-        }
-        BuiltinTraitMethod::Eq => Some((BuiltinTrait::Eq, BuiltinOperatorOp::Binary(BinaryOp::Eq))),
-        BuiltinTraitMethod::Ne => Some((BuiltinTrait::Eq, BuiltinOperatorOp::Binary(BinaryOp::Ne))),
-        BuiltinTraitMethod::Lt => {
-            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Lt)))
-        }
-        BuiltinTraitMethod::Le => {
-            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Le)))
-        }
-        BuiltinTraitMethod::Gt => {
-            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Gt)))
-        }
-        BuiltinTraitMethod::Ge => {
-            Some((BuiltinTrait::Ord, BuiltinOperatorOp::Binary(BinaryOp::Ge)))
-        }
-        BuiltinTraitMethod::DerefConst
-        | BuiltinTraitMethod::Deref
-        | BuiltinTraitMethod::IndexConst
-        | BuiltinTraitMethod::Index
-        | BuiltinTraitMethod::SliceConst
-        | BuiltinTraitMethod::Slice
-        | BuiltinTraitMethod::Len
-        | BuiltinTraitMethod::GetPtrConst
-        | BuiltinTraitMethod::GetPtr => None,
-    }
-}
-
-fn builtin_trait_place_method(
-    method: BuiltinTraitMethod,
-) -> Option<(BuiltinTrait, BuiltinTraitMethod)> {
-    match method {
-        BuiltinTraitMethod::Len => Some((BuiltinTrait::Len, method)),
-        BuiltinTraitMethod::SliceConst => Some((BuiltinTrait::SliceConst, method)),
-        BuiltinTraitMethod::Slice => Some((BuiltinTrait::Slice, method)),
-        BuiltinTraitMethod::GetPtrConst => Some((BuiltinTrait::GetPtrConst, method)),
-        BuiltinTraitMethod::GetPtr => Some((BuiltinTrait::GetPtr, method)),
-        _ => None,
     }
 }

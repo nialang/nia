@@ -400,6 +400,107 @@ pub enum BuiltinOperatorOp {
     Binary(BinaryOp),
 }
 
+impl BuiltinOperatorOp {
+    pub fn trait_id(self) -> Option<BuiltinTrait> {
+        match self {
+            Self::Unary(op) => match op {
+                UnaryOp::Neg => Some(BuiltinTrait::Neg),
+                UnaryOp::Not => Some(BuiltinTrait::Not),
+                UnaryOp::BitNot => Some(BuiltinTrait::BitNot),
+                UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+            },
+            Self::Binary(op) => match op {
+                BinaryOp::Add => Some(BuiltinTrait::Add),
+                BinaryOp::Sub => Some(BuiltinTrait::Sub),
+                BinaryOp::Mul => Some(BuiltinTrait::Mul),
+                BinaryOp::Div => Some(BuiltinTrait::Div),
+                BinaryOp::Rem => Some(BuiltinTrait::Rem),
+                BinaryOp::BitAnd => Some(BuiltinTrait::BitAnd),
+                BinaryOp::BitOr => Some(BuiltinTrait::BitOr),
+                BinaryOp::BitXor => Some(BuiltinTrait::BitXor),
+                BinaryOp::Shl => Some(BuiltinTrait::Shl),
+                BinaryOp::Shr => Some(BuiltinTrait::Shr),
+                BinaryOp::Eq | BinaryOp::Ne => Some(BuiltinTrait::Eq),
+                BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                    Some(BuiltinTrait::Ord)
+                }
+                BinaryOp::And | BinaryOp::Or => None,
+            },
+        }
+    }
+
+    pub fn method(self) -> Option<BuiltinTraitMethod> {
+        match self {
+            Self::Unary(op) => match op {
+                UnaryOp::Neg => Some(BuiltinTraitMethod::Neg),
+                UnaryOp::Not => Some(BuiltinTraitMethod::Not),
+                UnaryOp::BitNot => Some(BuiltinTraitMethod::BitNot),
+                UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+            },
+            Self::Binary(op) => match op {
+                BinaryOp::Add => Some(BuiltinTraitMethod::Add),
+                BinaryOp::Sub => Some(BuiltinTraitMethod::Sub),
+                BinaryOp::Mul => Some(BuiltinTraitMethod::Mul),
+                BinaryOp::Div => Some(BuiltinTraitMethod::Div),
+                BinaryOp::Rem => Some(BuiltinTraitMethod::Rem),
+                BinaryOp::BitAnd => Some(BuiltinTraitMethod::BitAnd),
+                BinaryOp::BitOr => Some(BuiltinTraitMethod::BitOr),
+                BinaryOp::BitXor => Some(BuiltinTraitMethod::BitXor),
+                BinaryOp::Shl => Some(BuiltinTraitMethod::Shl),
+                BinaryOp::Shr => Some(BuiltinTraitMethod::Shr),
+                BinaryOp::Eq => Some(BuiltinTraitMethod::Eq),
+                BinaryOp::Ne => Some(BuiltinTraitMethod::Ne),
+                BinaryOp::Lt => Some(BuiltinTraitMethod::Lt),
+                BinaryOp::Le => Some(BuiltinTraitMethod::Le),
+                BinaryOp::Gt => Some(BuiltinTraitMethod::Gt),
+                BinaryOp::Ge => Some(BuiltinTraitMethod::Ge),
+                BinaryOp::And | BinaryOp::Or => None,
+            },
+        }
+    }
+
+    pub fn from_method(method: BuiltinTraitMethod) -> Option<Self> {
+        match method {
+            BuiltinTraitMethod::Add => Some(Self::Binary(BinaryOp::Add)),
+            BuiltinTraitMethod::Sub => Some(Self::Binary(BinaryOp::Sub)),
+            BuiltinTraitMethod::Mul => Some(Self::Binary(BinaryOp::Mul)),
+            BuiltinTraitMethod::Div => Some(Self::Binary(BinaryOp::Div)),
+            BuiltinTraitMethod::Rem => Some(Self::Binary(BinaryOp::Rem)),
+            BuiltinTraitMethod::Neg => Some(Self::Unary(UnaryOp::Neg)),
+            BuiltinTraitMethod::Not => Some(Self::Unary(UnaryOp::Not)),
+            BuiltinTraitMethod::BitNot => Some(Self::Unary(UnaryOp::BitNot)),
+            BuiltinTraitMethod::BitAnd => Some(Self::Binary(BinaryOp::BitAnd)),
+            BuiltinTraitMethod::BitOr => Some(Self::Binary(BinaryOp::BitOr)),
+            BuiltinTraitMethod::BitXor => Some(Self::Binary(BinaryOp::BitXor)),
+            BuiltinTraitMethod::Shl => Some(Self::Binary(BinaryOp::Shl)),
+            BuiltinTraitMethod::Shr => Some(Self::Binary(BinaryOp::Shr)),
+            BuiltinTraitMethod::Eq => Some(Self::Binary(BinaryOp::Eq)),
+            BuiltinTraitMethod::Ne => Some(Self::Binary(BinaryOp::Ne)),
+            BuiltinTraitMethod::Lt => Some(Self::Binary(BinaryOp::Lt)),
+            BuiltinTraitMethod::Le => Some(Self::Binary(BinaryOp::Le)),
+            BuiltinTraitMethod::Gt => Some(Self::Binary(BinaryOp::Gt)),
+            BuiltinTraitMethod::Ge => Some(Self::Binary(BinaryOp::Ge)),
+            BuiltinTraitMethod::DerefConst
+            | BuiltinTraitMethod::Deref
+            | BuiltinTraitMethod::IndexConst
+            | BuiltinTraitMethod::Index
+            | BuiltinTraitMethod::SliceConst
+            | BuiltinTraitMethod::Slice
+            | BuiltinTraitMethod::Len
+            | BuiltinTraitMethod::GetPtrConst
+            | BuiltinTraitMethod::GetPtr => None,
+        }
+    }
+}
+
+impl BuiltinOperator {
+    pub fn method(self) -> Option<BuiltinTraitMethod> {
+        self.op
+            .method()
+            .filter(|method| method.trait_id() == self.trait_id)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuiltinPlaceMethod {
     pub trait_id: BuiltinTrait,

@@ -598,7 +598,7 @@ impl<'a> ModuleLowerer<'a> {
         lhs_ty: InternedTyId,
         trait_args: &[InternedTyId],
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let method = builtin_operator_method(operator)?;
+        let method = operator.method()?;
         let candidates = self
             .input
             .extensions
@@ -734,42 +734,5 @@ impl<'a> ModuleLowerer<'a> {
             trait_id: TraitId::Builtin(trait_id),
             trait_args: trait_args.to_vec(),
         })
-    }
-}
-
-fn builtin_operator_method(operator: FunctionBuiltinOperator) -> Option<BuiltinTraitMethod> {
-    match (operator.trait_id, operator.op) {
-        (nia_ids::BuiltinTrait::Add, _) => Some(BuiltinTraitMethod::Add),
-        (nia_ids::BuiltinTrait::Sub, _) => Some(BuiltinTraitMethod::Sub),
-        (nia_ids::BuiltinTrait::Mul, _) => Some(BuiltinTraitMethod::Mul),
-        (nia_ids::BuiltinTrait::Div, _) => Some(BuiltinTraitMethod::Div),
-        (nia_ids::BuiltinTrait::Rem, _) => Some(BuiltinTraitMethod::Rem),
-        (nia_ids::BuiltinTrait::Neg, _) => Some(BuiltinTraitMethod::Neg),
-        (nia_ids::BuiltinTrait::Not, _) => Some(BuiltinTraitMethod::Not),
-        (nia_ids::BuiltinTrait::BitNot, _) => Some(BuiltinTraitMethod::BitNot),
-        (nia_ids::BuiltinTrait::BitAnd, _) => Some(BuiltinTraitMethod::BitAnd),
-        (nia_ids::BuiltinTrait::BitOr, _) => Some(BuiltinTraitMethod::BitOr),
-        (nia_ids::BuiltinTrait::BitXor, _) => Some(BuiltinTraitMethod::BitXor),
-        (nia_ids::BuiltinTrait::Shl, _) => Some(BuiltinTraitMethod::Shl),
-        (nia_ids::BuiltinTrait::Shr, _) => Some(BuiltinTraitMethod::Shr),
-        (nia_ids::BuiltinTrait::Eq, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Eq)) => {
-            Some(BuiltinTraitMethod::Eq)
-        }
-        (nia_ids::BuiltinTrait::Eq, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Ne)) => {
-            Some(BuiltinTraitMethod::Ne)
-        }
-        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Lt)) => {
-            Some(BuiltinTraitMethod::Lt)
-        }
-        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Le)) => {
-            Some(BuiltinTraitMethod::Le)
-        }
-        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Gt)) => {
-            Some(BuiltinTraitMethod::Gt)
-        }
-        (nia_ids::BuiltinTrait::Ord, FunctionBuiltinOperatorOp::Binary(nia_ast::BinaryOp::Ge)) => {
-            Some(BuiltinTraitMethod::Ge)
-        }
-        _ => None,
     }
 }

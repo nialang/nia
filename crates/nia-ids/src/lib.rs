@@ -277,6 +277,67 @@ impl BuiltinTraitMethod {
             _ => None,
         }
     }
+
+    pub fn trait_id(self) -> BuiltinTrait {
+        match self {
+            Self::Add => BuiltinTrait::Add,
+            Self::Sub => BuiltinTrait::Sub,
+            Self::Mul => BuiltinTrait::Mul,
+            Self::Div => BuiltinTrait::Div,
+            Self::Rem => BuiltinTrait::Rem,
+            Self::Neg => BuiltinTrait::Neg,
+            Self::Not => BuiltinTrait::Not,
+            Self::BitNot => BuiltinTrait::BitNot,
+            Self::BitAnd => BuiltinTrait::BitAnd,
+            Self::BitOr => BuiltinTrait::BitOr,
+            Self::BitXor => BuiltinTrait::BitXor,
+            Self::Shl => BuiltinTrait::Shl,
+            Self::Shr => BuiltinTrait::Shr,
+            Self::Eq | Self::Ne => BuiltinTrait::Eq,
+            Self::Lt | Self::Le | Self::Gt | Self::Ge => BuiltinTrait::Ord,
+            Self::DerefConst => BuiltinTrait::DerefConst,
+            Self::Deref => BuiltinTrait::Deref,
+            Self::IndexConst => BuiltinTrait::IndexConst,
+            Self::Index => BuiltinTrait::Index,
+            Self::SliceConst => BuiltinTrait::SliceConst,
+            Self::Slice => BuiltinTrait::Slice,
+            Self::Len => BuiltinTrait::Len,
+            Self::GetPtrConst => BuiltinTrait::GetPtrConst,
+            Self::GetPtr => BuiltinTrait::GetPtr,
+        }
+    }
+
+    pub fn is_value_operator(self) -> bool {
+        matches!(
+            self,
+            Self::Add
+                | Self::Sub
+                | Self::Mul
+                | Self::Div
+                | Self::Rem
+                | Self::Neg
+                | Self::Not
+                | Self::BitNot
+                | Self::BitAnd
+                | Self::BitOr
+                | Self::BitXor
+                | Self::Shl
+                | Self::Shr
+                | Self::Eq
+                | Self::Ne
+                | Self::Lt
+                | Self::Le
+                | Self::Gt
+                | Self::Ge
+        )
+    }
+
+    pub fn is_place_method(self) -> bool {
+        matches!(
+            self,
+            Self::Len | Self::SliceConst | Self::Slice | Self::GetPtrConst | Self::GetPtr
+        )
+    }
 }
 
 impl BuiltinTrait {
