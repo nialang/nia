@@ -558,9 +558,12 @@ fn validate_builtin_trait_impl(
             "missing definition for associated type `Output`",
         ));
     }
-    let expected_methods = builtin_operator_method_names(trait_id);
+    let expected_methods = trait_id.required_methods();
     for method in &extend.methods {
-        if !expected_methods.contains(&method.function.name.as_str()) {
+        if !expected_methods
+            .iter()
+            .any(|expected_method| expected_method.name() == method.function.name)
+        {
             diagnostics.push(Diagnostic::error(
                 method.function.span,
                 format!(
@@ -574,12 +577,15 @@ fn validate_builtin_trait_impl(
         let matching_methods = extend
             .methods
             .iter()
-            .filter(|method| method.function.name == *expected_method)
+            .filter(|method| method.function.name == expected_method.name())
             .collect::<Vec<_>>();
         match matching_methods.as_slice() {
             [] => diagnostics.push(Diagnostic::error(
                 extend.target.span,
-                format!("missing implementation for trait method `{expected_method}`"),
+                format!(
+                    "missing implementation for trait method `{}`",
+                    expected_method.name()
+                ),
             )),
             [method] => {
                 let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
@@ -588,51 +594,26 @@ fn validate_builtin_trait_impl(
                 let Some(actual) = module.signatures.functions.get(&method_id) else {
                     return;
                 };
-                if actual.params.len() != builtin_operator_method_param_count(trait_id)
+                if actual.params.len() != expected_method.param_count()
                     || actual.return_type == module.lowering.interner.error()
                 {
                     diagnostics.push(Diagnostic::error(
                         method.function.span,
                         format!(
-                            "implementation of trait method `{expected_method}` does not match the trait signature"
+                            "implementation of trait method `{}` does not match the trait signature",
+                            expected_method.name()
                         ),
                     ));
                 }
             }
             _ => diagnostics.push(Diagnostic::error(
                 extend.target.span,
-                format!("duplicate implementation for trait method `{expected_method}`"),
+                format!(
+                    "duplicate implementation for trait method `{}`",
+                    expected_method.name()
+                ),
             )),
         }
-    }
-}
-
-fn builtin_operator_method_names(trait_id: BuiltinTrait) -> &'static [&'static str] {
-    match trait_id {
-        BuiltinTrait::Add => &["add"],
-        BuiltinTrait::Sub => &["sub"],
-        BuiltinTrait::Mul => &["mul"],
-        BuiltinTrait::Div => &["div"],
-        BuiltinTrait::Rem => &["rem"],
-        BuiltinTrait::Neg => &["neg"],
-        BuiltinTrait::Not => &["not"],
-        BuiltinTrait::BitNot => &["bit_not"],
-        BuiltinTrait::BitAnd => &["bit_and"],
-        BuiltinTrait::BitOr => &["bit_or"],
-        BuiltinTrait::BitXor => &["bit_xor"],
-        BuiltinTrait::Shl => &["shl"],
-        BuiltinTrait::Shr => &["shr"],
-        BuiltinTrait::Eq => &["eq", "ne"],
-        BuiltinTrait::Ord => &["lt", "le", "gt", "ge"],
-        BuiltinTrait::Sized => &[],
-    }
-}
-
-fn builtin_operator_method_param_count(trait_id: BuiltinTrait) -> usize {
-    match trait_id {
-        BuiltinTrait::Neg | BuiltinTrait::Not | BuiltinTrait::BitNot => 1,
-        BuiltinTrait::Sized => 0,
-        _ => 2,
     }
 }
 
