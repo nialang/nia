@@ -2737,17 +2737,17 @@ fn associated_type_bindings_normalize_open_projections() {
     write(
         &root.join("main.nia"),
         r#"
-trait Add[Rhs] {
+trait Combines[Rhs] {
     type Output;
 
-    fn add(&const self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+    fn add(&const self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
 }
 
 struct Number {
     value: i32,
 }
 
-extend Number : Add[Number] {
+extend Number : Combines[Number] {
     type Output = Number;
 
     fn add(&const self, rhs: Number) Number {
@@ -2756,7 +2756,7 @@ extend Number : Add[Number] {
 }
 
 fn add_same[T](a: &const T, b: T) T
-where T: Add[T, Output = T] {
+where T: Combines[T, Output = T] {
     a.add(b)
 }
 
@@ -2778,12 +2778,12 @@ fn associated_type_bound_bindings_are_not_positional_args() {
     write(
         &root.join("main.nia"),
         r#"
-trait Add[Rhs] {
+trait Combines[Rhs] {
     type Output;
 }
 
 fn id[T](value: T) T
-where T: Add[T, Output = T] {
+where T: Combines[T, Output = T] {
     value
 }
 
@@ -2808,14 +2808,14 @@ fn associated_type_bindings_do_not_forge_unbound_projection_equality() {
     write(
         &root.join("main.nia"),
         r#"
-trait Add[Rhs] {
+trait Combines[Rhs] {
     type Output;
 
-    fn add(&const self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+    fn add(&const self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
 }
 
 fn bad[T](a: &const T, b: T) T
-where T: Add[T] {
+where T: Combines[T] {
     a.add(b)
 }
 
@@ -2840,19 +2840,19 @@ fn associated_type_bindings_are_validated() {
     write(
         &root.join("main.nia"),
         r#"
-trait Add[Rhs] {
+trait Combines[Rhs] {
     type Output;
 }
 
 struct NotTrait {}
 
 fn unknown[T](value: T) T
-where T: Add[T, Missing = T] {
+where T: Combines[T, Missing = T] {
     value
 }
 
 fn duplicate[T](value: T) T
-where T: Add[T, Output = T, Output = i32] {
+where T: Combines[T, Output = T, Output = i32] {
     value
 }
 
@@ -2942,6 +2942,133 @@ fn main() i32 {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_operator_traits_allow_constrained_generic_arithmetic() {
+    let root = temp_dir("builtin_operator_traits_allow_constrained_generic_arithmetic");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn add_same[T](a: T, b: T) T
+where T: Add[T, Output = T] {
+    a + b
+}
+
+fn main() i32 {
+    add_same[i32](1, 2)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_operator_traits_reject_unconstrained_generic_arithmetic() {
+    let root = temp_dir("builtin_operator_traits_reject_unconstrained_generic_arithmetic");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn add_bad[T](a: T, b: T) T {
+    a + b
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("trait bound not satisfied")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_operator_projection_can_name_primitive_output() {
+    let root = temp_dir("builtin_operator_projection_can_name_primitive_output");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn add_i32(a: i32, b: i32) [i32 as Add[i32]]::Output {
+    a + b
+}
+
+fn main() i32 {
+    add_i32(1, 2)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_operator_traits_allow_struct_operator_impls() {
+    let root = temp_dir("builtin_operator_traits_allow_struct_operator_impls");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Number {
+    value: i32,
+}
+
+extend Number : Add[Number] {
+    type Output = Number;
+
+    fn add(self, rhs: Number) Number {
+        { value: self.value + rhs.value }
+    }
+}
+
+fn main() i32 {
+    var one: Number = { value: 1 };
+    var two: Number = { value: 2 };
+    var three = one + two;
+    three.value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_operator_traits_reject_struct_operator_without_impl() {
+    let root = temp_dir("builtin_operator_traits_reject_struct_operator_without_impl");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Number {
+    value: i32,
+}
+
+fn main() i32 {
+    var one: Number = { value: 1 };
+    var two: Number = { value: 2 };
+    var three = one + two;
+    three.value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("trait bound not satisfied")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

@@ -11,11 +11,11 @@ use nia_span::Span;
 
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOption, FunctionAsmOutput, FunctionBinding,
-    FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinValue, FunctionCallee,
-    FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
-    FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace,
-    FunctionPlaceBase, FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionSliceRange,
-    FunctionSwitchArm, FunctionTerminator,
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinOperator, FunctionBuiltinValue,
+    FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit,
+    FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionLocalKind, FunctionOp,
+    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionScope, FunctionScopeId,
+    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
 };
 
 #[cfg(test)]
@@ -1137,6 +1137,12 @@ impl FunctionLowerer {
                 args: args.clone(),
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
+            TypedCallee::BuiltinOperator(operator) => {
+                FunctionCallee::BuiltinOperator(FunctionBuiltinOperator {
+                    trait_id: operator.trait_id,
+                    op: operator.op,
+                })
+            }
             TypedCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.lower_value_expr(expr, scope, current, ops, blocks),
             )),
@@ -1643,7 +1649,9 @@ impl FunctionLowerer {
                 | TypedCallee::FunctionPointer(receiver) => {
                     visit_expr(receiver, max_id);
                 }
-                TypedCallee::Function(_) | TypedCallee::FunctionInstance { .. } => {}
+                TypedCallee::Function(_)
+                | TypedCallee::FunctionInstance { .. }
+                | TypedCallee::BuiltinOperator(_) => {}
             }
         }
 

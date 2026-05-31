@@ -95,6 +95,14 @@ impl<'a> TypeNormalizer<'a> {
                     self.interner.intern(TyKind::Nominal { def_id, args })
                 }
             }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -208,6 +216,14 @@ impl<'a> TypeNormalizer<'a> {
                 } else {
                     self.interner.intern(TyKind::Nominal { def_id, args })
                 }
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::Projection {
                 self_ty,

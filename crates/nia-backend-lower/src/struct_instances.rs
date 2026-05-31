@@ -395,6 +395,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_struct_instances_expr(receiver, seen, out);
             }
+            FunctionCallee::BuiltinOperator(_) => {}
             FunctionCallee::FunctionPointer(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
@@ -453,6 +454,11 @@ impl<'a> ModuleLowerer<'a> {
                     && let Some(item) = self.lower_struct_instance(def_id.def_id, args)
                 {
                     out.push(item);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_struct_instance_ty(arg, seen, out);
                 }
             }
             Some(TyKind::Projection {
@@ -743,6 +749,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_union_instances_expr(receiver, seen, out);
             }
+            FunctionCallee::BuiltinOperator(_) => {}
             FunctionCallee::FunctionPointer(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
@@ -801,6 +808,11 @@ impl<'a> ModuleLowerer<'a> {
                     && let Some(item) = self.lower_union_instance(def_id.def_id, args)
                 {
                     out.push(item);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_union_instance_ty(arg, seen, out);
                 }
             }
             Some(TyKind::Projection {

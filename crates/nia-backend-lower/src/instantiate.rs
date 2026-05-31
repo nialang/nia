@@ -10,7 +10,7 @@ use nia_function_ir::{
     FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionOp, FunctionPlace,
     FunctionPlaceBase, FunctionPlaceElem, FunctionSliceRange, FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, TraitId};
 use nia_ty::TyKind;
 
 impl<'a> ModuleLowerer<'a> {
@@ -109,6 +109,11 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
@@ -162,7 +167,7 @@ impl<'a> ModuleLowerer<'a> {
         body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionBody {
-        FunctionBody {
+        let body = FunctionBody {
             span: body.span,
             locals: body
                 .locals
@@ -193,7 +198,8 @@ impl<'a> ModuleLowerer<'a> {
                 .collect(),
             entry: body.entry,
             ty: self.instantiate_ty(body.ty, substitutions),
-        }
+        };
+        self.resolve_builtin_operator_calls_in_body(body)
     }
 
     fn instantiate_defer_body(
@@ -464,13 +470,14 @@ impl<'a> ModuleLowerer<'a> {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                     ty: self.instantiate_ty(ty, substitutions),
                 },
-                FunctionExprKind::Call { callee, args } => FunctionExprKind::Call {
-                    callee: self.instantiate_callee(callee, substitutions),
-                    args: args
+                FunctionExprKind::Call { callee, args } => {
+                    let args = args
                         .into_iter()
                         .map(|arg| self.instantiate_expr(arg, substitutions))
-                        .collect(),
-                },
+                        .collect::<Vec<_>>();
+                    let callee = self.instantiate_callee(callee, substitutions);
+                    FunctionExprKind::Call { callee, args }
+                }
                 FunctionExprKind::Field { lhs, field } => FunctionExprKind::Field {
                     lhs: Box::new(self.instantiate_expr(*lhs, substitutions)),
                     field,
@@ -572,6 +579,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
             }
+            FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),
             FunctionCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.instantiate_expr(*expr, substitutions),
             )),
@@ -642,10 +650,9 @@ impl<'a> ModuleLowerer<'a> {
         if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
             return None;
         }
-        let method = target
-            .methods
-            .iter()
-            .find(|method| method.name == method_name && method.trait_id == Some(trait_id))?;
+        let method = target.methods.iter().find(|method| {
+            method.name == method_name && method.trait_id == Some(TraitId::Source(trait_id))
+        })?;
         let mut substitutions = HashMap::new();
         self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
             .then(|| {
@@ -658,7 +665,7 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn generic_params_in_extension_ty(&self, ty: InternedTyId) -> Vec<String> {
+    pub(crate) fn generic_params_in_extension_ty(&self, ty: InternedTyId) -> Vec<String> {
         let mut generics = Vec::new();
         self.collect_generic_params_in_extension_ty(ty, &mut generics);
         generics
@@ -688,6 +695,11 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_generic_params_in_extension_ty(*return_type, generics);
             }
             Some(TyKind::Nominal { args, .. }) => {
+                for arg in args {
+                    self.collect_generic_params_in_extension_ty(*arg, generics);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
                 for arg in args {
                     self.collect_generic_params_in_extension_ty(*arg, generics);
                 }
@@ -813,6 +825,15 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Vec<_>>();
                 self.interner.intern(TyKind::Nominal { def_id, args })
             }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .iter()
+                    .copied()
+                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .collect::<Vec<_>>();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -842,7 +863,7 @@ impl<'a> ModuleLowerer<'a> {
     fn resolve_associated_type_projection(
         &mut self,
         self_ty: InternedTyId,
-        trait_id: GlobalDefId,
+        trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
@@ -879,7 +900,11 @@ impl<'a> ModuleLowerer<'a> {
         nia_body_check::import_type_into(&mut self.interner, source, ty)
     }
 
-    fn extension_type_pattern_matches(&self, pattern: InternedTyId, actual: InternedTyId) -> bool {
+    pub(crate) fn extension_type_pattern_matches(
+        &self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+    ) -> bool {
         self.match_extension_type_pattern(pattern, actual, &mut HashMap::new())
     }
 
@@ -891,7 +916,7 @@ impl<'a> ModuleLowerer<'a> {
             .or_else(|| self.ty_kind(ty))
     }
 
-    fn match_extension_type_pattern(
+    pub(crate) fn match_extension_type_pattern(
         &self,
         pattern: InternedTyId,
         actual: InternedTyId,
@@ -966,6 +991,19 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::BuiltinTrait {
+                trait_id: pattern_trait,
+                args: pattern_args,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::BuiltinTrait { trait_id, args })
+                    if pattern_trait == trait_id && pattern_args.len() == args.len() =>
+                {
+                    pattern_args.iter().zip(args).all(|(pattern, actual)| {
+                        self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                    })
+                }
+                _ => false,
+            },
             Some(TyKind::Projection {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,
@@ -1024,6 +1062,23 @@ impl<'a> ModuleLowerer<'a> {
                 }),
             ) => {
                 left_def == right_def
+                    && left_args.len() == right_args.len()
+                    && left_args
+                        .iter()
+                        .zip(right_args)
+                        .all(|(left, right)| self.types_match(*left, *right))
+            }
+            (
+                Some(TyKind::BuiltinTrait {
+                    trait_id: left_trait,
+                    args: left_args,
+                }),
+                Some(TyKind::BuiltinTrait {
+                    trait_id: right_trait,
+                    args: right_args,
+                }),
+            ) => {
+                left_trait == right_trait
                     && left_args.len() == right_args.len()
                     && left_args
                         .iter()

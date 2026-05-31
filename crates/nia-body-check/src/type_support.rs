@@ -11,7 +11,7 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyKind};
 use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
@@ -53,6 +53,14 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 self.interner.intern(TyKind::Nominal { def_id, args })
             }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -73,14 +81,14 @@ impl<'a> BodyChecker<'a> {
                 .or_else(|| {
                     self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
                 })
-                    .unwrap_or_else(|| {
-                        self.interner.intern(TyKind::Projection {
-                            self_ty,
-                            trait_id,
-                            trait_args,
-                            name,
-                        })
+                .unwrap_or_else(|| {
+                    self.interner.intern(TyKind::Projection {
+                        self_ty,
+                        trait_id,
+                        trait_args,
+                        name,
                     })
+                })
             }
             Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
         }
@@ -89,7 +97,7 @@ impl<'a> BodyChecker<'a> {
     fn resolve_associated_type_projection_from_current_bounds(
         &mut self,
         self_ty: InternedTyId,
-        trait_id: nia_ids::GlobalDefId,
+        trait_id: TraitId,
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
@@ -101,18 +109,19 @@ impl<'a> BodyChecker<'a> {
                 continue;
             }
             for bound in predicate.bounds {
-                let Some(TyKind::Nominal {
-                    def_id: bound_trait_id,
-                    args: bound_trait_args,
-                }) = self.interner.get(self.normalization.normalize(bound.trait_ty)).cloned()
+                let Some((bound_trait_id, bound_trait_args)) =
+                    self.trait_id_and_args(bound.trait_ty)
                 else {
                     continue;
                 };
                 if bound_trait_id != trait_id
                     || bound_trait_args.len() != trait_args.len()
-                    || !bound_trait_args.iter().zip(trait_args).all(|(bound, required)| {
-                        self.types_equivalent_without_projection_resolution(*bound, *required)
-                    })
+                    || !bound_trait_args
+                        .iter()
+                        .zip(trait_args)
+                        .all(|(bound, required)| {
+                            self.types_equivalent_without_projection_resolution(*bound, *required)
+                        })
                 {
                     continue;
                 }
@@ -136,7 +145,11 @@ impl<'a> BodyChecker<'a> {
         current_def_id: nia_ids::GlobalDefId,
     ) -> Option<nia_item_signatures::FunctionSignature> {
         if current_def_id.module_id == self.defs.module_id {
-            let signature = self.signatures.functions.get(&current_def_id.def_id)?.clone();
+            let signature = self
+                .signatures
+                .functions
+                .get(&current_def_id.def_id)?
+                .clone();
             let source = self.normalization.interner.clone();
             Some(self.import_function_signature_from(&source, &signature))
         } else {
@@ -147,7 +160,7 @@ impl<'a> BodyChecker<'a> {
     fn resolve_associated_type_projection(
         &mut self,
         self_ty: InternedTyId,
-        trait_id: nia_ids::GlobalDefId,
+        trait_id: TraitId,
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
@@ -184,8 +197,63 @@ impl<'a> BodyChecker<'a> {
         }
         match matches.as_slice() {
             [ty] => Some(*ty),
-            _ => None,
+            _ => match trait_id {
+                TraitId::Builtin(trait_id) => self.resolve_builtin_associated_type_projection(
+                    self_ty, trait_id, trait_args, name,
+                ),
+                TraitId::Source(_) => None,
+            },
         }
+    }
+
+    fn resolve_builtin_associated_type_projection(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: nia_ty::BuiltinTrait,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        if name != "Output" || trait_args.len() != 1 {
+            return None;
+        }
+        let rhs_ty = trait_args[0];
+        if self.current_context_proves_trait_obligation(
+            self_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.to_vec(),
+        ) {
+            return Some(self_ty);
+        }
+        if self.types_equivalent_without_projection_resolution(self_ty, rhs_ty)
+            && ((self.is_numeric(self_ty)
+                && matches!(
+                    trait_id,
+                    nia_ty::BuiltinTrait::Add
+                        | nia_ty::BuiltinTrait::Sub
+                        | nia_ty::BuiltinTrait::Mul
+                        | nia_ty::BuiltinTrait::Div
+                        | nia_ty::BuiltinTrait::Rem
+                ))
+                || (self.is_integer(self_ty)
+                    && matches!(
+                        trait_id,
+                        nia_ty::BuiltinTrait::BitAnd
+                            | nia_ty::BuiltinTrait::BitOr
+                            | nia_ty::BuiltinTrait::BitXor
+                    )))
+        {
+            return Some(self_ty);
+        }
+        if self.is_integer(self_ty)
+            && self.is_integer(rhs_ty)
+            && matches!(
+                trait_id,
+                nia_ty::BuiltinTrait::Shl | nia_ty::BuiltinTrait::Shr
+            )
+        {
+            return Some(self_ty);
+        }
+        None
     }
 
     pub(crate) fn expect_type(
@@ -340,7 +408,7 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
-    fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
+    pub(crate) fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
         self.record_expr_type(expr.span, ty);
         if let ExprKind::Unary {
             op: UnaryOp::Neg,
@@ -699,6 +767,9 @@ impl<'a> BodyChecker<'a> {
                 format!("&const fn({}){return_part}", params.join(", "))
             }
             Some(TyKind::Nominal { def_id, args }) => self.nominal_ty_name(*def_id, args),
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                self.builtin_trait_ty_name(*trait_id, args)
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -706,7 +777,7 @@ impl<'a> BodyChecker<'a> {
                 name,
             }) => {
                 let self_ty = self.ty_name(*self_ty);
-                let trait_name = self.nominal_ty_name(*trait_id, trait_args);
+                let trait_name = self.trait_ty_name(*trait_id, trait_args);
                 format!("[{self_ty} as {trait_name}]::{name}")
             }
             Some(TyKind::GenericParam(name)) => name.clone(),
@@ -755,6 +826,46 @@ impl<'a> BodyChecker<'a> {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{base}[{args}]")
+        }
+    }
+
+    pub(crate) fn trait_ty_name(&self, trait_id: TraitId, args: &[InternedTyId]) -> String {
+        match trait_id {
+            TraitId::Source(def_id) => self.nominal_ty_name(def_id, args),
+            TraitId::Builtin(trait_id) => self.builtin_trait_ty_name(trait_id, args),
+        }
+    }
+
+    pub(crate) fn builtin_trait_ty_name(
+        &self,
+        trait_id: nia_ty::BuiltinTrait,
+        args: &[InternedTyId],
+    ) -> String {
+        let base = trait_id.name();
+        if args.is_empty() {
+            base.to_string()
+        } else {
+            let args = args
+                .iter()
+                .map(|arg| self.ty_name(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{base}[{args}]")
+        }
+    }
+
+    pub(crate) fn trait_id_and_args(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def_id(*def_id) => {
+                Some((TraitId::Source(*def_id), args.clone()))
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                Some((TraitId::Builtin(*trait_id), args.clone()))
+            }
+            _ => None,
         }
     }
 

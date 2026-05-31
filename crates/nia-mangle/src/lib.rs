@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId};
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyInterner, TyKind};
 
 pub fn sanitize_symbol_part(text: &str) -> String {
     let mut out: String = text
@@ -139,6 +139,19 @@ where
                 format!("nom__{base}__argc{}__{}", args.len(), args)
             }
         }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let base = sanitize_symbol_part(trait_id.name());
+            if args.is_empty() {
+                format!("builtin_trait__{base}")
+            } else {
+                let args = args
+                    .iter()
+                    .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                    .collect::<Vec<_>>()
+                    .join("__");
+                format!("builtin_trait__{base}__argc{}__{}", args.len(), args)
+            }
+        }
         Some(TyKind::Projection {
             self_ty,
             trait_id,
@@ -146,7 +159,10 @@ where
             name,
         }) => {
             let self_ty = mangle_type_inner(interner, *self_ty, nominal_name, array_len);
-            let trait_name = nominal_name(*trait_id);
+            let trait_name = match trait_id {
+                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
+            };
             let trait_args = trait_args
                 .iter()
                 .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))

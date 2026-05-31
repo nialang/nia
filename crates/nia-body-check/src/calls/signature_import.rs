@@ -59,6 +59,16 @@ pub fn import_type_into(
                 args,
             })
         }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::BuiltinTrait {
+                trait_id: *trait_id,
+                args,
+            })
+        }
         Some(TyKind::Projection {
             self_ty,
             trait_id,

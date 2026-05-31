@@ -1212,6 +1212,39 @@ while calls, indexing, and field access are higher than unary operators.
 Nia has no built-in pointer arithmetic. Convert to an integer type explicitly,
 perform the arithmetic, and convert back explicitly when needed.
 
+Arithmetic, bitwise, and shift operators are type checked through core language
+operator traits. These traits are always available by name and are not provided
+by a source module:
+
+```nia
+Add[Rhs]
+Sub[Rhs]
+Mul[Rhs]
+Div[Rhs]
+Rem[Rhs]
+BitAnd[Rhs]
+BitOr[Rhs]
+BitXor[Rhs]
+Shl[Rhs]
+Shr[Rhs]
+```
+
+Each operator trait has an `Output` associated type. For example, `a + b`
+requires the bound `Lhs: Add[Rhs]` and has type `[Lhs as Add[Rhs]]::Output`.
+Generic code that uses `+` must state the needed capability explicitly:
+
+```nia
+fn add_same[T](a: T, b: T) T
+where T: Add[T, Output = T] {
+    a + b
+}
+```
+
+Primitive numeric and integer operator implementations are compiler-known core
+implementations. Lowering represents these operators as builtin operator calls;
+LLVM code generation emits the corresponding primitive operation after generic
+instantiation.
+
 ### 8.6 Calls, Indexing, Fields, And Methods
 
 Function call:

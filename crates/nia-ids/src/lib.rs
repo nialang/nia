@@ -48,3 +48,77 @@ impl InternedTyId {
         Self { interner_id, index }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TraitId {
+    Source(GlobalDefId),
+    Builtin(BuiltinTrait),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinTrait {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+}
+
+impl BuiltinTrait {
+    pub const ALL: [Self; 10] = [
+        Self::Add,
+        Self::Sub,
+        Self::Mul,
+        Self::Div,
+        Self::Rem,
+        Self::BitAnd,
+        Self::BitOr,
+        Self::BitXor,
+        Self::Shl,
+        Self::Shr,
+    ];
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "Add" => Some(Self::Add),
+            "Sub" => Some(Self::Sub),
+            "Mul" => Some(Self::Mul),
+            "Div" => Some(Self::Div),
+            "Rem" => Some(Self::Rem),
+            "BitAnd" => Some(Self::BitAnd),
+            "BitOr" => Some(Self::BitOr),
+            "BitXor" => Some(Self::BitXor),
+            "Shl" => Some(Self::Shl),
+            "Shr" => Some(Self::Shr),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Add => "Add",
+            Self::Sub => "Sub",
+            Self::Mul => "Mul",
+            Self::Div => "Div",
+            Self::Rem => "Rem",
+            Self::BitAnd => "BitAnd",
+            Self::BitOr => "BitOr",
+            Self::BitXor => "BitXor",
+            Self::Shl => "Shl",
+            Self::Shr => "Shr",
+        }
+    }
+
+    pub fn generic_count(self) -> usize {
+        1
+    }
+
+    pub fn has_associated_type(self, name: &str) -> bool {
+        name == "Output"
+    }
+}

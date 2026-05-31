@@ -12,6 +12,7 @@ pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ImportAliasMap;
 use nia_span::Span;
+use nia_ty::BuiltinTrait;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeResolution {
@@ -23,6 +24,7 @@ pub struct TypeResolution {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeNameResolution {
     Primitive(PrimitiveType),
+    BuiltinTrait(BuiltinTrait),
     Def(DefId),
     External(GlobalDefId),
     GenericParam,
@@ -429,6 +431,9 @@ impl<'a> TypeResolver<'a> {
     fn resolve_type_name(&mut self, segment: &TypePathSegment, span: Span) -> TypeNameResolution {
         if let Some(primitive) = primitive_type(&segment.name) {
             return TypeNameResolution::Primitive(primitive);
+        }
+        if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
+            return TypeNameResolution::BuiltinTrait(trait_id);
         }
         if self.is_generic_param(&segment.name) {
             return TypeNameResolution::GenericParam;

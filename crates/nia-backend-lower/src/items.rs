@@ -134,7 +134,8 @@ impl<'a> ModuleLowerer<'a> {
             .input
             .function_bodies
             .get(&self.global_def_id(def_id))
-            .cloned();
+            .cloned()
+            .map(|body| self.resolve_builtin_operator_calls_in_body(body));
         Some(BackendFunction {
             def_id: self.global_def_id(def_id),
             name: function.name.clone(),

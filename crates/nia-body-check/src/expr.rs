@@ -8,7 +8,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -388,80 +388,103 @@ impl<'a> BodyChecker<'a> {
                 self.bool()
             }
             BinaryOp::BitAnd | BinaryOp::BitXor | BinaryOp::BitOr => {
-                let Some(expected) = expected.filter(|ty| self.is_integer(*ty)) else {
-                    let (lhs_ty, _) =
-                        self.check_same_type_binary_operands(lhs, rhs, "binary operator");
-                    if !self.is_integer(lhs_ty) {
-                        self.diagnostics.push(Diagnostic::error(
-                            span,
-                            "bitwise operator requires integer operands",
-                        ));
-                    }
-                    return lhs_ty;
-                };
-                let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
-                self.expect_expr_type(lhs, expected, lhs_ty, "binary operator");
-                let rhs_ty = self.check_expr_with_expected(rhs, Some(expected));
-                self.expect_expr_type(rhs, expected, rhs_ty, "binary operator");
-                expected
+                self.check_builtin_operator_expr(span, lhs, op, rhs, expected)
             }
             BinaryOp::Shl | BinaryOp::Shr => {
-                let lhs_expected = expected.filter(|ty| self.is_integer(*ty));
-                let lhs_actual = self.check_expr_with_expected(lhs, lhs_expected);
-                if let Some(expected) = lhs_expected {
-                    self.expect_expr_type(lhs, expected, lhs_actual, "shift operator");
-                }
-                let lhs_ty = self
-                    .expr_types
-                    .get(&lhs.span)
-                    .copied()
-                    .unwrap_or(lhs_actual);
-                if !self.is_integer(lhs_ty) {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "shift operator requires integer left operand",
-                    ));
-                }
-                let rhs_ty = if self.is_numeric_literal_expr(rhs) {
-                    self.check_expr_with_expected(rhs, Some(lhs_ty))
-                } else {
-                    self.check_expr(rhs)
-                };
-                if self.is_numeric_literal_expr(rhs) {
-                    self.expect_expr_type(rhs, lhs_ty, rhs_ty, "shift operator");
-                }
-                if !self.is_integer(rhs_ty) {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "shift operator requires integer right operand",
-                    ));
-                }
-                lhs_ty
+                self.check_builtin_operator_expr(span, lhs, op, rhs, expected)
             }
-            _ => {
-                let Some(expected) = expected.filter(|ty| self.is_numeric(*ty)) else {
-                    let (lhs_ty, _) =
-                        self.check_same_type_binary_operands(lhs, rhs, "binary operator");
-                    if !self.is_numeric(lhs_ty) {
-                        self.diagnostics.push(Diagnostic::error(
-                            span,
-                            "arithmetic operator requires numeric operands",
-                        ));
-                    }
-                    return lhs_ty;
-                };
-                let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
-                self.expect_expr_type(lhs, expected, lhs_ty, "binary operator");
-                let rhs_ty = self.check_expr_with_expected(rhs, Some(expected));
-                self.expect_expr_type(rhs, expected, rhs_ty, "binary operator");
-                if !self.is_numeric(lhs_ty) {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "arithmetic operator requires numeric operands",
-                    ));
-                }
-                expected
+            _ => self.check_builtin_operator_expr(span, lhs, op, rhs, expected),
+        }
+    }
+
+    fn check_builtin_operator_expr(
+        &mut self,
+        span: Span,
+        lhs: &Expr,
+        op: BinaryOp,
+        rhs: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let Some(trait_id) = builtin_trait_for_binary_op(op) else {
+            return self.error();
+        };
+        let lhs_expected = if self.is_numeric_literal_expr(lhs) {
+            expected.filter(|expected| self.can_expected_type_drive_builtin_operator(*expected, op))
+        } else {
+            expected.filter(|expected| self.can_expected_type_drive_builtin_operator(*expected, op))
+        };
+        let lhs_actual = if let Some(expected) = lhs_expected {
+            self.check_expr_with_expected(lhs, Some(expected))
+        } else {
+            self.check_expr(lhs)
+        };
+        if let Some(expected) = lhs_expected {
+            self.expect_expr_type(lhs, expected, lhs_actual, "binary operator");
+        }
+        let lhs_ty = self
+            .expr_types
+            .get(&lhs.span)
+            .copied()
+            .unwrap_or(lhs_actual);
+        let rhs_expected = if self.is_numeric_literal_expr(rhs) {
+            Some(lhs_ty)
+        } else {
+            None
+        };
+        let rhs_actual = self.check_expr_with_expected(rhs, rhs_expected);
+        if let Some(expected) = rhs_expected {
+            self.expect_expr_type(rhs, expected, rhs_actual, "binary operator");
+        }
+        let rhs_ty = self
+            .expr_types
+            .get(&rhs.span)
+            .copied()
+            .unwrap_or(rhs_actual);
+
+        let trait_args = vec![rhs_ty];
+        if !self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+        }
+
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: lhs_ty,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args,
+            name: "Output".to_string(),
+        });
+        let output = self.normalize_projection(output);
+        if let Some(expected) = expected {
+            self.expect_type(span, expected, output, "binary operator");
+        }
+        output
+    }
+
+    fn can_expected_type_drive_builtin_operator(
+        &self,
+        expected: InternedTyId,
+        op: BinaryOp,
+    ) -> bool {
+        match op {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                self.is_numeric(expected)
             }
+            BinaryOp::BitAnd
+            | BinaryOp::BitXor
+            | BinaryOp::BitOr
+            | BinaryOp::Shl
+            | BinaryOp::Shr => self.is_integer(expected),
+            _ => false,
         }
     }
 
@@ -654,5 +677,28 @@ impl<'a> BodyChecker<'a> {
                 }),
             _ => self.error(),
         }
+    }
+}
+
+pub(crate) fn builtin_trait_for_binary_op(op: BinaryOp) -> Option<BuiltinTrait> {
+    match op {
+        BinaryOp::Add => Some(BuiltinTrait::Add),
+        BinaryOp::Sub => Some(BuiltinTrait::Sub),
+        BinaryOp::Mul => Some(BuiltinTrait::Mul),
+        BinaryOp::Div => Some(BuiltinTrait::Div),
+        BinaryOp::Rem => Some(BuiltinTrait::Rem),
+        BinaryOp::BitAnd => Some(BuiltinTrait::BitAnd),
+        BinaryOp::BitOr => Some(BuiltinTrait::BitOr),
+        BinaryOp::BitXor => Some(BuiltinTrait::BitXor),
+        BinaryOp::Shl => Some(BuiltinTrait::Shl),
+        BinaryOp::Shr => Some(BuiltinTrait::Shr),
+        BinaryOp::Lt
+        | BinaryOp::Le
+        | BinaryOp::Gt
+        | BinaryOp::Ge
+        | BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::And
+        | BinaryOp::Or => None,
     }
 }

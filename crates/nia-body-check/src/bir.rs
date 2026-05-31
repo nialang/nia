@@ -5,11 +5,11 @@ use nia_ast::{
     SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_body_ir::{
-    BracketSuffixResolution, BuiltinConst, BuiltinValue, PlaceBase, PlaceElem, ResolvedCall,
-    TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind,
-    TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal, TypedLocalKind, TypedPlace,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedSwitchPattern,
+    BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinValue, PlaceBase, PlaceElem,
+    ResolvedCall, TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr,
+    TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit, TypedLocal,
+    TypedLocalKind, TypedPlace, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch,
+    TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
 };
 use nia_ids::LocalId;
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -436,6 +436,14 @@ impl<'a> BodyChecker<'a> {
                         op: *op,
                         expr: Box::new(self.lower_expr(inner)),
                     }
+                }
+            }
+            ExprKind::Binary { lhs, op, rhs }
+                if let Some(trait_id) = crate::expr::builtin_trait_for_binary_op(*op) =>
+            {
+                TypedExprKind::Call {
+                    callee: TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op: *op }),
+                    args: vec![self.lower_expr(lhs), self.lower_expr(rhs)],
                 }
             }
             ExprKind::Binary { lhs, op, rhs } => TypedExprKind::Binary {

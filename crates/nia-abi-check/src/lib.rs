@@ -215,6 +215,10 @@ impl AbiChecker<'_> {
                     }
                 }
             }
+            Some(TyKind::BuiltinTrait { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use trait type directly"),
+            )),
             Some(TyKind::GenericParam(_)) => self.diagnostics.push(Diagnostic::error(
                 span,
                 format!("{context} cannot use generic parameter"),

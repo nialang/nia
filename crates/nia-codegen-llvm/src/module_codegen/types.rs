@@ -180,9 +180,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 AbiParam::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiParam::IndirectReadonly(ty),
-            Some(TyKind::GenericParam(_) | TyKind::Projection { .. } | TyKind::Error) | None => {
-                AbiParam::Direct(ty)
-            }
+            Some(
+                TyKind::GenericParam(_)
+                | TyKind::BuiltinTrait { .. }
+                | TyKind::Projection { .. }
+                | TyKind::Error,
+            )
+            | None => AbiParam::Direct(ty),
         }
     }
 
@@ -211,9 +215,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 AbiReturn::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiReturn::IndirectOut(ty),
-            Some(TyKind::GenericParam(_) | TyKind::Projection { .. } | TyKind::Error) | None => {
-                AbiReturn::Direct(ty)
-            }
+            Some(
+                TyKind::GenericParam(_)
+                | TyKind::BuiltinTrait { .. }
+                | TyKind::Projection { .. }
+                | TyKind::Error,
+            )
+            | None => AbiReturn::Direct(ty),
         }
     }
 
@@ -310,9 +318,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 Err(self.error(span, "unknown nominal type during LLVM lowering"))
             }
-            Some(TyKind::GenericParam(_) | TyKind::Projection { .. } | TyKind::Error) | None => {
-                Err(self.error(span, "type is not concrete enough for LLVM lowering"))
-            }
+            Some(
+                TyKind::GenericParam(_)
+                | TyKind::BuiltinTrait { .. }
+                | TyKind::Projection { .. }
+                | TyKind::Error,
+            )
+            | None => Err(self.error(span, "type is not concrete enough for LLVM lowering")),
         }
     }
 
