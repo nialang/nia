@@ -419,7 +419,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Unary { op, expr: inner }
-                if let Some(trait_id) = crate::expr::builtin_trait_for_unary_op(*op) =>
+                if let Some(trait_id) = BuiltinOperatorOp::Unary(*op).trait_id() =>
             {
                 TypedExprKind::Call {
                     callee: TypedCallee::BuiltinOperator(BuiltinOperator {
@@ -467,7 +467,7 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Binary { lhs, op, rhs }
-                if let Some(trait_id) = crate::expr::builtin_trait_for_binary_op(*op) =>
+                if let Some(trait_id) = BuiltinOperatorOp::Binary(*op).trait_id() =>
             {
                 TypedExprKind::Call {
                     callee: TypedCallee::BuiltinOperator(BuiltinOperator {

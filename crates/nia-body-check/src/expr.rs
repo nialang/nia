@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_body_ir::BracketSuffixResolution;
+use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
@@ -495,7 +495,7 @@ impl<'a> BodyChecker<'a> {
         rhs: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        let Some(trait_id) = builtin_trait_for_binary_op(op) else {
+        let Some(trait_id) = BuiltinOperatorOp::Binary(op).trait_id() else {
             return self.error();
         };
         let output_is_bool = builtin_trait_output_is_bool(trait_id);
@@ -605,7 +605,7 @@ impl<'a> BodyChecker<'a> {
         inner: &Expr,
         inner_ty: InternedTyId,
     ) -> InternedTyId {
-        let Some(trait_id) = builtin_trait_for_unary_op(op) else {
+        let Some(trait_id) = BuiltinOperatorOp::Unary(op).trait_id() else {
             return self.error();
         };
         let inner_ty = self
@@ -830,38 +830,11 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-pub(crate) fn builtin_trait_for_binary_op(op: BinaryOp) -> Option<BuiltinTrait> {
-    match op {
-        BinaryOp::Add => Some(BuiltinTrait::Add),
-        BinaryOp::Sub => Some(BuiltinTrait::Sub),
-        BinaryOp::Mul => Some(BuiltinTrait::Mul),
-        BinaryOp::Div => Some(BuiltinTrait::Div),
-        BinaryOp::Rem => Some(BuiltinTrait::Rem),
-        BinaryOp::BitAnd => Some(BuiltinTrait::BitAnd),
-        BinaryOp::BitOr => Some(BuiltinTrait::BitOr),
-        BinaryOp::BitXor => Some(BuiltinTrait::BitXor),
-        BinaryOp::Shl => Some(BuiltinTrait::Shl),
-        BinaryOp::Shr => Some(BuiltinTrait::Shr),
-        BinaryOp::Eq | BinaryOp::Ne => Some(BuiltinTrait::Eq),
-        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => Some(BuiltinTrait::Ord),
-        BinaryOp::And | BinaryOp::Or => None,
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct ExpectedRangeParts {
     ty: InternedTyId,
     kind: RangeTyKind,
     bound: Option<InternedTyId>,
-}
-
-pub(crate) fn builtin_trait_for_unary_op(op: UnaryOp) -> Option<BuiltinTrait> {
-    match op {
-        UnaryOp::Neg => Some(BuiltinTrait::Neg),
-        UnaryOp::Not => Some(BuiltinTrait::Not),
-        UnaryOp::BitNot => Some(BuiltinTrait::BitNot),
-        UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
-    }
 }
 
 fn builtin_trait_output_is_bool(trait_id: BuiltinTrait) -> bool {

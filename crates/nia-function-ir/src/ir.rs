@@ -332,6 +332,46 @@ pub enum FunctionBuiltinOperatorOp {
     Binary(BinaryOp),
 }
 
+impl FunctionBuiltinOperatorOp {
+    pub fn method(self) -> Option<BuiltinTraitMethod> {
+        match self {
+            Self::Unary(op) => match op {
+                UnaryOp::Neg => Some(BuiltinTraitMethod::Neg),
+                UnaryOp::Not => Some(BuiltinTraitMethod::Not),
+                UnaryOp::BitNot => Some(BuiltinTraitMethod::BitNot),
+                UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+            },
+            Self::Binary(op) => match op {
+                BinaryOp::Add => Some(BuiltinTraitMethod::Add),
+                BinaryOp::Sub => Some(BuiltinTraitMethod::Sub),
+                BinaryOp::Mul => Some(BuiltinTraitMethod::Mul),
+                BinaryOp::Div => Some(BuiltinTraitMethod::Div),
+                BinaryOp::Rem => Some(BuiltinTraitMethod::Rem),
+                BinaryOp::BitAnd => Some(BuiltinTraitMethod::BitAnd),
+                BinaryOp::BitOr => Some(BuiltinTraitMethod::BitOr),
+                BinaryOp::BitXor => Some(BuiltinTraitMethod::BitXor),
+                BinaryOp::Shl => Some(BuiltinTraitMethod::Shl),
+                BinaryOp::Shr => Some(BuiltinTraitMethod::Shr),
+                BinaryOp::Eq => Some(BuiltinTraitMethod::Eq),
+                BinaryOp::Ne => Some(BuiltinTraitMethod::Ne),
+                BinaryOp::Lt => Some(BuiltinTraitMethod::Lt),
+                BinaryOp::Le => Some(BuiltinTraitMethod::Le),
+                BinaryOp::Gt => Some(BuiltinTraitMethod::Gt),
+                BinaryOp::Ge => Some(BuiltinTraitMethod::Ge),
+                BinaryOp::And | BinaryOp::Or => None,
+            },
+        }
+    }
+}
+
+impl FunctionBuiltinOperator {
+    pub fn method(self) -> Option<BuiltinTraitMethod> {
+        self.op
+            .method()
+            .filter(|method| method.trait_id() == self.trait_id)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionPlace {
     pub span: Span,
