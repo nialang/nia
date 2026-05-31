@@ -88,6 +88,12 @@ impl MonoCollector<'_> {
             if !self.is_generic_def(instantiation.def_id) {
                 continue;
             }
+            if instantiation
+                .source_def_id
+                .is_some_and(|source_def_id| self.is_generic_def(source_def_id))
+            {
+                continue;
+            }
             let key = MonoInstanceKey {
                 def_id: instantiation.def_id,
                 arg_module_id: input.module_id,
@@ -110,7 +116,10 @@ impl MonoCollector<'_> {
             return false;
         };
         defs.defs.get(def_id.def_id).is_some_and(|def| {
-            if !matches!(def.kind, DefKind::Function | DefKind::Method) {
+            if !matches!(
+                def.kind,
+                DefKind::Function | DefKind::Method | DefKind::TraitMethod
+            ) {
                 return false;
             }
             !self.effective_generics(defs, def_id).is_empty()
@@ -424,5 +433,72 @@ mod tests {
 
         assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
         assert_eq!(mono.instances.len(), 1);
+    }
+
+    #[test]
+    fn generic_body_instantiations_are_expanded_from_concrete_roots_only() {
+        let (module, errors) = parse_module(
+            r#"
+fn inner[T](value: T) T { value }
+fn outer[T](value: T) T { inner[T](value) }
+fn main() i32 { outer(1) }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let inner_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("inner").expect("inner def"),
+        };
+        let outer_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("outer").expect("outer def"),
+        };
+        let mut interner = TyInterner::new(ModuleId(0));
+        let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let instantiations = vec![
+            GenericInstantiation {
+                def_id: inner_id,
+                args: vec![generic_t],
+                generics: vec!["T".to_string()],
+                span: Span::new(1, 2),
+                source_def_id: Some(outer_id),
+            },
+            GenericInstantiation {
+                def_id: outer_id,
+                args: vec![i32_ty],
+                generics: vec!["T".to_string()],
+                span: Span::new(3, 4),
+                source_def_id: None,
+            },
+        ];
+
+        let mono = collect_monomorphizations(&[MonomorphizeModuleInput {
+            module_id: ModuleId(0),
+            defs: &defs,
+            interner: &interner,
+            comptime: &ComptimeCheck::default(),
+            instantiations: &instantiations,
+        }]);
+
+        assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
+        assert_eq!(mono.instances.len(), 2);
+        assert!(
+            mono.instances
+                .iter()
+                .any(|instance| instance.def_id == outer_id && instance.args == vec![i32_ty])
+        );
+        assert!(
+            mono.instances
+                .iter()
+                .any(|instance| instance.def_id == inner_id && instance.args == vec![i32_ty])
+        );
+        assert!(
+            !mono
+                .instances
+                .iter()
+                .any(|instance| instance.def_id == inner_id && instance.args == vec![generic_t])
+        );
     }
 }

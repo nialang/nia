@@ -286,6 +286,13 @@ pub enum FunctionCallee {
         args: Vec<InternedTyId>,
         receiver: Box<FunctionExpr>,
     },
+    TraitMethod {
+        trait_id: nia_ids::GlobalDefId,
+        method_id: nia_ids::GlobalDefId,
+        self_ty: InternedTyId,
+        args: Vec<InternedTyId>,
+        receiver: Box<FunctionExpr>,
+    },
     FunctionPointer(Box<FunctionExpr>),
 }
 

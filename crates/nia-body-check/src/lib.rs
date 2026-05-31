@@ -26,7 +26,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{
     ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
-    StructSignature, UnionSignature,
+    StructSignature, TraitSignature, UnionSignature,
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
@@ -80,6 +80,12 @@ pub struct ProgramEnumSignature {
     pub interner: TyInterner,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramTraitSignature {
+    pub signature: TraitSignature,
+    pub interner: TyInterner,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramSignatureMaps<'a> {
     pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -88,6 +94,7 @@ pub struct ProgramSignatureMaps<'a> {
     pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -179,6 +186,7 @@ pub fn check_module_bodies(
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
+    let empty_traits = HashMap::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -203,6 +211,7 @@ pub fn check_module_bodies(
             structs: &empty_structs,
             unions: &empty_unions,
             enums: &empty_enums,
+            traits: &empty_traits,
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &empty_program_comptime,
@@ -278,6 +287,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_structs: input.program_signatures.structs,
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
+        program_traits: input.program_signatures.traits,
         program_comptime: input.program_comptime.comptimes,
         expr_types: HashMap::new(),
         bracket_suffix_resolutions: HashMap::new(),
@@ -353,6 +363,7 @@ struct BodyChecker<'a> {
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     expr_types: HashMap<Span, InternedTyId>,
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
@@ -498,6 +509,13 @@ impl<'a> BodyChecker<'a> {
             }
         }
         for item in &module.items {
+            if let ItemKind::Trait(item_trait) = &item.kind {
+                for method in &item_trait.methods {
+                    self.check_trait_function_def(method.function.span, &method.function);
+                }
+            }
+        }
+        for item in &module.items {
             if let ItemKind::Extend(extend) = &item.kind {
                 for method in &extend.methods {
                     self.check_function_def(method.function.span, &method.function);
@@ -597,6 +615,13 @@ impl<'a> BodyChecker<'a> {
 
     fn check_function_def(&mut self, span: Span, function: &FunctionItem) {
         let Some(def_id) = self.def_id_for_span(span, DefKind::Method) else {
+            return;
+        };
+        self.check_function(def_id, function);
+    }
+
+    fn check_trait_function_def(&mut self, span: Span, function: &FunctionItem) {
+        let Some(def_id) = self.def_id_for_span(span, DefKind::TraitMethod) else {
             return;
         };
         self.check_function(def_id, function);

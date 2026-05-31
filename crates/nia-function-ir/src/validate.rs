@@ -284,9 +284,9 @@ impl<'a> FunctionIrValidator<'a> {
 
     fn validate_callee(&self, callee: &FunctionCallee) -> Result<(), FunctionIrError> {
         match callee {
-            FunctionCallee::Method { receiver, .. } | FunctionCallee::FunctionPointer(receiver) => {
-                self.validate_expr(receiver)
-            }
+            FunctionCallee::Method { receiver, .. }
+            | FunctionCallee::TraitMethod { receiver, .. }
+            | FunctionCallee::FunctionPointer(receiver) => self.validate_expr(receiver),
             FunctionCallee::Function(_) | FunctionCallee::FunctionInstance { .. } => Ok(()),
         }
     }

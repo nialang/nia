@@ -115,6 +115,16 @@ impl<'a> ModuleLowerer<'a> {
                     }
                     union_instances.extend(self.lower_union_instances(item.span, item_union));
                 }
+                ItemKind::Trait(item_trait) => {
+                    for method in &item_trait.methods {
+                        if method.function.body.is_some()
+                            && let Some(function) =
+                                self.lower_function(method.function.span, &method.function)
+                        {
+                            function_templates.push(function);
+                        }
+                    }
+                }
                 ItemKind::Extend(extend) => {
                     let extend_target_is_generic = self.extend_target_has_generics(extend);
                     for method in &extend.methods {
@@ -303,7 +313,11 @@ impl<'a> ModuleLowerer<'a> {
     fn def_id_for_span_any_function(&mut self, span: Span) -> Option<DefId> {
         let def_id = self.input.defs.def_spans.get(span)?;
         let def = self.input.defs.defs.get(def_id)?;
-        matches!(def.kind, DefKind::Function | DefKind::Method).then_some(def_id)
+        matches!(
+            def.kind,
+            DefKind::Function | DefKind::Method | DefKind::TraitMethod
+        )
+        .then_some(def_id)
     }
 
     fn global_def_id(&self, def_id: DefId) -> GlobalDefId {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{
     ArrayLen, Expr, ExprKind, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
-    TypePathSegment, TypeRef,
+    TypePathSegment, TypeRef, WhereClause,
 };
 use nia_ast_walk::{Visitor, walk_module};
 use nia_defs::DefCollection;
@@ -59,6 +59,7 @@ pub fn lower_module_types_with_defs(
         const_exprs: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
+        self_type_stack: Vec::new(),
         next_const_expr_id: 0,
     };
     walk_module(&mut lowerer, module);
@@ -79,6 +80,7 @@ struct TypeLowerer<'a> {
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
+    self_type_stack: Vec<InternedTyId>,
     next_const_expr_id: u32,
 }
 
@@ -95,6 +97,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
         match &item.kind {
             ItemKind::Struct(item_struct) => {
                 self.with_generics(&item_struct.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_struct.where_clause);
                     for field in &item_struct.fields {
                         lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
                     }
@@ -102,17 +105,37 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             }
             ItemKind::Union(item_union) => {
                 self.with_generics(&item_union.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_union.where_clause);
                     for field in &item_union.fields {
                         lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
                     }
                 });
             }
+            ItemKind::Trait(item_trait) => {
+                self.with_generics(&item_trait.generics, |lowerer| {
+                    let self_ty = lowerer
+                        .interner
+                        .intern(TyKind::GenericParam("Self".to_string()));
+                    lowerer.with_self_type(self_ty, |lowerer| {
+                        lowerer.lower_where_clause(&item_trait.where_clause);
+                        for method in &item_trait.methods {
+                            lowerer.visit_function(&method.function);
+                        }
+                    });
+                });
+            }
             ItemKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |lowerer| {
-                    lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
-                    for method in &extend.methods {
-                        lowerer.visit_function(&method.function);
+                    let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
+                    if let Some(trait_ref) = &extend.trait_ref {
+                        lowerer.lower_type_in_context(trait_ref, TypeContext::Value);
                     }
+                    lowerer.with_self_type(self_ty, |lowerer| {
+                        lowerer.lower_where_clause(&extend.where_clause);
+                        for method in &extend.methods {
+                            lowerer.visit_function(&method.function);
+                        }
+                    });
                 });
             }
             ItemKind::Enum(item_enum) => {
@@ -128,6 +151,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             }
             ItemKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |lowerer| {
+                    lowerer.lower_where_clause(&alias.where_clause);
                     lowerer.lower_type_in_context(&alias.ty, TypeContext::Alias);
                 });
             }
@@ -146,6 +170,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
 
     fn visit_function(&mut self, function: &'ast FunctionItem) {
         self.with_generics(&function.generics, |lowerer| {
+            lowerer.lower_where_clause(&function.where_clause);
             for param in &function.params {
                 if let Some(ty) = &param.ty {
                     lowerer.lower_type_in_context(ty, TypeContext::Value);
@@ -210,6 +235,13 @@ impl<'a> TypeLowerer<'a> {
             }
             TypeKind::Void => self.interner.primitive(PrimitiveTy::Void),
             TypeKind::Never => self.interner.primitive(PrimitiveTy::Never),
+            TypeKind::SelfType => self.self_type_stack.last().copied().unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::error(
+                    ty.span,
+                    "`Self` is only valid in traits and extend blocks",
+                ));
+                self.interner.error()
+            }),
             TypeKind::Pointer { is_const, elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
                 self.interner.intern(TyKind::Pointer {
@@ -339,6 +371,21 @@ impl<'a> TypeLowerer<'a> {
         self.generic_stack.push(generics.to_vec());
         f(self);
         self.generic_stack.pop();
+    }
+
+    fn with_self_type(&mut self, self_ty: InternedTyId, f: impl FnOnce(&mut Self)) {
+        self.self_type_stack.push(self_ty);
+        f(self);
+        self.self_type_stack.pop();
+    }
+
+    fn lower_where_clause(&mut self, clause: &WhereClause) {
+        for predicate in &clause.predicates {
+            self.lower_type_in_context(&predicate.ty, TypeContext::Value);
+            for bound in &predicate.bounds {
+                self.lower_type_in_context(bound, TypeContext::Value);
+            }
+        }
     }
 
     fn lower_array_len(&mut self, len: &ArrayLen) -> ArrayLenTy {

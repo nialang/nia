@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::ModuleLowerer;
 use nia_backend_ir::{BackendFunction, BackendParam};
+use nia_defs::VisibleExtensionTarget;
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBody,
     FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit,
@@ -26,6 +27,17 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         own_generics: &[String],
     ) -> Vec<String> {
+        if self
+            .input
+            .defs
+            .defs
+            .get(def_id.def_id)
+            .is_some_and(|def| def.kind == nia_defs::DefKind::TraitMethod)
+        {
+            let mut generics = vec!["Self".to_string()];
+            generics.extend(own_generics.iter().cloned());
+            return generics;
+        }
         let mut generics = self.extension_target_generics(def_id).unwrap_or_else(|| {
             self.input
                 .defs
@@ -486,10 +498,132 @@ impl<'a> ModuleLowerer<'a> {
                     .collect(),
                 receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
             },
+            FunctionCallee::TraitMethod {
+                trait_id,
+                method_id,
+                self_ty,
+                args,
+                receiver,
+            } => {
+                let self_ty = self.instantiate_ty(self_ty, substitutions);
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .collect::<Vec<_>>();
+                let receiver = Box::new(self.instantiate_expr(*receiver, substitutions));
+                if let Some((def_id, target_args)) =
+                    self.resolve_trait_method_impl(trait_id, method_id, self_ty)
+                {
+                    let mut instance_args = target_args;
+                    instance_args.extend(args);
+                    FunctionCallee::Method {
+                        def_id,
+                        args: instance_args,
+                        receiver,
+                    }
+                } else if self.trait_method_has_default(method_id) {
+                    let mut instance_args = vec![self_ty];
+                    instance_args.extend(args);
+                    FunctionCallee::Method {
+                        def_id: method_id,
+                        args: instance_args,
+                        receiver,
+                    }
+                } else {
+                    self.diagnostics.push(nia_diagnostic::Diagnostic::error(
+                        receiver.span,
+                        "no visible implementation found for trait method call",
+                    ));
+                    FunctionCallee::TraitMethod {
+                        trait_id,
+                        method_id,
+                        self_ty,
+                        args,
+                        receiver,
+                    }
+                }
+            }
             FunctionCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.instantiate_expr(*expr, substitutions),
             )),
         }
+    }
+
+    fn trait_method_has_default(&self, method_id: GlobalDefId) -> bool {
+        self.input
+            .signatures
+            .traits
+            .values()
+            .flat_map(|signature| signature.methods.iter())
+            .any(|method| {
+                GlobalDefId {
+                    module_id: self.input.module_id,
+                    def_id: method.def_id,
+                } == method_id
+                    && method.has_default
+            })
+    }
+
+    fn resolve_trait_method_impl(
+        &mut self,
+        trait_id: GlobalDefId,
+        trait_method_id: GlobalDefId,
+        self_ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let trait_method_name = self
+            .input
+            .defs
+            .defs
+            .get(trait_method_id.def_id)
+            .map(|def| def.name.clone())
+            .or_else(|| {
+                self.input
+                    .extensions
+                    .targets()
+                    .iter()
+                    .flat_map(|target| target.methods.iter())
+                    .find(|method| method.def_id == trait_method_id)
+                    .map(|method| method.name.clone())
+            })?;
+        let candidates = self
+            .input
+            .extensions
+            .targets()
+            .iter()
+            .filter_map(|target| {
+                self.trait_impl_method_for_target(target, trait_id, &trait_method_name, self_ty)
+            })
+            .collect::<Vec<_>>();
+        match candidates.as_slice() {
+            [candidate] => Some(candidate.clone()),
+            _ => None,
+        }
+    }
+
+    fn trait_impl_method_for_target(
+        &self,
+        target: &VisibleExtensionTarget,
+        trait_id: GlobalDefId,
+        method_name: &str,
+        self_ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        if !self.type_pattern_matches(target.target_ty, self_ty) {
+            return None;
+        }
+        let method = target
+            .methods
+            .iter()
+            .find(|method| method.name == method_name && method.trait_id == Some(trait_id))?;
+        let mut substitutions = HashMap::new();
+        self.match_type_pattern(target.target_ty, self_ty, &mut substitutions)
+            .then(|| {
+                let args = self
+                    .generic_params_in_ty(target.target_ty)
+                    .iter()
+                    .filter_map(|generic| substitutions.get(generic).copied())
+                    .collect();
+                (method.def_id, args)
+            })
     }
 
     fn instantiate_place(
@@ -600,6 +734,124 @@ impl<'a> ModuleLowerer<'a> {
                 self.interner.intern(TyKind::Nominal { def_id, args })
             }
             Some(TyKind::Error) | Some(TyKind::Primitive(_)) | None => ty,
+        }
+    }
+
+    pub(crate) fn type_pattern_matches(&self, pattern: InternedTyId, actual: InternedTyId) -> bool {
+        self.match_type_pattern(pattern, actual, &mut HashMap::new())
+    }
+
+    pub(crate) fn match_type_pattern(
+        &self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> bool {
+        match self.ty_kind(pattern) {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(name).copied() {
+                    self.types_match(existing, actual)
+                } else {
+                    substitutions.insert(name.clone(), actual);
+                    true
+                }
+            }
+            Some(TyKind::Pointer {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.ty_kind(actual),
+                Some(TyKind::Pointer { is_const, elem })
+                    if is_const == pattern_const
+                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Slice {
+                is_const: pattern_const,
+                elem: pattern_elem,
+            }) => matches!(
+                self.ty_kind(actual),
+                Some(TyKind::Slice { is_const, elem })
+                    if is_const == pattern_const
+                        && self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
+            Some(TyKind::Array {
+                len: pattern_len,
+                elem: pattern_elem,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::Array { len, elem }) if pattern_len == len => {
+                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::FunctionPointer {
+                params: pattern_params,
+                return_type: pattern_return,
+                is_variadic: pattern_variadic,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
+                    pattern_params.iter().zip(params).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    }) && self.match_type_pattern(*pattern_return, *return_type, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Nominal {
+                def_id: pattern_def,
+                args: pattern_args,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::Nominal { def_id, args })
+                    if pattern_def == def_id && pattern_args.len() == args.len() =>
+                {
+                    pattern_args.iter().zip(args).all(|(pattern, actual)| {
+                        self.match_type_pattern(*pattern, *actual, substitutions)
+                    })
+                }
+                _ => false,
+            },
+            Some(TyKind::Primitive(_)) | Some(TyKind::Error) | None => {
+                self.types_match(pattern, actual)
+            }
+        }
+    }
+
+    pub(crate) fn types_match(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        if left == right {
+            return true;
+        }
+        match (self.ty_kind(left), self.ty_kind(right)) {
+            (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
+            (
+                Some(TyKind::Pointer {
+                    is_const: left_const,
+                    elem: left_elem,
+                }),
+                Some(TyKind::Pointer {
+                    is_const: right_const,
+                    elem: right_elem,
+                }),
+            ) => left_const == right_const && self.types_match(*left_elem, *right_elem),
+            (
+                Some(TyKind::Nominal {
+                    def_id: left_def,
+                    args: left_args,
+                }),
+                Some(TyKind::Nominal {
+                    def_id: right_def,
+                    args: right_args,
+                }),
+            ) => {
+                left_def == right_def
+                    && left_args.len() == right_args.len()
+                    && left_args
+                        .iter()
+                        .zip(right_args)
+                        .all(|(left, right)| self.types_match(*left, *right))
+            }
+            _ => false,
         }
     }
 }

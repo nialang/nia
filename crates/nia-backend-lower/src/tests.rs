@@ -99,6 +99,7 @@ fn main() i32 {
                 module_id: ModuleId(0),
                 def_id: make_id,
             },
+            trait_id: None,
         },
     );
     let origins = NodeOriginTable::default();
@@ -124,6 +125,7 @@ fn main() i32 {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+            traits: &HashMap::new(),
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -390,6 +392,7 @@ fn lower_source(source: &str) -> BackendLowering {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+            traits: &HashMap::new(),
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),

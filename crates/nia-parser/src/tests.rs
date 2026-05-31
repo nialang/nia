@@ -1256,3 +1256,38 @@ fn main(state: i32) i32 {
         SwitchArmBody::Stmt(stmt) if matches!(stmt.kind, StmtKind::Break)
     ));
 }
+
+#[test]
+fn parses_trait_impl_where_and_self_type() {
+    let (module, errors) = parse_module(
+        r#"
+trait Show {
+    fn show(&const self) i32;
+    fn clone_self(&const self) Self {
+        self.*
+    }
+}
+
+struct Box[T] where T: Show {
+    value: T,
+}
+
+extend Box[i32] : Show where i32: Show {
+    fn show(&const self) i32 {
+        self.value
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(matches!(module.items[0].kind, ItemKind::Trait(_)));
+    let ItemKind::Struct(item_struct) = &module.items[1].kind else {
+        panic!("expected struct");
+    };
+    assert_eq!(item_struct.where_clause.predicates.len(), 1);
+    let ItemKind::Extend(extend) = &module.items[2].kind else {
+        panic!("expected extend");
+    };
+    assert!(extend.trait_ref.is_some());
+    assert_eq!(extend.where_clause.predicates.len(), 1);
+}

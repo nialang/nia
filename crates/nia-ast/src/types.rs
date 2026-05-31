@@ -33,6 +33,7 @@ pub enum TypeKind {
         return_type: Option<Box<TypeRef>>,
         is_variadic: bool,
     },
+    SelfType,
     Void,
     Never,
     Infer,
@@ -54,4 +55,16 @@ pub enum TypeArg {
 pub enum ArrayLen {
     Infer,
     Expr(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WhereClause {
+    pub predicates: Vec<WherePredicate>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WherePredicate {
+    pub ty: TypeRef,
+    pub bounds: Vec<TypeRef>,
+    pub span: Span,
 }

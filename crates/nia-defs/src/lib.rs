@@ -97,6 +97,8 @@ pub enum DefKind {
     StructField,
     Union,
     UnionField,
+    Trait,
+    TraitMethod,
     Method,
     Enum,
     EnumVariant,
@@ -249,6 +251,7 @@ impl Collector {
             }
             ItemKind::Struct(item_struct) => self.collect_struct(item, item_struct),
             ItemKind::Union(item_union) => self.collect_union(item, item_union),
+            ItemKind::Trait(item_trait) => self.collect_trait(item, item_trait),
             ItemKind::Extend(extend) => self.collect_extend(item, extend),
             ItemKind::Enum(item_enum) => self.collect_enum(item, item_enum),
             ItemKind::TypeAlias(alias) => self.collect_type_alias(item, alias),
@@ -357,6 +360,48 @@ impl Collector {
         for method in &extend.methods {
             self.collect_method(None, &mut members, &method.function, method.vis);
         }
+    }
+
+    fn collect_trait(&mut self, item: &Item, item_trait: &nia_ast::TraitItem) {
+        self.check_duplicate_generics(&item_trait.generics, item.span);
+        let trait_id = self.add_type_def(
+            item_trait.name.clone(),
+            DefKind::Trait,
+            item.vis,
+            item.span,
+            item_trait.generics.clone(),
+        );
+        let mut members = MemberScope::default();
+        for method in &item_trait.methods {
+            self.collect_trait_method(Some(trait_id), &mut members, &method.function);
+        }
+        self.struct_members.insert(trait_id, members);
+    }
+
+    fn collect_trait_method(
+        &mut self,
+        parent: Option<DefId>,
+        members: &mut MemberScope,
+        method: &FunctionItem,
+    ) {
+        self.check_duplicate_generics(&method.generics, method.span);
+        let method_id = self.push_def(Def {
+            name: method.name.clone(),
+            kind: DefKind::TraitMethod,
+            module_id: self.module_id,
+            parent,
+            generics: method.generics.clone(),
+            visibility: Visibility::Public,
+            span: method.span,
+        });
+        self.def_spans.insert(method.span, method_id);
+        self.insert_member(
+            &mut members.methods,
+            method.name.clone(),
+            method_id,
+            method.span,
+            "duplicate trait method",
+        );
     }
 
     fn collect_method(

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{
     BindingItem, EnumItem, ExtendItem, FunctionItem, ItemKind, Module, Param, ReceiverKind,
-    StructItem, TypeAliasItem, UnionItem,
+    StructItem, TraitItem, TypeAliasItem, UnionItem, WhereClause,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -17,6 +17,7 @@ pub struct ItemSignatures {
     pub functions: HashMap<DefId, FunctionSignature>,
     pub structs: HashMap<DefId, StructSignature>,
     pub unions: HashMap<DefId, UnionSignature>,
+    pub traits: HashMap<DefId, TraitSignature>,
     pub enums: HashMap<DefId, EnumSignature>,
     pub type_aliases: HashMap<DefId, TypeAliasSignature>,
     pub globals: HashMap<DefId, GlobalSignature>,
@@ -27,11 +28,19 @@ pub struct ItemSignatures {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSignature {
     pub generics: Vec<String>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub params: Vec<ParamSignature>,
     pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
     pub has_body: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WherePredicateSignature {
+    pub ty: InternedTyId,
+    pub bounds: Vec<InternedTyId>,
     pub span: Span,
 }
 
@@ -56,6 +65,22 @@ pub struct UnionSignature {
     pub generics: Vec<String>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitSignature {
+    pub generics: Vec<String>,
+    pub methods: Vec<TraitMethodSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethodSignature {
+    pub def_id: DefId,
+    pub name: String,
+    pub signature: FunctionSignature,
+    pub has_default: bool,
     pub span: Span,
 }
 
@@ -128,6 +153,7 @@ pub fn collect_item_signatures(
         functions: HashMap::new(),
         structs: HashMap::new(),
         unions: HashMap::new(),
+        traits: HashMap::new(),
         enums: HashMap::new(),
         type_aliases: HashMap::new(),
         globals: HashMap::new(),
@@ -156,6 +182,9 @@ impl<'a> SignatureCollector<'a> {
             }
             ItemKind::Union(item_union) => {
                 self.collect_union(signatures, item.span, item_union);
+            }
+            ItemKind::Trait(item_trait) => {
+                self.collect_trait(signatures, item.span, item_trait);
             }
             ItemKind::Extend(extend) => {
                 self.collect_extend(signatures, extend);
@@ -247,6 +276,41 @@ impl<'a> SignatureCollector<'a> {
         for method in &extend.methods {
             self.collect_method(signatures, &method.function);
         }
+    }
+
+    fn collect_trait(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        item_span: Span,
+        item_trait: &TraitItem,
+    ) {
+        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Trait) else {
+            return;
+        };
+        let mut methods = Vec::new();
+        for method in &item_trait.methods {
+            let Some(method_id) = self.def_id_for_span(method.function.span, DefKind::TraitMethod)
+            else {
+                continue;
+            };
+            let signature = self.function_signature(&method.function);
+            methods.push(TraitMethodSignature {
+                def_id: method_id,
+                name: method.function.name.clone(),
+                signature: signature.clone(),
+                has_default: method.function.body.is_some(),
+                span: method.function.span,
+            });
+            signatures.functions.insert(method_id, signature);
+        }
+        signatures.traits.insert(
+            def_id,
+            TraitSignature {
+                generics: item_trait.generics.clone(),
+                methods,
+                span: item_span,
+            },
+        );
     }
 
     fn collect_method(&mut self, signatures: &mut ItemSignatures, method: &FunctionItem) {
@@ -376,6 +440,7 @@ impl<'a> SignatureCollector<'a> {
         };
         FunctionSignature {
             generics: function.generics.clone(),
+            where_predicates: self.where_predicate_signatures(&function.where_clause),
             params,
             return_type,
             is_extern: function.is_extern,
@@ -403,6 +468,22 @@ impl<'a> SignatureCollector<'a> {
             ty,
             span: param.span,
         }
+    }
+
+    fn where_predicate_signatures(&mut self, clause: &WhereClause) -> Vec<WherePredicateSignature> {
+        clause
+            .predicates
+            .iter()
+            .map(|predicate| WherePredicateSignature {
+                ty: self.ty_for_span(predicate.ty.span),
+                bounds: predicate
+                    .bounds
+                    .iter()
+                    .map(|bound| self.ty_for_span(bound.span))
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect()
     }
 
     fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {

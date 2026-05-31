@@ -15,8 +15,25 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
     ) -> Option<InternedTyId> {
         let method = self.defs.defs.get(def_id)?;
-        if method.kind != DefKind::Method {
+        if !matches!(method.kind, DefKind::Method | DefKind::TraitMethod) {
             return None;
+        }
+        if method.kind == DefKind::TraitMethod {
+            let self_nominal = self
+                .interner
+                .intern(TyKind::GenericParam("Self".to_string()));
+            let receiver = signature.params.first()?.receiver?;
+            return Some(match receiver {
+                ReceiverKind::Value => self_nominal,
+                ReceiverKind::RefConst => self.interner.intern(TyKind::Pointer {
+                    is_const: true,
+                    elem: self_nominal,
+                }),
+                ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
+                    is_const: false,
+                    elem: self_nominal,
+                }),
+            });
         }
         let self_nominal = self.method_owner_type(def_id)?;
         let receiver = signature.params.first()?.receiver?;

@@ -111,6 +111,7 @@ fn resolve_module_types_inner(
         qualified_type_names: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
+        self_type_stack: Vec::new(),
         suppress_unknown_type_errors: false,
     };
     walk_module(&mut resolver, module);
@@ -131,6 +132,7 @@ struct TypeResolver<'a> {
     qualified_type_names: HashMap<Span, GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
+    self_type_stack: Vec<Span>,
     suppress_unknown_type_errors: bool,
 }
 
@@ -149,8 +151,16 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
             ItemKind::Union(item_union) => {
                 self.with_generics(&item_union.generics, |resolver| walk_item(resolver, item));
             }
+            ItemKind::Trait(item_trait) => {
+                self.with_generics(&item_trait.generics, |resolver| {
+                    resolver.with_self_type(item.span, |resolver| walk_item(resolver, item));
+                });
+            }
             ItemKind::Extend(extend) => {
-                self.with_generics(&extend.generics, |resolver| walk_item(resolver, item));
+                self.with_generics(&extend.generics, |resolver| {
+                    resolver
+                        .with_self_type(extend.target.span, |resolver| walk_item(resolver, item));
+                });
             }
             ItemKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |resolver| walk_item(resolver, item));
@@ -187,6 +197,14 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
     fn visit_type(&mut self, ty: &'ast TypeRef) {
         match &ty.kind {
             TypeKind::Error | TypeKind::Infer | TypeKind::Void | TypeKind::Never => {}
+            TypeKind::SelfType => {
+                if self.self_type_stack.is_empty() {
+                    self.diagnostics.push(Diagnostic::error(
+                        ty.span,
+                        "`Self` is only valid in traits and extend blocks",
+                    ));
+                }
+            }
             TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
                 self.visit_type(elem);
             }
@@ -384,7 +402,7 @@ impl<'a> TypeResolver<'a> {
         };
         if !matches!(
             def.kind,
-            DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
+            DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias
         ) {
             return TypeNameResolution::Error;
         }
@@ -417,7 +435,11 @@ impl<'a> TypeResolver<'a> {
             };
             if matches!(
                 def.kind,
-                DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
+                DefKind::Struct
+                    | DefKind::Union
+                    | DefKind::Trait
+                    | DefKind::Enum
+                    | DefKind::TypeAlias
             ) {
                 return TypeNameResolution::Def(def_id);
             }
@@ -453,6 +475,12 @@ impl<'a> TypeResolver<'a> {
         self.generic_stack.push(generics.to_vec());
         f(self);
         self.generic_stack.pop();
+    }
+
+    fn with_self_type(&mut self, span: Span, f: impl FnOnce(&mut Self)) {
+        self.self_type_stack.push(span);
+        f(self);
+        self.self_type_stack.pop();
     }
 
     fn is_generic_param(&self, name: &str) -> bool {

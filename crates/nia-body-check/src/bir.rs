@@ -839,6 +839,21 @@ impl<'a> BodyChecker<'a> {
                         .unwrap_or_else(|| self.lower_expr(callee)),
                 ),
             },
+            ResolvedCall::TraitMethod {
+                trait_id,
+                method_id,
+                self_ty,
+                args,
+            } => TypedCallee::TraitMethod {
+                trait_id,
+                method_id,
+                self_ty,
+                args,
+                receiver: Box::new(
+                    self.lower_receiver_expr(callee)
+                        .unwrap_or_else(|| self.lower_expr(callee)),
+                ),
+            },
             ResolvedCall::FunctionPointer => {
                 TypedCallee::FunctionPointer(Box::new(self.lower_expr(callee)))
             }

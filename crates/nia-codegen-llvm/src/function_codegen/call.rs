@@ -165,6 +165,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_call(function, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build method call"))
             }
+            FunctionCallee::TraitMethod { .. } => Err(self.error(
+                expr.span,
+                "unresolved trait method call reached LLVM codegen",
+            )),
             FunctionCallee::FunctionPointer(callee) => {
                 let Some(TyKind::FunctionPointer {
                     params,

@@ -4,7 +4,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::LoadedModule;
 use nia_body_check::{
     ProgramComptimeSignature, ProgramEnumSignature, ProgramFunctionSignature,
-    ProgramGlobalSignature, ProgramStructSignature, ProgramUnionSignature, import_type_into,
+    ProgramGlobalSignature, ProgramStructSignature, ProgramTraitSignature, ProgramUnionSignature,
+    import_type_into,
 };
 use nia_defs::{
     DefCollection, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
@@ -12,7 +13,7 @@ use nia_defs::{
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::GlobalDefId;
-use nia_item_signatures::ItemSignatures;
+use nia_item_signatures::{FunctionSignature, ItemSignatures, ParamSignature, TraitSignature};
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -27,6 +28,7 @@ pub(crate) struct ExtensionModuleInput<'a> {
     pub(crate) module: &'a LoadedModule,
     pub(crate) defs: &'a DefCollection,
     pub(crate) lowering: &'a TypeLowering,
+    pub(crate) signatures: &'a ItemSignatures,
     pub(crate) normalization: &'a TypeNormalization,
 }
 
@@ -162,11 +164,57 @@ pub(crate) fn collect_program_enums(
     enums
 }
 
+pub(crate) fn collect_program_traits(
+    modules: &[ModuleSignatureInput<'_>],
+) -> HashMap<GlobalDefId, ProgramTraitSignature> {
+    let mut traits = HashMap::new();
+    for module in modules {
+        for (def_id, signature) in &module.signatures.traits {
+            traits.insert(
+                GlobalDefId {
+                    module_id: module.module_id,
+                    def_id: *def_id,
+                },
+                ProgramTraitSignature {
+                    signature: signature.clone(),
+                    interner: module.lowering.interner.clone(),
+                },
+            );
+        }
+    }
+    traits
+}
+
 pub(crate) fn collect_extension_methods(
     modules: &[ExtensionModuleInput<'_>],
 ) -> (ExtensionMethods, Vec<Diagnostic>) {
     let mut extensions = ExtensionMethods::default();
     let mut diagnostics = Vec::new();
+    let defs_by_module = modules
+        .iter()
+        .map(|module| (module.module.id, module.defs))
+        .collect::<HashMap<_, _>>();
+    let trait_signatures = modules
+        .iter()
+        .flat_map(|module| {
+            module
+                .signatures
+                .traits
+                .iter()
+                .map(move |(def_id, signature)| {
+                    (
+                        GlobalDefId {
+                            module_id: module.module.id,
+                            def_id: *def_id,
+                        },
+                        TraitSignatureRef {
+                            signature,
+                            interner: &module.lowering.interner,
+                        },
+                    )
+                })
+        })
+        .collect::<HashMap<_, _>>();
     for module in modules {
         for item in &module.module.module.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
@@ -188,6 +236,19 @@ pub(crate) fn collect_extension_methods(
                 ));
                 continue;
             }
+            let trait_id = extend.trait_ref.as_ref().and_then(|trait_ref| {
+                trait_ref_id(module, trait_ref, &defs_by_module, &mut diagnostics)
+            });
+            if let Some(trait_id) = trait_id {
+                validate_trait_impl(
+                    module,
+                    extend,
+                    target_ty,
+                    trait_id,
+                    &trait_signatures,
+                    &mut diagnostics,
+                );
+            }
             for method in &extend.methods {
                 let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
                     continue;
@@ -200,6 +261,7 @@ pub(crate) fn collect_extension_methods(
                             def_id: method_id,
                         },
                         target_ty,
+                        trait_id,
                         visibility: method.vis,
                     },
                 );
@@ -207,6 +269,270 @@ pub(crate) fn collect_extension_methods(
         }
     }
     (extensions, diagnostics)
+}
+
+#[derive(Clone, Copy)]
+struct TraitSignatureRef<'a> {
+    signature: &'a TraitSignature,
+    interner: &'a TyInterner,
+}
+
+fn trait_ref_id(
+    module: &ExtensionModuleInput<'_>,
+    trait_ref: &nia_ast::TypeRef,
+    defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<GlobalDefId> {
+    let Some(ty) = module.lowering.type_uses.get(&trait_ref.span).copied() else {
+        diagnostics.push(Diagnostic::error(
+            trait_ref.span,
+            "trait implementation target must resolve to a trait",
+        ));
+        return None;
+    };
+    let ty = module.normalization.normalize(ty);
+    let Some(TyKind::Nominal { def_id, .. }) = module.lowering.interner.get(ty).cloned() else {
+        diagnostics.push(Diagnostic::error(
+            trait_ref.span,
+            "trait implementation target must be a trait",
+        ));
+        return None;
+    };
+    if !matches!(
+        defs_by_module
+            .get(&def_id.module_id)
+            .and_then(|defs| defs.defs.get(def_id.def_id))
+            .map(|def| def.kind),
+        Some(nia_defs::DefKind::Trait)
+    ) {
+        diagnostics.push(Diagnostic::error(
+            trait_ref.span,
+            "trait implementation target must be a trait",
+        ));
+        return None;
+    }
+    Some(def_id)
+}
+
+fn validate_trait_impl(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    target_ty: nia_ids::InternedTyId,
+    trait_id: GlobalDefId,
+    trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Some(trait_signature) = trait_signatures.get(&trait_id).copied() else {
+        return;
+    };
+    for method in &extend.methods {
+        if !trait_signature
+            .signature
+            .methods
+            .iter()
+            .any(|required| required.name == method.function.name)
+        {
+            diagnostics.push(Diagnostic::error(
+                method.function.span,
+                format!(
+                    "method `{}` is not a member of implemented trait",
+                    method.function.name
+                ),
+            ));
+        }
+    }
+    let trait_args = extend
+        .trait_ref
+        .as_ref()
+        .and_then(|trait_ref| trait_ref_args(module, trait_ref, trait_id))
+        .unwrap_or_default();
+    let mut comparison_interner = module.normalization.interner.clone();
+    for required in &trait_signature.signature.methods {
+        let Some(method) = extend
+            .methods
+            .iter()
+            .find(|method| method.function.name == required.name)
+        else {
+            if !required.has_default {
+                diagnostics.push(Diagnostic::error(
+                    extend.target.span,
+                    format!(
+                        "missing implementation for trait method `{}`",
+                        required.name
+                    ),
+                ));
+            }
+            continue;
+        };
+        let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
+            continue;
+        };
+        let Some(actual) = module.signatures.functions.get(&method_id) else {
+            continue;
+        };
+        let required_signature = import_trait_method_signature(
+            &mut comparison_interner,
+            trait_signature.interner,
+            &required.signature,
+            &trait_signature.signature.generics,
+            &trait_args,
+            target_ty,
+        );
+        if !trait_method_signature_matches(&required_signature, actual) {
+            diagnostics.push(Diagnostic::error(
+                method.function.span,
+                format!(
+                    "implementation of trait method `{}` does not match the trait signature",
+                    required.name
+                ),
+            ));
+        }
+    }
+}
+
+fn trait_ref_args(
+    module: &ExtensionModuleInput<'_>,
+    trait_ref: &nia_ast::TypeRef,
+    trait_id: GlobalDefId,
+) -> Option<Vec<nia_ids::InternedTyId>> {
+    let ty = module.lowering.type_uses.get(&trait_ref.span).copied()?;
+    let ty = module.normalization.normalize(ty);
+    match module.lowering.interner.get(ty) {
+        Some(TyKind::Nominal { def_id, args }) if *def_id == trait_id => Some(args.clone()),
+        _ => None,
+    }
+}
+
+fn import_trait_method_signature(
+    target_interner: &mut TyInterner,
+    source_interner: &TyInterner,
+    signature: &FunctionSignature,
+    trait_generics: &[String],
+    trait_args: &[nia_ids::InternedTyId],
+    self_ty: nia_ids::InternedTyId,
+) -> FunctionSignature {
+    let mut substitutions = trait_generics
+        .iter()
+        .zip(trait_args)
+        .map(|(generic, arg)| (generic.clone(), *arg))
+        .collect::<HashMap<_, _>>();
+    substitutions.insert("Self".to_string(), self_ty);
+    let mut signature = signature.clone();
+    signature.params = signature
+        .params
+        .iter()
+        .map(|param| ParamSignature {
+            name: param.name.clone(),
+            receiver: param.receiver,
+            ty: substitute_imported_type(
+                target_interner,
+                source_interner,
+                param.ty,
+                &substitutions,
+            ),
+            span: param.span,
+        })
+        .collect();
+    signature.return_type = substitute_imported_type(
+        target_interner,
+        source_interner,
+        signature.return_type,
+        &substitutions,
+    );
+    signature
+}
+
+fn substitute_imported_type(
+    target_interner: &mut TyInterner,
+    source_interner: &TyInterner,
+    ty: nia_ids::InternedTyId,
+    substitutions: &HashMap<String, nia_ids::InternedTyId>,
+) -> nia_ids::InternedTyId {
+    match source_interner.get(ty) {
+        Some(TyKind::GenericParam(name)) => substitutions
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| import_type_into(target_interner, source_interner, ty)),
+        Some(TyKind::Pointer { is_const, elem }) => {
+            let is_const = *is_const;
+            let elem =
+                substitute_imported_type(target_interner, source_interner, *elem, substitutions);
+            target_interner.intern(TyKind::Pointer { is_const, elem })
+        }
+        Some(TyKind::Slice { is_const, elem }) => {
+            let is_const = *is_const;
+            let elem =
+                substitute_imported_type(target_interner, source_interner, *elem, substitutions);
+            target_interner.intern(TyKind::Slice { is_const, elem })
+        }
+        Some(TyKind::Array { len, elem }) => {
+            let len = len.clone();
+            let elem =
+                substitute_imported_type(target_interner, source_interner, *elem, substitutions);
+            target_interner.intern(TyKind::Array { len, elem })
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        }) => {
+            let params = params
+                .iter()
+                .map(|param| {
+                    substitute_imported_type(
+                        target_interner,
+                        source_interner,
+                        *param,
+                        substitutions,
+                    )
+                })
+                .collect();
+            let return_type = substitute_imported_type(
+                target_interner,
+                source_interner,
+                *return_type,
+                substitutions,
+            );
+            target_interner.intern(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: *is_variadic,
+            })
+        }
+        Some(TyKind::Nominal { def_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_type(target_interner, source_interner, *arg, substitutions)
+                })
+                .collect();
+            target_interner.intern(TyKind::Nominal {
+                def_id: *def_id,
+                args,
+            })
+        }
+        Some(TyKind::Error | TyKind::Primitive(_)) | None => {
+            import_type_into(target_interner, source_interner, ty)
+        }
+    }
+}
+
+fn trait_method_signature_matches(
+    required: &nia_item_signatures::FunctionSignature,
+    actual: &nia_item_signatures::FunctionSignature,
+) -> bool {
+    required.generics == actual.generics
+        && required.where_predicates == actual.where_predicates
+        && required.params.len() == actual.params.len()
+        && required
+            .params
+            .iter()
+            .zip(actual.params.iter())
+            .all(|(required, actual)| {
+                required.receiver == actual.receiver && required.ty == actual.ty
+            })
+        && required.return_type == actual.return_type
+        && required.is_variadic == actual.is_variadic
 }
 
 fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
@@ -262,6 +588,7 @@ pub(crate) fn visible_extensions_for_module(
             VisibleExtensionMethod {
                 name: method_def.name.clone(),
                 def_id: method.def_id,
+                trait_id: method.trait_id,
             },
         );
     }
