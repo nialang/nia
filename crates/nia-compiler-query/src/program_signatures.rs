@@ -219,6 +219,9 @@ pub(crate) fn collect_extension_methods(
         .iter()
         .map(|module| (module.module.id, module.defs))
         .collect::<HashMap<_, _>>();
+    for module in modules {
+        validate_supertraits(module, &defs_by_module, &mut diagnostics);
+    }
     let trait_signatures = modules
         .iter()
         .flat_map(|module| {
@@ -240,6 +243,7 @@ pub(crate) fn collect_extension_methods(
                 })
         })
         .collect::<HashMap<_, _>>();
+    let trait_impls = collect_extension_trait_impls(modules);
     for module in modules {
         for item in &module.module.module.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
@@ -279,6 +283,7 @@ pub(crate) fn collect_extension_methods(
                     target_ty,
                     trait_id,
                     &trait_signatures,
+                    &trait_impls,
                     &mut diagnostics,
                 );
             }
@@ -308,6 +313,35 @@ pub(crate) fn collect_extension_methods(
 struct TraitSignatureRef<'a> {
     signature: &'a TraitSignature,
     interner: &'a TyInterner,
+}
+
+fn validate_supertraits(
+    module: &ExtensionModuleInput<'_>,
+    defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for item in &module.module.module.items {
+        let nia_ast::ItemKind::Trait(item_trait) = &item.kind else {
+            continue;
+        };
+        for supertrait in &item_trait.supertraits {
+            let _ = trait_ref_id(module, supertrait, defs_by_module, diagnostics);
+        }
+    }
+}
+
+fn collect_extension_trait_impls(
+    modules: &[ExtensionModuleInput<'_>],
+) -> Vec<ProgramTraitImplSignature> {
+    let signature_inputs = modules
+        .iter()
+        .map(|module| ModuleSignatureInput {
+            module_id: module.module.id,
+            lowering: module.lowering,
+            signatures: module.signatures,
+        })
+        .collect::<Vec<_>>();
+    collect_program_trait_impls(&signature_inputs)
 }
 
 fn trait_ref_id(
@@ -353,6 +387,7 @@ fn validate_trait_impl(
     target_ty: nia_ids::InternedTyId,
     trait_id: GlobalDefId,
     trait_signatures: &HashMap<GlobalDefId, TraitSignatureRef<'_>>,
+    trait_impls: &[ProgramTraitImplSignature],
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let Some(trait_signature) = trait_signatures.get(&trait_id).copied() else {
@@ -407,6 +442,15 @@ fn validate_trait_impl(
         .as_ref()
         .and_then(|trait_ref| trait_ref_args(module, trait_ref, trait_id))
         .unwrap_or_default();
+    validate_supertrait_impls(
+        module,
+        extend,
+        target_ty,
+        trait_signature,
+        &trait_args,
+        trait_impls,
+        diagnostics,
+    );
     let mut comparison_interner = module.normalization.interner.clone();
     for required in &trait_signature.signature.methods {
         let Some(method) = extend
@@ -465,6 +509,218 @@ fn trait_ref_args(
         Some(TyKind::Nominal { def_id, args }) if *def_id == trait_id => Some(args.clone()),
         _ => None,
     }
+}
+
+fn validate_supertrait_impls(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    target_ty: nia_ids::InternedTyId,
+    trait_signature: TraitSignatureRef<'_>,
+    trait_args: &[nia_ids::InternedTyId],
+    trait_impls: &[ProgramTraitImplSignature],
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for supertrait in &trait_signature.signature.supertraits {
+        let mut comparison_interner = module.lowering.interner.clone();
+        let supertrait = import_trait_bound(
+            &mut comparison_interner,
+            module,
+            trait_signature.interner,
+            *supertrait,
+            &trait_signature.signature.generics,
+            trait_args,
+        );
+        let Some(TyKind::Nominal {
+            def_id: supertrait_id,
+            args: supertrait_args,
+        }) = comparison_interner.get(supertrait).cloned()
+        else {
+            continue;
+        };
+        if !has_matching_trait_impl(
+            &comparison_interner,
+            target_ty,
+            supertrait_id,
+            &supertrait_args,
+            trait_impls,
+        ) {
+            diagnostics.push(Diagnostic::error(
+                extend.target.span,
+                format!(
+                    "implementation of trait requires explicit implementation of supertrait `{}`",
+                    trait_name(module, supertrait_id)
+                ),
+            ));
+        }
+    }
+}
+
+fn import_trait_bound(
+    target_interner: &mut TyInterner,
+    module: &ExtensionModuleInput<'_>,
+    source_interner: &TyInterner,
+    ty: nia_ids::InternedTyId,
+    trait_generics: &[String],
+    trait_args: &[nia_ids::InternedTyId],
+) -> nia_ids::InternedTyId {
+    let substitutions = trait_generics
+        .iter()
+        .zip(trait_args)
+        .map(|(generic, arg)| (generic.clone(), *arg))
+        .collect::<HashMap<_, _>>();
+    substitute_imported_type(
+        target_interner,
+        module,
+        source_interner,
+        ty,
+        &substitutions,
+        None,
+    )
+}
+
+fn has_matching_trait_impl(
+    interner: &TyInterner,
+    target_ty: nia_ids::InternedTyId,
+    trait_id: GlobalDefId,
+    trait_args: &[nia_ids::InternedTyId],
+    trait_impls: &[ProgramTraitImplSignature],
+) -> bool {
+    trait_impls.iter().any(|impl_signature| {
+        if impl_signature.trait_id != trait_id {
+            return false;
+        }
+        let mut comparison_interner = interner.clone();
+        let impl_target_ty = import_type_into(
+            &mut comparison_interner,
+            &impl_signature.interner,
+            impl_signature.target_ty,
+        );
+        let impl_trait_args = impl_signature
+            .trait_args
+            .iter()
+            .map(|arg| import_type_into(&mut comparison_interner, &impl_signature.interner, *arg))
+            .collect::<Vec<_>>();
+        types_equivalent(&comparison_interner, impl_target_ty, target_ty)
+            && impl_trait_args.len() == trait_args.len()
+            && impl_trait_args
+                .iter()
+                .zip(trait_args)
+                .all(|(left, right)| types_equivalent(&comparison_interner, *left, *right))
+    })
+}
+
+fn types_equivalent(
+    interner: &TyInterner,
+    left: nia_ids::InternedTyId,
+    right: nia_ids::InternedTyId,
+) -> bool {
+    if left == right {
+        return true;
+    }
+    match (interner.get(left), interner.get(right)) {
+        (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
+        (
+            Some(TyKind::Pointer {
+                is_const: left_const,
+                elem: left_elem,
+            }),
+            Some(TyKind::Pointer {
+                is_const: right_const,
+                elem: right_elem,
+            }),
+        )
+        | (
+            Some(TyKind::Slice {
+                is_const: left_const,
+                elem: left_elem,
+            }),
+            Some(TyKind::Slice {
+                is_const: right_const,
+                elem: right_elem,
+            }),
+        ) => left_const == right_const && types_equivalent(interner, *left_elem, *right_elem),
+        (
+            Some(TyKind::Array {
+                len: left_len,
+                elem: left_elem,
+            }),
+            Some(TyKind::Array {
+                len: right_len,
+                elem: right_elem,
+            }),
+        ) => left_len == right_len && types_equivalent(interner, *left_elem, *right_elem),
+        (
+            Some(TyKind::FunctionPointer {
+                params: left_params,
+                return_type: left_return,
+                is_variadic: left_variadic,
+            }),
+            Some(TyKind::FunctionPointer {
+                params: right_params,
+                return_type: right_return,
+                is_variadic: right_variadic,
+            }),
+        ) => {
+            left_variadic == right_variadic
+                && left_params.len() == right_params.len()
+                && left_params
+                    .iter()
+                    .zip(right_params)
+                    .all(|(left, right)| types_equivalent(interner, *left, *right))
+                && types_equivalent(interner, *left_return, *right_return)
+        }
+        (
+            Some(TyKind::Nominal {
+                def_id: left_def,
+                args: left_args,
+            }),
+            Some(TyKind::Nominal {
+                def_id: right_def,
+                args: right_args,
+            }),
+        ) => {
+            left_def == right_def
+                && left_args.len() == right_args.len()
+                && left_args
+                    .iter()
+                    .zip(right_args)
+                    .all(|(left, right)| types_equivalent(interner, *left, *right))
+        }
+        (
+            Some(TyKind::Projection {
+                self_ty: left_self,
+                trait_id: left_trait,
+                trait_args: left_args,
+                name: left_name,
+            }),
+            Some(TyKind::Projection {
+                self_ty: right_self,
+                trait_id: right_trait,
+                trait_args: right_args,
+                name: right_name,
+            }),
+        ) => {
+            left_trait == right_trait
+                && left_name == right_name
+                && left_args.len() == right_args.len()
+                && types_equivalent(interner, *left_self, *right_self)
+                && left_args
+                    .iter()
+                    .zip(right_args)
+                    .all(|(left, right)| types_equivalent(interner, *left, *right))
+        }
+        _ => false,
+    }
+}
+
+fn trait_name(module: &ExtensionModuleInput<'_>, trait_id: GlobalDefId) -> String {
+    module
+        .defs
+        .defs
+        .get(trait_id.def_id)
+        .filter(|_| trait_id.module_id == module.module.id)
+        .map(|def| def.name.clone())
+        .unwrap_or_else(|| format!("trait#{}.{}", trait_id.module_id.0, trait_id.def_id.0))
 }
 
 fn import_trait_method_signature(

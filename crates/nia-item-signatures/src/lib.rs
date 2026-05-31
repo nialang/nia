@@ -72,6 +72,7 @@ pub struct UnionSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSignature {
     pub generics: Vec<String>,
+    pub supertraits: Vec<InternedTyId>,
     pub associated_types: Vec<TraitAssociatedTypeSignature>,
     pub methods: Vec<TraitMethodSignature>,
     pub span: Span,
@@ -362,6 +363,11 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             TraitSignature {
                 generics: item_trait.generics.clone(),
+                supertraits: item_trait
+                    .supertraits
+                    .iter()
+                    .map(|supertrait| self.ty_for_span(supertrait.span))
+                    .collect(),
                 associated_types,
                 methods,
                 span: item_span,

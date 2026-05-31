@@ -33,6 +33,7 @@ struct TraitMethodCandidate {
     trait_id: GlobalDefId,
     method_id: GlobalDefId,
     self_ty: InternedTyId,
+    trait_generics: Vec<String>,
     trait_args: Vec<InternedTyId>,
     signature: FunctionSignature,
     has_default: bool,
@@ -604,7 +605,9 @@ impl<'a> BodyChecker<'a> {
             }
             return Some(self.error());
         }
-        let mut substitutions = HashMap::from([("Self".to_string(), candidate.self_ty)]);
+        let mut substitutions =
+            self.generic_substitutions(&candidate.trait_generics, &candidate.trait_args);
+        substitutions.insert("Self".to_string(), candidate.self_ty);
         if call.type_args.is_some() {
             substitutions.extend(
                 self.generic_substitutions(
@@ -747,21 +750,14 @@ impl<'a> BodyChecker<'a> {
         };
         if let Some(trait_id) = self.current_trait_method_parent(current_def_id) {
             if let Some(trait_signature) = self.resolved_trait_signature(trait_id) {
-                for method in trait_signature.methods {
-                    if method.name == name {
-                        candidates.push(TraitMethodCandidate {
-                            trait_id,
-                            method_id: GlobalDefId {
-                                module_id: trait_id.module_id,
-                                def_id: method.def_id,
-                            },
-                            self_ty,
-                            trait_args: Vec::new(),
-                            signature: method.signature,
-                            has_default: method.has_default,
-                        });
-                    }
-                }
+                self.push_trait_method_candidates(
+                    &mut candidates,
+                    trait_id,
+                    Vec::new(),
+                    self_ty,
+                    name,
+                    &trait_signature,
+                );
             }
         }
         for predicate in &signature.where_predicates {
@@ -782,24 +778,69 @@ impl<'a> BodyChecker<'a> {
                 let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
                     continue;
                 };
-                for method in trait_signature.methods {
-                    if method.name == name {
-                        candidates.push(TraitMethodCandidate {
-                            trait_id,
-                            method_id: GlobalDefId {
-                                module_id: trait_id.module_id,
-                                def_id: method.def_id,
-                            },
-                            self_ty,
-                            trait_args: trait_args.clone(),
-                            signature: method.signature,
-                            has_default: method.has_default,
-                        });
-                    }
-                }
+                self.push_trait_method_candidates(
+                    &mut candidates,
+                    trait_id,
+                    trait_args,
+                    self_ty,
+                    name,
+                    &trait_signature,
+                );
             }
         }
         candidates
+    }
+
+    fn push_trait_method_candidates(
+        &mut self,
+        candidates: &mut Vec<TraitMethodCandidate>,
+        trait_id: GlobalDefId,
+        trait_args: Vec<InternedTyId>,
+        self_ty: InternedTyId,
+        name: &str,
+        trait_signature: &nia_item_signatures::TraitSignature,
+    ) {
+        for method in &trait_signature.methods {
+            if method.name == name {
+                candidates.push(TraitMethodCandidate {
+                    trait_id,
+                    method_id: GlobalDefId {
+                        module_id: trait_id.module_id,
+                        def_id: method.def_id,
+                    },
+                    self_ty,
+                    trait_generics: trait_signature.generics.clone(),
+                    trait_args: trait_args.clone(),
+                    signature: method.signature.clone(),
+                    has_default: method.has_default,
+                });
+            }
+        }
+        let substitutions = self.generic_substitutions(&trait_signature.generics, &trait_args);
+        for supertrait in &trait_signature.supertraits {
+            let supertrait = self.substitute_generics(*supertrait, &substitutions);
+            let Some(TyKind::Nominal {
+                def_id: supertrait_id,
+                args: supertrait_args,
+            }) = self
+                .interner
+                .get(self.normalization.normalize(supertrait))
+                .cloned()
+            else {
+                continue;
+            };
+            let Some(supertrait_signature) = self.resolved_trait_signature(supertrait_id) else {
+                continue;
+            };
+            self.push_trait_method_candidates(
+                candidates,
+                supertrait_id,
+                supertrait_args,
+                self_ty,
+                name,
+                &supertrait_signature,
+            );
+        }
     }
 
     fn current_trait_method_parent(&self, current_def_id: GlobalDefId) -> Option<GlobalDefId> {

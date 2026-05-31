@@ -1399,6 +1399,61 @@ fn main() bool {
 }
 
 #[test]
+fn emits_supertrait_method_calls_from_subtrait_bounds() {
+    let root = temp_dir("emits_supertrait_method_calls_from_subtrait_bounds");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Eq {
+    fn eq(&const self, other: &const Self) bool;
+}
+
+trait Ord : Eq {
+    fn lt(&const self, other: &const Self) bool;
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Eq {
+    fn eq(&const self, other: &const Point) bool {
+        self.x == other.x
+    }
+}
+
+extend Point : Ord {
+    fn lt(&const self, other: &const Point) bool {
+        self.x < other.x
+    }
+}
+
+fn same_ord[T](a: &const T, b: &const T) bool
+where T: Ord {
+    a.eq(b)
+}
+
+fn main() bool {
+    var a: Point = { x: 1 };
+    var b: Point = { x: 1 };
+    same_ord[Point](&const a, &const b)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call i1 @"), "{ir}");
+    assert!(ir.contains("ret i1"), "{ir}");
+}
+
+#[test]
 fn emits_associated_type_projection_instances() {
     let root = temp_dir("emits_associated_type_projection_instances");
     let main = root.join("main.nia");

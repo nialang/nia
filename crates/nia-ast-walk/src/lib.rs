@@ -61,6 +61,9 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             }
         }
         ItemKind::Trait(item_trait) => {
+            for supertrait in &item_trait.supertraits {
+                visitor.visit_type(supertrait);
+            }
             walk_where_clause(visitor, &item_trait.where_clause);
             for method in &item_trait.methods {
                 visitor.visit_function(&method.function);
