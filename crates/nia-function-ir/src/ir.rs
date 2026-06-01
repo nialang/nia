@@ -2,7 +2,7 @@
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_span::Span;
-use nia_ty::BuiltinTrait;
+use nia_ty::{BuiltinTrait, TraitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionBlockId(pub u32);
@@ -202,7 +202,13 @@ pub enum FunctionExprKind {
     },
     TraitObjectUpcast {
         expr: Box<FunctionExpr>,
+        source_ty: InternedTyId,
         target_ty: InternedTyId,
+    },
+    TraitObjectCoercion {
+        expr: Box<FunctionExpr>,
+        target_ty: InternedTyId,
+        self_ty: InternedTyId,
     },
     Call {
         callee: FunctionCallee,
@@ -311,6 +317,17 @@ pub enum FunctionCallee {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
+        receiver: Box<FunctionExpr>,
+    },
+    DynamicTraitMethod {
+        object_ty: InternedTyId,
+        trait_id: TraitId,
+        method_id: nia_ids::GlobalDefId,
+        method_name: String,
+        trait_args: Vec<InternedTyId>,
+        slot: usize,
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
         receiver: Box<FunctionExpr>,
     },
     BuiltinPlaceMethod {

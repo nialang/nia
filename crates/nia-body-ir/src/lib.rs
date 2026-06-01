@@ -6,7 +6,7 @@ use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, Loca
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
-use nia_ty::{BuiltinTrait, TyInterner};
+use nia_ty::{BuiltinTrait, TraitId, TyInterner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyIr {
@@ -17,6 +17,7 @@ pub struct BodyIr {
     pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
+    pub trait_object_coercions: HashMap<Span, TraitObjectCoercion>,
     pub trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     pub local_types: HashMap<LocalId, InternedTyId>,
     pub builtin_values: HashMap<Span, BuiltinValue>,
@@ -27,6 +28,7 @@ pub struct BodyIr {
     pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
@@ -64,6 +66,12 @@ pub struct CStringPointerCoercion {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TraitObjectCoercion {
+    pub source_ty: InternedTyId,
+    pub target_ty: InternedTyId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TraitObjectUpcast {
     pub source_ty: InternedTyId,
     pub target_ty: InternedTyId,
@@ -96,6 +104,16 @@ pub enum ResolvedCall {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
+    },
+    DynamicTraitMethod {
+        object_ty: InternedTyId,
+        trait_id: TraitId,
+        method_id: GlobalDefId,
+        method_name: String,
+        trait_args: Vec<InternedTyId>,
+        slot: usize,
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
     },
     BuiltinTraitMethod {
         trait_id: BuiltinTrait,
@@ -280,7 +298,13 @@ pub enum TypedExprKind {
     },
     TraitObjectUpcast {
         expr: Box<TypedExpr>,
+        source_ty: InternedTyId,
         target_ty: InternedTyId,
+    },
+    TraitObjectCoercion {
+        expr: Box<TypedExpr>,
+        target_ty: InternedTyId,
+        self_ty: InternedTyId,
     },
     Call {
         callee: TypedCallee,
@@ -393,6 +417,17 @@ pub enum TypedCallee {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
+        receiver: Box<TypedExpr>,
+    },
+    DynamicTraitMethod {
+        object_ty: InternedTyId,
+        trait_id: TraitId,
+        method_id: GlobalDefId,
+        method_name: String,
+        trait_args: Vec<InternedTyId>,
+        slot: usize,
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
         receiver: Box<TypedExpr>,
     },
     BuiltinOperator(BuiltinOperator),

@@ -4,6 +4,7 @@ mod instantiate;
 mod items;
 mod operator_dispatch;
 mod struct_instances;
+mod trait_object_vtables;
 
 use nia_ast::{Expr, ItemKind, Module};
 use nia_backend_ir::{BackendLayouts, BackendModule, BackendProgram, BackendStructInstanceKey};
@@ -12,7 +13,9 @@ use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_item_signatures::{ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature};
+use nia_item_signatures::{
+    ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
@@ -46,6 +49,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
     pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
@@ -97,6 +101,7 @@ impl<'a> ModuleLowerer<'a> {
         let mut globals = Vec::new();
         let mut functions = Vec::new();
         let mut function_templates = Vec::new();
+        let mut trait_object_vtables = Vec::new();
 
         for item in &self.input.module.items {
             match &item.kind {
@@ -165,6 +170,11 @@ impl<'a> ModuleLowerer<'a> {
         }
 
         let function_instances = self.lower_function_instances(&function_templates);
+        self.collect_trait_object_vtables(
+            &mut trait_object_vtables,
+            &functions,
+            &function_instances,
+        );
         self.extend_struct_instances_from_functions(
             &mut struct_instances,
             &mut union_instances,
@@ -190,6 +200,7 @@ impl<'a> ModuleLowerer<'a> {
             globals,
             functions,
             function_instances,
+            trait_object_vtables,
             generic_instantiations: self
                 .input
                 .body_check

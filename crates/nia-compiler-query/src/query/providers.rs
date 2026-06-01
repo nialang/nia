@@ -636,6 +636,7 @@ pub(super) fn provide_backend_lowering(
                     function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
                     program_enums: &program_signatures.enums,
+                    program_traits: &program_signatures.traits,
                     trait_impls: &program_signatures.trait_impls,
                 }
             },

@@ -292,12 +292,24 @@ impl<'a> ModuleLowerer<'a> {
                     expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
                     ty,
                 },
-                FunctionExprKind::TraitObjectUpcast { expr, target_ty } => {
-                    FunctionExprKind::TraitObjectUpcast {
-                        expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
-                        target_ty,
-                    }
-                }
+                FunctionExprKind::TraitObjectUpcast {
+                    expr,
+                    source_ty,
+                    target_ty,
+                } => FunctionExprKind::TraitObjectUpcast {
+                    expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                    source_ty,
+                    target_ty,
+                },
+                FunctionExprKind::TraitObjectCoercion {
+                    expr,
+                    target_ty,
+                    self_ty,
+                } => FunctionExprKind::TraitObjectCoercion {
+                    expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                    target_ty,
+                    self_ty,
+                },
                 FunctionExprKind::Call { callee, args } => {
                     let callee = self.resolve_builtin_operator_calls_in_callee(callee);
                     let args = args
@@ -387,6 +399,27 @@ impl<'a> ModuleLowerer<'a> {
                 method,
                 self_ty,
                 trait_args,
+                receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
+            },
+            FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_id,
+                method_id,
+                method_name,
+                trait_args,
+                slot,
+                params,
+                return_type,
+                receiver,
+            } => FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_id,
+                method_id,
+                method_name,
+                trait_args,
+                slot,
+                params,
+                return_type,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),

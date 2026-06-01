@@ -290,7 +290,8 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionExprKind::Unary { expr, .. }
             | FunctionExprKind::Cast { expr, .. }
-            | FunctionExprKind::TraitObjectUpcast { expr, .. } => {
+            | FunctionExprKind::TraitObjectUpcast { expr, .. }
+            | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {
@@ -411,6 +412,18 @@ impl<'a> ModuleLowerer<'a> {
                 ..
             } => {
                 self.collect_struct_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                self.collect_struct_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_args,
+                receiver,
+                ..
+            } => {
+                self.collect_struct_instance_ty(*object_ty, seen, out);
                 for arg in trait_args {
                     self.collect_struct_instance_ty(*arg, seen, out);
                 }
@@ -682,7 +695,8 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionExprKind::Unary { expr, .. }
             | FunctionExprKind::Cast { expr, .. }
-            | FunctionExprKind::TraitObjectUpcast { expr, .. } => {
+            | FunctionExprKind::TraitObjectUpcast { expr, .. }
+            | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {
@@ -803,6 +817,18 @@ impl<'a> ModuleLowerer<'a> {
                 ..
             } => {
                 self.collect_union_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_args,
+                receiver,
+                ..
+            } => {
+                self.collect_union_instance_ty(*object_ty, seen, out);
                 for arg in trait_args {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
