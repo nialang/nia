@@ -318,9 +318,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let value = self.emit_expr(inner)?;
                 self.emit_cast(expr.span, inner.ty, *ty, value)
             }
-            FunctionExprKind::TraitObjectUpcast { expr: inner, .. } => {
-                self.emit_trait_object_upcast(expr.span, inner)
-            }
+            FunctionExprKind::TraitObjectUpcast {
+                expr: inner,
+                source_ty,
+                target_ty,
+            } => self.emit_trait_object_upcast(expr.span, inner, *source_ty, *target_ty),
+            FunctionExprKind::TraitObjectCoercion {
+                expr: inner,
+                target_ty,
+                self_ty,
+            } => self.emit_trait_object_coercion(expr.span, inner, *self_ty, *target_ty),
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
             FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {
@@ -347,10 +354,39 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         }
     }
 
+    fn emit_trait_object_coercion(
+        &mut self,
+        span: Span,
+        inner: &FunctionExpr,
+        self_ty: InternedTyId,
+        target_ty: InternedTyId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let object_ptr = self.emit_expr(inner)?.into_pointer_value()?;
+        let Some(vtable) = self.module.trait_object_vtable(self_ty, target_ty) else {
+            return Err(self.error(span, "missing trait object vtable"));
+        };
+        let metadata = vtable.as_pointer_value();
+        let trait_object_ty = self.module.trait_object_type();
+        let result = trait_object_ty.get_undef();
+        let result = self
+            .builder
+            .build_insert_value(result, object_ptr, 0, "traitobj.ptr")
+            .map_err(|_| self.error(span, "failed to build trait object"))?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "failed to build trait object"))?;
+        let result = self
+            .builder
+            .build_insert_value(result, metadata, 1, "traitobj.vtable")
+            .map_err(|_| self.error(span, "failed to build trait object"))?;
+        Ok(result.into())
+    }
+
     fn emit_trait_object_upcast(
         &mut self,
         span: Span,
         inner: &FunctionExpr,
+        source_ty: InternedTyId,
+        target_ty: InternedTyId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         let value = self.emit_expr(inner)?;
         let value = value
@@ -361,10 +397,33 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_extract_value(value, 0, "traitobj.ptr")
             .map_err(|_| self.error(span, "failed to extract trait object pointer"))?;
-        let metadata = self
+        let mut metadata = self
             .builder
             .build_extract_value(value, 1, "traitobj.metadata")
             .map_err(|_| self.error(span, "failed to extract trait object metadata"))?;
+        let offset = self
+            .module
+            .trait_object_upcast_slot_offset(source_ty, target_ty);
+        if offset > 0 {
+            let ptr_ty = self.module.context.ptr_type(Default::default());
+            let zero = self.module.context.i64_type().const_int(0, false);
+            let offset_index = self
+                .module
+                .context
+                .i64_type()
+                .const_int(offset as u64, false);
+            metadata = unsafe {
+                self.builder
+                    .build_gep(
+                        ptr_ty.array_type((offset + 1) as u32),
+                        metadata.into_pointer_value()?,
+                        &[zero, offset_index],
+                        "traitobj.upcast.metadata.offset",
+                    )
+                    .map_err(|_| self.error(span, "failed to offset trait object metadata"))?
+                    .into()
+            };
+        }
         let result = trait_object_ty.get_undef();
         let result = self
             .builder

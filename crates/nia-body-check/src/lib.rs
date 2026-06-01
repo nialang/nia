@@ -10,6 +10,7 @@ mod literals;
 mod places;
 mod projection_obligations;
 mod static_init;
+mod trait_objects;
 mod type_support;
 
 pub use nia_ty::import_type_into;
@@ -19,7 +20,7 @@ use nia_ast::{
 };
 use nia_body_ir::{
     ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
-    FunctionReference, GenericInstantiation, ResolvedCall, TraitObjectUpcast,
+    FunctionReference, GenericInstantiation, ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
@@ -246,6 +247,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         bracket_suffix_resolutions: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
         c_string_pointer_coercions: HashMap::new(),
+        trait_object_coercions: HashMap::new(),
         trait_object_upcasts: HashMap::new(),
         builtin_values: HashMap::new(),
         resolved_calls: HashMap::new(),
@@ -254,6 +256,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
         node_c_string_pointer_coercions: HashMap::new(),
+        node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
         node_builtin_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
@@ -280,6 +283,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
             array_to_slice_coercions: checker.array_to_slice_coercions,
             c_string_pointer_coercions: checker.c_string_pointer_coercions,
+            trait_object_coercions: checker.trait_object_coercions,
             trait_object_upcasts: checker.trait_object_upcasts,
             local_types: checker.local_types,
             builtin_values: checker.builtin_values,
@@ -290,6 +294,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
             node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
+            node_trait_object_coercions: checker.node_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
             node_builtin_values: checker.node_builtin_values,
             node_resolved_calls: checker.node_resolved_calls,
@@ -327,6 +332,7 @@ struct BodyChecker<'a> {
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
+    trait_object_coercions: HashMap<Span, TraitObjectCoercion>,
     trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     builtin_values: HashMap<Span, BuiltinValue>,
     resolved_calls: HashMap<Span, ResolvedCall>,
@@ -335,6 +341,7 @@ struct BodyChecker<'a> {
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
@@ -396,6 +403,13 @@ impl<'a> BodyChecker<'a> {
         self.c_string_pointer_coercions.insert(span, coercion);
         if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
             self.node_c_string_pointer_coercions.insert(key, coercion);
+        }
+    }
+
+    fn record_trait_object_coercion(&mut self, span: Span, coercion: TraitObjectCoercion) {
+        self.trait_object_coercions.insert(span, coercion);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_trait_object_coercions.insert(key, coercion);
         }
     }
 
@@ -605,6 +619,7 @@ impl<'a> BodyChecker<'a> {
         self.current_return = signature.return_type;
         self.current_def_id = Some(self.global_def_id(def_id));
         let self_ty = self.method_self_type(def_id, signature);
+        self.check_object_safe_types_in_signature(signature);
         self.seed_param_types(signature, function, self_ty);
         if let Some(body) = &function.body {
             let expected_tail =
@@ -624,6 +639,13 @@ impl<'a> BodyChecker<'a> {
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
         self.current_param_locals = previous_param_locals;
+    }
+
+    fn check_object_safe_types_in_signature(&mut self, signature: &FunctionSignature) {
+        for param in &signature.params {
+            self.check_object_safe_type(param.span, param.ty);
+        }
+        self.check_object_safe_type(signature.span, signature.return_type);
     }
 
     fn seed_param_types(

@@ -1,0 +1,236 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::common::*;
+
+#[test]
+fn checks_struct_literal_fields() {
+    let checked = pipeline(
+        r#"
+struct Pair {
+    left: i32,
+    right: bool,
+}
+
+fn main() i32 {
+    var bad: Pair = { left: true, left: 1, extra: 1 };
+    var inferred: Pair = { left: 1, right: false };
+    0
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("struct literal field"))
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unknown struct field"))
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("duplicate struct field"))
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("missing struct field"))
+    );
+}
+
+#[test]
+fn checks_struct_field_access() {
+    let checked = pipeline(
+        r#"
+struct Pair[T] {
+    left: T,
+    right: bool,
+}
+
+fn main(pair: Pair[i32], ptr: &const Pair[i32]) i32 {
+    var x: i32 = pair.left;
+    var y: bool = ptr.right;
+    _ = pair.missing;
+    pair.right
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unknown struct field"))
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("function body"))
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+    );
+}
+
+#[test]
+fn rejects_implicit_discard_of_non_void_expression_statements() {
+    let checked = pipeline(
+        r#"
+fn value() i32 { 1 }
+fn effect() {}
+extern fn abort() !;
+extern fn printf(fmt: &const u8, ...);
+
+fn main() i32 {
+    value();
+    _ = value();
+    _ = effect();
+    _ = printf(c"ok\n");
+    effect();
+    abort();
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("non-void expression result"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn checks_complex_for_header_expression_types() {
+    let checked = pipeline(
+        r#"
+fn main(flag: bool) i32 {
+    var i = 0;
+    for ({
+        var a = 1;
+        _ = a;
+    }); ({
+        var d = 0;
+        _ = d;
+        flag
+    }); i += 1 {
+        if i == 3 {
+            break;
+        }
+    }
+
+    for _ = i; ({
+        var c = 1;
+        c
+    }); _ = i {
+        break;
+    }
+
+    for ; true; 1 + 2 {
+        break;
+    }
+
+    i
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("for condition"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.message.contains("non-void expression result")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn checks_defer_expression_type_edges() {
+    let checked = pipeline(
+        r#"
+fn value() i32 { 1 }
+fn cleanup() {}
+
+fn main(flag: bool) {
+    defer cleanup();
+    defer _ = value();
+    defer if flag {
+        cleanup();
+    } else {
+        cleanup();
+    };
+    defer if flag {
+        value()
+    } else {
+        2
+    };
+    defer {
+        switch value() {
+            0 => cleanup(),
+            _ => cleanup(),
+        }
+    };
+    defer {
+        switch value() {
+            0 => value(),
+            _ => value(),
+        }
+    };
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("`defer` expression must have type `void`"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn checks_function_pointer_fields_as_void_calls() {
+    let checked = pipeline(
+        r#"
+struct Vtable {
+    print: &const fn(&i32)
+}
+
+fn print_i32(value: &i32) {}
+
+const vtable: Vtable = { print: &const print_i32 };
+
+fn main() i32 {
+    var x = 1;
+    vtable.print(&x);
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

@@ -488,12 +488,24 @@ impl<'a> ModuleLowerer<'a> {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                     ty: self.instantiate_ty(ty, substitutions),
                 },
-                FunctionExprKind::TraitObjectUpcast { expr, target_ty } => {
-                    FunctionExprKind::TraitObjectUpcast {
-                        expr: Box::new(self.instantiate_expr(*expr, substitutions)),
-                        target_ty: self.instantiate_ty(target_ty, substitutions),
-                    }
-                }
+                FunctionExprKind::TraitObjectUpcast {
+                    expr,
+                    source_ty,
+                    target_ty,
+                } => FunctionExprKind::TraitObjectUpcast {
+                    expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                    source_ty: self.instantiate_ty(source_ty, substitutions),
+                    target_ty: self.instantiate_ty(target_ty, substitutions),
+                },
+                FunctionExprKind::TraitObjectCoercion {
+                    expr,
+                    target_ty,
+                    self_ty,
+                } => FunctionExprKind::TraitObjectCoercion {
+                    expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                    target_ty: self.instantiate_ty(target_ty, substitutions),
+                    self_ty: self.instantiate_ty(self_ty, substitutions),
+                },
                 FunctionExprKind::Call { callee, args } => {
                     let args = args
                         .into_iter()
@@ -728,6 +740,33 @@ impl<'a> ModuleLowerer<'a> {
                     receiver,
                 }
             }
+            FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_id,
+                method_id,
+                method_name,
+                trait_args,
+                slot,
+                params,
+                return_type,
+                receiver,
+            } => FunctionCallee::DynamicTraitMethod {
+                object_ty: self.instantiate_ty(object_ty, substitutions),
+                trait_id,
+                method_id,
+                method_name,
+                trait_args: trait_args
+                    .into_iter()
+                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .collect(),
+                slot,
+                params: params
+                    .into_iter()
+                    .map(|param| self.instantiate_ty(param, substitutions))
+                    .collect(),
+                return_type: self.instantiate_ty(return_type, substitutions),
+                receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
+            },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),
             FunctionCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.instantiate_expr(*expr, substitutions),
@@ -762,7 +801,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn trait_method_has_default(&self, method_id: GlobalDefId) -> bool {
+    pub(crate) fn trait_method_has_default(&self, method_id: GlobalDefId) -> bool {
         self.input
             .signatures
             .traits
@@ -777,7 +816,7 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn resolve_trait_method_impl(
+    pub(crate) fn resolve_trait_method_impl(
         &mut self,
         trait_id: GlobalDefId,
         trait_args: &[InternedTyId],

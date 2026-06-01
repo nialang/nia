@@ -1951,11 +1951,25 @@ concrete trait implementation during checking and monomorphization. Supertrait
 method obligations are resolved through the same visible concrete implementation
 lookup.
 
-Trait object pointer types are represented as fat pointers. This version
-supports the type syntax and representation; object-safety checking, coercion
-from concrete pointers to trait object pointers, vtable construction, and
-dynamic method dispatch are reserved for the next trait-object implementation
-step.
+Trait object pointer types are represented as fat pointers carrying an erased
+object pointer and implementation metadata. A concrete pointer may be coerced to
+a trait object pointer when the pointed-to type satisfies the selected trait and
+associated type bindings:
+
+```nia
+trait Source {
+    fn get(&const self) i32;
+}
+
+fn read(source: &const Source) i32 {
+    source.get()
+}
+```
+
+`source.get()` is a dynamic trait method call through the object's vtable.
+Object-safe trait object methods must be receiver methods and may not have
+method-level type parameters. By-value trait object receiver calls are rejected.
+Builtin trait objects are not supported in this version.
 
 A trait object pointer may be coerced to a supertrait object pointer when the
 target trait is a declared supertrait of the source trait and the object
@@ -1972,10 +1986,10 @@ fn use_child(child: &const Child) void {
 }
 ```
 
-The compiler records this as a trait-object upcast, not as a plain bitcast.
-This version only supports supertrait object upcasts without associated type
-bindings on either object type; associated-type-bearing object upcasts are tied
-to the future object-safety and vtable layout work.
+The compiler records this as a trait-object upcast, not as a plain bitcast, and
+remaps metadata to the target supertrait's vtable region. This version only
+supports supertrait object upcasts without associated type bindings on either
+object type.
 
 ## 12. Modules
 

@@ -136,6 +136,49 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
+    pub(crate) fn dynamic_trait_method_type(
+        &self,
+        _object_ty: InternedTyId,
+        params: &[InternedTyId],
+        return_type: InternedTyId,
+        span: Span,
+    ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
+        if let AbiReturn::IndirectOut(ty) = self.classify_function_return(return_type) {
+            llvm_params.push(self.pointer_abi_type(
+                ty,
+                span,
+                self.interner(),
+                &self.source.layouts,
+            )?);
+        }
+        llvm_params.push(self.context.ptr_type(Default::default()).into());
+        for param in self.classify_function_params(params) {
+            match param {
+                AbiParam::Direct(ty) => {
+                    llvm_params.push(self.llvm_basic_type(ty, span)?);
+                }
+                AbiParam::IndirectReadonly(ty) => {
+                    llvm_params.push(self.pointer_abi_type(
+                        ty,
+                        span,
+                        self.interner(),
+                        &self.source.layouts,
+                    )?);
+                }
+                AbiParam::Omit => {}
+            }
+        }
+        match self.classify_function_return(return_type) {
+            AbiReturn::Direct(ty) => {
+                Ok(self.llvm_basic_type(ty, span)?.fn_type(&llvm_params, false))
+            }
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
+                Ok(self.context.void_type().fn_type(&llvm_params, false))
+            }
+        }
+    }
+
     pub(crate) fn classify_function_params(&self, params: &[InternedTyId]) -> Vec<AbiParam> {
         self.classify_params_in(
             params.iter().copied(),
@@ -774,7 +817,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .all(|(left, right)| self.same_type(*left, *right))
     }
 
-    fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
+    pub(super) fn same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
         if left == right {
             return true;
         }
@@ -840,6 +883,60 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     args: right_args,
                 }),
             ) => left_def == right_def && self.same_type_args(left_args, right_args),
+            (
+                Some(TyKind::BuiltinTrait {
+                    trait_id: left_trait,
+                    args: left_args,
+                }),
+                Some(TyKind::BuiltinTrait {
+                    trait_id: right_trait,
+                    args: right_args,
+                }),
+            ) => left_trait == right_trait && self.same_type_args(left_args, right_args),
+            (
+                Some(TyKind::TraitObject {
+                    is_const: left_const,
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    associated_type_bindings: left_bindings,
+                }),
+                Some(TyKind::TraitObject {
+                    is_const: right_const,
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    associated_type_bindings: right_bindings,
+                }),
+            ) => {
+                left_const == right_const
+                    && left_trait == right_trait
+                    && self.same_type_args(left_args, right_args)
+                    && left_bindings.len() == right_bindings.len()
+                    && left_bindings.iter().all(|(left_name, left_ty)| {
+                        right_bindings
+                            .iter()
+                            .find(|(right_name, _)| right_name == left_name)
+                            .is_some_and(|(_, right_ty)| self.same_type(*left_ty, *right_ty))
+                    })
+            }
+            (
+                Some(TyKind::Projection {
+                    self_ty: left_self,
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    name: left_name,
+                }),
+                Some(TyKind::Projection {
+                    self_ty: right_self,
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    name: right_name,
+                }),
+            ) => {
+                left_trait == right_trait
+                    && left_name == right_name
+                    && self.same_type(*left_self, *right_self)
+                    && self.same_type_args(left_args, right_args)
+            }
             _ => false,
         }
     }

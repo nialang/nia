@@ -270,6 +270,27 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "unresolved trait method call reached LLVM codegen",
             )),
+            FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_id,
+                method_id,
+                slot,
+                params,
+                return_type,
+                receiver,
+                ..
+            } => self.emit_dynamic_trait_method_call(
+                expr,
+                *object_ty,
+                *trait_id,
+                *method_id,
+                *slot,
+                params,
+                *return_type,
+                receiver,
+                args,
+                out_ptr,
+            ),
             FunctionCallee::BuiltinPlaceMethod { .. } => Err(self.error(
                 expr.span,
                 "unresolved builtin place method call reached LLVM codegen",
@@ -303,6 +324,65 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .map_err(|_| self.error(expr.span, "failed to build indirect call"))
             }
         }
+    }
+
+    fn emit_dynamic_trait_method_call(
+        &mut self,
+        expr: &FunctionExpr,
+        object_ty: nia_ids::InternedTyId,
+        trait_id: nia_ty::TraitId,
+        method_id: nia_ids::GlobalDefId,
+        slot: usize,
+        params: &[nia_ids::InternedTyId],
+        return_type: nia_ids::InternedTyId,
+        receiver: &FunctionExpr,
+        args: &[FunctionExpr],
+        out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
+    ) -> Result<CallSiteValue<'ctx>, Diagnostic> {
+        let receiver_value = self.emit_expr(receiver)?.into_struct_value()?;
+        let object_ptr = self
+            .builder
+            .build_extract_value(receiver_value, 0, "traitobj.ptr")
+            .map_err(|_| self.error(expr.span, "failed to extract trait object pointer"))?;
+        let metadata = self
+            .builder
+            .build_extract_value(receiver_value, 1, "traitobj.vtable")
+            .map_err(|_| self.error(expr.span, "failed to extract trait object vtable"))?
+            .into_pointer_value()?;
+        let slot = self
+            .module
+            .trait_object_method_slot(object_ty, trait_id, method_id, slot);
+        let ptr_ty = self.module.context.ptr_type(Default::default());
+        let zero = self.module.context.i64_type().const_int(0, false);
+        let slot_index = self.module.context.i64_type().const_int(slot as u64, false);
+        let entry_ptr = unsafe {
+            self.builder
+                .build_gep(
+                    ptr_ty.array_type((slot + 1) as u32),
+                    metadata,
+                    &[zero, slot_index],
+                    "vtable.slot",
+                )
+                .map_err(|_| self.error(expr.span, "failed to load vtable slot"))?
+        };
+        let function_pointer = self
+            .builder
+            .build_load(ptr_ty, entry_ptr, "vtable.fn")
+            .map_err(|_| self.error(expr.span, "failed to load vtable function"))?
+            .into_pointer_value()?;
+        let function_type =
+            self.module
+                .dynamic_trait_method_type(object_ty, params, return_type, expr.span)?;
+        let mut llvm_args = Vec::new();
+        if let Some(out_ptr) = out_ptr {
+            llvm_args.push(out_ptr.into());
+        }
+        llvm_args.push(object_ptr);
+        let arg_refs = args.iter().collect::<Vec<_>>();
+        llvm_args.extend(self.emit_call_args(expr.span, &arg_refs, None)?);
+        self.builder
+            .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
+            .map_err(|_| self.error(expr.span, "failed to build dynamic trait call"))
     }
 
     fn emit_call_args(

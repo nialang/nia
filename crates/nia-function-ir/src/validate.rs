@@ -217,7 +217,10 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Unary { expr: inner, .. }
             | FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
-            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. } => self.validate_expr(inner)?,
+            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
+            | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {
+                self.validate_expr(inner)?
+            }
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &range.start {
                     self.validate_expr(start)?;
@@ -296,6 +299,7 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::FunctionPointer(receiver) => self.validate_expr(receiver),
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }

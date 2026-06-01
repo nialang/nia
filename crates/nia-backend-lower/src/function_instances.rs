@@ -2,7 +2,7 @@
 use std::collections::{HashSet, VecDeque};
 
 use crate::ModuleLowerer;
-use nia_backend_ir::{BackendFunction, BackendFunctionInstance};
+use nia_backend_ir::{BackendFunction, BackendFunctionInstance, BackendTraitObjectVtableFunction};
 use nia_defs::DefKind;
 use nia_function_ir::{FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind, FunctionOp};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
@@ -63,6 +63,51 @@ impl<'a> ModuleLowerer<'a> {
                 function_body,
                 span: base.span,
             });
+        }
+        loop {
+            let mut vtables = Vec::new();
+            self.collect_trait_object_vtables(&mut vtables, functions, &instances);
+            for vtable in &vtables {
+                for entry in &vtable.entries {
+                    if let BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } =
+                        &entry.function
+                    {
+                        self.enqueue_function_instance(*def_id, args, &seen, &mut queue);
+                    }
+                }
+            }
+            if queue.is_empty() {
+                break;
+            }
+            while let Some((def_id, arg_module_id, args, symbol)) = queue.pop_front() {
+                if !seen.insert((def_id, arg_module_id, args.clone())) {
+                    continue;
+                }
+                let Some(base) = functions.iter().find(|function| function.def_id == def_id) else {
+                    continue;
+                };
+                let substitutions = self.effective_generic_substitutions(base.def_id, &args);
+                let function_body = base
+                    .function_body
+                    .clone()
+                    .map(|body| self.instantiate_function_body(body, &substitutions));
+                if let Some(body) = &function_body {
+                    self.enqueue_function_instances_from_body(body, &mut seen, &mut queue);
+                }
+                instances.push(BackendFunctionInstance {
+                    def_id,
+                    name: base.name.clone(),
+                    arg_module_id,
+                    args,
+                    symbol,
+                    params: self.instantiate_params(base, &substitutions),
+                    return_type: self.instantiate_ty(base.return_type, &substitutions),
+                    is_extern: base.is_extern,
+                    is_variadic: base.is_variadic,
+                    function_body,
+                    span: base.span,
+                });
+            }
         }
         instances
     }
@@ -167,7 +212,8 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
-            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. } => {
+            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
+            | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {
                 self.enqueue_function_instances_from_expr(inner, seen, queue);
             }
             FunctionExprKind::Range(range) => {
@@ -280,6 +326,9 @@ impl<'a> ModuleLowerer<'a> {
                 self.enqueue_function_instance(*method_id, &instance_args, seen, queue);
             }
             FunctionCallee::BuiltinPlaceMethod { receiver, .. } => {
+                self.enqueue_function_instances_from_expr(receiver, seen, queue);
+            }
+            FunctionCallee::DynamicTraitMethod { receiver, .. } => {
                 self.enqueue_function_instances_from_expr(receiver, seen, queue);
             }
             FunctionCallee::Function(_)

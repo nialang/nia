@@ -6,7 +6,7 @@ use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::{Layouts, StructLayout, StructLayoutKey, TypeLayout};
 use nia_span::Span;
 use nia_static_ir::StaticInit;
-use nia_ty::TyInterner;
+use nia_ty::{TraitId, TyInterner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendProgram {
@@ -28,6 +28,7 @@ pub struct BackendModule {
     pub globals: Vec<BackendGlobal>,
     pub functions: Vec<BackendFunction>,
     pub function_instances: Vec<BackendFunctionInstance>,
+    pub trait_object_vtables: Vec<BackendTraitObjectVtable>,
     pub generic_instantiations: Vec<BackendGenericInstantiation>,
 }
 
@@ -220,6 +221,39 @@ pub struct BackendFunctionInstance {
     pub is_variadic: bool,
     pub function_body: Option<FunctionBody>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BackendTraitObjectVtableKey {
+    pub self_ty: InternedTyId,
+    pub object_ty: InternedTyId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendTraitObjectVtable {
+    pub key: BackendTraitObjectVtableKey,
+    pub trait_id: TraitId,
+    pub trait_args: Vec<InternedTyId>,
+    pub entries: Vec<BackendTraitObjectVtableEntry>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BackendTraitObjectVtableEntry {
+    pub trait_id: TraitId,
+    pub method_id: GlobalDefId,
+    pub method_name: String,
+    pub slot: usize,
+    pub function: BackendTraitObjectVtableFunction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackendTraitObjectVtableFunction {
+    Function(GlobalDefId),
+    FunctionInstance {
+        def_id: GlobalDefId,
+        args: Vec<InternedTyId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

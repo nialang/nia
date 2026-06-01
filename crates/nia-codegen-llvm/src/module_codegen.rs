@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod declarations;
 mod static_init;
+mod trait_objects;
 mod types;
 
 pub(crate) use types::{AbiParam, AbiReturn};
@@ -20,7 +21,7 @@ use nia_llvm::{
     types::StructType,
     values::{FunctionValue, GlobalValue},
 };
-use nia_mangle::mangle_base_symbol;
+use nia_mangle::{mangle_base_symbol, mangle_type_with};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
@@ -38,6 +39,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), FunctionValue<'ctx>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
+    pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
 }
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
@@ -62,6 +64,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             functions: HashMap::new(),
             function_instances: HashMap::new(),
             globals: HashMap::new(),
+            trait_object_vtables: HashMap::new(),
         })
     }
 
@@ -85,6 +88,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.define_struct_bodies()?;
         self.declare_functions()?;
         self.declare_globals()?;
+        self.declare_trait_object_vtables()?;
         self.emit_function_bodies()?;
         self.module
             .verify()
@@ -297,6 +301,52 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         } else {
             self.symbol_name(global.def_id, &global.name)
         }
+    }
+
+    pub(super) fn trait_object_vtable_symbol(
+        &self,
+        self_ty: InternedTyId,
+        object_ty: InternedTyId,
+    ) -> String {
+        let self_part = self.mangle_ty(self_ty);
+        let object_part = self.mangle_ty(object_ty);
+        format!("nia__vtable__{self_part}__as__{object_part}")
+    }
+
+    fn mangle_ty(&self, ty: InternedTyId) -> String {
+        let Some(owner) = self.program.module(ty.interner_id) else {
+            return "ty_error".to_string();
+        };
+        mangle_type_with(
+            &owner.interner,
+            ty,
+            |def_id| {
+                self.program
+                    .structs
+                    .get(&def_id)
+                    .map(|item| item.name.clone())
+                    .or_else(|| {
+                        self.program
+                            .unions
+                            .get(&def_id)
+                            .map(|item| item.name.clone())
+                    })
+                    .or_else(|| {
+                        self.program
+                            .enums
+                            .get(&def_id)
+                            .map(|item| item.name.clone())
+                    })
+                    .or_else(|| {
+                        self.program
+                            .functions
+                            .get(&def_id)
+                            .map(|item| item.name.clone())
+                    })
+                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+            },
+            |_| 0,
+        )
     }
 
     pub(super) fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {

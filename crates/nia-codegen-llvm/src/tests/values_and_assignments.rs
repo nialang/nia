@@ -1,0 +1,333 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::common::*;
+
+#[test]
+fn emits_if_expression_from_function_ir() {
+    let root = temp_dir("emits_if_expression_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    var x = 1;
+    if x == 1 { 40 } else { 2 }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("br i1"));
+    assert!(ir.contains("fir.bb"));
+    assert!(ir.contains("store i32 40"));
+    assert!(ir.contains("store i32 2"));
+    assert!(!ir.contains("phi i32"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_nested_value_function_flow_from_function_ir() {
+    let root = temp_dir("emits_nested_value_function_flow_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn take(x: i32, y: i32) i32 {
+    x + y
+}
+
+fn main(flag: bool) i32 {
+    var values = [
+        if flag { 1 } else { 2 },
+        { var tmp = 3; tmp },
+        switch 1 {
+            0 => 4,
+            _ => 5,
+        },
+    ];
+    take(values[if flag { 0usize } else { 1usize }], if flag { 10 } else { 20 })
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("fir.tmp"), "{ir}");
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert!(ir.contains("call i32 @"));
+    assert!(!ir.contains("function expression was not lowered"));
+}
+
+#[test]
+fn emits_deferred_function_body_from_function_ir() {
+    let root = temp_dir("emits_deferred_function_body_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(x: i32);
+
+fn main(flag: bool) i32 {
+    defer {
+        if flag {
+            log(1);
+        } else {
+            switch 2 {
+                1 => log(2),
+                _ => log(3),
+            };
+        };
+    };
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("defer.entry"), "{ir}");
+    assert!(ir.contains("switch i32"), "{ir}");
+    assert!(ir.contains("call void @log(i32 1)"));
+    assert!(ir.contains("call void @log(i32 2)"));
+    assert!(ir.contains("call void @log(i32 3)"));
+    assert!(ir.contains("ret i32 0"));
+}
+
+#[test]
+fn emits_for_header_value_flow_from_function_ir() {
+    let root = temp_dir("emits_for_header_value_flow_from_function_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    var i = 0;
+    for ; { i < 2 }; i += if i == 0 { 1 } else { 2 } {
+        i += 1;
+    }
+    i
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("fir.tmp"), "{ir}");
+    assert!(ir.contains("br i1"), "{ir}");
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_plain_local_assignment() {
+    let root = temp_dir("emits_plain_local_assignment");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    var x = 1;
+    x = 41;
+    x + 1
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("store i32 41"));
+    assert!(ir.contains("add i32"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_struct_array_field_index_and_compound_assignment() {
+    let root = temp_dir("emits_struct_array_field_index_and_compound_assignment");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() i32 {
+    var p: Point = { x: 10, y: 20 };
+    var xs: [3]i32 = [1, 2, 3];
+    p.x += xs[1];
+    p.x
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("getelementptr"));
+    assert!(ir.contains("store i32 10"));
+    assert!(ir.contains("store i32 2"));
+    assert!(ir.contains("add i32"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_dynamic_index_assignment_into_struct_array_field() {
+    let root = temp_dir("emits_dynamic_index_assignment_into_struct_array_field");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct S {
+    x: i32,
+}
+
+struct T {
+    xs: [4]S,
+}
+
+extend S {
+    fn make(x: i32) S {
+        { x: x }
+    }
+}
+
+fn build() T {
+    var t: T = { xs: [S::make(0); 4] };
+
+    for var i: u16 = 0; i < 4; i += 1 {
+        t.xs[i as usize] = S::make(i as i32);
+    }
+
+    t
+}
+
+fn main() i32 {
+    var t = build();
+    t.xs[2].x
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("getelementptr"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}
+
+#[test]
+fn emits_dynamic_index_assignment_into_struct_array_field_with_constant_rhs() {
+    let root = temp_dir("emits_dynamic_index_assignment_into_struct_array_field_with_constant_rhs");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct S {
+    x: i32,
+}
+
+struct T {
+    xs: [4]S,
+}
+
+extend S {
+    fn make(x: i32) S {
+        { x: x }
+    }
+}
+
+fn build() T {
+    var t: T = { xs: [S::make(0); 4] };
+
+    for var i: u16 = 0; i < 4; i += 1 {
+        t.xs[i as usize] = S::make(7);
+    }
+
+    t
+}
+
+fn main() i32 {
+    var t = build();
+    t.xs[2].x
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
+fn emits_dynamic_index_call_from_struct_function_pointer_array_field() {
+    let root = temp_dir("emits_dynamic_index_call_from_struct_function_pointer_array_field");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Table {
+    fns: [2]&const fn(i32) i32,
+}
+
+fn add1(x: i32) i32 {
+    x + 1
+}
+
+fn add2(x: i32) i32 {
+    x + 2
+}
+
+fn main() i32 {
+    var table: Table = { fns: [&const add1, &const add2] };
+    var i: usize = 1;
+    table.fns[i](40)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call i32"), "{ir}");
+    assert!(ir.contains("ret i32"), "{ir}");
+}

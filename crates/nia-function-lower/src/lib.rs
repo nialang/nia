@@ -704,10 +704,21 @@ impl FunctionLowerer {
             },
             TypedExprKind::TraitObjectUpcast {
                 expr: inner,
+                source_ty,
                 target_ty,
             } => FunctionExprKind::TraitObjectUpcast {
                 expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
+                source_ty: *source_ty,
                 target_ty: *target_ty,
+            },
+            TypedExprKind::TraitObjectCoercion {
+                expr: inner,
+                target_ty,
+                self_ty,
+            } => FunctionExprKind::TraitObjectCoercion {
+                expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
+                target_ty: *target_ty,
+                self_ty: *self_ty,
             },
             TypedExprKind::Call { callee, args } => FunctionExprKind::Call {
                 callee: self.lower_callee(callee, scope, current, ops, blocks),
@@ -1159,6 +1170,27 @@ impl FunctionLowerer {
                 args: args.clone(),
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
+            TypedCallee::DynamicTraitMethod {
+                object_ty,
+                trait_id,
+                method_id,
+                method_name,
+                trait_args,
+                slot,
+                params,
+                return_type,
+                receiver,
+            } => FunctionCallee::DynamicTraitMethod {
+                object_ty: *object_ty,
+                trait_id: *trait_id,
+                method_id: *method_id,
+                method_name: method_name.clone(),
+                trait_args: trait_args.clone(),
+                slot: *slot,
+                params: params.clone(),
+                return_type: *return_type,
+                receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
+            },
             TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
                 trait_id,
                 method,
@@ -1607,7 +1639,10 @@ impl FunctionLowerer {
                 | TypedExprKind::Unary { expr: inner, .. }
                 | TypedExprKind::Discard(inner)
                 | TypedExprKind::Cast { expr: inner, .. }
-                | TypedExprKind::TraitObjectUpcast { expr: inner, .. } => visit_expr(inner, max_id),
+                | TypedExprKind::TraitObjectUpcast { expr: inner, .. }
+                | TypedExprKind::TraitObjectCoercion { expr: inner, .. } => {
+                    visit_expr(inner, max_id)
+                }
                 TypedExprKind::Range(range) => {
                     if let Some(start) = &range.start {
                         visit_expr(start, max_id);
@@ -1722,6 +1757,7 @@ impl FunctionLowerer {
             match callee {
                 TypedCallee::Method { receiver, .. }
                 | TypedCallee::TraitMethod { receiver, .. }
+                | TypedCallee::DynamicTraitMethod { receiver, .. }
                 | TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod { receiver, .. })
                 | TypedCallee::FunctionPointer(receiver) => {
                     visit_expr(receiver, max_id);

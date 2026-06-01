@@ -226,10 +226,7 @@ impl<'a> TypeLowerer<'a> {
         if context == TypeContext::Value
             && let Some(message) = self.invalid_value_type_message(lowered)
         {
-            self.diagnostics.push(Diagnostic::error(
-                ty.span,
-                message,
-            ));
+            self.diagnostics.push(Diagnostic::error(ty.span, message));
         }
         lowered
     }
@@ -496,22 +493,19 @@ impl<'a> TypeLowerer<'a> {
         };
         let type_segment = type_name_segment(segments)?;
         match self.resolved.type_names.get(&ty.span).copied() {
-            Some(TypeNameResolution::BuiltinTrait(trait_id)) => Some(self.lower_builtin_trait_object(
-                ty.span,
-                is_const,
-                type_segment,
-                trait_id,
-            )),
+            Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
+                Some(self.lower_builtin_trait_object(ty.span, is_const, type_segment, trait_id))
+            }
             Some(TypeNameResolution::Def(def_id)) => {
-                let def_id =
-                    self.resolved
-                        .qualified_type_names
-                        .get(&ty.span)
-                        .copied()
-                        .unwrap_or(GlobalDefId {
-                            module_id: self.module_id,
-                            def_id,
-                        });
+                let def_id = self
+                    .resolved
+                    .qualified_type_names
+                    .get(&ty.span)
+                    .copied()
+                    .unwrap_or(GlobalDefId {
+                        module_id: self.module_id,
+                        def_id,
+                    });
                 self.lower_source_trait_object(ty.span, is_const, type_segment, def_id)
             }
             Some(TypeNameResolution::External(def_id)) => {
@@ -1116,14 +1110,8 @@ fn write(source: &Source[i32, Item = i32]) void {}
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert!(
-            trait_objects.contains(&(true, 1, 1)),
-            "{trait_objects:?}"
-        );
-        assert!(
-            trait_objects.contains(&(false, 1, 1)),
-            "{trait_objects:?}"
-        );
+        assert!(trait_objects.contains(&(true, 1, 1)), "{trait_objects:?}");
+        assert!(trait_objects.contains(&(false, 1, 1)), "{trait_objects:?}");
     }
 
     #[test]
