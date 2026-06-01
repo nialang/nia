@@ -498,16 +498,17 @@ impl<'a> ModuleLowerer<'a> {
                             ),
                             TraitResolution::Intrinsic(_)
                         )
-                        && let Some(native_expr) = self.lower_native_builtin_place_method_call(
-                            *trait_id,
-                            *method,
-                            *self_ty,
-                            trait_args,
-                            receiver.as_ref().clone(),
-                            &args,
-                        )
+                        && let Some(intrinsic_expr) = self
+                            .lower_intrinsic_builtin_place_method_call(
+                                *trait_id,
+                                *method,
+                                *self_ty,
+                                trait_args,
+                                receiver.as_ref().clone(),
+                                &args,
+                            )
                     {
-                        return native_expr;
+                        return intrinsic_expr;
                     }
                     if let FunctionCallee::BuiltinPlaceMethod {
                         trait_id,
@@ -906,7 +907,7 @@ impl<'a> ModuleLowerer<'a> {
             })
     }
 
-    fn lower_native_builtin_place_method_call(
+    fn lower_intrinsic_builtin_place_method_call(
         &mut self,
         trait_id: BuiltinTrait,
         method: BuiltinTraitMethod,
