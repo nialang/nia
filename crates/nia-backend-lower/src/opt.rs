@@ -8,35 +8,101 @@ use nia_function_ir::{
     FunctionInlineAsm, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
     FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
-use nia_opt::OptimizationDepth;
+use nia_opt::{OptimizationDepth, OptimizationPolicy};
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn optimize_function_body(&mut self, mut body: FunctionBody) -> FunctionBody {
-        if matches!(
-            self.optimization.simplify_cfg,
-            OptimizationDepth::Cheap | OptimizationDepth::Full | OptimizationDepth::Aggressive
-        ) {
-            simplify_same_type_casts_in_blocks(&mut body.blocks);
-            remove_noop_local_stores(&mut body.blocks);
-            remove_pure_expr_ops(&mut body.blocks);
-            fold_constant_bool_branches(&mut body.blocks);
-            merge_empty_jump_blocks(&mut body);
-            remove_unreachable_blocks(&mut body);
-            optimize_defer_bodies(&mut body.blocks);
-        }
+        BackendOptPipeline::for_policy(&self.optimization).run(&mut body);
         body
     }
 }
 
-fn remove_pure_expr_ops(blocks: &mut [FunctionBlock]) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackendOptPass {
+    SimplifySameTypeCasts,
+    RemoveNoopLocalStores,
+    RemovePureExprOps,
+    FoldConstantBoolBranches,
+    MergeEmptyJumpBlocks,
+    RemoveUnreachableBlocks,
+    OptimizeDeferBodies,
+}
+
+impl BackendOptPass {
+    fn name(self) -> &'static str {
+        match self {
+            Self::SimplifySameTypeCasts => "simplify-same-type-casts",
+            Self::RemoveNoopLocalStores => "remove-noop-local-stores",
+            Self::RemovePureExprOps => "remove-pure-expr-ops",
+            Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
+            Self::MergeEmptyJumpBlocks => "merge-empty-jump-blocks",
+            Self::RemoveUnreachableBlocks => "remove-unreachable-blocks",
+            Self::OptimizeDeferBodies => "optimize-defer-bodies",
+        }
+    }
+
+    fn run(self, body: &mut FunctionBody) -> bool {
+        match self {
+            Self::SimplifySameTypeCasts => simplify_same_type_casts_in_blocks(&mut body.blocks),
+            Self::RemoveNoopLocalStores => remove_noop_local_stores(&mut body.blocks),
+            Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
+            Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
+            Self::MergeEmptyJumpBlocks => merge_empty_jump_blocks(body),
+            Self::RemoveUnreachableBlocks => remove_unreachable_blocks(body),
+            Self::OptimizeDeferBodies => optimize_defer_bodies(&mut body.blocks),
+        }
+    }
+}
+
+struct BackendOptPipeline {
+    passes: &'static [BackendOptPass],
+}
+
+impl BackendOptPipeline {
+    fn for_policy(policy: &OptimizationPolicy) -> Self {
+        if matches!(
+            policy.simplify_cfg,
+            OptimizationDepth::Cheap | OptimizationDepth::Full | OptimizationDepth::Aggressive
+        ) {
+            Self { passes: O1_PASSES }
+        } else {
+            Self { passes: &[] }
+        }
+    }
+
+    fn run(&self, body: &mut FunctionBody) -> bool {
+        let mut changed = false;
+        for pass in self.passes {
+            debug_assert!(!pass.name().is_empty());
+            changed |= pass.run(body);
+        }
+        changed
+    }
+}
+
+const O1_PASSES: &[BackendOptPass] = &[
+    BackendOptPass::SimplifySameTypeCasts,
+    BackendOptPass::RemoveNoopLocalStores,
+    BackendOptPass::RemovePureExprOps,
+    BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::MergeEmptyJumpBlocks,
+    BackendOptPass::RemoveUnreachableBlocks,
+    BackendOptPass::OptimizeDeferBodies,
+];
+
+fn remove_pure_expr_ops(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
     for block in blocks {
+        let before = block.ops.len();
         block.ops.retain(|op| !is_pure_expr_op(op));
+        changed |= block.ops.len() != before;
         for op in &mut block.ops {
             if let FunctionOp::Defer(body) = op {
-                remove_pure_expr_ops(&mut body.blocks);
+                changed |= remove_pure_expr_ops(&mut body.blocks);
             }
         }
     }
+    changed
 }
 
 fn is_pure_expr_op(op: &FunctionOp) -> bool {
@@ -80,15 +146,19 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
     }
 }
 
-fn remove_noop_local_stores(blocks: &mut [FunctionBlock]) {
+fn remove_noop_local_stores(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
     for block in blocks {
+        let before = block.ops.len();
         block.ops.retain(|op| !is_noop_local_store(op));
+        changed |= block.ops.len() != before;
         for op in &mut block.ops {
             if let FunctionOp::Defer(body) = op {
-                remove_noop_local_stores(&mut body.blocks);
+                changed |= remove_noop_local_stores(&mut body.blocks);
             }
         }
     }
+    changed
 }
 
 fn is_noop_local_store(op: &FunctionOp) -> bool {
@@ -106,72 +176,81 @@ fn is_noop_local_store(op: &FunctionOp) -> bool {
     )
 }
 
-fn simplify_same_type_casts_in_blocks(blocks: &mut [FunctionBlock]) {
+fn simplify_same_type_casts_in_blocks(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
     for block in blocks {
         for op in &mut block.ops {
-            simplify_same_type_casts_in_op(op);
+            changed |= simplify_same_type_casts_in_op(op);
         }
-        simplify_same_type_casts_in_terminator(&mut block.terminator);
+        changed |= simplify_same_type_casts_in_terminator(&mut block.terminator);
     }
+    changed
 }
 
-fn simplify_same_type_casts_in_op(op: &mut FunctionOp) {
+fn simplify_same_type_casts_in_op(op: &mut FunctionOp) -> bool {
     match op {
         FunctionOp::Binding(binding) => {
             if let Some(value) = &mut binding.value {
-                simplify_same_type_casts_in_expr(value);
+                simplify_same_type_casts_in_expr(value)
+            } else {
+                false
             }
         }
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-            simplify_same_type_casts_in_expr(value);
+            simplify_same_type_casts_in_expr(value)
         }
-        FunctionOp::Defer(body) => {
-            simplify_same_type_casts_in_blocks(&mut body.blocks);
-        }
+        FunctionOp::Defer(body) => simplify_same_type_casts_in_blocks(&mut body.blocks),
     }
 }
 
-fn simplify_same_type_casts_in_terminator(terminator: &mut FunctionTerminator) {
+fn simplify_same_type_casts_in_terminator(terminator: &mut FunctionTerminator) -> bool {
     match terminator {
         FunctionTerminator::If { cond, .. } => simplify_same_type_casts_in_expr(cond),
         FunctionTerminator::Switch { target, arms, .. } => {
-            simplify_same_type_casts_in_expr(target);
+            let mut changed = simplify_same_type_casts_in_expr(target);
             for arm in arms {
-                simplify_same_type_casts_in_expr(&mut arm.pattern);
+                changed |= simplify_same_type_casts_in_expr(&mut arm.pattern);
             }
+            changed
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => simplify_same_type_casts_in_expr(cond),
             FunctionForHeader::CStyle { cond } => {
                 if let Some(cond) = cond {
-                    simplify_same_type_casts_in_expr(cond);
+                    simplify_same_type_casts_in_expr(cond)
+                } else {
+                    false
                 }
             }
-            FunctionForHeader::Infinite => {}
+            FunctionForHeader::Infinite => false,
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
-                simplify_same_type_casts_in_expr(value);
+                simplify_same_type_casts_in_expr(value)
+            } else {
+                false
             }
         }
         FunctionTerminator::Error { .. }
         | FunctionTerminator::Branch { .. }
-        | FunctionTerminator::Next { .. } => {}
+        | FunctionTerminator::Next { .. } => false,
     }
 }
 
-fn simplify_same_type_casts_in_expr(expr: &mut FunctionExpr) {
-    simplify_same_type_casts_in_expr_children(expr);
+fn simplify_same_type_casts_in_expr(expr: &mut FunctionExpr) -> bool {
+    let mut changed = simplify_same_type_casts_in_expr_children(expr);
     if let FunctionExprKind::Cast { expr: inner, ty } = &mut expr.kind
         && inner.ty == *ty
     {
         let mut inner = (**inner).clone();
         inner.span = expr.span;
         *expr = inner;
+        changed = true;
     }
+    changed
 }
 
-fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) {
+fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
     match &mut expr.kind {
         FunctionExprKind::Error
         | FunctionExprKind::Integer(_)
@@ -186,7 +265,7 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) {
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
-        | FunctionExprKind::BuiltinValue(_) => {}
+        | FunctionExprKind::BuiltinValue(_) => false,
         FunctionExprKind::Range(range) => simplify_same_type_casts_in_range(range),
         FunctionExprKind::InlineAsm(asm) => simplify_same_type_casts_in_inline_asm(asm),
         FunctionExprKind::CStringPointer { array, .. } => simplify_same_type_casts_in_expr(array),
@@ -194,9 +273,11 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) {
             simplify_same_type_casts_in_array_elements(elems)
         }
         FunctionExprKind::StructLiteral { fields, .. } => {
+            let mut changed = false;
             for field in fields {
-                simplify_same_type_casts_in_field_init(field);
+                changed |= simplify_same_type_casts_in_field_init(field);
             }
+            changed
         }
         FunctionExprKind::UnionLiteral { field, .. } => {
             simplify_same_type_casts_in_field_init(field)
@@ -206,60 +287,61 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) {
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
-            simplify_same_type_casts_in_expr(expr);
+            simplify_same_type_casts_in_expr(expr)
         }
         FunctionExprKind::AddrOf(place) => simplify_same_type_casts_in_place(place),
         FunctionExprKind::Binary { lhs, rhs, .. } => {
-            simplify_same_type_casts_in_expr(lhs);
-            simplify_same_type_casts_in_expr(rhs);
+            simplify_same_type_casts_in_expr(lhs) | simplify_same_type_casts_in_expr(rhs)
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
-            simplify_same_type_casts_in_place(place);
-            simplify_same_type_casts_in_expr(rhs);
+            simplify_same_type_casts_in_place(place) | simplify_same_type_casts_in_expr(rhs)
         }
         FunctionExprKind::Call { callee, args } => {
-            simplify_same_type_casts_in_callee(callee);
+            let mut changed = simplify_same_type_casts_in_callee(callee);
             for arg in args {
-                simplify_same_type_casts_in_expr(arg);
+                changed |= simplify_same_type_casts_in_expr(arg);
             }
+            changed
         }
         FunctionExprKind::Field { lhs, .. } => simplify_same_type_casts_in_expr(lhs),
         FunctionExprKind::Index { lhs, index } => {
-            simplify_same_type_casts_in_expr(lhs);
-            simplify_same_type_casts_in_expr(index);
+            simplify_same_type_casts_in_expr(lhs) | simplify_same_type_casts_in_expr(index)
         }
         FunctionExprKind::Slice { lhs, range, .. } => {
-            simplify_same_type_casts_in_expr(lhs);
-            simplify_same_type_casts_in_slice_range(range);
+            simplify_same_type_casts_in_expr(lhs) | simplify_same_type_casts_in_slice_range(range)
         }
     }
 }
 
-fn simplify_same_type_casts_in_inline_asm(asm: &mut FunctionInlineAsm) {
+fn simplify_same_type_casts_in_inline_asm(asm: &mut FunctionInlineAsm) -> bool {
+    let mut changed = false;
     for input in &mut asm.inputs {
-        simplify_same_type_casts_in_expr(&mut input.value);
+        changed |= simplify_same_type_casts_in_expr(&mut input.value);
     }
     for output in &mut asm.outputs {
-        simplify_same_type_casts_in_place(&mut output.place);
+        changed |= simplify_same_type_casts_in_place(&mut output.place);
     }
+    changed
 }
 
-fn simplify_same_type_casts_in_array_elements(elems: &mut FunctionArrayElements) {
+fn simplify_same_type_casts_in_array_elements(elems: &mut FunctionArrayElements) -> bool {
     match elems {
         FunctionArrayElements::List(elems) => {
+            let mut changed = false;
             for elem in elems {
-                simplify_same_type_casts_in_expr(elem);
+                changed |= simplify_same_type_casts_in_expr(elem);
             }
+            changed
         }
         FunctionArrayElements::Repeat { value, .. } => simplify_same_type_casts_in_expr(value),
     }
 }
 
-fn simplify_same_type_casts_in_field_init(field: &mut FunctionFieldInit) {
-    simplify_same_type_casts_in_expr(&mut field.value);
+fn simplify_same_type_casts_in_field_init(field: &mut FunctionFieldInit) -> bool {
+    simplify_same_type_casts_in_expr(&mut field.value)
 }
 
-fn simplify_same_type_casts_in_callee(callee: &mut FunctionCallee) {
+fn simplify_same_type_casts_in_callee(callee: &mut FunctionCallee) -> bool {
     match callee {
         FunctionCallee::Method { receiver, .. }
         | FunctionCallee::TraitMethod { receiver, .. }
@@ -268,40 +350,47 @@ fn simplify_same_type_casts_in_callee(callee: &mut FunctionCallee) {
         | FunctionCallee::FunctionPointer(receiver) => simplify_same_type_casts_in_expr(receiver),
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
-        | FunctionCallee::BuiltinOperator(_) => {}
+        | FunctionCallee::BuiltinOperator(_) => false,
     }
 }
 
-fn simplify_same_type_casts_in_place(place: &mut FunctionPlace) {
+fn simplify_same_type_casts_in_place(place: &mut FunctionPlace) -> bool {
+    let mut changed = false;
     if let FunctionPlaceBase::Deref(expr) = &mut place.base {
-        simplify_same_type_casts_in_expr(expr);
+        changed |= simplify_same_type_casts_in_expr(expr);
     }
     for elem in &mut place.elems {
         if let FunctionPlaceElem::Index(expr) = elem {
-            simplify_same_type_casts_in_expr(expr);
+            changed |= simplify_same_type_casts_in_expr(expr);
         }
     }
+    changed
 }
 
-fn simplify_same_type_casts_in_slice_range(range: &mut FunctionSliceRange) {
+fn simplify_same_type_casts_in_slice_range(range: &mut FunctionSliceRange) -> bool {
+    let mut changed = false;
     if let Some(start) = &mut range.start {
-        simplify_same_type_casts_in_expr(start);
+        changed |= simplify_same_type_casts_in_expr(start);
     }
     if let Some(end) = &mut range.end {
-        simplify_same_type_casts_in_expr(end);
+        changed |= simplify_same_type_casts_in_expr(end);
     }
+    changed
 }
 
-fn simplify_same_type_casts_in_range(range: &mut FunctionRange) {
+fn simplify_same_type_casts_in_range(range: &mut FunctionRange) -> bool {
+    let mut changed = false;
     if let Some(start) = &mut range.start {
-        simplify_same_type_casts_in_expr(start);
+        changed |= simplify_same_type_casts_in_expr(start);
     }
     if let Some(end) = &mut range.end {
-        simplify_same_type_casts_in_expr(end);
+        changed |= simplify_same_type_casts_in_expr(end);
     }
+    changed
 }
 
-fn fold_constant_bool_branches(blocks: &mut [FunctionBlock]) {
+fn fold_constant_bool_branches(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
     for block in blocks {
         if let FunctionTerminator::If {
             cond,
@@ -315,11 +404,14 @@ fn fold_constant_bool_branches(blocks: &mut [FunctionBlock]) {
                 target: if value { *then_target } else { *else_target },
                 span: *span,
             };
+            changed = true;
         }
     }
+    changed
 }
 
-fn merge_empty_jump_blocks(body: &mut FunctionBody) {
+fn merge_empty_jump_blocks(body: &mut FunctionBody) -> bool {
+    let mut any_changed = false;
     loop {
         let empty_jumps = empty_jump_targets(&body.blocks, Some(body.entry));
         if empty_jumps.is_empty() {
@@ -332,7 +424,9 @@ fn merge_empty_jump_blocks(body: &mut FunctionBody) {
         if !changed {
             break;
         }
+        any_changed = true;
     }
+    any_changed
 }
 
 fn empty_jump_targets(
@@ -434,12 +528,13 @@ fn retarget_block_id(
     changed
 }
 
-fn remove_unreachable_blocks(body: &mut FunctionBody) {
+fn remove_unreachable_blocks(body: &mut FunctionBody) -> bool {
     let reachable = reachable_blocks(body);
     if reachable.len() == body.blocks.len() {
-        return;
+        return false;
     }
     body.blocks.retain(|block| reachable.contains(&block.id));
+    true
 }
 
 fn reachable_blocks(body: &FunctionBody) -> HashSet<FunctionBlockId> {
@@ -507,20 +602,23 @@ fn terminator_referenced_blocks(terminator: &FunctionTerminator) -> Vec<Function
     }
 }
 
-fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) {
+fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
     for block in blocks {
         for op in &mut block.ops {
             if let FunctionOp::Defer(body) = op {
-                fold_constant_bool_branches(&mut body.blocks);
-                merge_empty_defer_jump_blocks(body);
-                remove_unreachable_defer_blocks(body);
-                optimize_defer_bodies(&mut body.blocks);
+                changed |= fold_constant_bool_branches(&mut body.blocks);
+                changed |= merge_empty_defer_jump_blocks(body);
+                changed |= remove_unreachable_defer_blocks(body);
+                changed |= optimize_defer_bodies(&mut body.blocks);
             }
         }
     }
+    changed
 }
 
-fn merge_empty_defer_jump_blocks(body: &mut FunctionDeferBody) {
+fn merge_empty_defer_jump_blocks(body: &mut FunctionDeferBody) -> bool {
+    let mut any_changed = false;
     loop {
         let empty_jumps = empty_jump_targets(&body.blocks, Some(body.entry));
         if empty_jumps.is_empty() {
@@ -533,15 +631,18 @@ fn merge_empty_defer_jump_blocks(body: &mut FunctionDeferBody) {
         if !changed {
             break;
         }
+        any_changed = true;
     }
+    any_changed
 }
 
-fn remove_unreachable_defer_blocks(body: &mut FunctionDeferBody) {
+fn remove_unreachable_defer_blocks(body: &mut FunctionDeferBody) -> bool {
     let reachable = reachable_defer_blocks(body);
     if reachable.len() == body.blocks.len() {
-        return;
+        return false;
     }
     body.blocks.retain(|block| reachable.contains(&block.id));
+    true
 }
 
 #[cfg(test)]
@@ -551,7 +652,22 @@ mod tests {
         FunctionBlock, FunctionScope, FunctionScopeId, FunctionTerminator, validate_function_body,
     };
     use nia_ids::LocalId;
+    use nia_opt::OptimizationLevel;
     use nia_span::Span;
+
+    #[test]
+    fn o0_pipeline_has_no_optional_backend_passes() {
+        let pipeline = BackendOptPipeline::for_policy(&OptimizationLevel::O0.policy());
+
+        assert!(pipeline.passes.is_empty());
+    }
+
+    #[test]
+    fn o1_pipeline_keeps_canonical_pass_order() {
+        let pipeline = BackendOptPipeline::for_policy(&OptimizationLevel::O1.policy());
+
+        assert_eq!(pipeline.passes, O1_PASSES);
+    }
 
     #[test]
     fn removes_blocks_unreachable_from_entry() {
