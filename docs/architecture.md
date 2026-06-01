@@ -107,6 +107,10 @@ LLVM cannot undo duplicated Nia-level work.
 
 Current Nia-owned optimization consumers:
 
+- `nia-monomorphize` collects concrete generic instances before backend
+  lowering. It pre-indexes instantiations by source definition and caches
+  mangled type symbols during collection so repeated generic-instance discovery
+  does not rebuild the same symbol inputs or clone whole definition maps.
 - `nia-backend-lower` consumes the policy while lowering function bodies into
   backend IR. Backend passes are selected from policy capabilities, not directly
   from the user-facing level. Cheap dead-code elimination enables same-type cast
@@ -119,6 +123,13 @@ Current Nia-owned optimization consumers:
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.
+- `nia-codegen-llvm` also builds a whole-program index before validation and
+  emission. This is compiler-throughput infrastructure rather than a generated
+  code optimization: repeated module, item, function-instance, vtable, and
+  layout lookups should use the index instead of rescanning backend modules on
+  each query. Exact instance-layout keys are indexed as a fast path, with
+  structural type-argument matching retained as a fallback for cross-interner
+  cases.
 
 Future Nia-owned optimization consumers should follow the same boundary:
 

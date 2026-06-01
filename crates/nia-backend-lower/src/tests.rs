@@ -368,7 +368,7 @@ fn main() i32 {
             };
             body.blocks.push(unreachable);
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -401,7 +401,7 @@ fn main() i32 {
             };
             body.blocks.push(unreachable);
         },
-        nia_opt::OptimizationLevel::O0.policy(),
+        nia_opt::NiaOptimizationLevel::O0.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -443,7 +443,7 @@ fn main() i32 {
             });
             body.blocks.push(original);
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -485,7 +485,7 @@ fn main() i32 {
             });
             body.blocks.push(original);
         },
-        nia_opt::OptimizationLevel::O0.policy(),
+        nia_opt::NiaOptimizationLevel::O0.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -530,7 +530,7 @@ fn main() i32 {
             };
             body.blocks.push(selected);
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -576,7 +576,7 @@ fn main() i32 {
             };
             body.blocks.push(selected);
         },
-        nia_opt::OptimizationLevel::O0.policy(),
+        nia_opt::NiaOptimizationLevel::O0.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -606,7 +606,7 @@ fn main() i32 {
                 ty: value.ty,
             };
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -636,7 +636,7 @@ fn main() i32 {
                 ty: value.ty,
             };
         },
-        nia_opt::OptimizationLevel::O0.policy(),
+        nia_opt::NiaOptimizationLevel::O0.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -671,7 +671,7 @@ fn main() i32 {
                 span,
             });
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -705,7 +705,7 @@ fn main() i32 {
                 span,
             });
         },
-        nia_opt::OptimizationLevel::O0.policy(),
+        nia_opt::NiaOptimizationLevel::O0.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -741,7 +741,7 @@ fn main() i32 {
                     })),
                 }));
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -777,7 +777,7 @@ fn main() i32 {
                     })),
                 }));
         },
-        nia_opt::OptimizationLevel::O0.policy(),
+        nia_opt::NiaOptimizationLevel::O0.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -800,7 +800,7 @@ fn main() i32 {
     let lowering = lower_source_with_body_mutation_and_optimization(
         source,
         |_| {},
-        nia_opt::OptimizationLevel::O2.policy(),
+        nia_opt::NiaOptimizationLevel::O2.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -831,7 +831,7 @@ fn main() i32 {
     let lowering = lower_source_with_body_mutation_and_optimization(
         source,
         |_| {},
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -863,7 +863,7 @@ fn main() i32 {
     let lowering = lower_source_with_body_mutation_and_optimization(
         source,
         |_| {},
-        nia_opt::OptimizationLevel::O2.policy(),
+        nia_opt::NiaOptimizationLevel::O2.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -894,7 +894,7 @@ fn main() i32 {
     let lowering = lower_source_with_body_mutation_and_optimization(
         source,
         |_| {},
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -952,7 +952,7 @@ fn main() i32 {
                 span,
             });
         },
-        nia_opt::OptimizationLevel::O2.policy(),
+        nia_opt::NiaOptimizationLevel::O2.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -1009,7 +1009,7 @@ fn main() i32 {
                 span,
             });
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -1057,7 +1057,7 @@ fn main() i32 {
                 span,
             });
         },
-        nia_opt::OptimizationLevel::O2.policy(),
+        nia_opt::NiaOptimizationLevel::O2.policy(),
     );
     let main = lowering.program.modules[0]
         .functions
@@ -1103,7 +1103,7 @@ fn main() i32 {
                 span,
             });
         },
-        nia_opt::OptimizationLevel::O1.policy(),
+        nia_opt::NiaOptimizationLevel::O1.policy(),
     );
     let main = lowering.program.modules[0]
         .functions

@@ -58,6 +58,7 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         instances: Vec::new(),
         seen: HashSet::new(),
         expanded: HashSet::new(),
+        type_symbols: HashMap::new(),
         missing_array_len_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
     };
@@ -80,6 +81,7 @@ struct MonoCollector<'a> {
     instances: Vec<MonoInstance>,
     seen: HashSet<MonoInstanceKey>,
     expanded: HashSet<MonoInstanceKey>,
+    type_symbols: HashMap<(ModuleId, InternedTyId), String>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -357,42 +359,63 @@ impl MonoCollector<'_> {
     }
 
     fn type_symbol(&mut self, module_id: ModuleId, ty: InternedTyId) -> String {
+        if let Some(symbol) = self.type_symbols.get(&(module_id, ty)) {
+            return symbol.clone();
+        }
         let Some(interner) = self.interners_by_module.get(&module_id) else {
             return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         };
         if interner.get(ty).is_none() {
             return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         }
-        let defs_by_module = self.defs_by_module.clone();
-        mangle_type_with(
+        let defs_by_module = &self.defs_by_module;
+        let comptime_by_module = &self.comptime_by_module;
+        let const_exprs_by_module = &self.const_exprs_by_module;
+        let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
+        let diagnostics = &mut self.diagnostics;
+        let symbol = mangle_type_with(
             interner,
             ty,
-            move |def_id| def_name(&defs_by_module, def_id),
-            |id| self.array_len(id),
-        )
+            |def_id| def_name(defs_by_module, def_id),
+            |id| {
+                array_len(
+                    comptime_by_module,
+                    const_exprs_by_module,
+                    missing_array_len_diagnostics,
+                    diagnostics,
+                    id,
+                )
+            },
+        );
+        self.type_symbols.insert((module_id, ty), symbol.clone());
+        symbol
     }
+}
 
-    fn array_len(&mut self, id: GlobalConstExprId) -> Option<u64> {
-        let value = self
-            .comptime_by_module
+fn array_len(
+    comptime_by_module: &HashMap<ModuleId, &ComptimeCheck>,
+    const_exprs_by_module: &HashMap<ModuleId, &HashMap<GlobalConstExprId, Expr>>,
+    missing_array_len_diagnostics: &mut HashSet<GlobalConstExprId>,
+    diagnostics: &mut Vec<Diagnostic>,
+    id: GlobalConstExprId,
+) -> Option<u64> {
+    let value = comptime_by_module
+        .get(&id.module_id)
+        .and_then(|comptime| comptime.array_lengths.get(&id).copied());
+    if value.is_none() && missing_array_len_diagnostics.insert(id) {
+        let span = const_exprs_by_module
             .get(&id.module_id)
-            .and_then(|comptime| comptime.array_lengths.get(&id).copied());
-        if value.is_none() && self.missing_array_len_diagnostics.insert(id) {
-            let span = self
-                .const_exprs_by_module
-                .get(&id.module_id)
-                .and_then(|const_exprs| const_exprs.get(&id))
-                .map(|expr| expr.span)
-                .unwrap_or_default();
-            self.diagnostics.push(Diagnostic::error(
-                span,
-                format!(
-                    "array length {id:?} was not evaluated before monomorphization symbol generation"
-                ),
-            ));
-        }
-        value
+            .and_then(|const_exprs| const_exprs.get(&id))
+            .map(|expr| expr.span)
+            .unwrap_or_default();
+        diagnostics.push(Diagnostic::error(
+            span,
+            format!(
+                "array length {id:?} was not evaluated before monomorphization symbol generation"
+            ),
+        ));
     }
+    value
 }
 
 fn def_name(defs_by_module: &HashMap<ModuleId, &DefCollection>, def_id: GlobalDefId) -> String {
@@ -617,5 +640,63 @@ fn main() i32 { outer(1) }
                 .contains("was not evaluated before monomorphization")
         );
         assert_eq!(mono.diagnostics[0].span, Span::new(10, 12));
+    }
+
+    #[test]
+    fn repeated_unresolved_array_length_symbol_reuses_cached_diagnostic() {
+        let (module, errors) = parse_module(
+            r#"
+fn take[T](value: T) T { value }
+fn wrap[T](value: T) T { value }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let take_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("take").expect("take def"),
+        };
+        let wrap_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("wrap").expect("wrap def"),
+        };
+        let mut interner = TyInterner::new(ModuleId(0));
+        let len_id = GlobalConstExprId {
+            module_id: ModuleId(0),
+            const_expr_id: ConstExprId(0),
+        };
+        let elem = interner.primitive(PrimitiveTy::I32);
+        let array_ty = interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr(len_id),
+            elem,
+        });
+        let instantiations = vec![
+            GenericInstantiation {
+                def_id: take_id,
+                args: vec![array_ty],
+                generics: vec!["T".to_string()],
+                span: Span::new(1, 2),
+                source_def_id: None,
+            },
+            GenericInstantiation {
+                def_id: wrap_id,
+                args: vec![array_ty],
+                generics: vec!["T".to_string()],
+                span: Span::new(3, 4),
+                source_def_id: None,
+            },
+        ];
+
+        let mono = collect_monomorphizations(&[MonomorphizeModuleInput {
+            module_id: ModuleId(0),
+            defs: &defs,
+            interner: &interner,
+            comptime: &ComptimeCheck::default(),
+            const_exprs: &HashMap::new(),
+            instantiations: &instantiations,
+        }]);
+
+        assert_eq!(mono.instances.len(), 2);
+        assert_eq!(mono.diagnostics.len(), 1);
     }
 }

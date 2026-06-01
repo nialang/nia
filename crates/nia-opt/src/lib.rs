@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum OptimizationLevel {
+pub enum NiaOptimizationLevel {
     #[default]
     O0,
     O1,
@@ -11,7 +11,7 @@ pub enum OptimizationLevel {
     Oz,
 }
 
-impl OptimizationLevel {
+impl NiaOptimizationLevel {
     pub fn policy(self) -> OptimizationPolicy {
         match self {
             Self::O0 => OptimizationPolicy {
@@ -86,7 +86,7 @@ impl OptimizationLevel {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OptimizationPolicy {
-    pub level: OptimizationLevel,
+    pub level: NiaOptimizationLevel,
     pub simplify_cfg: OptimizationDepth,
     pub const_fold: OptimizationDepth,
     pub dead_code_elim: OptimizationDepth,
@@ -99,7 +99,7 @@ pub struct OptimizationPolicy {
 
 impl Default for OptimizationPolicy {
     fn default() -> Self {
-        OptimizationLevel::default().policy()
+        NiaOptimizationLevel::default().policy()
     }
 }
 
@@ -136,8 +136,8 @@ mod tests {
 
     #[test]
     fn size_levels_prefer_size_without_aggressive_inlining() {
-        let os = OptimizationLevel::Os.policy();
-        let oz = OptimizationLevel::Oz.policy();
+        let os = NiaOptimizationLevel::Os.policy();
+        let oz = NiaOptimizationLevel::Oz.policy();
 
         assert!(os.prefer_size);
         assert!(oz.prefer_size);
@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn o3_enables_aggressive_policy() {
-        let policy = OptimizationLevel::O3.policy();
+        let policy = NiaOptimizationLevel::O3.policy();
 
         assert_eq!(policy.simplify_cfg, OptimizationDepth::Aggressive);
         assert_eq!(policy.inline_threshold, InlineThreshold::Aggressive);

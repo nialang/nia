@@ -8,7 +8,7 @@ use std::{
 use nia_diagnostic::{Diagnostic, render_diagnostic};
 use nia_ids::ModuleId;
 use nia_imports::ModuleMap;
-use nia_opt::{OptimizationLevel, OptimizationPolicy};
+use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
 use nia_source::SourcePath;
 
@@ -61,7 +61,7 @@ fn run_main() -> ExitCode {
 #[derive(Debug)]
 struct Cli {
     module_map: ModuleMap,
-    optimization: OptimizationLevel,
+    optimization: NiaOptimizationLevel,
     command: CliCommand,
 }
 
@@ -188,7 +188,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
 
 struct GlobalOptions {
     module_map: ModuleMap,
-    optimization: OptimizationLevel,
+    optimization: NiaOptimizationLevel,
 }
 
 fn extract_global_options(
@@ -196,7 +196,7 @@ fn extract_global_options(
     help: HelpTopic,
 ) -> Result<(Vec<String>, GlobalOptions), CliError> {
     let mut map = ModuleMap::new();
-    let mut optimization = OptimizationLevel::default();
+    let mut optimization = NiaOptimizationLevel::default();
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -253,15 +253,15 @@ fn module_payload_from_short(arg: &str) -> Option<Option<String>> {
     Some(Some(payload.to_string()))
 }
 
-fn parse_optimization_flag(arg: &str) -> Option<Result<OptimizationLevel, String>> {
+fn parse_optimization_flag(arg: &str) -> Option<Result<NiaOptimizationLevel, String>> {
     let level = match arg {
-        "-O" => OptimizationLevel::O2,
-        "-O0" => OptimizationLevel::O0,
-        "-O1" => OptimizationLevel::O1,
-        "-O2" => OptimizationLevel::O2,
-        "-O3" => OptimizationLevel::O3,
-        "-Os" => OptimizationLevel::Os,
-        "-Oz" => OptimizationLevel::Oz,
+        "-O" => NiaOptimizationLevel::O2,
+        "-O0" => NiaOptimizationLevel::O0,
+        "-O1" => NiaOptimizationLevel::O1,
+        "-O2" => NiaOptimizationLevel::O2,
+        "-O3" => NiaOptimizationLevel::O3,
+        "-Os" => NiaOptimizationLevel::Os,
+        "-Oz" => NiaOptimizationLevel::Oz,
         _ if arg.starts_with("-O") => {
             return Some(Err(format!(
                 "unknown optimization level `{arg}`; expected -O0, -O1, -O2, -O3, -Os, or -Oz"
@@ -439,7 +439,7 @@ fn run_check(
     path: &str,
     source: &str,
     module_map: ModuleMap,
-    optimization: OptimizationLevel,
+    optimization: NiaOptimizationLevel,
 ) -> ExitCode {
     let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if program.diagnostics.is_empty() {
@@ -453,7 +453,7 @@ fn run_emit_llvm(
     path: &str,
     source: &str,
     module_map: ModuleMap,
-    optimization: OptimizationLevel,
+    optimization: NiaOptimizationLevel,
 ) -> ExitCode {
     let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
@@ -482,7 +482,7 @@ fn run_emit_obj(
     source: &str,
     args: Vec<String>,
     module_map: ModuleMap,
-    optimization: OptimizationLevel,
+    optimization: NiaOptimizationLevel,
 ) -> ExitCode {
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
@@ -540,7 +540,7 @@ fn run_emit_exe(
     source: &str,
     args: Vec<String>,
     module_map: ModuleMap,
-    optimization: OptimizationLevel,
+    optimization: NiaOptimizationLevel,
 ) -> ExitCode {
     let output_path = match parse_emit_exe_options(path, args) {
         Ok(path) => path,

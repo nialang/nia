@@ -10,7 +10,7 @@ use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::BackendProgram;
 use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
-use nia_opt::OptimizationLevel;
+use nia_opt::NiaOptimizationLevel;
 pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectModuleOutput,
     LlvmObjectOutput,
@@ -144,13 +144,13 @@ fn catch_llvm_object_ice(f: impl FnOnce() -> LlvmObjectOutput) -> LlvmObjectOutp
     }
 }
 
-fn llvm_optimization_level(level: OptimizationLevel) -> LlvmOptimizationLevel {
+fn llvm_optimization_level(level: NiaOptimizationLevel) -> LlvmOptimizationLevel {
     match level {
-        OptimizationLevel::O0 => LlvmOptimizationLevel::None,
-        OptimizationLevel::O1 => LlvmOptimizationLevel::Less,
-        OptimizationLevel::O2 | OptimizationLevel::Os => LlvmOptimizationLevel::Default,
-        OptimizationLevel::O3 => LlvmOptimizationLevel::Aggressive,
-        OptimizationLevel::Oz => LlvmOptimizationLevel::Less,
+        NiaOptimizationLevel::O0 => LlvmOptimizationLevel::None,
+        NiaOptimizationLevel::O1 => LlvmOptimizationLevel::Less,
+        NiaOptimizationLevel::O2 | NiaOptimizationLevel::Os => LlvmOptimizationLevel::Default,
+        NiaOptimizationLevel::O3 => LlvmOptimizationLevel::Aggressive,
+        NiaOptimizationLevel::Oz => LlvmOptimizationLevel::Less,
     }
 }
 
