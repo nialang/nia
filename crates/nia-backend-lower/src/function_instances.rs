@@ -12,6 +12,47 @@ use nia_ty::TyKind;
 type InstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
 type InstanceQueueEntry = (GlobalDefId, ModuleId, Vec<InternedTyId>, String);
 
+struct InstanceWorkQueue {
+    entries: VecDeque<InstanceQueueEntry>,
+    queued: HashSet<InstanceKey>,
+}
+
+impl InstanceWorkQueue {
+    fn new() -> Self {
+        Self {
+            entries: VecDeque::new(),
+            queued: HashSet::new(),
+        }
+    }
+
+    fn contains(&self, key: &InstanceKey) -> bool {
+        self.queued.contains(key)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn push(
+        &mut self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: Vec<InternedTyId>,
+        symbol: String,
+    ) {
+        if self.queued.insert((def_id, arg_module_id, args.clone())) {
+            self.entries
+                .push_back((def_id, arg_module_id, args, symbol));
+        }
+    }
+
+    fn pop_front(&mut self) -> Option<InstanceQueueEntry> {
+        let entry = self.entries.pop_front()?;
+        self.queued.remove(&(entry.0, entry.1, entry.2.clone()));
+        Some(entry)
+    }
+}
+
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_function_instances(
         &mut self,
@@ -19,7 +60,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Vec<BackendFunctionInstance> {
         let mut instances = Vec::new();
         let mut seen = HashSet::<InstanceKey>::new();
-        let mut queue = VecDeque::<InstanceQueueEntry>::new();
+        let mut queue = InstanceWorkQueue::new();
         let functions_by_def = functions
             .iter()
             .map(|function| (function.def_id, function))
@@ -30,12 +71,12 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .filter(|instance| instance.def_id.module_id == self.input.module_id)
         {
-            queue.push_back((
+            queue.push(
                 instance.def_id,
                 instance.arg_module_id,
                 instance.args.clone(),
                 instance.symbol.clone(),
-            ));
+            );
         }
         self.enqueue_function_instances_from_functions(functions, &mut seen, &mut queue);
 
@@ -74,7 +115,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         functions_by_def: &HashMap<GlobalDefId, &BackendFunction>,
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
         instances: &mut Vec<BackendFunctionInstance>,
     ) {
         while let Some((def_id, arg_module_id, args, symbol)) = queue.pop_front() {
@@ -112,7 +153,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         functions: &[BackendFunction],
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
     ) {
         for function in functions {
             if !self
@@ -131,7 +172,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         body: &FunctionBody,
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
     ) {
         for block in &body.blocks {
             for op in &block.ops {
@@ -175,7 +216,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         op: &FunctionOp,
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
     ) {
         match op {
             FunctionOp::Binding(binding) => {
@@ -200,7 +241,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         expr: &FunctionExpr,
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
     ) {
         match &expr.kind {
             FunctionExprKind::FunctionInstance { def_id, args } => {
@@ -302,7 +343,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         callee: &FunctionCallee,
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
     ) {
         match callee {
             FunctionCallee::FunctionInstance { def_id, args }
@@ -337,7 +378,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         place: &nia_function_ir::FunctionPlace,
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
     ) {
         if let nia_function_ir::FunctionPlaceBase::Deref(expr) = &place.base {
             self.enqueue_function_instances_from_expr(expr, seen, queue);
@@ -354,7 +395,7 @@ impl<'a> ModuleLowerer<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
         seen: &HashSet<InstanceKey>,
-        queue: &mut VecDeque<InstanceQueueEntry>,
+        queue: &mut InstanceWorkQueue,
     ) {
         if args.is_empty() || def_id.module_id != self.input.module_id {
             return;
@@ -366,15 +407,8 @@ impl<'a> ModuleLowerer<'a> {
             .first()
             .map(|arg| arg.interner_id)
             .unwrap_or(self.input.module_id);
-        if seen.contains(&(def_id, arg_module_id, args.to_vec()))
-            || queue
-                .iter()
-                .any(|(candidate, candidate_arg_module_id, candidate_args, _)| {
-                    *candidate == def_id
-                        && *candidate_arg_module_id == arg_module_id
-                        && candidate_args == args
-                })
-        {
+        let key = (def_id, arg_module_id, args.to_vec());
+        if seen.contains(&key) || queue.contains(&key) {
             return;
         }
         let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
@@ -401,7 +435,7 @@ impl<'a> ModuleLowerer<'a> {
             },
             |id| self.resolved_array_len(id),
         );
-        queue.push_back((def_id, arg_module_id, args.to_vec(), symbol));
+        queue.push(def_id, arg_module_id, key.2, symbol);
     }
 
     fn ty_contains_generic_param(&self, ty: InternedTyId) -> bool {
