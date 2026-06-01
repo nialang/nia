@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ModuleLowerer;
 use nia_function_ir::{
-    FunctionBlock, FunctionBlockId, FunctionBody, FunctionDeferBody, FunctionOp, FunctionTerminator,
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionDeferBody, FunctionExprKind, FunctionOp,
+    FunctionTerminator,
 };
 use nia_opt::OptimizationDepth;
 
@@ -13,11 +14,30 @@ impl<'a> ModuleLowerer<'a> {
             self.optimization.simplify_cfg,
             OptimizationDepth::Cheap | OptimizationDepth::Full | OptimizationDepth::Aggressive
         ) {
+            fold_constant_bool_branches(&mut body.blocks);
             merge_empty_jump_blocks(&mut body);
             remove_unreachable_blocks(&mut body);
             optimize_defer_bodies(&mut body.blocks);
         }
         body
+    }
+}
+
+fn fold_constant_bool_branches(blocks: &mut [FunctionBlock]) {
+    for block in blocks {
+        if let FunctionTerminator::If {
+            cond,
+            then_target,
+            else_target,
+            span,
+        } = &block.terminator
+            && let FunctionExprKind::Bool(value) = cond.kind
+        {
+            block.terminator = FunctionTerminator::Branch {
+                target: if value { *then_target } else { *else_target },
+                span: *span,
+            };
+        }
     }
 }
 
@@ -213,6 +233,7 @@ fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) {
     for block in blocks {
         for op in &mut block.ops {
             if let FunctionOp::Defer(body) = op {
+                fold_constant_bool_branches(&mut body.blocks);
                 merge_empty_defer_jump_blocks(body);
                 remove_unreachable_defer_blocks(body);
                 optimize_defer_bodies(&mut body.blocks);
@@ -407,6 +428,57 @@ mod tests {
     }
 
     #[test]
+    fn folds_constant_bool_if_to_selected_branch() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::If {
+                    cond: nia_function_ir::FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Bool(false),
+                    },
+                    then_target: FunctionBlockId(1),
+                    else_target: FunctionBlockId(2),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(2),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        fold_constant_bool_branches(&mut body.blocks);
+        remove_unreachable_blocks(&mut body);
+
+        assert_eq!(
+            body.blocks.iter().map(|block| block.id).collect::<Vec<_>>(),
+            vec![FunctionBlockId(0), FunctionBlockId(2)]
+        );
+        assert_eq!(
+            body.blocks[0].terminator.successors(),
+            vec![FunctionBlockId(2)]
+        );
+        validate_function_body(&body).expect("folded function body should remain valid");
+    }
+
+    #[test]
     fn does_not_merge_entry_block_even_when_it_is_an_empty_jump() {
         let span = Span::default();
         let mut body = test_body(vec![
@@ -521,10 +593,14 @@ mod tests {
             scopes,
             blocks,
             entry: FunctionBlockId(0),
-            ty: nia_ids::InternedTyId::new(
-                nia_ids::ModuleId(0),
-                nia_ids::TyInternerIndex::from_interner_index(0),
-            ),
+            ty: test_ty(),
         }
+    }
+
+    fn test_ty() -> nia_ids::InternedTyId {
+        nia_ids::InternedTyId::new(
+            nia_ids::ModuleId(0),
+            nia_ids::TyInternerIndex::from_interner_index(0),
+        )
     }
 }
