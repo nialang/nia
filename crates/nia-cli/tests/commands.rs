@@ -22,6 +22,40 @@ fn help_and_version_use_niac_command_name() {
         assert!(help_stdout.contains(level), "{help_stdout}");
     }
 
+    let emit_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("help")
+        .arg("emit")
+        .output()
+        .expect("run niac help emit");
+    assert!(
+        emit_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit_help.stderr)
+    );
+    let emit_stdout = String::from_utf8_lossy(&emit_help.stdout);
+    assert!(emit_stdout.contains("backend <file.nia>"), "{emit_stdout}");
+
+    let emit_backend_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("help")
+        .arg("emit")
+        .arg("backend")
+        .output()
+        .expect("run niac help emit backend");
+    assert!(
+        emit_backend_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit_backend_help.stderr)
+    );
+    let emit_backend_stdout = String::from_utf8_lossy(&emit_backend_help.stdout);
+    assert!(
+        emit_backend_stdout.contains("niac emit backend <file.nia>"),
+        "{emit_backend_stdout}"
+    );
+    assert!(
+        emit_backend_stdout.contains("--emit-opt-report"),
+        "{emit_backend_stdout}"
+    );
+
     let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("help")
         .arg("emit")
@@ -204,6 +238,79 @@ fn main() i32 {
     assert!(stdout.contains("policy level=O0"), "{stdout}");
     assert!(stdout.contains("inline=never"), "{stdout}");
     assert!(stdout.contains("no changes"), "{stdout}");
+}
+
+#[test]
+fn emit_backend_prints_backend_ir() {
+    let root = temp_dir("emit_backend_prints_backend_ir");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    42
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("emit")
+        .arg("backend")
+        .arg(&main)
+        .output()
+        .expect("run niac emit backend");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("BackendProgram"), "{stdout}");
+    assert!(stdout.contains("functions"), "{stdout}");
+    assert!(stdout.contains("main"), "{stdout}");
+}
+
+#[test]
+fn emit_backend_can_emit_optimization_report_to_stderr() {
+    let root = temp_dir("emit_backend_can_emit_optimization_report_to_stderr");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn answer() i32 {
+    42
+}
+
+fn main() i32 {
+    answer()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O1")
+        .arg("emit")
+        .arg("backend")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac emit backend --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stdout.contains("BackendProgram"), "{stdout}");
+    assert!(!stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
 }
 
 #[test]
