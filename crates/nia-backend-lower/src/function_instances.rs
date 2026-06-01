@@ -9,7 +9,7 @@ use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_ty::TyKind;
 
 type InstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
-type InstanceQueueEntry = (GlobalDefId, ModuleId, Vec<InternedTyId>, String);
+type InstanceQueueEntry = (InstanceKey, String);
 
 struct InstanceWorkQueue {
     entries: VecDeque<InstanceQueueEntry>,
@@ -39,16 +39,16 @@ impl InstanceWorkQueue {
         args: Vec<InternedTyId>,
         symbol: String,
     ) {
-        if self.queued.insert((def_id, arg_module_id, args.clone())) {
-            self.entries
-                .push_back((def_id, arg_module_id, args, symbol));
+        let key = (def_id, arg_module_id, args);
+        if self.queued.insert(key.clone()) {
+            self.entries.push_back((key, symbol));
         }
     }
 
-    fn pop_front(&mut self) -> Option<InstanceQueueEntry> {
-        let entry = self.entries.pop_front()?;
-        self.queued.remove(&(entry.0, entry.1, entry.2.clone()));
-        Some(entry)
+    fn pop_front(&mut self) -> Option<(GlobalDefId, ModuleId, Vec<InternedTyId>, String)> {
+        let (key, symbol) = self.entries.pop_front()?;
+        self.queued.remove(&key);
+        Some((key.0, key.1, key.2, symbol))
     }
 }
 
