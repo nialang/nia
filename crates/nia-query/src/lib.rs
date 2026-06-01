@@ -4,7 +4,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     fmt::{self, Debug},
-    hash::Hash,
+    hash::{DefaultHasher, Hash, Hasher},
     sync::{Arc, Condvar, Mutex},
 };
 
@@ -81,10 +81,57 @@ pub struct QueryInvalidation {
     pub invalidated: Vec<QueryFrame>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 struct QueryFrameIdentity {
     type_id: TypeId,
-    key: String,
+    key_hash: u64,
+    key_debug: String,
+    key: Arc<dyn ErasedQueryKey>,
+}
+
+impl Debug for QueryFrameIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("QueryFrameIdentity")
+            .field("type_id", &self.type_id)
+            .field("key_hash", &self.key_hash)
+            .field("key", &self.key_debug)
+            .finish()
+    }
+}
+
+impl PartialEq for QueryFrameIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_id == other.type_id
+            && self.key_hash == other.key_hash
+            && self.key.eq_key(other.key.as_ref())
+    }
+}
+
+impl Eq for QueryFrameIdentity {}
+
+impl Hash for QueryFrameIdentity {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.type_id.hash(state);
+        self.key_hash.hash(state);
+    }
+}
+
+trait ErasedQueryKey: Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+    fn eq_key(&self, other: &dyn ErasedQueryKey) -> bool;
+}
+
+impl<K> ErasedQueryKey for K
+where
+    K: Clone + Eq + Hash + Send + Sync + 'static,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn eq_key(&self, other: &dyn ErasedQueryKey) -> bool {
+        other.as_any().downcast_ref::<K>() == Some(self)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -104,6 +151,7 @@ struct QueryDependencyEdge {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryError {
     Cycle { cycle: Vec<QueryFrame> },
+    InvalidInput { query: QueryFrame, message: String },
 }
 
 impl fmt::Display for QueryError {
@@ -115,6 +163,13 @@ impl fmt::Display for QueryError {
                     writeln!(f, "  {}", frame.description)?;
                 }
                 Ok(())
+            }
+            QueryError::InvalidInput { query, message } => {
+                write!(
+                    f,
+                    "invalid query input for {}: {message}",
+                    query.description
+                )
             }
         }
     }
@@ -136,6 +191,10 @@ struct QueryStackEntry {
 }
 
 struct QueryStackGuard;
+
+struct QueryStackInstallGuard {
+    previous: Vec<QueryStackEntry>,
+}
 
 thread_local! {
     static QUERY_STACK: RefCell<Vec<QueryStackEntry>> = const { RefCell::new(Vec::new()) };
@@ -165,6 +224,16 @@ impl<C> QueryDb<C> {
             .unwrap_or_else(|err| std::panic::panic_any(err))
     }
 
+    pub fn invalid_input<K>(&self, key: &K, message: impl Into<String>) -> !
+    where
+        K: QueryKey<C>,
+    {
+        std::panic::panic_any(QueryError::InvalidInput {
+            query: query_frame::<C, K>(key),
+            message: message.into(),
+        })
+    }
+
     pub fn try_query<K>(&self, key: K) -> QueryResult<K::Value>
     where
         K: QueryKey<C>,
@@ -191,7 +260,22 @@ impl<C> QueryDb<C> {
                     let identity = entry.identity.clone();
                     self.clear_dependencies_from(&identity);
                     let _guard = self.enter_query(entry);
-                    let value = key.execute(self);
+                    let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        key.execute(self)
+                    })) {
+                        Ok(value) => value,
+                        Err(payload) => {
+                            let mut state = slot.state.lock().expect("query cache lock poisoned");
+                            *state = QueryState::Empty;
+                            self.clear_dependencies_from(&identity);
+                            slot.ready.notify_all();
+                            drop(state);
+                            match payload.downcast::<QueryError>() {
+                                Ok(err) => return Err(*err),
+                                Err(payload) => std::panic::resume_unwind(payload),
+                            }
+                        }
+                    };
 
                     let mut state = slot.state.lock().expect("query cache lock poisoned");
                     let was_invalidated =
@@ -218,17 +302,29 @@ impl<C> QueryDb<C> {
         for key in &keys {
             self.record_dependency::<K>(key);
         }
+        // `query_many` runs work on fresh OS threads, so the thread-local query
+        // stack has to be copied explicitly. Without this logical parent stack,
+        // a worker that asks for an ancestor query would wait on the parent
+        // thread, while the parent is waiting for the worker to finish.
+        let parent_stack = current_query_stack();
         std::thread::scope(|scope| {
             let handles = keys
                 .into_iter()
                 .map(|key| {
                     let db = self.clone();
-                    scope.spawn(move || db.query(key))
+                    let parent_stack = parent_stack.clone();
+                    scope.spawn(move || {
+                        let _stack_guard = install_query_stack(parent_stack);
+                        db.query(key)
+                    })
                 })
                 .collect::<Vec<_>>();
             handles
                 .into_iter()
-                .map(|handle| handle.join().expect("query worker thread panicked"))
+                .map(|handle| match handle.join() {
+                    Ok(value) => value,
+                    Err(payload) => std::panic::resume_unwind(payload),
+                })
                 .collect()
         })
     }
@@ -348,8 +444,8 @@ impl<C> QueryDb<C> {
                         .map(|entry| entry.frame.clone())
                         .unwrap_or_else(|| QueryFrame {
                             name: "<unknown>",
-                            key: identity.key.clone(),
-                            description: identity.key.clone(),
+                            key: identity.key_debug.clone(),
+                            description: identity.key_debug.clone(),
                         }),
                 );
                 return Err(QueryError::Cycle { cycle });
@@ -446,7 +542,7 @@ impl QueryDependencyGraph {
                 self.frames
                     .get(dependent)
                     .map(|frame| (frame.name, frame.key.clone()))
-                    .unwrap_or(("", dependent.key.clone()))
+                    .unwrap_or(("", dependent.key_debug.clone()))
             });
             dependents.reverse();
             queue.extend(dependents);
@@ -494,11 +590,18 @@ where
 
 fn query_frame_identity<K>(key: &K) -> QueryFrameIdentity
 where
-    K: Debug + 'static,
+    K: Clone + Debug + Eq + Hash + Send + Sync + 'static,
 {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    // `key` stays as the human-readable query label used in traces. The hash is
+    // part of identity because `Debug` is not required to be unique: two keys can
+    // deliberately render the same label while still being distinct by `Eq`.
     QueryFrameIdentity {
         type_id: TypeId::of::<K>(),
-        key: format!("{key:?}"),
+        key_hash: hasher.finish(),
+        key_debug: format!("{key:?}"),
+        key: Arc::new(key.clone()),
     }
 }
 
@@ -516,6 +619,24 @@ impl Drop for QueryStackGuard {
             stack.borrow_mut().pop();
         });
     }
+}
+
+impl Drop for QueryStackInstallGuard {
+    fn drop(&mut self) {
+        QUERY_STACK.with(|stack| {
+            *stack.borrow_mut() = std::mem::take(&mut self.previous);
+        });
+    }
+}
+
+fn current_query_stack() -> Vec<QueryStackEntry> {
+    QUERY_STACK.with(|stack| stack.borrow().clone())
+}
+
+fn install_query_stack(stack_snapshot: Vec<QueryStackEntry>) -> QueryStackInstallGuard {
+    QUERY_STACK.with(|stack| QueryStackInstallGuard {
+        previous: std::mem::replace(&mut *stack.borrow_mut(), stack_snapshot),
+    })
 }
 
 #[cfg(test)]
@@ -594,12 +715,13 @@ mod tests {
             executions: AtomicUsize::new(0),
         });
 
-        let error = std::panic::catch_unwind(|| db.try_query(Recursive))
+        let error = db
+            .try_query(Recursive)
             .expect_err("cycle should be reported");
-        let error = error
-            .downcast::<QueryError>()
-            .expect("cycle panic should carry QueryError");
-        let QueryError::Cycle { cycle } = *error;
+        let cycle = match error {
+            QueryError::Cycle { cycle } => cycle,
+            QueryError::InvalidInput { .. } => panic!("expected query cycle"),
+        };
         assert_eq!(cycle.len(), 2);
         assert!(cycle.iter().all(|frame| frame.name == "recursive"));
     }
@@ -613,6 +735,60 @@ mod tests {
         let error = std::panic::catch_unwind(|| db.query(Recursive))
             .expect_err("legacy query should panic on cycles");
         assert!(error.is::<QueryError>());
+    }
+
+    #[test]
+    fn query_can_report_invalid_input_as_query_error() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let err = db
+            .try_query(InvalidInputQuery)
+            .expect_err("invalid input should be a query error");
+        match err {
+            QueryError::InvalidInput { query, message } => {
+                assert_eq!(query.name, "invalid_input_query");
+                assert_eq!(message, "bad fixture");
+            }
+            QueryError::Cycle { .. } => panic!("expected invalid input error"),
+        }
+    }
+
+    #[test]
+    fn query_many_workers_detect_cycles_through_parent_stack() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+        let worker_db = db.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let error = std::panic::catch_unwind(|| worker_db.query(ParallelRecursive))
+                .expect_err("parallel recursive query should panic");
+            sender
+                .send(error.is::<QueryError>())
+                .expect("send query result");
+        });
+
+        assert_eq!(
+            receiver.recv_timeout(std::time::Duration::from_secs(2)),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn panicking_query_resets_slot_for_later_attempts() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let first = std::panic::catch_unwind(|| db.query(PanicsOnce))
+            .expect_err("first query should panic");
+        assert!(first.is::<&'static str>());
+
+        assert_eq!(db.query(PanicsOnce), 99);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -704,6 +880,32 @@ mod tests {
     }
 
     #[test]
+    fn dependency_identity_does_not_merge_keys_with_same_debug_label() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        assert_eq!(db.query(DebugCollisionParent(1)), 4);
+        assert_eq!(db.query(DebugCollisionParent(2)), 8);
+
+        let invalidation = db.invalidate(DebugCollisionLeaf(1));
+        let invalidated_names = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            invalidated_names,
+            vec!["debug_collision_leaf", "debug_collision_parent"]
+        );
+
+        assert_eq!(db.query(DebugCollisionParent(2)), 8);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 2);
+        assert_eq!(db.query(DebugCollisionParent(1)), 4);
+        assert_eq!(db.context().executions.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
     fn invalidation_during_query_many_prevents_stale_cache_writeback() {
         let control = Arc::new((Mutex::new(RaceState::default()), Condvar::new()));
         let db = QueryDb::new(RaceContext {
@@ -775,6 +977,113 @@ mod tests {
 
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
             db.query_many(self.0.map(Double)).into_iter().sum()
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct ParallelRecursive;
+
+    impl QueryKey<TestContext> for ParallelRecursive {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "parallel_recursive"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.query_many([ParallelRecursiveChild]).into_iter().sum()
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct ParallelRecursiveChild;
+
+    impl QueryKey<TestContext> for ParallelRecursiveChild {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "parallel_recursive_child"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.query(ParallelRecursive)
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct PanicsOnce;
+
+    impl QueryKey<TestContext> for PanicsOnce {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "panics_once"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            let previous = db.context().executions.fetch_add(1, Ordering::SeqCst);
+            if previous == 0 {
+                panic!("transient query failure");
+            }
+            99
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct InvalidInputQuery;
+
+    impl QueryKey<TestContext> for InvalidInputQuery {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "invalid_input_query"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.invalid_input(self, "bad fixture")
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    struct DebugCollisionParent(usize);
+
+    impl Debug for DebugCollisionParent {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("DebugCollisionParent(<hidden>)")
+        }
+    }
+
+    impl QueryKey<TestContext> for DebugCollisionParent {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "debug_collision_parent"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.query(DebugCollisionLeaf(self.0)) * 2
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+    struct DebugCollisionLeaf(usize);
+
+    impl Debug for DebugCollisionLeaf {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("DebugCollisionLeaf(<hidden>)")
+        }
+    }
+
+    impl QueryKey<TestContext> for DebugCollisionLeaf {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "debug_collision_leaf"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            db.context().executions.fetch_add(1, Ordering::SeqCst);
+            self.0 * 2
         }
     }
 

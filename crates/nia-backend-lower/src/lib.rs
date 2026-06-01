@@ -6,6 +6,8 @@ mod operator_dispatch;
 mod struct_instances;
 mod trait_object_vtables;
 
+use std::collections::HashSet;
+
 use nia_ast::{Expr, ItemKind, Module};
 use nia_backend_ir::{BackendLayouts, BackendModule, BackendProgram, BackendStructInstanceKey};
 use nia_body_check::BodyCheck;
@@ -80,6 +82,7 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) monomorphization: &'a Monomorphization,
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
+    missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -89,6 +92,7 @@ impl<'a> ModuleLowerer<'a> {
             monomorphization,
             interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
+            missing_array_len_diagnostics: HashSet::new(),
         }
     }
 
@@ -262,15 +266,6 @@ impl<'a> ModuleLowerer<'a> {
         !self.generic_params_in_ty(ty).is_empty()
     }
 
-    fn def_name(&self, def_id: DefId) -> String {
-        self.input
-            .defs
-            .defs
-            .get(def_id)
-            .map(|def| def.name.clone())
-            .unwrap_or_else(|| format!("def{}", def_id.0))
-    }
-
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
         self.input.body_check.ir.expr_types.get(&expr.span).copied()
     }
@@ -302,13 +297,15 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn resolved_array_len(&self, id: GlobalConstExprId) -> u64 {
-        self.input
-            .comptime
-            .array_lengths
-            .get(&id)
-            .copied()
-            .expect("array length used in backend symbol must be evaluated")
+    fn resolved_array_len(&mut self, id: GlobalConstExprId) -> Option<u64> {
+        let value = self.input.comptime.array_lengths.get(&id).copied();
+        if value.is_none() && self.missing_array_len_diagnostics.insert(id) {
+            self.diagnostics.push(Diagnostic::error(
+                Span::default(),
+                format!("array length {id:?} was not evaluated before backend symbol generation"),
+            ));
+        }
+        value
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {

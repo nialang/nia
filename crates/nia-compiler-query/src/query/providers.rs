@@ -112,7 +112,12 @@ pub(super) fn provide_loaded_module(
 ) -> LoadedModule {
     db.context()
         .loaded_module(module_id)
-        .unwrap_or_else(|| panic!("missing loaded module {module_id:?}"))
+        .unwrap_or_else(|| {
+            db.invalid_input(
+                &LoadedModuleQuery(module_id),
+                format!("missing loaded module {module_id:?}"),
+            )
+        })
         .clone()
 }
 

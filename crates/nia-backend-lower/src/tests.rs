@@ -10,7 +10,7 @@ use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
-use nia_type_lower::lower_module_types_with_id;
+use nia_type_lower::{TypeLowering, lower_module_types_with_id};
 use nia_type_normalize::normalize_module_types;
 use nia_type_resolve::resolve_module_types;
 use nia_value_resolve::resolve_module_values;
@@ -343,7 +343,59 @@ fn main() i32 {
     assert!(body.locals.iter().all(|local| local.ty == i32_ty));
 }
 
+#[test]
+fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
+    let source = r#"
+comptime N: usize = 3;
+
+struct Box[T] {
+    value: T,
+}
+
+fn main(value: Box[[N]u8]) void {}
+"#;
+    let lowering = lower_source_with_comptime_mutation(source, |comptime, type_lowering| {
+        for id in type_lowering.const_exprs.keys() {
+            comptime.array_lengths.remove(id);
+        }
+    });
+
+    let module = &lowering.program.modules[0];
+    let instance = module
+        .struct_instances
+        .iter()
+        .find(|instance| instance.name == "Box")
+        .expect("Box instance");
+
+    assert!(
+        instance.symbol.contains("len_unresolved__m0__c0"),
+        "{}",
+        instance.symbol
+    );
+    assert_eq!(lowering.diagnostics.len(), 1);
+    assert!(
+        lowering.diagnostics[0]
+            .message
+            .contains("was not evaluated before backend symbol generation"),
+        "{:?}",
+        lowering.diagnostics
+    );
+}
+
 fn lower_source(source: &str) -> BackendLowering {
+    let lowering = lower_source_with_comptime_mutation(source, |_, _| {});
+    assert!(
+        lowering.diagnostics.is_empty(),
+        "{:?}",
+        lowering.diagnostics
+    );
+    lowering
+}
+
+fn lower_source_with_comptime_mutation(
+    source: &str,
+    mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
+) -> BackendLowering {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
@@ -426,6 +478,8 @@ fn lower_source(source: &str) -> BackendLowering {
         "{:?}",
         monomorphization.diagnostics
     );
+    let mut comptime = comptime;
+    mutate_comptime(&mut comptime, &type_lowering);
 
     let input = BackendLowerModuleInput {
         module_id: ModuleId(0),
@@ -447,11 +501,5 @@ fn lower_source(source: &str) -> BackendLowering {
         program_traits: &HashMap::new(),
         trait_impls: &[],
     };
-    let lowering = lower_backend_program(&[input], &monomorphization);
-    assert!(
-        lowering.diagnostics.is_empty(),
-        "{:?}",
-        lowering.diagnostics
-    );
-    lowering
+    lower_backend_program(&[input], &monomorphization)
 }

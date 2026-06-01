@@ -113,7 +113,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn enqueue_function_instances_from_functions(
-        &self,
+        &mut self,
         functions: &[BackendFunction],
         seen: &mut HashSet<InstanceKey>,
         queue: &mut VecDeque<InstanceQueueEntry>,
@@ -132,7 +132,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn enqueue_function_instances_from_body(
-        &self,
+        &mut self,
         body: &FunctionBody,
         seen: &mut HashSet<InstanceKey>,
         queue: &mut VecDeque<InstanceQueueEntry>,
@@ -176,7 +176,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn enqueue_function_instances_from_op(
-        &self,
+        &mut self,
         op: &FunctionOp,
         seen: &mut HashSet<InstanceKey>,
         queue: &mut VecDeque<InstanceQueueEntry>,
@@ -201,7 +201,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn enqueue_function_instances_from_expr(
-        &self,
+        &mut self,
         expr: &FunctionExpr,
         seen: &mut HashSet<InstanceKey>,
         queue: &mut VecDeque<InstanceQueueEntry>,
@@ -303,7 +303,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn enqueue_function_instances_from_callee(
-        &self,
+        &mut self,
         callee: &FunctionCallee,
         seen: &mut HashSet<InstanceKey>,
         queue: &mut VecDeque<InstanceQueueEntry>,
@@ -338,7 +338,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn enqueue_function_instances_from_place(
-        &self,
+        &mut self,
         place: &nia_function_ir::FunctionPlace,
         seen: &mut HashSet<InstanceKey>,
         queue: &mut VecDeque<InstanceQueueEntry>,
@@ -354,7 +354,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn enqueue_function_instance(
-        &self,
+        &mut self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
         seen: &HashSet<InstanceKey>,
@@ -394,7 +394,7 @@ impl<'a> ModuleLowerer<'a> {
             def_id,
             &def.name,
             args,
-            &self.interner,
+            &self.interner.clone(),
             |def_id| {
                 self.input
                     .defs
