@@ -253,6 +253,18 @@ impl<'a> BodyChecker<'a> {
                 },
             };
         }
+        if forced_ty.is_none()
+            && let Some(upcast) = self.trait_object_upcasts.get(&expr.span).copied()
+        {
+            return TypedExpr {
+                span: expr.span,
+                ty: upcast.target_ty,
+                kind: TypedExprKind::TraitObjectUpcast {
+                    expr: Box::new(self.lower_expr_with_ty(expr, Some(upcast.source_ty))),
+                    target_ty: upcast.target_ty,
+                },
+            };
+        }
         let ty = forced_ty
             .or_else(|| self.expr_types.get(&expr.span).copied())
             .unwrap_or_else(|| self.error());

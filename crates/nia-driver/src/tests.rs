@@ -4003,6 +4003,66 @@ fn main() i32 {
 }
 
 #[test]
+fn trait_object_supertrait_upcast_is_recorded() {
+    let root = temp_dir("trait_object_supertrait_upcast_is_recorded");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Parent {}
+trait Child : Parent {}
+
+fn accept(parent: &const Parent) void {}
+
+fn use_child(child: &const Child) void {
+    accept(child)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program.modules.iter().any(|module| {
+            !module.body_check.ir.trait_object_upcasts.is_empty()
+                && !module.body_check.ir.node_trait_object_upcasts.is_empty()
+        }),
+        "{:?}",
+        program.modules
+            .iter()
+            .map(|module| &module.body_check.ir.trait_object_upcasts)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn trait_object_non_supertrait_upcast_is_rejected() {
+    let root = temp_dir("trait_object_non_supertrait_upcast_is_rejected");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Parent {}
+trait Other {}
+
+fn accept(parent: &const Parent) void {}
+
+fn use_other(other: &const Other) void {
+    accept(other)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn supertrait_impls_must_be_explicit() {
     let root = temp_dir("supertrait_impls_must_be_explicit");
     write(
@@ -4287,6 +4347,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::CStringPointer { array: expr, .. } => {
             function_expr_contains_builtin_eq(expr)
         }

@@ -216,7 +216,8 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionExprKind::CStringPointer { array: inner, .. }
             | FunctionExprKind::Unary { expr: inner, .. }
             | FunctionExprKind::Discard(inner)
-            | FunctionExprKind::Cast { expr: inner, .. } => self.validate_expr(inner)?,
+            | FunctionExprKind::Cast { expr: inner, .. }
+            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. } => self.validate_expr(inner)?,
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &range.start {
                     self.validate_expr(start)?;

@@ -1957,6 +1957,26 @@ from concrete pointers to trait object pointers, vtable construction, and
 dynamic method dispatch are reserved for the next trait-object implementation
 step.
 
+A trait object pointer may be coerced to a supertrait object pointer when the
+target trait is a declared supertrait of the source trait and the object
+constness matches:
+
+```nia
+trait Parent {}
+trait Child : Parent {}
+
+fn accept(parent: &const Parent) void {}
+
+fn use_child(child: &const Child) void {
+    accept(child)
+}
+```
+
+The compiler records this as a trait-object upcast, not as a plain bitcast.
+This version only supports supertrait object upcasts without associated type
+bindings on either object type; associated-type-bearing object upcasts are tied
+to the future object-safety and vtable layout work.
+
 ## 12. Modules
 
 Each `.nia` file is a module. Import resolution always produces one concrete

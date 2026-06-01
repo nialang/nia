@@ -165,7 +165,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::FunctionInstance { def_id, args } => {
                 self.enqueue_function_instance(*def_id, args, seen, queue);
             }
-            FunctionExprKind::Discard(inner) | FunctionExprKind::Cast { expr: inner, .. } => {
+            FunctionExprKind::Discard(inner)
+            | FunctionExprKind::Cast { expr: inner, .. }
+            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. } => {
                 self.enqueue_function_instances_from_expr(inner, seen, queue);
             }
             FunctionExprKind::Range(range) => {

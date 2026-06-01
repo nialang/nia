@@ -200,6 +200,10 @@ pub enum FunctionExprKind {
         expr: Box<FunctionExpr>,
         ty: InternedTyId,
     },
+    TraitObjectUpcast {
+        expr: Box<FunctionExpr>,
+        target_ty: InternedTyId,
+    },
     Call {
         callee: FunctionCallee,
         args: Vec<FunctionExpr>,
