@@ -4,18 +4,19 @@ pub(super) use crate::{
 };
 pub(super) use nia_backend_ir::{
     BackendField, BackendFunction, BackendGlobal, BackendLayouts, BackendModule, BackendParam,
-    BackendProgram, BackendStruct,
+    BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableEntry,
+    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
 };
 pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
 pub(super) use nia_comptime_check::ComptimeCheck;
 pub(super) use nia_function_ir::{
-    FunctionBlock, FunctionBlockId, FunctionBody, FunctionExpr, FunctionExprKind, FunctionScope,
-    FunctionScopeId, FunctionTerminator,
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind,
+    FunctionScope, FunctionScopeId, FunctionTerminator,
 };
 pub(super) use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId};
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 pub(super) use nia_span::Span;
-pub(super) use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+pub(super) use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyKind};
 
 pub(super) struct EmitSmokeCase {
     pub(super) name: &'static str,
