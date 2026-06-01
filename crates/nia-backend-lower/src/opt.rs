@@ -42,6 +42,7 @@ enum BackendOptPass {
     RemovePureExprOps,
     PropagateLocalCopies,
     PropagateLocalConstants,
+    SimplifyConstantLogicalExprs,
     RemoveOverwrittenLocalStores,
     RemoveNeverReadLocalStores,
     RemoveUnusedLocalBindings,
@@ -62,6 +63,7 @@ impl BackendOptPass {
             Self::RemovePureExprOps => "remove-pure-expr-ops",
             Self::PropagateLocalCopies => "propagate-local-copies",
             Self::PropagateLocalConstants => "propagate-local-constants",
+            Self::SimplifyConstantLogicalExprs => "simplify-constant-logical-exprs",
             Self::RemoveOverwrittenLocalStores => "remove-overwritten-local-stores",
             Self::RemoveNeverReadLocalStores => "remove-never-read-local-stores",
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
@@ -82,6 +84,7 @@ impl BackendOptPass {
             Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
             Self::PropagateLocalCopies => propagate_local_copies(body),
             Self::PropagateLocalConstants => propagate_local_constants(body),
+            Self::SimplifyConstantLogicalExprs => simplify_constant_logical_exprs(body),
             Self::RemoveOverwrittenLocalStores => remove_overwritten_local_stores(&mut body.blocks),
             Self::RemoveNeverReadLocalStores => remove_never_read_local_stores(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
@@ -111,6 +114,9 @@ impl BackendOptPass {
                         .local_copy_prop
                         .at_least(OptimizationDepth::Aggressive)
                     && !policy.prefer_size
+            }
+            Self::SimplifyConstantLogicalExprs => {
+                policy.const_fold.at_least(OptimizationDepth::Cheap)
             }
             Self::RemoveOverwrittenLocalStores
             | Self::RemoveNeverReadLocalStores
@@ -166,6 +172,7 @@ const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::PropagateLocalCopies,
     BackendOptPass::PropagateLocalConstants,
+    BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
@@ -183,6 +190,7 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
+    BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::SimplifyTrivialBranches,
     BackendOptPass::MergeEmptyJumpBlocks,
@@ -196,6 +204,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::PropagateLocalCopies,
+    BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
@@ -215,6 +224,7 @@ const O3_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::PropagateLocalCopies,
     BackendOptPass::PropagateLocalConstants,
+    BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
@@ -1109,6 +1119,242 @@ fn rewrite_local_constants_in_range(
     }
     if let Some(end) = &mut range.end {
         changed |= rewrite_local_constants_in_expr(end, constants);
+    }
+    changed
+}
+
+fn simplify_constant_logical_exprs(body: &mut FunctionBody) -> bool {
+    simplify_constant_logical_exprs_in_blocks(&mut body.blocks)
+}
+
+fn simplify_constant_logical_exprs_in_blocks(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        for op in &mut block.ops {
+            changed |= simplify_constant_logical_exprs_in_op(op);
+        }
+        changed |= simplify_constant_logical_exprs_in_terminator(&mut block.terminator);
+    }
+    changed
+}
+
+fn simplify_constant_logical_exprs_in_op(op: &mut FunctionOp) -> bool {
+    match op {
+        FunctionOp::Binding(binding) => binding
+            .value
+            .as_mut()
+            .is_some_and(simplify_constant_logical_expr),
+        FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+            simplify_constant_logical_expr(value)
+        }
+        FunctionOp::Defer(body) => simplify_constant_logical_exprs_in_blocks(&mut body.blocks),
+    }
+}
+
+fn simplify_constant_logical_exprs_in_terminator(terminator: &mut FunctionTerminator) -> bool {
+    match terminator {
+        FunctionTerminator::If { cond, .. } => simplify_constant_logical_expr(cond),
+        FunctionTerminator::Switch { target, arms, .. } => {
+            let mut changed = simplify_constant_logical_expr(target);
+            for arm in arms {
+                changed |= simplify_constant_logical_expr(&mut arm.pattern);
+            }
+            changed
+        }
+        FunctionTerminator::Loop { header, .. } => match header {
+            FunctionForHeader::Infinite => false,
+            FunctionForHeader::Condition(cond) => simplify_constant_logical_expr(cond),
+            FunctionForHeader::CStyle { cond } => cond
+                .as_mut()
+                .is_some_and(|cond| simplify_constant_logical_expr(cond)),
+        },
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+            value.as_mut().is_some_and(simplify_constant_logical_expr)
+        }
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. } => false,
+    }
+}
+
+fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
+    let mut changed = false;
+    let mut replacement = None;
+    match &mut expr.kind {
+        FunctionExprKind::Binary { lhs, op, rhs }
+            if matches!(op, nia_ast::BinaryOp::And | nia_ast::BinaryOp::Or) =>
+        {
+            changed |= simplify_constant_logical_expr(lhs);
+            match (bool_literal_value(lhs), *op) {
+                (Some(false), nia_ast::BinaryOp::And) => {
+                    replacement = Some(FunctionExpr {
+                        span: expr.span,
+                        ty: expr.ty,
+                        kind: FunctionExprKind::Bool(false),
+                    });
+                }
+                (Some(true), nia_ast::BinaryOp::Or) => {
+                    replacement = Some(FunctionExpr {
+                        span: expr.span,
+                        ty: expr.ty,
+                        kind: FunctionExprKind::Bool(true),
+                    });
+                }
+                (Some(true), nia_ast::BinaryOp::And) | (Some(false), nia_ast::BinaryOp::Or) => {
+                    changed |= simplify_constant_logical_expr(rhs);
+                    replacement = Some((**rhs).clone());
+                }
+                (None, nia_ast::BinaryOp::And) | (None, nia_ast::BinaryOp::Or) => {
+                    changed |= simplify_constant_logical_expr(rhs);
+                    match (bool_literal_value(rhs), *op) {
+                        (Some(true), nia_ast::BinaryOp::And)
+                        | (Some(false), nia_ast::BinaryOp::Or) => {
+                            replacement = Some((**lhs).clone());
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        FunctionExprKind::Range(range) => {
+            changed |= simplify_constant_logical_exprs_in_range(range);
+        }
+        FunctionExprKind::ArrayLiteral { elems } => {
+            changed |= simplify_constant_logical_exprs_in_array_elements(elems);
+        }
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            for field in fields {
+                changed |= simplify_constant_logical_expr(&mut field.value);
+            }
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            changed |= simplify_constant_logical_expr(&mut field.value);
+        }
+        FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Discard(expr) => {
+            changed |= simplify_constant_logical_expr(expr);
+        }
+        FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
+            changed |= simplify_constant_logical_expr(lhs);
+            changed |= simplify_constant_logical_expr(rhs);
+        }
+        FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr, .. }
+        | FunctionExprKind::TraitObjectCoercion { expr, .. }
+        | FunctionExprKind::CStringPointer { array: expr, .. }
+        | FunctionExprKind::Field { lhs: expr, .. } => {
+            changed |= simplify_constant_logical_expr(expr);
+        }
+        FunctionExprKind::Assign { place, rhs, .. } => {
+            changed |= simplify_constant_logical_exprs_in_place(place);
+            changed |= simplify_constant_logical_expr(rhs);
+        }
+        FunctionExprKind::AddrOf(place) => {
+            changed |= simplify_constant_logical_exprs_in_place(place);
+        }
+        FunctionExprKind::Call { callee, args } => {
+            changed |= simplify_constant_logical_exprs_in_callee(callee);
+            for arg in args {
+                changed |= simplify_constant_logical_expr(arg);
+            }
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            changed |= simplify_constant_logical_expr(lhs);
+            changed |= simplify_constant_logical_exprs_in_slice_range(range);
+        }
+        FunctionExprKind::InlineAsm(asm) => {
+            for input in &mut asm.inputs {
+                changed |= simplify_constant_logical_expr(&mut input.value);
+            }
+        }
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => {}
+    }
+
+    if let Some(replacement) = replacement {
+        *expr = replacement;
+        true
+    } else {
+        changed
+    }
+}
+
+fn bool_literal_value(expr: &FunctionExpr) -> Option<bool> {
+    match expr.kind {
+        FunctionExprKind::Bool(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn simplify_constant_logical_exprs_in_array_elements(elems: &mut FunctionArrayElements) -> bool {
+    match elems {
+        FunctionArrayElements::List(elems) => {
+            let mut changed = false;
+            for elem in elems {
+                changed |= simplify_constant_logical_expr(elem);
+            }
+            changed
+        }
+        FunctionArrayElements::Repeat { value, .. } => simplify_constant_logical_expr(value),
+    }
+}
+
+fn simplify_constant_logical_exprs_in_callee(callee: &mut FunctionCallee) -> bool {
+    match callee {
+        FunctionCallee::Method { receiver, .. }
+        | FunctionCallee::TraitMethod { receiver, .. }
+        | FunctionCallee::DynamicTraitMethod { receiver, .. }
+        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::FunctionPointer(receiver) => simplify_constant_logical_expr(receiver),
+        FunctionCallee::Function(_)
+        | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::BuiltinOperator(_) => false,
+    }
+}
+
+fn simplify_constant_logical_exprs_in_slice_range(range: &mut FunctionSliceRange) -> bool {
+    let mut changed = false;
+    if let Some(start) = &mut range.start {
+        changed |= simplify_constant_logical_expr(start);
+    }
+    if let Some(end) = &mut range.end {
+        changed |= simplify_constant_logical_expr(end);
+    }
+    changed
+}
+
+fn simplify_constant_logical_exprs_in_range(range: &mut FunctionRange) -> bool {
+    let mut changed = false;
+    if let Some(start) = &mut range.start {
+        changed |= simplify_constant_logical_expr(start);
+    }
+    if let Some(end) = &mut range.end {
+        changed |= simplify_constant_logical_expr(end);
+    }
+    changed
+}
+
+fn simplify_constant_logical_exprs_in_place(place: &mut FunctionPlace) -> bool {
+    let mut changed = false;
+    if let FunctionPlaceBase::Deref(expr) = &mut place.base {
+        changed |= simplify_constant_logical_expr(expr);
+    }
+    for elem in &mut place.elems {
+        if let FunctionPlaceElem::Index(index) = elem {
+            changed |= simplify_constant_logical_expr(index);
+        }
     }
     changed
 }
@@ -2461,11 +2707,46 @@ mod tests {
                 BackendOptPass::SimplifySameTypeCasts,
                 BackendOptPass::RemoveNoopLocalStores,
                 BackendOptPass::RemovePureExprOps,
+                BackendOptPass::SimplifyConstantLogicalExprs,
                 BackendOptPass::RemoveOverwrittenLocalStores,
                 BackendOptPass::RemoveNeverReadLocalStores,
                 BackendOptPass::RemoveUnusedLocalBindings,
                 BackendOptPass::FoldConstantBoolBranches,
             ]
+        );
+    }
+
+    #[test]
+    fn constant_logical_expr_simplification_is_selected_from_const_fold_policy() {
+        let policy = nia_opt::OptimizationPolicy {
+            level: NiaOptimizationLevel::O2,
+            simplify_cfg: OptimizationDepth::Cheap,
+            const_fold: OptimizationDepth::Disabled,
+            dead_code_elim: OptimizationDepth::Disabled,
+            local_copy_prop: OptimizationDepth::Disabled,
+            inline_threshold: nia_opt::InlineThreshold::Never,
+            specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+            dedup_monomorphized_instances: false,
+            prefer_size: false,
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            !pipeline
+                .passes
+                .contains(&BackendOptPass::SimplifyConstantLogicalExprs)
+        );
+
+        let policy = nia_opt::OptimizationPolicy {
+            const_fold: OptimizationDepth::Cheap,
+            ..policy
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            pipeline
+                .passes
+                .contains(&BackendOptPass::SimplifyConstantLogicalExprs)
         );
     }
 
@@ -4329,6 +4610,100 @@ mod tests {
         simplify_same_type_casts_in_expr(&mut expr);
 
         assert!(matches!(expr.kind, FunctionExprKind::Cast { .. }));
+    }
+
+    #[test]
+    fn simplifies_constant_logical_exprs_without_dropping_effects() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: Vec::new(),
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Bool(true),
+                        }),
+                        op: nia_ast::BinaryOp::And,
+                        rhs: Box::new(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Binary {
+                                lhs: Box::new(FunctionExpr {
+                                    span,
+                                    ty,
+                                    kind: FunctionExprKind::Local(LocalId(0)),
+                                }),
+                                op: nia_ast::BinaryOp::Or,
+                                rhs: Box::new(FunctionExpr {
+                                    span,
+                                    ty,
+                                    kind: FunctionExprKind::Bool(false),
+                                }),
+                            },
+                        }),
+                    },
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "flag".to_string(),
+            kind: FunctionLocalKind::Param,
+            ty,
+            span,
+        }];
+
+        assert!(simplify_constant_logical_exprs(&mut body));
+
+        let FunctionTerminator::Tail {
+            value: Some(value), ..
+        } = &body.blocks[0].terminator
+        else {
+            panic!("expected tail value");
+        };
+        assert!(matches!(value.kind, FunctionExprKind::Local(LocalId(0))));
+        validate_function_body(&body).expect("logical-simplified body should remain valid");
+    }
+
+    #[test]
+    fn preserves_constant_logical_rhs_when_lhs_must_be_evaluated() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut expr = FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::Binary {
+                lhs: Box::new(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                op: nia_ast::BinaryOp::And,
+                rhs: Box::new(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Bool(false),
+                }),
+            },
+        };
+
+        assert!(!simplify_constant_logical_expr(&mut expr));
+        assert!(matches!(
+            expr.kind,
+            FunctionExprKind::Binary {
+                op: nia_ast::BinaryOp::And,
+                ..
+            }
+        ));
     }
 
     #[test]
