@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_backend_ir::{BackendFunctionInstance, BackendProgram};
+use nia_backend_ir::{BackendFunctionInstance, BackendProgram, BackendStructInstanceKey};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_layout::{StructLayout, TypeLayout};
 
 pub(super) struct ProgramIndex<'a> {
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
@@ -17,6 +18,21 @@ pub(super) struct ProgramIndex<'a> {
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), &'a BackendFunctionInstance>,
+    pub(super) function_instances_by_def: HashMap<GlobalDefId, Vec<&'a BackendFunctionInstance>>,
+    type_layouts: HashMap<InternedTyId, &'a TypeLayout>,
+    struct_layouts: HashMap<GlobalDefId, &'a StructLayout>,
+    union_layouts: HashMap<GlobalDefId, &'a StructLayout>,
+    struct_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
+    union_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
+    pub(super) struct_instances_by_def:
+        HashMap<GlobalDefId, Vec<&'a nia_backend_ir::BackendStructInstance>>,
+    pub(super) union_instances_by_def:
+        HashMap<GlobalDefId, Vec<&'a nia_backend_ir::BackendUnionInstance>>,
+}
+
+pub(super) struct BackendLayoutInstance<'a> {
+    pub(super) key: &'a BackendStructInstanceKey,
+    pub(super) layout: &'a StructLayout,
 }
 
 impl<'a> ProgramIndex<'a> {
@@ -31,9 +47,40 @@ impl<'a> ProgramIndex<'a> {
             globals: HashMap::new(),
             functions: HashMap::new(),
             function_instances: HashMap::new(),
+            function_instances_by_def: HashMap::new(),
+            type_layouts: HashMap::new(),
+            struct_layouts: HashMap::new(),
+            union_layouts: HashMap::new(),
+            struct_instance_layouts_by_def: HashMap::new(),
+            union_instance_layouts_by_def: HashMap::new(),
+            struct_instances_by_def: HashMap::new(),
+            union_instances_by_def: HashMap::new(),
         };
         for module in &program.modules {
             index.modules.insert(module.id, module);
+            for (ty, layout) in &module.layouts.types {
+                index.type_layouts.insert(*ty, layout);
+            }
+            for (def_id, layout) in &module.layouts.structs {
+                index.struct_layouts.insert(*def_id, layout);
+            }
+            for (def_id, layout) in &module.layouts.unions {
+                index.union_layouts.insert(*def_id, layout);
+            }
+            for (key, layout) in &module.layouts.struct_instances {
+                index
+                    .struct_instance_layouts_by_def
+                    .entry(key.def_id)
+                    .or_default()
+                    .push(BackendLayoutInstance { key, layout });
+            }
+            for (key, layout) in &module.layouts.union_instances {
+                index
+                    .union_instance_layouts_by_def
+                    .entry(key.def_id)
+                    .or_default()
+                    .push(BackendLayoutInstance { key, layout });
+            }
             for item in &module.structs {
                 index.structs.insert(item.def_id, item);
             }
@@ -44,11 +91,21 @@ impl<'a> ProgramIndex<'a> {
                 index
                     .struct_instances
                     .insert((item.def_id, item.args.clone()), item);
+                index
+                    .struct_instances_by_def
+                    .entry(item.def_id)
+                    .or_default()
+                    .push(item);
             }
             for item in &module.union_instances {
                 index
                     .union_instances
                     .insert((item.def_id, item.args.clone()), item);
+                index
+                    .union_instances_by_def
+                    .entry(item.def_id)
+                    .or_default()
+                    .push(item);
             }
             for item in &module.enums {
                 index.enums.insert(item.def_id, item);
@@ -63,6 +120,11 @@ impl<'a> ProgramIndex<'a> {
                 index
                     .function_instances
                     .insert((item.def_id, item.arg_module_id, item.args.clone()), item);
+                index
+                    .function_instances_by_def
+                    .entry(item.def_id)
+                    .or_default()
+                    .push(item);
             }
         }
         index
@@ -70,5 +132,37 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn module(&self, module_id: ModuleId) -> Option<&'a nia_backend_ir::BackendModule> {
         self.modules.get(&module_id).copied()
+    }
+
+    pub(super) fn type_layout(&self, ty: InternedTyId) -> Option<&'a TypeLayout> {
+        self.type_layouts.get(&ty).copied()
+    }
+
+    pub(super) fn struct_layout(&self, def_id: GlobalDefId) -> Option<&'a StructLayout> {
+        self.struct_layouts.get(&def_id).copied()
+    }
+
+    pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&'a StructLayout> {
+        self.union_layouts.get(&def_id).copied()
+    }
+
+    pub(super) fn struct_instance_layouts(
+        &self,
+        def_id: GlobalDefId,
+    ) -> impl Iterator<Item = &BackendLayoutInstance<'a>> {
+        self.struct_instance_layouts_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+    }
+
+    pub(super) fn union_instance_layouts(
+        &self,
+        def_id: GlobalDefId,
+    ) -> impl Iterator<Item = &BackendLayoutInstance<'a>> {
+        self.union_instance_layouts_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
     }
 }

@@ -34,10 +34,16 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) unions: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) struct_instances: HashMap<(GlobalDefId, Vec<InternedTyId>), StructType<'ctx>>,
+    pub(super) struct_instances_by_def:
+        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
     pub(super) union_instances: HashMap<(GlobalDefId, Vec<InternedTyId>), StructType<'ctx>>,
+    pub(super) union_instances_by_def:
+        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), FunctionValue<'ctx>>,
+    pub(super) function_instances_by_def:
+        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, FunctionValue<'ctx>)>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
 }
@@ -60,9 +66,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             structs: HashMap::new(),
             unions: HashMap::new(),
             struct_instances: HashMap::new(),
+            struct_instances_by_def: HashMap::new(),
             union_instances: HashMap::new(),
+            union_instances_by_def: HashMap::new(),
             functions: HashMap::new(),
             function_instances: HashMap::new(),
+            function_instances_by_def: HashMap::new(),
             globals: HashMap::new(),
             trait_object_vtables: HashMap::new(),
         })
@@ -132,52 +141,30 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
         let owner = self.program.module(ty.interner_id)?;
-        if let Some(layout) = owner
-            .layouts
-            .types
-            .iter()
-            .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
-        {
-            return Some(layout);
+        if let Some(layout) = self.program.type_layout(ty) {
+            return Some(layout.clone());
         }
         let Some(TyKind::Nominal { def_id, args }) = owner.interner.get(ty) else {
             return None;
         };
-        let def_owner = self.program.module(def_id.module_id)?;
         if args.is_empty() {
-            def_owner
-                .layouts
-                .structs
-                .iter()
-                .find_map(|(candidate, layout)| {
-                    (*candidate == *def_id).then_some(layout.layout.clone())
-                })
-                .or_else(|| {
-                    def_owner
-                        .layouts
-                        .unions
-                        .iter()
-                        .find_map(|(candidate, layout)| {
-                            (*candidate == *def_id).then_some(layout.layout.clone())
-                        })
-                })
+            self.program
+                .struct_layout(*def_id)
+                .or_else(|| self.program.union_layout(*def_id))
+                .map(|layout| layout.layout.clone())
         } else {
-            def_owner
-                .layouts
-                .struct_instances
-                .iter()
-                .find_map(|(key, layout)| {
-                    (key.def_id == *def_id && self.same_type_args(&key.args, args))
-                        .then_some(layout.layout.clone())
+            self.program
+                .struct_instance_layouts(*def_id)
+                .find_map(|item| {
+                    self.same_type_args(&item.key.args, args)
+                        .then_some(item.layout.layout.clone())
                 })
                 .or_else(|| {
-                    def_owner
-                        .layouts
-                        .union_instances
-                        .iter()
-                        .find_map(|(key, layout)| {
-                            (key.def_id == *def_id && self.same_type_args(&key.args, args))
-                                .then_some(layout.layout.clone())
+                    self.program
+                        .union_instance_layouts(*def_id)
+                        .find_map(|item| {
+                            self.same_type_args(&item.key.args, args)
+                                .then_some(item.layout.layout.clone())
                         })
                 })
         }
