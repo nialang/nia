@@ -122,6 +122,7 @@ pub(crate) struct ModuleLowerer<'a> {
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
+    trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -153,6 +154,7 @@ impl<'a> ModuleLowerer<'a> {
                 input.layouts.union_instances.keys(),
             ),
             builtin_trait_resolutions: HashMap::new(),
+            trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
         }
     }
 
