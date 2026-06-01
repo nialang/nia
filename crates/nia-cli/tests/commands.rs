@@ -22,6 +22,23 @@ fn help_and_version_use_niac_command_name() {
         assert!(help_stdout.contains(level), "{help_stdout}");
     }
 
+    let check_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("help")
+        .arg("check")
+        .output()
+        .expect("run niac help check");
+    assert!(
+        check_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&check_help.stderr)
+    );
+    let check_stdout = String::from_utf8_lossy(&check_help.stdout);
+    assert!(check_stdout.contains("--emit-opt-report"), "{check_stdout}");
+    assert!(
+        check_stdout.contains("optimization policy, enabled passes, and changes"),
+        "{check_stdout}"
+    );
+
     let emit_help = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("help")
         .arg("emit")
@@ -54,6 +71,31 @@ fn help_and_version_use_niac_command_name() {
     assert!(
         emit_backend_stdout.contains("--emit-opt-report"),
         "{emit_backend_stdout}"
+    );
+    assert!(
+        emit_backend_stdout.contains("optimization policy, enabled passes, and changes to stderr"),
+        "{emit_backend_stdout}"
+    );
+
+    let emit_llvm_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("help")
+        .arg("emit")
+        .arg("llvm")
+        .output()
+        .expect("run niac help emit llvm");
+    assert!(
+        emit_llvm_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit_llvm_help.stderr)
+    );
+    let emit_llvm_stdout = String::from_utf8_lossy(&emit_llvm_help.stdout);
+    assert!(
+        emit_llvm_stdout.contains("niac emit llvm <file.nia>"),
+        "{emit_llvm_stdout}"
+    );
+    assert!(
+        emit_llvm_stdout.contains("optimization policy, enabled passes, and changes to stderr"),
+        "{emit_llvm_stdout}"
     );
 
     let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_niac"))
