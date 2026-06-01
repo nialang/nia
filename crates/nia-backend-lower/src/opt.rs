@@ -84,8 +84,8 @@ impl BackendOptPass {
             | Self::RemoveUnusedLocalBindings => {
                 at_least(policy.dead_code_elim, OptimizationDepth::Full)
             }
-            Self::FoldConstantBoolBranches
-            | Self::SimplifyTrivialBranches
+            Self::FoldConstantBoolBranches => at_least(policy.const_fold, OptimizationDepth::Cheap),
+            Self::SimplifyTrivialBranches
             | Self::MergeEmptyJumpBlocks
             | Self::RemoveUnreachableBlocks
             | Self::OptimizeDeferBodies => at_least(policy.simplify_cfg, OptimizationDepth::Cheap),
@@ -1648,6 +1648,11 @@ fn simplify_same_type_casts_in_range(range: &mut FunctionRange) -> bool {
 fn fold_constant_bool_branches(blocks: &mut [FunctionBlock]) -> bool {
     let mut changed = false;
     for block in blocks {
+        for op in &mut block.ops {
+            if let FunctionOp::Defer(body) = op {
+                changed |= fold_constant_bool_branches(&mut body.blocks);
+            }
+        }
         if let FunctionTerminator::If {
             cond,
             then_target,
@@ -1861,7 +1866,6 @@ fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) -> bool {
     for block in blocks {
         for op in &mut block.ops {
             if let FunctionOp::Defer(body) = op {
-                changed |= fold_constant_bool_branches(&mut body.blocks);
                 changed |= simplify_trivial_branches(&mut body.blocks);
                 changed |= merge_empty_defer_jump_blocks(body);
                 changed |= remove_unreachable_defer_blocks(body);
@@ -1956,7 +1960,7 @@ mod tests {
         let policy = nia_opt::OptimizationPolicy {
             level: NiaOptimizationLevel::O2,
             simplify_cfg: OptimizationDepth::Required,
-            const_fold: OptimizationDepth::Required,
+            const_fold: OptimizationDepth::Cheap,
             dead_code_elim: OptimizationDepth::Full,
             local_copy_prop: OptimizationDepth::Disabled,
             inline_threshold: nia_opt::InlineThreshold::Never,
@@ -1975,7 +1979,53 @@ mod tests {
                 BackendOptPass::RemoveOverwrittenLocalStores,
                 BackendOptPass::RemoveNeverReadLocalStores,
                 BackendOptPass::RemoveUnusedLocalBindings,
+                BackendOptPass::FoldConstantBoolBranches,
             ]
+        );
+    }
+
+    #[test]
+    fn constant_bool_branch_folding_is_selected_from_const_fold_policy() {
+        let policy = nia_opt::OptimizationPolicy {
+            level: NiaOptimizationLevel::O2,
+            simplify_cfg: OptimizationDepth::Cheap,
+            const_fold: OptimizationDepth::Disabled,
+            dead_code_elim: OptimizationDepth::Disabled,
+            local_copy_prop: OptimizationDepth::Disabled,
+            inline_threshold: nia_opt::InlineThreshold::Never,
+            specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+            dedup_monomorphized_instances: false,
+            prefer_size: false,
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            !pipeline
+                .passes
+                .contains(&BackendOptPass::FoldConstantBoolBranches)
+        );
+        assert!(
+            pipeline
+                .passes
+                .contains(&BackendOptPass::SimplifyTrivialBranches)
+        );
+
+        let policy = nia_opt::OptimizationPolicy {
+            simplify_cfg: OptimizationDepth::Required,
+            const_fold: OptimizationDepth::Cheap,
+            ..policy
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            pipeline
+                .passes
+                .contains(&BackendOptPass::FoldConstantBoolBranches)
+        );
+        assert!(
+            !pipeline
+                .passes
+                .contains(&BackendOptPass::SimplifyTrivialBranches)
         );
     }
 
@@ -2819,6 +2869,73 @@ mod tests {
             vec![FunctionBlockId(2)]
         );
         validate_function_body(&body).expect("folded function body should remain valid");
+    }
+
+    #[test]
+    fn folds_constant_bool_branches_inside_defer_bodies() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Defer(nia_function_ir::FunctionDeferBody {
+                span,
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![
+                    FunctionBlock {
+                        id: FunctionBlockId(10),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::If {
+                            cond: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Bool(true),
+                            },
+                            then_target: FunctionBlockId(11),
+                            else_target: FunctionBlockId(12),
+                            span,
+                        },
+                    },
+                    FunctionBlock {
+                        id: FunctionBlockId(11),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Error { span },
+                    },
+                    FunctionBlock {
+                        id: FunctionBlockId(12),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Error { span },
+                    },
+                ],
+                entry: FunctionBlockId(10),
+            })],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+
+        assert!(fold_constant_bool_branches(&mut body.blocks));
+
+        let FunctionOp::Defer(defer_body) = &body.blocks[0].ops[0] else {
+            panic!("expected defer op");
+        };
+        assert!(matches!(
+            defer_body.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(11),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("folded defer body should remain valid");
     }
 
     #[test]
