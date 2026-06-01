@@ -2,6 +2,7 @@
 mod function_instances;
 mod instantiate;
 mod items;
+mod module_dce;
 mod operator_dispatch;
 mod opt;
 mod struct_instances;
@@ -264,6 +265,12 @@ impl<'a> ModuleLowerer<'a> {
             &mut trait_object_vtables,
             &functions,
             &function_instances,
+        );
+        self.remove_unused_private_functions(
+            &mut functions,
+            &function_instances,
+            &globals,
+            &trait_object_vtables,
         );
         self.extend_struct_instances_from_functions(
             &mut struct_instances,
