@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
-use crate::check_program;
+use crate::{NiaOptimizationLevel, check_program, check_program_with_options};
 use nia_ids::ModuleId;
 
 #[test]
@@ -392,6 +392,31 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert_eq!(program.monomorphization.instances.len(), 1);
+}
+
+#[test]
+fn driver_options_flow_into_checked_program_and_backend_lowering() {
+    let root = temp_dir("driver_options_flow_into_checked_program_and_backend_lowering");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program_with_options(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        NiaOptimizationLevel::O3,
+    );
+
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(program.optimization, NiaOptimizationLevel::O3.policy());
+    assert_eq!(
+        program.backend_lowering.optimization,
+        NiaOptimizationLevel::O3.policy()
+    );
 }
 
 #[test]
