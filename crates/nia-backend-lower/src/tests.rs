@@ -872,6 +872,111 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_removes_unused_private_functions() {
+    let source = r#"
+fn used() i32 {
+    1
+}
+
+fn unused() i32 {
+    2
+}
+
+pub fn exported() i32 {
+    3
+}
+
+fn main() i32 {
+    used()
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == "used")
+    );
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == "main")
+    );
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == "exported")
+    );
+    assert!(
+        !module
+            .functions
+            .iter()
+            .any(|function| function.name == "unused")
+    );
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "remove-unused-functions",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o1_preserves_unused_private_functions() {
+    let source = r#"
+fn unused() i32 {
+    2
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == "unused")
+    );
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "remove-unused-functions",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o1_removes_noop_backend_local_stores() {
     let source = r#"
 fn main() i32 {
