@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::ModuleLowerer;
+use crate::{ModuleLowerer, TypeInstantiationKey};
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_defs::VisibleExtensionTarget;
 use nia_function_ir::{
@@ -298,23 +298,34 @@ impl<'a> ModuleLowerer<'a> {
         ty: InternedTyId,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> InternedTyId {
+        let key = TypeInstantiationKey::new(ty, substitutions);
+        if let Some(instantiated) = self.type_instantiations.get(&key) {
+            return *instantiated;
+        }
         match self.interner.get(ty).cloned() {
-            Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
+            Some(TyKind::GenericParam(name)) => {
+                let instantiated = substitutions.get(&name).copied().unwrap_or(ty);
+                self.cache_type_instantiation(key, instantiated)
+            }
             Some(TyKind::Pointer { is_const, elem }) => {
                 let elem = self.instantiate_ty(elem, substitutions);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
+                let instantiated = self.interner.intern(TyKind::Pointer { is_const, elem });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Slice { is_const, elem }) => {
                 let elem = self.instantiate_ty(elem, substitutions);
-                self.interner.intern(TyKind::Slice { is_const, elem })
+                let instantiated = self.interner.intern(TyKind::Slice { is_const, elem });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.instantiate_ty(elem, substitutions);
-                self.interner.intern(TyKind::Array { len, elem })
+                let instantiated = self.interner.intern(TyKind::Array { len, elem });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Range { kind, bound }) => {
                 let bound = bound.map(|bound| self.instantiate_ty(bound, substitutions));
-                self.interner.intern(TyKind::Range { kind, bound })
+                let instantiated = self.interner.intern(TyKind::Range { kind, bound });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::FunctionPointer {
                 params,
@@ -327,11 +338,12 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|param| self.instantiate_ty(param, substitutions))
                     .collect();
                 let return_type = self.instantiate_ty(return_type, substitutions);
-                self.interner.intern(TyKind::FunctionPointer {
+                let instantiated = self.interner.intern(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
-                })
+                });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Nominal { def_id, args }) => {
                 let args = args
@@ -339,7 +351,8 @@ impl<'a> ModuleLowerer<'a> {
                     .copied()
                     .map(|arg| self.instantiate_ty(arg, substitutions))
                     .collect::<Vec<_>>();
-                self.interner.intern(TyKind::Nominal { def_id, args })
+                let instantiated = self.interner.intern(TyKind::Nominal { def_id, args });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args
@@ -347,8 +360,10 @@ impl<'a> ModuleLowerer<'a> {
                     .copied()
                     .map(|arg| self.instantiate_ty(arg, substitutions))
                     .collect::<Vec<_>>();
-                self.interner
-                    .intern(TyKind::BuiltinTrait { trait_id, args })
+                let instantiated = self
+                    .interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::TraitObject {
                 is_const,
@@ -365,12 +380,13 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .map(|(name, ty)| (name.clone(), self.instantiate_ty(*ty, substitutions)))
                     .collect();
-                self.interner.intern(TyKind::TraitObject {
+                let instantiated = self.interner.intern(TyKind::TraitObject {
                     is_const,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
-                })
+                });
+                self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Projection {
                 self_ty,
@@ -384,7 +400,8 @@ impl<'a> ModuleLowerer<'a> {
                     .copied()
                     .map(|arg| self.instantiate_ty(arg, substitutions))
                     .collect::<Vec<_>>();
-                self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                let instantiated = self
+                    .resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
                     .unwrap_or_else(|| {
                         self.interner.intern(TyKind::Projection {
                             self_ty,
@@ -392,10 +409,22 @@ impl<'a> ModuleLowerer<'a> {
                             trait_args,
                             name,
                         })
-                    })
+                    });
+                self.cache_type_instantiation(key, instantiated)
             }
-            Some(TyKind::Error) | Some(TyKind::Primitive(_)) | None => ty,
+            Some(TyKind::Error) | Some(TyKind::Primitive(_)) | None => {
+                self.cache_type_instantiation(key, ty)
+            }
         }
+    }
+
+    fn cache_type_instantiation(
+        &mut self,
+        key: TypeInstantiationKey,
+        instantiated: InternedTyId,
+    ) -> InternedTyId {
+        self.type_instantiations.insert(key, instantiated);
+        instantiated
     }
 
     fn resolve_associated_type_projection(

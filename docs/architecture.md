@@ -607,13 +607,17 @@ Emits LLVM IR, objects, and native codegen units from backend IR. It owns:
 - control flow lowering;
 - defer lowering;
 - aggregate operations;
+- inline assembly emission;
+- object emission.
+
+Backend lowering caches generic type instantiations while expanding function
+instances so repeated uses of the same type under the same substitutions do not
+rebuild the same interned type graph.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level. Size-oriented levels (`-Os` and `-Oz`) also remain visible in
 the Nia policy so monomorphization, inlining, specialization, and deduplication
 can make size-aware decisions before LLVM sees the program.
-- inline assembly emission;
-- object emission.
 
 It should not parse AST or make frontend semantic decisions.
 
