@@ -145,6 +145,58 @@ pub comptime answer: i32 = 42;
 }
 
 #[test]
+fn check_can_emit_backend_optimization_report() {
+    let root = temp_dir("check_can_emit_backend_optimization_report");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    var unused = 1;
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O2")
+        .arg("check")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac check --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stdout.contains("remove-unused-local-bindings"), "{stdout}");
+
+    let o0 = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O0")
+        .arg("check")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac -O0 check --emit-opt-report");
+
+    assert!(
+        o0.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&o0.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&o0.stdout);
+    assert!(
+        stdout.contains("backend optimization report: no changes"),
+        "{stdout}"
+    );
+}
+
+#[test]
 fn emit_llvm_prints_checked_program_ir() {
     let root = temp_dir("emit_llvm_prints_checked_program_ir");
     let main = root.join("main.nia");

@@ -101,11 +101,29 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Check => HelpDoc {
             title: "niac check",
             about: "Run the frontend and semantic checking pipeline.",
-            usage: &["niac check <file.nia> [options]"],
+            usage: &["niac check <file.nia> [--emit-opt-report] [options]"],
             commands: &[],
-            options: GLOBAL_OPTIONS,
+            options: &[
+                HelpRow {
+                    left: "--emit-opt-report",
+                    right: "print backend optimization passes that changed function bodies",
+                },
+                HelpRow {
+                    left: "-O, -O0..-O3, -Os, -Oz",
+                    right: "set optimization level; -O means -O2",
+                },
+                HelpRow {
+                    left: "-M, --module <name=path>",
+                    right: "map an import root; may appear anywhere",
+                },
+                HelpRow {
+                    left: "-h, --help",
+                    right: "show this help text",
+                },
+            ],
             examples: &[
                 "niac check src/main.nia",
+                "niac -O1 check src/main.nia --emit-opt-report",
                 "niac check src/main.nia -M std=/usr/share/nia/std.nia",
             ],
             notes: &[],
