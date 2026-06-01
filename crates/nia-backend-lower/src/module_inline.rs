@@ -5,10 +5,10 @@ use crate::{BackendOptimizationChange, ModuleLowerer};
 use nia_backend_ir::{BackendFunction, BackendFunctionInstance};
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBody, FunctionCallee, FunctionDeferBody,
-    FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionOp,
-    FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
+    FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionLocalKind,
+    FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_opt::InlineThreshold;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -21,19 +21,19 @@ struct FunctionInstanceKey {
 enum InlineCandidate {
     Function {
         function: GlobalDefId,
-        value: FunctionExpr,
+        body: LeafInlineBody,
     },
     Instance {
         function: GlobalDefId,
         type_arg_count: usize,
-        value: FunctionExpr,
+        body: LeafInlineBody,
     },
 }
 
 impl InlineCandidate {
-    fn value(&self) -> &FunctionExpr {
+    fn body(&self) -> &LeafInlineBody {
         match self {
-            Self::Function { value, .. } | Self::Instance { value, .. } => value,
+            Self::Function { body, .. } | Self::Instance { body, .. } => body,
         }
     }
 
@@ -55,6 +55,12 @@ impl InlineCandidate {
     }
 }
 
+#[derive(Debug, Clone)]
+struct LeafInlineBody {
+    params: Vec<LocalId>,
+    value: FunctionExpr,
+}
+
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn inline_leaf_functions(
         &mut self,
@@ -69,12 +75,12 @@ impl<'a> ModuleLowerer<'a> {
         let function_candidates = functions
             .iter()
             .filter_map(|function| {
-                leaf_inline_return(&function.function_body, inline_threshold).map(|value| {
+                leaf_inline_return(&function.function_body, inline_threshold).map(|body| {
                     (
                         function.def_id,
                         InlineCandidate::Function {
                             function: function.def_id,
-                            value,
+                            body,
                         },
                     )
                 })
@@ -83,7 +89,7 @@ impl<'a> ModuleLowerer<'a> {
         let instance_candidates = function_instances
             .iter()
             .filter_map(|instance| {
-                leaf_inline_return(&instance.function_body, inline_threshold).map(|value| {
+                leaf_inline_return(&instance.function_body, inline_threshold).map(|body| {
                     (
                         FunctionInstanceKey {
                             def_id: instance.def_id,
@@ -92,7 +98,7 @@ impl<'a> ModuleLowerer<'a> {
                         InlineCandidate::Instance {
                             function: instance.def_id,
                             type_arg_count: instance.args.len(),
-                            value,
+                            body,
                         },
                     )
                 })
@@ -231,14 +237,11 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in args.iter_mut() {
                     self.inline_leaf_calls_in_expr(arg, function_candidates, instance_candidates);
                 }
-                if args.is_empty()
-                    && let Some(candidate) = inline_candidate_for_callee(
-                        callee,
-                        function_candidates,
-                        instance_candidates,
-                    )
+                if let Some(candidate) =
+                    inline_candidate_for_callee(callee, function_candidates, instance_candidates)
+                    && let Some(value) =
+                        inline_candidate_value(candidate, args, self.optimization.inline_threshold)
                 {
-                    let value = candidate.value().clone();
                     self.record_inline(candidate);
                     *expr = value;
                 }
@@ -429,10 +432,48 @@ fn inline_candidate_for_callee<'a>(
     }
 }
 
+fn inline_candidate_value(
+    candidate: &InlineCandidate,
+    args: &[FunctionExpr],
+    threshold: InlineThreshold,
+) -> Option<FunctionExpr> {
+    let body = candidate.body();
+    if body.params.len() != args.len() {
+        return None;
+    }
+    if body.params.is_empty() {
+        return Some(body.value.clone());
+    }
+    if !matches!(
+        threshold,
+        InlineThreshold::Normal | InlineThreshold::Aggressive
+    ) {
+        return None;
+    }
+
+    let budget = inline_expr_budget(threshold);
+    let substitutions = body
+        .params
+        .iter()
+        .copied()
+        .zip(args.iter().cloned())
+        .collect::<HashMap<_, _>>();
+    if substitutions
+        .values()
+        .any(|arg| small_pure_arg_inline_expr_cost(arg, budget).is_none())
+    {
+        return None;
+    }
+
+    let mut value = body.value.clone();
+    substitute_inline_params(&mut value, &substitutions)?;
+    small_pure_arg_inline_expr_cost(&value, budget).map(|_| value)
+}
+
 fn leaf_inline_return(
     body: &Option<FunctionBody>,
     threshold: InlineThreshold,
-) -> Option<FunctionExpr> {
+) -> Option<LeafInlineBody> {
     let body = body.as_ref()?;
     let [block] = body.blocks.as_slice() else {
         return None;
@@ -449,7 +490,30 @@ fn leaf_inline_return(
         } => value,
         _ => return None,
     };
-    inline_expr_allowed(value, threshold).then(|| value.clone())
+    let params = body
+        .locals
+        .iter()
+        .filter(|local| local.kind == FunctionLocalKind::Param)
+        .map(|local| local.id)
+        .collect::<Vec<_>>();
+    if params.is_empty() {
+        return inline_expr_allowed(value, threshold).then(|| LeafInlineBody {
+            params,
+            value: value.clone(),
+        });
+    }
+    if !matches!(
+        threshold,
+        InlineThreshold::Normal | InlineThreshold::Aggressive
+    ) {
+        return None;
+    }
+    small_pure_param_inline_expr_cost(value, inline_expr_budget(threshold), &params).map(|_| {
+        LeafInlineBody {
+            params,
+            value: value.clone(),
+        }
+    })
 }
 
 fn inline_expr_allowed(expr: &FunctionExpr, threshold: InlineThreshold) -> bool {
@@ -458,9 +522,100 @@ fn inline_expr_allowed(expr: &FunctionExpr, threshold: InlineThreshold) -> bool 
         InlineThreshold::Minimal | InlineThreshold::Size | InlineThreshold::Small => {
             is_constant_inline_expr(expr)
         }
-        InlineThreshold::Normal => small_pure_inline_expr_cost(expr, 4).is_some(),
-        InlineThreshold::Aggressive => small_pure_inline_expr_cost(expr, 8).is_some(),
+        InlineThreshold::Normal | InlineThreshold::Aggressive => {
+            small_pure_inline_expr_cost(expr, inline_expr_budget(threshold)).is_some()
+        }
     }
+}
+
+fn inline_expr_budget(threshold: InlineThreshold) -> usize {
+    match threshold {
+        InlineThreshold::Aggressive => 8,
+        _ => 4,
+    }
+}
+
+fn substitute_inline_params(
+    expr: &mut FunctionExpr,
+    substitutions: &HashMap<LocalId, FunctionExpr>,
+) -> Option<()> {
+    match &mut expr.kind {
+        FunctionExprKind::Local(local_id) => {
+            *expr = substitutions.get(local_id)?.clone();
+        }
+        FunctionExprKind::Range(range) => {
+            if let Some(start) = &mut range.start {
+                substitute_inline_params(start, substitutions)?;
+            }
+            if let Some(end) = &mut range.end {
+                substitute_inline_params(end, substitutions)?;
+            }
+        }
+        FunctionExprKind::ArrayLiteral { elems } => match elems {
+            FunctionArrayElements::List(elems) => {
+                for elem in elems {
+                    substitute_inline_params(elem, substitutions)?;
+                }
+            }
+            FunctionArrayElements::Repeat { value, .. } => {
+                substitute_inline_params(value, substitutions)?;
+            }
+        },
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            for field in fields {
+                substitute_inline_params(&mut field.value, substitutions)?;
+            }
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            substitute_inline_params(&mut field.value, substitutions)?;
+        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. } => {
+            substitute_inline_params(expr, substitutions)?;
+        }
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            substitute_inline_params(lhs, substitutions)?;
+            substitute_inline_params(rhs, substitutions)?;
+        }
+        FunctionExprKind::Field { lhs, .. } => {
+            substitute_inline_params(lhs, substitutions)?;
+        }
+        FunctionExprKind::Index { lhs, index } => {
+            substitute_inline_params(lhs, substitutions)?;
+            substitute_inline_params(index, substitutions)?;
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            substitute_inline_params(lhs, substitutions)?;
+            if let Some(start) = &mut range.start {
+                substitute_inline_params(start, substitutions)?;
+            }
+            if let Some(end) = &mut range.end {
+                substitute_inline_params(end, substitutions)?;
+            }
+        }
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => {}
+        FunctionExprKind::InlineAsm(_)
+        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::AddrOf(_)
+        | FunctionExprKind::Assign { .. }
+        | FunctionExprKind::TraitObjectUpcast { .. }
+        | FunctionExprKind::TraitObjectCoercion { .. }
+        | FunctionExprKind::Call { .. } => return None,
+    }
+    Some(())
 }
 
 fn is_constant_inline_expr(expr: &FunctionExpr) -> bool {
@@ -478,6 +633,26 @@ fn is_constant_inline_expr(expr: &FunctionExpr) -> bool {
 }
 
 fn small_pure_inline_expr_cost(expr: &FunctionExpr, budget: usize) -> Option<usize> {
+    small_pure_inline_expr_cost_with_local(expr, budget, |_| false)
+}
+
+fn small_pure_param_inline_expr_cost(
+    expr: &FunctionExpr,
+    budget: usize,
+    params: &[LocalId],
+) -> Option<usize> {
+    small_pure_inline_expr_cost_with_local(expr, budget, |local_id| params.contains(&local_id))
+}
+
+fn small_pure_arg_inline_expr_cost(expr: &FunctionExpr, budget: usize) -> Option<usize> {
+    small_pure_inline_expr_cost_with_local(expr, budget, |_| true)
+}
+
+fn small_pure_inline_expr_cost_with_local(
+    expr: &FunctionExpr,
+    budget: usize,
+    local_allowed: impl Fn(LocalId) -> bool + Copy,
+) -> Option<usize> {
     let cost = match &expr.kind {
         FunctionExprKind::Integer(_)
         | FunctionExprKind::Float(_)
@@ -491,46 +666,53 @@ fn small_pure_inline_expr_cost(expr: &FunctionExpr, budget: usize) -> Option<usi
         | FunctionExprKind::FunctionInstance { .. }
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => 1,
+        FunctionExprKind::Local(local_id) if local_allowed(*local_id) => 1,
         FunctionExprKind::Range(range) => {
-            1 + optional_inline_expr_cost(range.start.as_deref(), budget)?
-                + optional_inline_expr_cost(range.end.as_deref(), budget)?
+            1 + optional_inline_expr_cost(range.start.as_deref(), budget, local_allowed)?
+                + optional_inline_expr_cost(range.end.as_deref(), budget, local_allowed)?
         }
         FunctionExprKind::ArrayLiteral { elems } => match elems {
             FunctionArrayElements::List(elems) => {
                 1 + elems
                     .iter()
-                    .map(|elem| small_pure_inline_expr_cost(elem, budget))
+                    .map(|elem| small_pure_inline_expr_cost_with_local(elem, budget, local_allowed))
                     .sum::<Option<usize>>()?
             }
             FunctionArrayElements::Repeat { value, .. } => {
-                1 + small_pure_inline_expr_cost(value, budget)?
+                1 + small_pure_inline_expr_cost_with_local(value, budget, local_allowed)?
             }
         },
         FunctionExprKind::StructLiteral { fields, .. } => {
             1 + fields
                 .iter()
-                .map(|field| small_pure_inline_expr_cost(&field.value, budget))
+                .map(|field| {
+                    small_pure_inline_expr_cost_with_local(&field.value, budget, local_allowed)
+                })
                 .sum::<Option<usize>>()?
         }
         FunctionExprKind::UnionLiteral { field, .. } => {
-            1 + small_pure_inline_expr_cost(&field.value, budget)?
+            1 + small_pure_inline_expr_cost_with_local(&field.value, budget, local_allowed)?
         }
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Discard(expr)
-        | FunctionExprKind::Cast { expr, .. } => 1 + small_pure_inline_expr_cost(expr, budget)?,
-        FunctionExprKind::Binary { lhs, rhs, .. } => {
-            1 + small_pure_inline_expr_cost(lhs, budget)?
-                + small_pure_inline_expr_cost(rhs, budget)?
+        | FunctionExprKind::Cast { expr, .. } => {
+            1 + small_pure_inline_expr_cost_with_local(expr, budget, local_allowed)?
         }
-        FunctionExprKind::Field { lhs, .. } => 1 + small_pure_inline_expr_cost(lhs, budget)?,
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?
+                + small_pure_inline_expr_cost_with_local(rhs, budget, local_allowed)?
+        }
+        FunctionExprKind::Field { lhs, .. } => {
+            1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?
+        }
         FunctionExprKind::Index { lhs, index } => {
-            1 + small_pure_inline_expr_cost(lhs, budget)?
-                + small_pure_inline_expr_cost(index, budget)?
+            1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?
+                + small_pure_inline_expr_cost_with_local(index, budget, local_allowed)?
         }
         FunctionExprKind::Slice { lhs, range, .. } => {
-            1 + small_pure_inline_expr_cost(lhs, budget)?
-                + optional_inline_expr_cost(range.start.as_deref(), budget)?
-                + optional_inline_expr_cost(range.end.as_deref(), budget)?
+            1 + small_pure_inline_expr_cost_with_local(lhs, budget, local_allowed)?
+                + optional_inline_expr_cost(range.start.as_deref(), budget, local_allowed)?
+                + optional_inline_expr_cost(range.end.as_deref(), budget, local_allowed)?
         }
         FunctionExprKind::Error
         | FunctionExprKind::Local(_)
@@ -545,6 +727,12 @@ fn small_pure_inline_expr_cost(expr: &FunctionExpr, budget: usize) -> Option<usi
     (cost <= budget).then_some(cost)
 }
 
-fn optional_inline_expr_cost(expr: Option<&FunctionExpr>, budget: usize) -> Option<usize> {
-    expr.map_or(Some(0), |expr| small_pure_inline_expr_cost(expr, budget))
+fn optional_inline_expr_cost(
+    expr: Option<&FunctionExpr>,
+    budget: usize,
+    local_allowed: impl Fn(LocalId) -> bool + Copy,
+) -> Option<usize> {
+    expr.map_or(Some(0), |expr| {
+        small_pure_inline_expr_cost_with_local(expr, budget, local_allowed)
+    })
 }
