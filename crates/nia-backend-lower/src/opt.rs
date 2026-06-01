@@ -17,6 +17,7 @@ impl<'a> ModuleLowerer<'a> {
             OptimizationDepth::Cheap | OptimizationDepth::Full | OptimizationDepth::Aggressive
         ) {
             simplify_same_type_casts_in_blocks(&mut body.blocks);
+            remove_noop_local_stores(&mut body.blocks);
             fold_constant_bool_branches(&mut body.blocks);
             merge_empty_jump_blocks(&mut body);
             remove_unreachable_blocks(&mut body);
@@ -24,6 +25,32 @@ impl<'a> ModuleLowerer<'a> {
         }
         body
     }
+}
+
+fn remove_noop_local_stores(blocks: &mut [FunctionBlock]) {
+    for block in blocks {
+        block.ops.retain(|op| !is_noop_local_store(op));
+        for op in &mut block.ops {
+            if let FunctionOp::Defer(body) = op {
+                remove_noop_local_stores(&mut body.blocks);
+            }
+        }
+    }
+}
+
+fn is_noop_local_store(op: &FunctionOp) -> bool {
+    matches!(
+        op,
+        FunctionOp::StoreLocal {
+            local_id,
+            value:
+                FunctionExpr {
+                    kind: FunctionExprKind::Local(value_local),
+                    ..
+                },
+            ..
+        } if local_id == value_local
+    )
 }
 
 fn simplify_same_type_casts_in_blocks(blocks: &mut [FunctionBlock]) {
@@ -730,6 +757,86 @@ mod tests {
         simplify_same_type_casts_in_expr(&mut expr);
 
         assert!(matches!(expr.kind, FunctionExprKind::Cast { .. }));
+    }
+
+    #[test]
+    fn removes_noop_local_store_ops() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    },
+                    span,
+                },
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(1)),
+                    },
+                    span,
+                },
+            ],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+
+        remove_noop_local_stores(&mut body.blocks);
+
+        assert_eq!(body.blocks[0].ops.len(), 1);
+        assert!(matches!(
+            body.blocks[0].ops[0],
+            FunctionOp::StoreLocal {
+                local_id: LocalId(0),
+                value: FunctionExpr {
+                    kind: FunctionExprKind::Local(LocalId(1)),
+                    ..
+                },
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn removes_noop_local_store_after_same_type_cast_simplification() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::StoreLocal {
+                local_id: LocalId(0),
+                value: FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Cast {
+                        expr: Box::new(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Local(LocalId(0)),
+                        }),
+                        ty,
+                    },
+                },
+                span,
+            }],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+
+        simplify_same_type_casts_in_blocks(&mut body.blocks);
+        remove_noop_local_stores(&mut body.blocks);
+
+        assert!(body.blocks[0].ops.is_empty());
     }
 
     #[test]

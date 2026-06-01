@@ -8,6 +8,7 @@ use nia_function_ir::{
     FunctionArrayElements, FunctionBlockId, FunctionExprKind, FunctionOp, FunctionTerminator,
 };
 use nia_function_lower::lower_function_body;
+use nia_ids::LocalId;
 use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
@@ -646,6 +647,74 @@ fn main() i32 {
     let value = first_terminal_value(body);
 
     assert!(matches!(value.kind, FunctionExprKind::Cast { .. }));
+}
+
+#[test]
+fn o1_removes_noop_backend_local_stores() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let span = body.blocks[0].span;
+            let ty = body.ty;
+            body.blocks[0].ops.push(FunctionOp::StoreLocal {
+                local_id: LocalId(0),
+                value: nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                },
+                span,
+            });
+        },
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.blocks.iter().all(|block| block.ops.is_empty()));
+}
+
+#[test]
+fn o0_preserves_noop_backend_local_stores() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let span = body.blocks[0].span;
+            let ty = body.ty;
+            body.blocks[0].ops.push(FunctionOp::StoreLocal {
+                local_id: LocalId(0),
+                value: nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                },
+                span,
+            });
+        },
+        nia_opt::OptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.blocks.iter().any(|block| !block.ops.is_empty()));
 }
 
 #[test]
