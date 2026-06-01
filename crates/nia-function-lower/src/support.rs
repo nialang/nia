@@ -83,7 +83,12 @@ impl FunctionLowerer {
                 )));
                 place
             }
-            _ => unreachable!("address-of expression must be a body-checked place"),
+            _ => FunctionPlace {
+                span: expr.span,
+                ty: expr.ty,
+                base: FunctionPlaceBase::Error,
+                elems: Vec::new(),
+            },
         }
     }
 

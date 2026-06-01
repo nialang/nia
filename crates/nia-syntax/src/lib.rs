@@ -395,13 +395,10 @@ fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
         let kind = syntax_kind(token.kind);
         let green_token = green_token(source, kind, token.span);
         match delimiter_open(green_token.kind()) {
-            Some(_) => {
+            Some(open) => {
                 let span = green_token.span();
                 stack.push(NodeBuilder::new(
-                    SyntaxKind::Delimited {
-                        open: token_kind(green_token.kind()).expect("delimiter token"),
-                        close: None,
-                    },
+                    SyntaxKind::Delimited { open, close: None },
                     span,
                 ));
                 stack
@@ -410,8 +407,9 @@ fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
                     .children
                     .push(GreenElement::Token(green_token));
             }
-            None if delimiter_close(green_token.kind()).is_some() && stack.len() > 1 => {
-                let close = token_kind(green_token.kind()).expect("delimiter token");
+            None if let Some(close) = delimiter_close(green_token.kind())
+                && stack.len() > 1 =>
+            {
                 let mut node = stack.pop().expect("delimiter node");
                 if let SyntaxKind::Delimited {
                     close: node_close, ..
@@ -434,6 +432,9 @@ fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
                 .push(GreenElement::Token(green_token)),
         }
     }
+    // The root builder is never popped inside the token loop. Any remaining
+    // builders are unmatched delimiter nodes and are attached back under root
+    // so parsing can recover while preserving the original text.
     while stack.len() > 1 {
         let node = stack.pop().expect("unclosed delimiter node").finish();
         stack
