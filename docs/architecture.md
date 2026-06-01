@@ -169,9 +169,9 @@ Current Nia-owned optimization consumers:
   bounded cross-interner fallback, and structural type-argument matching is
   retained as a fallback for cross-interner cases.
 - `nia-codegen-llvm` performs local ABI-lowering cleanup while preserving the
-  backend IR contract. Aggregate literals passed as Nia indirect readonly
-  arguments are materialized directly into the ABI argument copy instead of
-  building a separate literal temporary and copying it again.
+  backend IR contract. Aggregate literals stored into locals or passed as Nia
+  indirect readonly arguments are materialized directly into the destination
+  storage instead of building a separate literal temporary and copying it again.
 - Backend lowering canonicalizes all-zero static initializers to
   `StaticInit::Zero` under full constant folding or size-oriented policy, and
   static initializer emission may choose cheaper equivalent LLVM constants such

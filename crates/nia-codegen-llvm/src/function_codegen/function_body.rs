@@ -508,13 +508,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_effect_expr(value)?;
                 return Ok(());
             }
-            let value = self.emit_expr(value)?;
             let Some(ptr) = self.locals.get(&binding.local_id).copied() else {
                 return Err(self.error(span, "missing local binding storage"));
             };
-            self.builder
-                .build_store(ptr, value)
-                .map_err(|_| self.error(span, "failed to store local binding"))?;
+            self.emit_store_value(span, ptr, value)?;
         }
         Ok(())
     }
@@ -529,19 +526,68 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             self.emit_effect_expr(value)?;
             return Ok(());
         }
-        let value = self.emit_expr(value)?;
         let Some(ptr) = self.locals.get(&local_id).copied() else {
             return Err(self.error(span, "missing local binding storage"));
         };
+        self.emit_store_value(span, ptr, value)?;
+        Ok(())
+    }
+
+    fn emit_store_value(
+        &mut self,
+        span: Span,
+        ptr: nia_llvm::values::PointerValue<'ctx>,
+        value: &FunctionExpr,
+    ) -> Result<(), Diagnostic> {
+        match &value.kind {
+            FunctionExprKind::ArrayLiteral { elems } => {
+                self.emit_array_literal_into(value, elems, ptr)?;
+                return Ok(());
+            }
+            FunctionExprKind::StructLiteral { fields, .. } => {
+                self.emit_struct_literal_into(value, fields, ptr)?;
+                return Ok(());
+            }
+            FunctionExprKind::UnionLiteral { field, .. } => {
+                self.emit_union_literal_into(value, field, ptr)?;
+                return Ok(());
+            }
+            _ => {}
+        }
+        let value = self.emit_expr(value)?;
         self.builder
             .build_store(ptr, value)
             .map_err(|_| self.error(span, "failed to store local binding"))?;
         Ok(())
     }
 
+    fn emit_direct_store_expr(
+        &mut self,
+        span: Span,
+        place: &nia_function_ir::FunctionPlace,
+        value: &FunctionExpr,
+    ) -> Result<bool, Diagnostic> {
+        if !matches!(
+            value.kind,
+            FunctionExprKind::ArrayLiteral { .. }
+                | FunctionExprKind::StructLiteral { .. }
+                | FunctionExprKind::UnionLiteral { .. }
+        ) {
+            return Ok(false);
+        }
+        let ptr = self.emit_typed_place_addr(place)?;
+        self.emit_store_value(span, ptr, value)?;
+        Ok(true)
+    }
+
     pub(super) fn emit_effect_expr(&mut self, expr: &FunctionExpr) -> Result<(), Diagnostic> {
         match &expr.kind {
             FunctionExprKind::Assign { place, op, rhs } => {
+                if *op == nia_ast::AssignOp::Assign
+                    && self.emit_direct_store_expr(expr.span, place, rhs)?
+                {
+                    return Ok(());
+                }
                 let value = self.emit_expr(rhs)?;
                 self.emit_assign(expr.span, place, *op, value)
             }

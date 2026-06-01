@@ -139,6 +139,49 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_aggregate_literal_local_stores_without_extra_literal_temps() {
+    let root = temp_dir("emits_aggregate_literal_local_stores_without_extra_literal_temps");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn sum_pair(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn sum_array(values: [2]i32) i32 {
+    values[0] + values[1]
+}
+
+fn main() i32 {
+    var pair: Pair = { a: 10, b: 20 };
+    pair = { a: 30, b: 40 };
+    var values: [2]i32 = [50, 60];
+    values = [70, 80];
+    sum_pair(pair) + sum_array(values)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("%pair = alloca"), "{ir}");
+    assert!(ir.contains("%values = alloca"), "{ir}");
+    assert!(!ir.contains("structtmp"), "{ir}");
+    assert!(!ir.contains("arraytmp"), "{ir}");
+}
+
+#[test]
 fn emits_unary_cast_float_and_enum_values() {
     let root = temp_dir("emits_unary_cast_float_and_enum_values");
     let main = root.join("main.nia");
