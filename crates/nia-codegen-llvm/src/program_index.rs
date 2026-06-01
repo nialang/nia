@@ -7,6 +7,7 @@ use nia_backend_ir::{
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
+use nia_ty::{TraitId, TyKind};
 
 pub(super) struct ProgramIndex<'a> {
     pub(super) modules: HashMap<ModuleId, &'a nia_backend_ir::BackendModule>,
@@ -25,6 +26,7 @@ pub(super) struct ProgramIndex<'a> {
         HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), &'a BackendFunctionInstance>,
     pub(super) function_instances_by_def: HashMap<GlobalDefId, Vec<&'a BackendFunctionInstance>>,
     trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<&'a BackendTraitObjectVtable>>,
+    trait_object_vtables_by_trait: HashMap<TraitId, Vec<&'a BackendTraitObjectVtable>>,
     type_layouts: HashMap<InternedTyId, &'a TypeLayout>,
     struct_layouts: HashMap<GlobalDefId, &'a StructLayout>,
     union_layouts: HashMap<GlobalDefId, &'a StructLayout>,
@@ -65,6 +67,7 @@ impl<'a> ProgramIndex<'a> {
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
             trait_object_vtables_by_object_ty: HashMap::new(),
+            trait_object_vtables_by_trait: HashMap::new(),
             type_layouts: HashMap::new(),
             struct_layouts: HashMap::new(),
             union_layouts: HashMap::new(),
@@ -168,6 +171,15 @@ impl<'a> ProgramIndex<'a> {
                     .entry(vtable.key.object_ty)
                     .or_default()
                     .push(vtable);
+                if let Some(TyKind::TraitObject { trait_id, .. }) =
+                    module.interner.get(vtable.key.object_ty)
+                {
+                    index
+                        .trait_object_vtables_by_trait
+                        .entry(*trait_id)
+                        .or_default()
+                        .push(vtable);
+                }
             }
         }
         index
@@ -235,6 +247,17 @@ impl<'a> ProgramIndex<'a> {
     ) -> impl Iterator<Item = &'a BackendTraitObjectVtable> {
         self.trait_object_vtables_by_object_ty
             .get(&object_ty)
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+
+    pub(super) fn trait_object_vtables_for_trait(
+        &self,
+        trait_id: TraitId,
+    ) -> impl Iterator<Item = &'a BackendTraitObjectVtable> {
+        self.trait_object_vtables_by_trait
+            .get(&trait_id)
             .into_iter()
             .flatten()
             .copied()
