@@ -54,7 +54,7 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
             .map(|input| (input.module_id, input.const_exprs))
             .collect(),
         instantiations_by_source: collect_instantiations_by_source(inputs),
-        recorded_generics: collect_recorded_generics(inputs),
+        recorded_generics_by_def: collect_recorded_generics_by_def(inputs),
         instances: Vec::new(),
         seen: HashSet::new(),
         expanded: HashSet::new(),
@@ -76,7 +76,7 @@ struct MonoCollector<'a> {
     comptime_by_module: HashMap<ModuleId, &'a ComptimeCheck>,
     const_exprs_by_module: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, Expr>>,
     instantiations_by_source: HashMap<GlobalDefId, Vec<(ModuleId, GenericInstantiation)>>,
-    recorded_generics: HashMap<GlobalDefId, Vec<String>>,
+    recorded_generics_by_def: HashMap<GlobalDefId, Vec<Vec<String>>>,
     instances: Vec<MonoInstance>,
     seen: HashSet<MonoInstanceKey>,
     expanded: HashSet<MonoInstanceKey>,
@@ -174,16 +174,10 @@ impl MonoCollector<'_> {
     }
 
     fn all_recorded_generics(&self, def_id: GlobalDefId) -> Vec<Vec<String>> {
-        self.recorded_generics
+        self.recorded_generics_by_def
             .get(&def_id)
             .cloned()
-            .into_iter()
-            .chain(self.instantiations_by_source.values().flatten().filter_map(
-                |(_, instantiation)| {
-                    (instantiation.def_id == def_id).then_some(instantiation.generics.clone())
-                },
-            ))
-            .collect()
+            .unwrap_or_default()
     }
 
     fn expand_instance(
@@ -427,16 +421,17 @@ fn collect_instantiations_by_source(
     by_source
 }
 
-fn collect_recorded_generics(
+fn collect_recorded_generics_by_def(
     inputs: &[MonomorphizeModuleInput<'_>],
-) -> HashMap<GlobalDefId, Vec<String>> {
-    let mut generics = HashMap::new();
+) -> HashMap<GlobalDefId, Vec<Vec<String>>> {
+    let mut generics = HashMap::<GlobalDefId, Vec<Vec<String>>>::new();
     for input in inputs {
         for instantiation in input.instantiations {
             if !instantiation.generics.is_empty() {
                 generics
                     .entry(instantiation.def_id)
-                    .or_insert_with(|| instantiation.generics.clone());
+                    .or_default()
+                    .push(instantiation.generics.clone());
             }
         }
     }

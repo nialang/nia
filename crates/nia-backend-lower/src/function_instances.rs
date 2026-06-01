@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::ModuleLowerer;
 use nia_backend_ir::{BackendFunction, BackendFunctionInstance, BackendTraitObjectVtableFunction};
@@ -20,6 +20,10 @@ impl<'a> ModuleLowerer<'a> {
         let mut instances = Vec::new();
         let mut seen = HashSet::<InstanceKey>::new();
         let mut queue = VecDeque::<InstanceQueueEntry>::new();
+        let functions_by_def = functions
+            .iter()
+            .map(|function| (function.def_id, function))
+            .collect::<HashMap<_, _>>();
         for instance in self
             .monomorphization
             .instances
@@ -35,35 +39,12 @@ impl<'a> ModuleLowerer<'a> {
         }
         self.enqueue_function_instances_from_functions(functions, &mut seen, &mut queue);
 
-        while let Some((def_id, arg_module_id, args, symbol)) = queue.pop_front() {
-            if !seen.insert((def_id, arg_module_id, args.clone())) {
-                continue;
-            }
-            let Some(base) = functions.iter().find(|function| function.def_id == def_id) else {
-                continue;
-            };
-            let substitutions = self.effective_generic_substitutions(base.def_id, &args);
-            let function_body = base
-                .function_body
-                .clone()
-                .map(|body| self.instantiate_function_body(body, &substitutions));
-            if let Some(body) = &function_body {
-                self.enqueue_function_instances_from_body(body, &mut seen, &mut queue);
-            }
-            instances.push(BackendFunctionInstance {
-                def_id,
-                name: base.name.clone(),
-                arg_module_id,
-                args,
-                symbol,
-                params: self.instantiate_params(base, &substitutions),
-                return_type: self.instantiate_ty(base.return_type, &substitutions),
-                is_extern: base.is_extern,
-                is_variadic: base.is_variadic,
-                function_body,
-                span: base.span,
-            });
-        }
+        self.drain_function_instance_queue(
+            &functions_by_def,
+            &mut seen,
+            &mut queue,
+            &mut instances,
+        );
         loop {
             let mut vtables = Vec::new();
             self.collect_trait_object_vtables(&mut vtables, functions, &instances);
@@ -79,37 +60,52 @@ impl<'a> ModuleLowerer<'a> {
             if queue.is_empty() {
                 break;
             }
-            while let Some((def_id, arg_module_id, args, symbol)) = queue.pop_front() {
-                if !seen.insert((def_id, arg_module_id, args.clone())) {
-                    continue;
-                }
-                let Some(base) = functions.iter().find(|function| function.def_id == def_id) else {
-                    continue;
-                };
-                let substitutions = self.effective_generic_substitutions(base.def_id, &args);
-                let function_body = base
-                    .function_body
-                    .clone()
-                    .map(|body| self.instantiate_function_body(body, &substitutions));
-                if let Some(body) = &function_body {
-                    self.enqueue_function_instances_from_body(body, &mut seen, &mut queue);
-                }
-                instances.push(BackendFunctionInstance {
-                    def_id,
-                    name: base.name.clone(),
-                    arg_module_id,
-                    args,
-                    symbol,
-                    params: self.instantiate_params(base, &substitutions),
-                    return_type: self.instantiate_ty(base.return_type, &substitutions),
-                    is_extern: base.is_extern,
-                    is_variadic: base.is_variadic,
-                    function_body,
-                    span: base.span,
-                });
-            }
+            self.drain_function_instance_queue(
+                &functions_by_def,
+                &mut seen,
+                &mut queue,
+                &mut instances,
+            );
         }
         instances
+    }
+
+    fn drain_function_instance_queue(
+        &mut self,
+        functions_by_def: &HashMap<GlobalDefId, &BackendFunction>,
+        seen: &mut HashSet<InstanceKey>,
+        queue: &mut VecDeque<InstanceQueueEntry>,
+        instances: &mut Vec<BackendFunctionInstance>,
+    ) {
+        while let Some((def_id, arg_module_id, args, symbol)) = queue.pop_front() {
+            if !seen.insert((def_id, arg_module_id, args.clone())) {
+                continue;
+            }
+            let Some(base) = functions_by_def.get(&def_id).copied() else {
+                continue;
+            };
+            let substitutions = self.effective_generic_substitutions(base.def_id, &args);
+            let function_body = base
+                .function_body
+                .clone()
+                .map(|body| self.instantiate_function_body(body, &substitutions));
+            if let Some(body) = &function_body {
+                self.enqueue_function_instances_from_body(body, seen, queue);
+            }
+            instances.push(BackendFunctionInstance {
+                def_id,
+                name: base.name.clone(),
+                arg_module_id,
+                args,
+                symbol,
+                params: self.instantiate_params(base, &substitutions),
+                return_type: self.instantiate_ty(base.return_type, &substitutions),
+                is_extern: base.is_extern,
+                is_variadic: base.is_variadic,
+                function_body,
+                span: base.span,
+            });
+        }
     }
 
     fn enqueue_function_instances_from_functions(
