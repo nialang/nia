@@ -156,3 +156,36 @@ fn llvm_optimization_level(level: NiaOptimizationLevel) -> LlvmOptimizationLevel
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod optimization_tests {
+    use super::*;
+
+    #[test]
+    fn maps_nia_optimization_levels_to_llvm_codegen_levels() {
+        assert_eq!(
+            llvm_optimization_level(NiaOptimizationLevel::O0),
+            LlvmOptimizationLevel::None
+        );
+        assert_eq!(
+            llvm_optimization_level(NiaOptimizationLevel::O1),
+            LlvmOptimizationLevel::Less
+        );
+        assert_eq!(
+            llvm_optimization_level(NiaOptimizationLevel::O2),
+            LlvmOptimizationLevel::Default
+        );
+        assert_eq!(
+            llvm_optimization_level(NiaOptimizationLevel::O3),
+            LlvmOptimizationLevel::Aggressive
+        );
+        assert_eq!(
+            llvm_optimization_level(NiaOptimizationLevel::Os),
+            LlvmOptimizationLevel::Default
+        );
+        assert_eq!(
+            llvm_optimization_level(NiaOptimizationLevel::Oz),
+            LlvmOptimizationLevel::Less
+        );
+    }
+}
