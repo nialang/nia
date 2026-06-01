@@ -19,6 +19,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_alloca(array_ty, "arraytmp")
             .map_err(|_| self.error(expr.span, "failed to allocate array literal"))?;
+        self.emit_array_literal_into(expr, elems, ptr)?;
+        self.builder
+            .build_load(array_ty, ptr, "arraylit")
+            .map_err(|_| self.error(expr.span, "failed to load array literal"))
+    }
+
+    pub(super) fn emit_array_literal_into(
+        &mut self,
+        expr: &FunctionExpr,
+        elems: &FunctionArrayElements,
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
         match elems {
             FunctionArrayElements::List(values) => {
                 for (index, value) in values.iter().enumerate() {
@@ -40,9 +52,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
             }
         }
-        self.builder
-            .build_load(array_ty, ptr, "arraylit")
-            .map_err(|_| self.error(expr.span, "failed to load array literal"))
+        Ok(())
     }
 
     pub(super) fn emit_struct_literal(
@@ -63,6 +73,19 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_alloca(struct_ty, "structtmp")
             .map_err(|_| self.error(expr.span, "failed to allocate struct literal"))?;
+        self.emit_struct_literal_into(expr, fields, ptr)?;
+        self.builder
+            .build_load(struct_ty, ptr, "structlit")
+            .map_err(|_| self.error(expr.span, "failed to load struct literal"))
+    }
+
+    pub(super) fn emit_struct_literal_into(
+        &mut self,
+        expr: &FunctionExpr,
+        fields: &[FunctionFieldInit],
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let struct_ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
         for field in fields {
             let Some(field_id) = field.field else {
                 return Err(self.error(field.span, "invalid struct field initializer"));
@@ -77,9 +100,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .build_store(field_ptr, value)
                 .map_err(|_| self.error(field.span, "failed to store struct field"))?;
         }
-        self.builder
-            .build_load(struct_ty, ptr, "structlit")
-            .map_err(|_| self.error(expr.span, "failed to load struct literal"))
+        Ok(())
     }
 
     pub(super) fn emit_union_literal(
@@ -93,13 +114,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_alloca(union_ty, "uniontmp")
             .map_err(|_| self.error(expr.span, "failed to allocate union literal"))?;
+        self.emit_union_literal_into(expr, field, ptr)?;
+        self.builder
+            .build_load(union_ty, ptr, "unionlit")
+            .map_err(|_| self.error(expr.span, "failed to load union literal"))
+    }
+
+    pub(super) fn emit_union_literal_into(
+        &mut self,
+        _expr: &FunctionExpr,
+        field: &FunctionFieldInit,
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
         let value = self.emit_expr(&field.value)?;
         self.builder
             .build_store(ptr, value)
             .map_err(|_| self.error(field.span, "failed to store union field"))?;
-        self.builder
-            .build_load(union_ty, ptr, "unionlit")
-            .map_err(|_| self.error(expr.span, "failed to load union literal"))
+        Ok(())
     }
 
     pub(super) fn emit_enum_variant(
