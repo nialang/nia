@@ -28,6 +28,7 @@ enum BackendOptPass {
     RemoveNeverReadLocalStores,
     RemoveUnusedLocalBindings,
     FoldConstantBoolBranches,
+    SimplifyTrivialBranches,
     MergeEmptyJumpBlocks,
     RemoveUnreachableBlocks,
     OptimizeDeferBodies,
@@ -44,6 +45,7 @@ impl BackendOptPass {
             Self::RemoveNeverReadLocalStores => "remove-never-read-local-stores",
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
             Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
+            Self::SimplifyTrivialBranches => "simplify-trivial-branches",
             Self::MergeEmptyJumpBlocks => "merge-empty-jump-blocks",
             Self::RemoveUnreachableBlocks => "remove-unreachable-blocks",
             Self::OptimizeDeferBodies => "optimize-defer-bodies",
@@ -60,6 +62,7 @@ impl BackendOptPass {
             Self::RemoveNeverReadLocalStores => remove_never_read_local_stores(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
             Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
+            Self::SimplifyTrivialBranches => simplify_trivial_branches(&mut body.blocks),
             Self::MergeEmptyJumpBlocks => merge_empty_jump_blocks(body),
             Self::RemoveUnreachableBlocks => remove_unreachable_blocks(body),
             Self::OptimizeDeferBodies => optimize_defer_bodies(&mut body.blocks),
@@ -82,6 +85,7 @@ impl BackendOptPass {
                 at_least(policy.dead_code_elim, OptimizationDepth::Full)
             }
             Self::FoldConstantBoolBranches
+            | Self::SimplifyTrivialBranches
             | Self::MergeEmptyJumpBlocks
             | Self::RemoveUnreachableBlocks
             | Self::OptimizeDeferBodies => at_least(policy.simplify_cfg, OptimizationDepth::Cheap),
@@ -122,6 +126,7 @@ const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::SimplifyTrivialBranches,
     BackendOptPass::MergeEmptyJumpBlocks,
     BackendOptPass::RemoveUnreachableBlocks,
     BackendOptPass::OptimizeDeferBodies,
@@ -133,6 +138,7 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::SimplifyTrivialBranches,
     BackendOptPass::MergeEmptyJumpBlocks,
     BackendOptPass::RemoveUnreachableBlocks,
     BackendOptPass::OptimizeDeferBodies,
@@ -162,6 +168,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::SimplifyTrivialBranches,
     BackendOptPass::MergeEmptyJumpBlocks,
     BackendOptPass::RemoveUnreachableBlocks,
     BackendOptPass::OptimizeDeferBodies,
@@ -1659,6 +1666,28 @@ fn fold_constant_bool_branches(blocks: &mut [FunctionBlock]) -> bool {
     changed
 }
 
+fn simplify_trivial_branches(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        if let FunctionTerminator::If {
+            cond,
+            then_target,
+            else_target,
+            span,
+        } = &block.terminator
+            && then_target == else_target
+            && is_pure_discardable_expr(cond)
+        {
+            block.terminator = FunctionTerminator::Branch {
+                target: *then_target,
+                span: *span,
+            };
+            changed = true;
+        }
+    }
+    changed
+}
+
 fn merge_empty_jump_blocks(body: &mut FunctionBody) -> bool {
     let mut any_changed = false;
     loop {
@@ -1833,6 +1862,7 @@ fn optimize_defer_bodies(blocks: &mut [FunctionBlock]) -> bool {
         for op in &mut block.ops {
             if let FunctionOp::Defer(body) = op {
                 changed |= fold_constant_bool_branches(&mut body.blocks);
+                changed |= simplify_trivial_branches(&mut body.blocks);
                 changed |= merge_empty_defer_jump_blocks(body);
                 changed |= remove_unreachable_defer_blocks(body);
                 changed |= optimize_defer_bodies(&mut body.blocks);
@@ -2789,6 +2819,108 @@ mod tests {
             vec![FunctionBlockId(2)]
         );
         validate_function_body(&body).expect("folded function body should remain valid");
+    }
+
+    #[test]
+    fn simplifies_same_target_if_with_pure_condition() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::If {
+                    cond: nia_function_ir::FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    },
+                    then_target: FunctionBlockId(1),
+                    else_target: FunctionBlockId(1),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "cond".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(simplify_trivial_branches(&mut body.blocks));
+
+        assert_eq!(
+            body.blocks[0].terminator.successors(),
+            vec![FunctionBlockId(1)]
+        );
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(1),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("trivial-branch body should remain valid");
+    }
+
+    #[test]
+    fn preserves_same_target_if_with_effectful_condition() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::If {
+                    cond: nia_function_ir::FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                                module_id: nia_ids::ModuleId(0),
+                                def_id: nia_ids::DefId(0),
+                            }),
+                            args: Vec::new(),
+                        },
+                    },
+                    then_target: FunctionBlockId(1),
+                    else_target: FunctionBlockId(1),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        assert!(!simplify_trivial_branches(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::If {
+                then_target: FunctionBlockId(1),
+                else_target: FunctionBlockId(1),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("effectful-condition body should remain valid");
     }
 
     #[test]
