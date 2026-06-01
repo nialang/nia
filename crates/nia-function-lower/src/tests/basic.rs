@@ -119,6 +119,43 @@ fn lowers_address_of_places_to_function_place() {
 }
 
 #[test]
+fn malformed_address_of_lowers_to_error_place() {
+    let span = Span::default();
+    let ty = test_ty();
+    let body = TypedBody {
+        span,
+        locals: Vec::new(),
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Unary {
+                op: nia_ast::UnaryOp::Ref,
+                expr: Box::new(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Integer("1".to_string()),
+                }),
+            },
+        })),
+        ty,
+    };
+
+    let function_body = lower_function_body(&body);
+
+    let FunctionTerminator::Tail {
+        value: Some(value), ..
+    } = &function_body.blocks[0].terminator
+    else {
+        panic!("expected address-of tail value");
+    };
+    let FunctionExprKind::AddrOf(place) = &value.kind else {
+        panic!("expected address-of place");
+    };
+    assert!(matches!(place.base, FunctionPlaceBase::Error));
+}
+
+#[test]
 fn return_terminates_block_before_later_statements() {
     let span = Span::default();
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
