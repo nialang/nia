@@ -648,6 +648,18 @@ Global module-map options:
 --module name=path
 ```
 
+Global optimization options are listed explicitly in CLI help:
+
+```text
+-O
+-O0
+-O1
+-O2
+-O3
+-Os
+-Oz
+```
+
 `emit obj` may produce multiple object files because backend lowering can produce
 multiple codegen units. `-o` is only valid for single-unit output; `--out-dir` is
 the multi-unit form. `emit exe` uses host linking and is therefore part of the

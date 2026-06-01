@@ -18,9 +18,9 @@ fn help_and_version_use_niac_command_name() {
         help_stdout.contains("emit <target> <file.nia>"),
         "{help_stdout}"
     );
-    assert!(help_stdout.contains("-O0..-O3"), "{help_stdout}");
-    assert!(help_stdout.contains("-Os"), "{help_stdout}");
-    assert!(help_stdout.contains("-Oz"), "{help_stdout}");
+    for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
+        assert!(help_stdout.contains(level), "{help_stdout}");
+    }
 
     let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("help")
@@ -42,6 +42,9 @@ fn help_and_version_use_niac_command_name() {
         emit_obj_stdout.contains("--out-dir <dir>"),
         "{emit_obj_stdout}"
     );
+    for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
+        assert!(emit_obj_stdout.contains(level), "{emit_obj_stdout}");
+    }
 
     let version = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("--version")

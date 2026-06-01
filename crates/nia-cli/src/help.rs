@@ -109,7 +109,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "print backend optimization passes that changed function bodies",
                 },
                 HelpRow {
-                    left: "-O, -O0..-O3, -Os, -Oz",
+                    left: OPTIMIZATION_OPTION_HELP,
                     right: "set optimization level; -O means -O2",
                 },
                 HelpRow {
@@ -178,7 +178,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "write one object per codegen unit",
                 },
                 HelpRow {
-                    left: "-O, -O0..-O3, -Os, -Oz",
+                    left: OPTIMIZATION_OPTION_HELP,
                     right: "set optimization level; -O means -O2",
                 },
                 HelpRow {
@@ -210,7 +210,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "write executable to this path",
                 },
                 HelpRow {
-                    left: "-O, -O0..-O3, -Os, -Oz",
+                    left: OPTIMIZATION_OPTION_HELP,
                     right: "set optimization level; -O means -O2",
                 },
                 HelpRow {
@@ -233,7 +233,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
 
 const GLOBAL_OPTIONS: &[HelpRow] = &[
     HelpRow {
-        left: "-O, -O0..-O3, -Os, -Oz",
+        left: OPTIMIZATION_OPTION_HELP,
         right: "set optimization level; -O means -O2",
     },
     HelpRow {
@@ -249,6 +249,8 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
         right: "show version",
     },
 ];
+
+const OPTIMIZATION_OPTION_HELP: &str = "-O, -O0, -O1, -O2, -O3, -Os, -Oz";
 
 fn render_help(doc: HelpDoc, style: HelpStyle) -> String {
     let mut out = String::new();
