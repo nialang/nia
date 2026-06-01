@@ -1739,6 +1739,97 @@ fn main() i32 {
 }
 
 #[test]
+fn optimization_report_lists_enabled_pass_inventory_by_scope() {
+    let source = r#"
+const zeroes: [4]i32 = [0; 4];
+
+fn answer() i32 {
+    42
+}
+
+fn main() i32 {
+    answer() + zeroes[0]
+}
+"#;
+
+    let o0 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O0.policy(),
+    );
+    assert!(o0.optimization_report.enabled_module_passes.is_empty());
+    assert!(o0.optimization_report.enabled_function_passes.is_empty());
+    assert!(o0.optimization_report.enabled_global_passes.is_empty());
+
+    let o1 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    assert_eq!(
+        o1.optimization_report.enabled_module_passes,
+        vec!["inline-leaf-functions"]
+    );
+    assert!(
+        o1.optimization_report
+            .enabled_function_passes
+            .contains(&"remove-unused-temp-bindings")
+    );
+    assert!(o1.optimization_report.enabled_global_passes.is_empty());
+
+    let o2 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    assert!(
+        o2.optimization_report
+            .enabled_module_passes
+            .contains(&"remove-unused-functions")
+    );
+    assert!(
+        o2.optimization_report
+            .enabled_function_passes
+            .contains(&"remove-unused-local-bindings")
+    );
+    assert_eq!(
+        o2.optimization_report.enabled_global_passes,
+        vec!["simplify-static-init"]
+    );
+
+    let o3 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    assert!(
+        o3.optimization_report
+            .enabled_function_passes
+            .contains(&"propagate-local-constants")
+    );
+
+    for level in [
+        nia_opt::NiaOptimizationLevel::Os,
+        nia_opt::NiaOptimizationLevel::Oz,
+    ] {
+        let lowering =
+            lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
+        assert!(
+            lowering
+                .optimization_report
+                .enabled_module_passes
+                .contains(&"inline-leaf-functions"),
+            "{level:?}"
+        );
+        assert_eq!(
+            lowering.optimization_report.enabled_global_passes,
+            vec!["simplify-static-init"],
+            "{level:?}"
+        );
+    }
+}
+
+#[test]
 fn o1_removes_pure_backend_expr_ops() {
     let source = r#"
 fn main() i32 {
