@@ -213,7 +213,7 @@ pub fn import_type_into(
             })
         }
         Some(TyKind::Array { len, elem }) => {
-            let len = len.clone();
+            let len = import_array_len_into(target, source, len);
             let elem = import_type_into(target, source, *elem);
             target.intern(TyKind::Array { len, elem })
         }
@@ -299,6 +299,22 @@ pub fn import_type_into(
     }
 }
 
+fn import_array_len_into(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    len: &ArrayLenTy,
+) -> ArrayLenTy {
+    match len {
+        ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+            builtin: *builtin,
+            // Layout-builtin lengths carry a type operand; after cross-module import it must
+            // point at the target interner just like ordinary array element types do.
+            ty: import_type_into(target, source, *ty),
+        },
+        ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len.clone(),
+    }
+}
+
 impl PrimitiveTy {
     pub const ALL: [Self; 18] = [
         Self::I8,
@@ -342,5 +358,36 @@ mod tests {
             let id = interner.primitive(primitive);
             assert_eq!(interner.get(id), Some(&TyKind::Primitive(primitive)));
         }
+    }
+
+    #[test]
+    fn import_type_reinterns_layout_builtin_array_length_operand() {
+        let mut source = TyInterner::new(ModuleId(0));
+        let mut target = TyInterner::new(ModuleId(1));
+        let source_i32 = source.primitive(PrimitiveTy::I32);
+        let source_array = source.intern(TyKind::Array {
+            len: ArrayLenTy::Builtin {
+                builtin: LayoutBuiltin::Size,
+                ty: source_i32,
+            },
+            elem: source_i32,
+        });
+
+        let imported = import_type_into(&mut target, &source, source_array);
+
+        let Some(TyKind::Array {
+            len:
+                ArrayLenTy::Builtin {
+                    ty: imported_len_ty,
+                    ..
+                },
+            elem,
+        }) = target.get(imported)
+        else {
+            panic!("expected imported array type");
+        };
+        assert_eq!(imported_len_ty.interner_id, target.interner_id());
+        assert_eq!(*imported_len_ty, target.primitive(PrimitiveTy::I32));
+        assert_eq!(*elem, target.primitive(PrimitiveTy::I32));
     }
 }

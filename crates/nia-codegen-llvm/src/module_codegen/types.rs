@@ -446,12 +446,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .copied()
                 .ok_or_else(|| self.error(span, "array length was not evaluated by comptime")),
             ArrayLenTy::Builtin { builtin, ty } => {
-                let owner_layouts = self.layouts_for(*ty);
-                let Some(layout) = owner_layouts
-                    .types
-                    .iter()
-                    .find_map(|(layout_ty, layout)| (*layout_ty == *ty).then_some(layout))
-                else {
+                let Some(layout) = self.layout_of(*ty) else {
                     return Err(self.error(
                         span,
                         format!("missing layout for `@{}` array length", builtin.name()),
