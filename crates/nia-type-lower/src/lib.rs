@@ -784,39 +784,13 @@ impl<'a> TypeLowerer<'a> {
     }
 
     fn lower_array_len_expr(&mut self, expr: &Expr) -> ArrayLenTy {
-        match &expr.kind {
-            ExprKind::Builtin {
-                name,
-                type_arg: Some(type_arg),
-            } if LayoutBuiltin::from_name(name).is_some() => ArrayLenTy::Builtin {
-                builtin: LayoutBuiltin::from_name(name)
-                    .expect("layout builtin was checked in match guard"),
+        if let Some((builtin, type_arg)) = layout_builtin_array_len(expr) {
+            ArrayLenTy::Builtin {
+                builtin,
                 ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
-            },
-            ExprKind::Call { callee, args }
-                if args.is_empty()
-                    && matches!(
-                        &callee.kind,
-                        ExprKind::Builtin {
-                            name,
-                            type_arg: Some(_),
-                        } if LayoutBuiltin::from_name(name).is_some()
-                    ) =>
-            {
-                let ExprKind::Builtin {
-                    name,
-                    type_arg: Some(type_arg),
-                } = &callee.kind
-                else {
-                    return self.register_const_array_len(expr);
-                };
-                ArrayLenTy::Builtin {
-                    builtin: LayoutBuiltin::from_name(name)
-                        .expect("layout builtin was checked in match guard"),
-                    ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
-                }
             }
-            _ => self.register_const_array_len(expr),
+        } else {
+            self.register_const_array_len(expr)
         }
     }
 
@@ -899,6 +873,28 @@ fn lower_primitive(primitive: PrimitiveType) -> PrimitiveTy {
         PrimitiveType::Void => PrimitiveTy::Void,
         PrimitiveType::Never => PrimitiveTy::Never,
     }
+}
+
+fn layout_builtin_array_len(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
+    let ExprKind::Call { callee, args } = &expr.kind else {
+        return layout_builtin_type_arg(expr);
+    };
+    if args.is_empty() {
+        layout_builtin_type_arg(callee)
+    } else {
+        None
+    }
+}
+
+fn layout_builtin_type_arg(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
+    let ExprKind::Builtin {
+        name,
+        type_arg: Some(type_arg),
+    } = &expr.kind
+    else {
+        return None;
+    };
+    LayoutBuiltin::from_name(name).map(|builtin| (builtin, type_arg))
 }
 
 #[cfg(test)]
