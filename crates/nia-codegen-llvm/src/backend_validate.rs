@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::program_index::ProgramIndex;
-use nia_backend_ir::{BackendModule, BackendProgram, BackendTraitObjectVtableFunction};
+use nia_backend_ir::{
+    BackendField, BackendModule, BackendProgram, BackendTraitObjectVtableFunction,
+};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionArrayElements, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
     FunctionExprKind, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
     FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_layout::TypeLayout;
 use nia_span::Span;
+use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyKind};
 
 pub(super) fn validate_backend_program(
@@ -22,6 +25,7 @@ pub(super) fn validate_backend_program(
         index,
         diagnostics: Vec::new(),
         seen_types: HashSet::new(),
+        local_tys: Vec::new(),
     };
     for module in &program.modules {
         validator.validate_module(module);
@@ -33,6 +37,7 @@ struct BackendValidator<'a> {
     index: &'a ProgramIndex<'a>,
     diagnostics: Vec<Diagnostic>,
     seen_types: HashSet<InternedTyId>,
+    local_tys: Vec<HashMap<LocalId, InternedTyId>>,
 }
 
 impl BackendValidator<'_> {
@@ -59,6 +64,9 @@ impl BackendValidator<'_> {
         }
         for global in &module.globals {
             self.validate_runtime_type(global.ty, global.span);
+            if let Some(init) = &global.init {
+                self.validate_static_init(global.ty, init, global.span);
+            }
         }
         for item in &module.structs {
             if item.generics.is_empty() {
@@ -114,6 +122,12 @@ impl BackendValidator<'_> {
 
     fn validate_function_body(&mut self, body: &FunctionBody) {
         self.validate_type(body.ty, body.span);
+        self.local_tys.push(
+            body.locals
+                .iter()
+                .map(|local| (local.id, local.ty))
+                .collect(),
+        );
         for local in &body.locals {
             self.validate_runtime_type(local.ty, local.span);
         }
@@ -123,6 +137,7 @@ impl BackendValidator<'_> {
             }
             self.validate_terminator(&block.terminator);
         }
+        self.local_tys.pop();
     }
 
     fn validate_defer_body(&mut self, body: &FunctionDeferBody) {
@@ -138,6 +153,9 @@ impl BackendValidator<'_> {
         match op {
             FunctionOp::Binding(binding) => {
                 self.validate_runtime_type(binding.ty, Span::default());
+                if let Some(local_tys) = self.local_tys.last_mut() {
+                    local_tys.insert(binding.local_id, binding.ty);
+                }
                 if let Some(value) = &binding.value {
                     self.validate_expr(value);
                 }
@@ -229,12 +247,26 @@ impl BackendValidator<'_> {
                 }
                 FunctionArrayElements::Repeat { value, .. } => self.validate_expr(value),
             },
-            FunctionExprKind::StructLiteral { fields, .. } => {
+            FunctionExprKind::StructLiteral { def_id, fields } => {
+                self.validate_aggregate_def(
+                    *def_id,
+                    expr.span,
+                    "backend IR struct literal references missing struct",
+                );
                 for field in fields {
+                    self.validate_field_init(expr.ty, field.field, field.span);
                     self.validate_expr(&field.value);
                 }
             }
-            FunctionExprKind::UnionLiteral { field, .. } => self.validate_expr(&field.value),
+            FunctionExprKind::UnionLiteral { def_id, field } => {
+                self.validate_aggregate_def(
+                    *def_id,
+                    expr.span,
+                    "backend IR union literal references missing union",
+                );
+                self.validate_field_init(expr.ty, field.field, field.span);
+                self.validate_expr(&field.value);
+            }
             FunctionExprKind::Unary { expr, .. }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
@@ -255,7 +287,15 @@ impl BackendValidator<'_> {
                     self.validate_expr(arg);
                 }
             }
-            FunctionExprKind::Field { lhs, .. } => self.validate_expr(lhs),
+            FunctionExprKind::Field { lhs, field } => {
+                self.validate_expr(lhs);
+                self.validate_aggregate_field(
+                    lhs.ty,
+                    *field,
+                    expr.span,
+                    "backend IR field expression references missing field",
+                );
+            }
             FunctionExprKind::Index { lhs, index } => {
                 self.validate_expr(lhs);
                 self.validate_expr(index);
@@ -278,8 +318,14 @@ impl BackendValidator<'_> {
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Local(_)
-            | FunctionExprKind::EnumVariant(_)
             | FunctionExprKind::BuiltinValue(_) => {}
+            FunctionExprKind::EnumVariant(def_id) => {
+                self.validate_enum_variant_ref(
+                    *def_id,
+                    expr.span,
+                    "backend IR expression references missing enum variant",
+                );
+            }
         }
     }
 
@@ -365,6 +411,18 @@ impl BackendValidator<'_> {
     fn validate_place(&mut self, place: &FunctionPlace) {
         self.validate_type(place.ty, place.span);
         match &place.base {
+            FunctionPlaceBase::Local(local_id) => {
+                if !self
+                    .local_tys
+                    .last()
+                    .is_some_and(|local_tys| local_tys.contains_key(local_id))
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        place.span,
+                        format!("backend IR place references missing local {local_id:?}"),
+                    ));
+                }
+            }
             FunctionPlaceBase::Global(def_id) => {
                 if !self.index.globals.contains_key(def_id) {
                     self.diagnostics.push(Diagnostic::error(
@@ -374,14 +432,355 @@ impl BackendValidator<'_> {
                 }
             }
             FunctionPlaceBase::Deref(expr) => self.validate_expr(expr),
-            FunctionPlaceBase::Local(_) | FunctionPlaceBase::Error => {}
+            FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
             match elem {
                 FunctionPlaceElem::Index(expr) => self.validate_expr(expr),
-                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
+                FunctionPlaceElem::Field(_) => {
+                    if self.place_base_ty(place).is_some() {
+                        self.validate_place_path(place);
+                    }
+                    break;
+                }
+                FunctionPlaceElem::Error => {}
             }
         }
+    }
+
+    fn validate_place_path(&mut self, place: &FunctionPlace) {
+        let Some(mut current_ty) = self.place_base_ty(place) else {
+            return;
+        };
+        for elem in &place.elems {
+            match elem {
+                FunctionPlaceElem::Field(field) => {
+                    if let Some(TyKind::Pointer { elem, .. }) = self.ty_kind(current_ty) {
+                        current_ty = *elem;
+                    }
+                    if let Some(field_ty) = self.validate_aggregate_field(
+                        current_ty,
+                        *field,
+                        place.span,
+                        "backend IR place references missing field",
+                    ) {
+                        current_ty = field_ty;
+                    }
+                }
+                FunctionPlaceElem::Index(expr) => {
+                    self.validate_expr(expr);
+                    if let Some(elem_ty) = self.array_elem_ty(current_ty) {
+                        current_ty = elem_ty;
+                    }
+                }
+                FunctionPlaceElem::Error => {}
+            }
+        }
+    }
+
+    fn validate_static_init(&mut self, ty: InternedTyId, init: &StaticInit, span: Span) {
+        match init {
+            StaticInit::Zero
+            | StaticInit::Int(_)
+            | StaticInit::Float(_)
+            | StaticInit::Bool(_)
+            | StaticInit::Char(_)
+            | StaticInit::Byte(_)
+            | StaticInit::Chars(_)
+            | StaticInit::Bytes(_)
+            | StaticInit::NullPtr => {}
+            StaticInit::Array(elems) => {
+                let Some(elem_ty) = self.array_elem_ty(ty) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "backend IR array static initializer target is not array",
+                    ));
+                    return;
+                };
+                for elem in elems {
+                    self.validate_static_init(elem_ty, elem, span);
+                }
+            }
+            StaticInit::Repeat { value, .. } => {
+                let Some(elem_ty) = self.array_elem_ty(ty) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "backend IR repeat static initializer target is not array",
+                    ));
+                    return;
+                };
+                self.validate_static_init(elem_ty, value, span);
+            }
+            StaticInit::Struct(fields) => self.validate_static_struct_init(ty, fields, span),
+            StaticInit::AddrOfGlobal { global, path } => {
+                let Some(global_item) = self.index.globals.get(global) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        format!(
+                            "backend IR static initializer references missing global {global:?}"
+                        ),
+                    ));
+                    return;
+                };
+                self.validate_static_address_path(global_item.ty, path, span);
+            }
+            StaticInit::AddrOfFunction { function, args } => {
+                if args.is_empty() {
+                    self.validate_function_ref(
+                        *function,
+                        span,
+                        "backend IR static initializer references missing function",
+                    );
+                } else {
+                    self.validate_function_instance_ref(
+                        *function,
+                        args,
+                        span,
+                        "backend IR static initializer references missing function instance",
+                    );
+                }
+            }
+        }
+    }
+
+    fn validate_static_struct_init(
+        &mut self,
+        ty: InternedTyId,
+        fields: &[StaticFieldInit],
+        span: Span,
+    ) {
+        let Some((def_id, args)) = self.field_base_type(ty) else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "backend IR struct static initializer target is not nominal",
+            ));
+            return;
+        };
+        let Some(target_fields) = self.aggregate_fields(def_id, &args) else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "backend IR struct static initializer references missing aggregate {def_id:?}"
+                ),
+            ));
+            return;
+        };
+        let target_fields = target_fields
+            .iter()
+            .map(|field| (field.def_id, field.ty))
+            .collect::<Vec<_>>();
+        for init in fields {
+            let Some(field_id) = init.field else {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "backend IR static initializer has invalid field",
+                ));
+                continue;
+            };
+            let Some((_, field_ty)) = target_fields
+                .iter()
+                .find(|(candidate, _)| *candidate == field_id)
+            else {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("backend IR static initializer references missing field {field_id:?}"),
+                ));
+                continue;
+            };
+            self.validate_static_init(*field_ty, &init.value, span);
+        }
+    }
+
+    fn validate_static_address_path(
+        &mut self,
+        mut current_ty: InternedTyId,
+        path: &[StaticAddressElem],
+        span: Span,
+    ) {
+        for elem in path {
+            match elem {
+                StaticAddressElem::Field(field) => {
+                    if let Some(field_ty) = self.validate_aggregate_field(
+                        current_ty,
+                        *field,
+                        span,
+                        "backend IR static address path references missing field",
+                    ) {
+                        current_ty = field_ty;
+                    }
+                }
+                StaticAddressElem::Index(_) => {
+                    let Some(elem_ty) = self.array_elem_ty(current_ty) else {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            "backend IR static address path indexes non-array type",
+                        ));
+                        continue;
+                    };
+                    current_ty = elem_ty;
+                }
+                StaticAddressElem::Error => {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "backend IR static address path contains invalid element",
+                    ));
+                }
+            }
+        }
+    }
+
+    fn validate_field_init(
+        &mut self,
+        base_ty: InternedTyId,
+        field: Option<GlobalDefId>,
+        span: Span,
+    ) {
+        let Some(field) = field else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "backend IR aggregate literal has invalid field",
+            ));
+            return;
+        };
+        self.validate_aggregate_field(
+            base_ty,
+            field,
+            span,
+            "backend IR aggregate literal references missing field",
+        );
+    }
+
+    fn validate_aggregate_field(
+        &mut self,
+        base_ty: InternedTyId,
+        field: GlobalDefId,
+        span: Span,
+        message: &str,
+    ) -> Option<InternedTyId> {
+        let Some((def_id, args)) = self.field_base_type(base_ty) else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "backend IR field base type is not nominal",
+            ));
+            return None;
+        };
+        let Some(fields) = self.aggregate_fields(def_id, &args) else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("backend IR aggregate fields are missing for {def_id:?}"),
+            ));
+            return None;
+        };
+        if let Some(field) = fields.iter().find(|candidate| candidate.def_id == field) {
+            return Some(field.ty);
+        }
+        self.diagnostics
+            .push(Diagnostic::error(span, format!("{message} {field:?}")));
+        None
+    }
+
+    fn validate_aggregate_def(&mut self, def_id: GlobalDefId, span: Span, message: &str) {
+        if !self.index.structs.contains_key(&def_id)
+            && !self.index.unions.contains_key(&def_id)
+            && !self
+                .index
+                .struct_instances
+                .keys()
+                .any(|(candidate, _)| *candidate == def_id)
+            && !self
+                .index
+                .union_instances
+                .keys()
+                .any(|(candidate, _)| *candidate == def_id)
+        {
+            self.diagnostics
+                .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
+        }
+    }
+
+    fn validate_enum_variant_ref(&mut self, def_id: GlobalDefId, span: Span, message: &str) {
+        if !self
+            .index
+            .enums
+            .values()
+            .any(|item| item.variants.iter().any(|variant| variant.def_id == def_id))
+        {
+            self.diagnostics
+                .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
+        }
+    }
+
+    fn array_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        match self.ty_kind(ty) {
+            Some(TyKind::Array { elem, .. }) => Some(*elem),
+            _ => None,
+        }
+    }
+
+    fn field_base_type(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        match self.ty_kind(ty) {
+            Some(TyKind::Nominal { def_id, args }) => Some((*def_id, args.clone())),
+            Some(TyKind::Pointer { elem, .. }) => self.field_base_type(*elem),
+            _ => None,
+        }
+    }
+
+    fn place_base_ty(&self, place: &FunctionPlace) -> Option<InternedTyId> {
+        match &place.base {
+            FunctionPlaceBase::Local(local_id) => self
+                .local_tys
+                .last()
+                .and_then(|local_tys| local_tys.get(local_id).copied()),
+            FunctionPlaceBase::Global(def_id) => self.index.globals.get(def_id).map(|item| item.ty),
+            FunctionPlaceBase::Deref(expr) => match self.ty_kind(expr.ty) {
+                Some(TyKind::Pointer { elem, .. }) => Some(*elem),
+                _ => Some(place.ty),
+            },
+            FunctionPlaceBase::Error => None,
+        }
+    }
+
+    fn aggregate_fields(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<&[BackendField]> {
+        self.struct_fields(def_id, args)
+            .or_else(|| self.union_fields(def_id, args))
+    }
+
+    fn struct_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
+        if let Some((_, item)) =
+            self.index
+                .struct_instances
+                .iter()
+                .find(|((candidate_def, candidate_args), _)| {
+                    *candidate_def == def_id && self.same_type_args(candidate_args, args)
+                })
+        {
+            return Some(&item.fields);
+        }
+        self.index
+            .structs
+            .get(&def_id)
+            .map(|item| item.fields.as_slice())
+    }
+
+    fn union_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
+        if let Some((_, item)) =
+            self.index
+                .union_instances
+                .iter()
+                .find(|((candidate_def, candidate_args), _)| {
+                    *candidate_def == def_id && self.same_type_args(candidate_args, args)
+                })
+        {
+            return Some(&item.fields);
+        }
+        self.index
+            .unions
+            .get(&def_id)
+            .map(|item| item.fields.as_slice())
     }
 
     fn validate_function_ref(&mut self, def_id: GlobalDefId, span: Span, message: &str) {

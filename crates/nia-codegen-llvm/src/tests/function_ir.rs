@@ -445,7 +445,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .message
-            .contains("missing struct field layout index")),
+            .contains("field expression references missing field")),
         "{:?}",
         output.diagnostics
     );
@@ -767,6 +767,273 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .message
             .contains("vtable references missing function")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_static_initializer_refs_before_llvm() {
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let ptr_ty = interner.intern(TyKind::Pointer {
+        is_const: true,
+        elem: i32_ty,
+    });
+    let span = Span::default();
+    let missing_global = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(9),
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (ptr_ty, TypeLayout { size: 8, align: 8 }),
+                ],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: vec![BackendGlobal {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "ptr".to_string(),
+                ty: ptr_ty,
+                is_const: true,
+                is_extern: false,
+                init: Some(StaticInit::AddrOfGlobal {
+                    global: missing_global,
+                    path: Vec::new(),
+                }),
+                span,
+            }],
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("static initializer references missing global")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let struct_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(0),
+    };
+    let field_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(1),
+    };
+    let missing_field = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(2),
+    };
+    let struct_ty = interner.intern(TyKind::Nominal {
+        def_id: struct_id,
+        args: Vec::new(),
+    });
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (struct_ty, TypeLayout { size: 4, align: 4 }),
+                ],
+                structs: vec![(
+                    struct_id,
+                    StructLayout {
+                        layout: TypeLayout { size: 4, align: 4 },
+                        fields: vec![FieldLayout {
+                            def_id: field_id.def_id,
+                            offset: 0,
+                            layout: TypeLayout { size: 4, align: 4 },
+                        }],
+                    },
+                )],
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: vec![BackendStruct {
+                def_id: struct_id,
+                name: "Point".to_string(),
+                generics: Vec::new(),
+                fields: vec![BackendField {
+                    def_id: field_id,
+                    name: "x".to_string(),
+                    ty: i32_ty,
+                    span,
+                }],
+                is_extern: false,
+                span,
+            }],
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: vec![BackendGlobal {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(3),
+                },
+                name: "point".to_string(),
+                ty: struct_ty,
+                is_const: true,
+                is_extern: false,
+                init: Some(StaticInit::Struct(vec![StaticFieldInit {
+                    field: Some(missing_field),
+                    value: StaticInit::Int(1),
+                }])),
+                span,
+            }],
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("static initializer references missing field")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let missing_variant = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(3),
+    };
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: vec![BackendEnum {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "Mode".to_string(),
+                backing_type: i32_ty,
+                variants: vec![BackendEnumVariant {
+                    def_id: GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id: DefId(1),
+                    },
+                    name: "Known".to_string(),
+                    value: Some(0),
+                    span,
+                }],
+                span,
+            }],
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(2),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Tail {
+                            value: Some(FunctionExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: FunctionExprKind::EnumVariant(missing_variant),
+                            }),
+                            span,
+                        },
+                    }],
+                    entry: FunctionBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("expression references missing enum variant")),
         "{:?}",
         output.diagnostics
     );
