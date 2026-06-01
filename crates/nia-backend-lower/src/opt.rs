@@ -13,6 +13,14 @@ use nia_ids::InternedTyId;
 use nia_ids::LocalId;
 use nia_opt::{OptimizationDepth, OptimizationPolicy};
 
+pub(crate) fn enabled_function_passes(policy: &OptimizationPolicy) -> Vec<&'static str> {
+    BackendOptPipeline::for_policy(policy)
+        .passes
+        .iter()
+        .map(|pass| pass.name())
+        .collect()
+}
+
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn optimize_function_body(
         &mut self,

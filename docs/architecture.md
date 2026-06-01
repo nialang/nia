@@ -156,13 +156,15 @@ Current Nia-owned optimization consumers:
   trait-object conversions, or references to non-parameter callee locals.
 - `nia-backend-lower` records a lightweight optimization report alongside the
   lowered backend program. The CLI report starts with the selected
-  `OptimizationPolicy` summary, then lists each changed pass and the affected
-  function or global context, including whether a function body was a
-  monomorphized instance. This is the stable observability hook for reviewing
-  pass behavior without embedding full before/after IR snapshots in normal
-  compiler output. `niac check --emit-opt-report` prints this report for direct
-  CLI inspection, and `niac emit llvm --emit-opt-report` writes the same report
-  to stderr so stdout remains machine-readable LLVM IR.
+  `OptimizationPolicy` summary and enabled backend function-pass inventory, then
+  lists each changed pass and the affected function or global context, including
+  whether a function body was a monomorphized instance. This is the stable
+  observability hook for reviewing pass behavior without embedding full
+  before/after IR snapshots in normal compiler output.
+  `niac check --emit-opt-report` prints this report for direct CLI inspection,
+  and `niac emit backend --emit-opt-report` or
+  `niac emit llvm --emit-opt-report` writes the same report to stderr so stdout
+  remains machine-readable backend IR or LLVM IR.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,
@@ -695,9 +697,10 @@ Global optimization options are listed explicitly in CLI help:
 -Oz
 ```
 
-`niac check --emit-opt-report` prints the active optimization policy and backend
-optimization changes to stdout. `niac emit backend` prints the optimized
-backend IR to stdout for pass review. `niac emit backend --emit-opt-report` and
+`niac check --emit-opt-report` prints the active optimization policy, enabled
+backend function-pass inventory, and backend optimization changes to stdout.
+`niac emit backend` prints the optimized backend IR to stdout for pass review.
+`niac emit backend --emit-opt-report` and
 `niac emit llvm --emit-opt-report` print the report to stderr while leaving
 stdout as backend IR or LLVM IR, which is useful when reviewing pass behavior
 next to emitted code.

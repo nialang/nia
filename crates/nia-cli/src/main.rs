@@ -940,6 +940,14 @@ fn print_optimization_report_with(
         policy.dedup_monomorphized_instances,
         policy.prefer_size
     ));
+    let enabled_function_passes = if report.enabled_function_passes.is_empty() {
+        "none".to_string()
+    } else {
+        report.enabled_function_passes.join(",")
+    };
+    print_line(format!(
+        "  enabled_function_passes={enabled_function_passes}"
+    ));
     if report.changed_passes.is_empty() {
         print_line("  no changes".to_string());
         return;
