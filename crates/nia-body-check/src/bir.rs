@@ -60,6 +60,9 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_locals(&self, body_span: Span) -> Vec<TypedLocal> {
+        // Runtime body IR intentionally excludes comptime bindings: their
+        // values are available to later phases through evaluated constants, not
+        // through storage-bearing locals.
         self.locals
             .locals
             .iter()
