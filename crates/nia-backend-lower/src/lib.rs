@@ -260,7 +260,7 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
 
-        let function_instances = self.lower_function_instances(&function_templates);
+        let mut function_instances = self.lower_function_instances(&function_templates);
         self.collect_trait_object_vtables(
             &mut trait_object_vtables,
             &functions,
@@ -268,7 +268,7 @@ impl<'a> ModuleLowerer<'a> {
         );
         self.remove_unused_private_functions(
             &mut functions,
-            &function_instances,
+            &mut function_instances,
             &globals,
             &trait_object_vtables,
         );

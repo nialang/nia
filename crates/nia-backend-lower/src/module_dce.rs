@@ -13,15 +13,27 @@ use nia_function_ir::{
     FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionOp,
     FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
-use nia_ids::GlobalDefId;
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_opt::OptimizationDepth;
 use nia_static_ir::StaticInit;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FunctionInstanceRef {
+    def_id: GlobalDefId,
+    args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Default)]
+struct FunctionRefs {
+    functions: HashSet<GlobalDefId>,
+    instances: HashSet<FunctionInstanceRef>,
+}
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn remove_unused_private_functions(
         &mut self,
         functions: &mut Vec<BackendFunction>,
-        function_instances: &[BackendFunctionInstance],
+        function_instances: &mut Vec<BackendFunctionInstance>,
         globals: &[BackendGlobal],
         trait_object_vtables: &[BackendTraitObjectVtable],
     ) {
@@ -33,52 +45,63 @@ impl<'a> ModuleLowerer<'a> {
             return;
         }
 
-        let removable = functions
+        let removable_functions = functions
             .iter()
             .filter(|function| self.is_removable_private_function(function))
             .map(|function| function.def_id)
             .collect::<HashSet<_>>();
-        if removable.is_empty() {
+        let removable_instances = function_instances
+            .iter()
+            .filter(|instance| self.is_removable_private_function_instance(instance))
+            .map(FunctionInstanceRef::from)
+            .collect::<HashSet<_>>();
+        if removable_functions.is_empty() && removable_instances.is_empty() {
             return;
         }
 
-        let mut referenced = HashSet::new();
+        let mut refs = FunctionRefs::default();
         for function in functions.iter() {
-            if !removable.contains(&function.def_id) {
-                collect_function_refs_from_optional_body(&function.function_body, &mut referenced);
+            if !removable_functions.contains(&function.def_id) {
+                collect_function_refs_from_optional_body(&function.function_body, &mut refs);
             }
         }
-        for instance in function_instances {
-            collect_function_refs_from_optional_body(&instance.function_body, &mut referenced);
+        for instance in function_instances.iter() {
+            if !removable_instances.contains(&FunctionInstanceRef::from(instance)) {
+                collect_function_refs_from_optional_body(&instance.function_body, &mut refs);
+            }
         }
         for global in globals {
             if let Some(init) = &global.init {
-                collect_function_refs_from_static_init(init, &mut referenced);
+                collect_function_refs_from_static_init(init, &mut refs);
             }
         }
         for vtable in trait_object_vtables {
             for entry in &vtable.entries {
                 match &entry.function {
                     BackendTraitObjectVtableFunction::Function(function) => {
-                        referenced.insert(*function);
+                        refs.functions.insert(*function);
                     }
-                    BackendTraitObjectVtableFunction::FunctionInstance { def_id, .. } => {
-                        referenced.insert(*def_id);
+                    BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } => {
+                        refs.instances.insert(FunctionInstanceRef {
+                            def_id: *def_id,
+                            args: args.clone(),
+                        });
                     }
                 }
             }
         }
+        collect_transitive_refs(functions, function_instances, &mut refs);
 
-        let mut removed = Vec::new();
+        let mut removed_functions = Vec::new();
         functions.retain(|function| {
-            let remove =
-                removable.contains(&function.def_id) && !referenced.contains(&function.def_id);
+            let remove = removable_functions.contains(&function.def_id)
+                && !refs.functions.contains(&function.def_id);
             if remove {
-                removed.push(function.def_id);
+                removed_functions.push(function.def_id);
             }
             !remove
         });
-        for function in removed {
+        for function in removed_functions {
             self.optimization_report
                 .changed_passes
                 .push(BackendOptimizationChange::Function {
@@ -87,6 +110,27 @@ impl<'a> ModuleLowerer<'a> {
                     pass: "remove-unused-functions",
                     is_instance: false,
                     type_arg_count: 0,
+                });
+        }
+
+        let mut removed_instances = Vec::new();
+        function_instances.retain(|instance| {
+            let key = FunctionInstanceRef::from(instance);
+            let remove = removable_instances.contains(&key) && !refs.instances.contains(&key);
+            if remove {
+                removed_instances.push((instance.def_id, instance.args.len()));
+            }
+            !remove
+        });
+        for (function, type_arg_count) in removed_instances {
+            self.optimization_report
+                .changed_passes
+                .push(BackendOptimizationChange::Function {
+                    module_id: self.input.module_id,
+                    function,
+                    pass: "remove-unused-function-instances",
+                    is_instance: true,
+                    type_arg_count,
                 });
         }
     }
@@ -103,40 +147,85 @@ impl<'a> ModuleLowerer<'a> {
         };
         matches!(def.kind, DefKind::Function) && def.visibility != Visibility::Public
     }
+
+    fn is_removable_private_function_instance(&self, instance: &BackendFunctionInstance) -> bool {
+        if instance.is_extern || instance.def_id.module_id != self.input.module_id {
+            return false;
+        }
+        let Some(def) = self.input.defs.defs.get(instance.def_id.def_id) else {
+            return false;
+        };
+        matches!(def.kind, DefKind::Function) && def.visibility != Visibility::Public
+    }
 }
 
-fn collect_function_refs_from_optional_body(
-    body: &Option<FunctionBody>,
-    refs: &mut HashSet<GlobalDefId>,
+impl From<&BackendFunctionInstance> for FunctionInstanceRef {
+    fn from(instance: &BackendFunctionInstance) -> Self {
+        Self {
+            def_id: instance.def_id,
+            args: instance.args.clone(),
+        }
+    }
+}
+
+fn collect_transitive_refs(
+    functions: &[BackendFunction],
+    instances: &[BackendFunctionInstance],
+    refs: &mut FunctionRefs,
 ) {
+    let mut visited_functions = HashSet::new();
+    let mut visited_instances = HashSet::new();
+    loop {
+        let mut changed = false;
+        for function in functions {
+            if !refs.functions.contains(&function.def_id)
+                || !visited_functions.insert(function.def_id)
+            {
+                continue;
+            }
+            collect_function_refs_from_optional_body(&function.function_body, refs);
+            changed = true;
+        }
+        for instance in instances {
+            let key = FunctionInstanceRef::from(instance);
+            if !refs.instances.contains(&key) || !visited_instances.insert(key) {
+                continue;
+            }
+            collect_function_refs_from_optional_body(&instance.function_body, refs);
+            changed = true;
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+fn collect_function_refs_from_optional_body(body: &Option<FunctionBody>, refs: &mut FunctionRefs) {
     if let Some(body) = body {
         collect_function_refs_from_body(body, refs);
     }
 }
 
-fn collect_function_refs_from_body(body: &FunctionBody, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_body(body: &FunctionBody, refs: &mut FunctionRefs) {
     for block in &body.blocks {
         collect_function_refs_from_block(block, refs);
     }
 }
 
-fn collect_function_refs_from_defer_body(
-    body: &FunctionDeferBody,
-    refs: &mut HashSet<GlobalDefId>,
-) {
+fn collect_function_refs_from_defer_body(body: &FunctionDeferBody, refs: &mut FunctionRefs) {
     for block in &body.blocks {
         collect_function_refs_from_block(block, refs);
     }
 }
 
-fn collect_function_refs_from_block(block: &FunctionBlock, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_block(block: &FunctionBlock, refs: &mut FunctionRefs) {
     for op in &block.ops {
         collect_function_refs_from_op(op, refs);
     }
     collect_function_refs_from_terminator(&block.terminator, refs);
 }
 
-fn collect_function_refs_from_op(op: &FunctionOp, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_op(op: &FunctionOp, refs: &mut FunctionRefs) {
     match op {
         FunctionOp::Binding(binding) => {
             if let Some(value) = &binding.value {
@@ -150,10 +239,7 @@ fn collect_function_refs_from_op(op: &FunctionOp, refs: &mut HashSet<GlobalDefId
     }
 }
 
-fn collect_function_refs_from_terminator(
-    terminator: &FunctionTerminator,
-    refs: &mut HashSet<GlobalDefId>,
-) {
+fn collect_function_refs_from_terminator(terminator: &FunctionTerminator, refs: &mut FunctionRefs) {
     match terminator {
         FunctionTerminator::If { cond, .. } => collect_function_refs_from_expr(cond, refs),
         FunctionTerminator::Switch { target, arms, .. } => {
@@ -182,10 +268,16 @@ fn collect_function_refs_from_terminator(
     }
 }
 
-fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs) {
     match &expr.kind {
-        FunctionExprKind::Function(def_id) | FunctionExprKind::FunctionInstance { def_id, .. } => {
-            refs.insert(*def_id);
+        FunctionExprKind::Function(def_id) => {
+            refs.functions.insert(*def_id);
+        }
+        FunctionExprKind::FunctionInstance { def_id, args } => {
+            refs.instances.insert(FunctionInstanceRef {
+                def_id: *def_id,
+                args: args.clone(),
+            });
         }
         FunctionExprKind::Range(range) => {
             if let Some(start) = &range.start {
@@ -266,19 +358,33 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut HashSet<Globa
     }
 }
 
-fn collect_function_refs_from_callee(callee: &FunctionCallee, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_callee(callee: &FunctionCallee, refs: &mut FunctionRefs) {
     match callee {
-        FunctionCallee::Function(def_id)
-        | FunctionCallee::FunctionInstance { def_id, .. }
-        | FunctionCallee::Method { def_id, .. } => {
-            refs.insert(*def_id);
+        FunctionCallee::Function(def_id) => {
+            refs.functions.insert(*def_id);
+        }
+        FunctionCallee::FunctionInstance { def_id, args }
+        | FunctionCallee::Method { def_id, args, .. } => {
+            refs.instances.insert(FunctionInstanceRef {
+                def_id: *def_id,
+                args: args.clone(),
+            });
         }
         FunctionCallee::TraitMethod {
             method_id,
             receiver,
+            self_ty,
+            trait_args,
+            args,
             ..
         } => {
-            refs.insert(*method_id);
+            let mut instance_args = vec![*self_ty];
+            instance_args.extend(trait_args.iter().copied());
+            instance_args.extend(args.iter().copied());
+            refs.instances.insert(FunctionInstanceRef {
+                def_id: *method_id,
+                args: instance_args,
+            });
             collect_function_refs_from_expr(receiver, refs);
         }
         FunctionCallee::DynamicTraitMethod { receiver, .. }
@@ -290,7 +396,7 @@ fn collect_function_refs_from_callee(callee: &FunctionCallee, refs: &mut HashSet
     }
 }
 
-fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionRefs) {
     match &place.base {
         FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(expr, refs),
         FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
@@ -303,7 +409,7 @@ fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut HashSet<Gl
     }
 }
 
-fn collect_function_refs_from_inline_asm(asm: &FunctionInlineAsm, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_inline_asm(asm: &FunctionInlineAsm, refs: &mut FunctionRefs) {
     for input in &asm.inputs {
         collect_function_refs_from_expr(&input.value, refs);
     }
@@ -312,7 +418,7 @@ fn collect_function_refs_from_inline_asm(asm: &FunctionInlineAsm, refs: &mut Has
     }
 }
 
-fn collect_function_refs_from_static_init(init: &StaticInit, refs: &mut HashSet<GlobalDefId>) {
+fn collect_function_refs_from_static_init(init: &StaticInit, refs: &mut FunctionRefs) {
     match init {
         StaticInit::Array(elems) => {
             for elem in elems {
@@ -326,8 +432,15 @@ fn collect_function_refs_from_static_init(init: &StaticInit, refs: &mut HashSet<
             }
         }
         StaticInit::AddrOfGlobal { .. } => {}
-        StaticInit::AddrOfFunction { function, .. } => {
-            refs.insert(*function);
+        StaticInit::AddrOfFunction { function, args } => {
+            if args.is_empty() {
+                refs.functions.insert(*function);
+            } else {
+                refs.instances.insert(FunctionInstanceRef {
+                    def_id: *function,
+                    args: args.clone(),
+                });
+            }
         }
         StaticInit::Zero
         | StaticInit::Int(_)
