@@ -288,7 +288,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::UnionLiteral { field, .. } => {
                 self.collect_struct_instances_expr(&field.value, seen, out);
             }
-            FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
+            FunctionExprKind::Unary { expr, .. }
+            | FunctionExprKind::Cast { expr, .. }
+            | FunctionExprKind::TraitObjectUpcast { expr, .. } => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {
@@ -678,7 +680,9 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::UnionLiteral { field, .. } => {
                 self.collect_union_instances_expr(&field.value, seen, out);
             }
-            FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
+            FunctionExprKind::Unary { expr, .. }
+            | FunctionExprKind::Cast { expr, .. }
+            | FunctionExprKind::TraitObjectUpcast { expr, .. } => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {

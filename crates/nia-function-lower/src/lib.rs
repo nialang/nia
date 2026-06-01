@@ -702,6 +702,13 @@ impl FunctionLowerer {
                 expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
                 ty: *ty,
             },
+            TypedExprKind::TraitObjectUpcast {
+                expr: inner,
+                target_ty,
+            } => FunctionExprKind::TraitObjectUpcast {
+                expr: Box::new(self.lower_value_expr(inner, scope, current, ops, blocks)),
+                target_ty: *target_ty,
+            },
             TypedExprKind::Call { callee, args } => FunctionExprKind::Call {
                 callee: self.lower_callee(callee, scope, current, ops, blocks),
                 args: args
@@ -1599,7 +1606,8 @@ impl FunctionLowerer {
                 TypedExprKind::CStringPointer { array: inner, .. }
                 | TypedExprKind::Unary { expr: inner, .. }
                 | TypedExprKind::Discard(inner)
-                | TypedExprKind::Cast { expr: inner, .. } => visit_expr(inner, max_id),
+                | TypedExprKind::Cast { expr: inner, .. }
+                | TypedExprKind::TraitObjectUpcast { expr: inner, .. } => visit_expr(inner, max_id),
                 TypedExprKind::Range(range) => {
                     if let Some(start) = &range.start {
                         visit_expr(start, max_id);

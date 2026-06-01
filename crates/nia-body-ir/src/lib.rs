@@ -17,6 +17,7 @@ pub struct BodyIr {
     pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
+    pub trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     pub local_types: HashMap<LocalId, InternedTyId>,
     pub builtin_values: HashMap<Span, BuiltinValue>,
     pub resolved_calls: HashMap<Span, ResolvedCall>,
@@ -26,6 +27,7 @@ pub struct BodyIr {
     pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     pub node_function_references: HashMap<NodeKey, FunctionReference>,
@@ -59,6 +61,12 @@ pub struct CStringPointerCoercion {
     pub array_ty: InternedTyId,
     pub pointer_ty: InternedTyId,
     pub is_const: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TraitObjectUpcast {
+    pub source_ty: InternedTyId,
+    pub target_ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -269,6 +277,10 @@ pub enum TypedExprKind {
     Cast {
         expr: Box<TypedExpr>,
         ty: InternedTyId,
+    },
+    TraitObjectUpcast {
+        expr: Box<TypedExpr>,
+        target_ty: InternedTyId,
     },
     Call {
         callee: TypedCallee,

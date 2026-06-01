@@ -488,6 +488,12 @@ impl<'a> ModuleLowerer<'a> {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                     ty: self.instantiate_ty(ty, substitutions),
                 },
+                FunctionExprKind::TraitObjectUpcast { expr, target_ty } => {
+                    FunctionExprKind::TraitObjectUpcast {
+                        expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                        target_ty: self.instantiate_ty(target_ty, substitutions),
+                    }
+                }
                 FunctionExprKind::Call { callee, args } => {
                     let args = args
                         .into_iter()

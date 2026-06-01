@@ -19,7 +19,7 @@ use nia_ast::{
 };
 use nia_body_ir::{
     ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
-    FunctionReference, GenericInstantiation, ResolvedCall,
+    FunctionReference, GenericInstantiation, ResolvedCall, TraitObjectUpcast,
 };
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
@@ -246,6 +246,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         bracket_suffix_resolutions: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
         c_string_pointer_coercions: HashMap::new(),
+        trait_object_upcasts: HashMap::new(),
         builtin_values: HashMap::new(),
         resolved_calls: HashMap::new(),
         function_references: HashMap::new(),
@@ -253,6 +254,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
         node_c_string_pointer_coercions: HashMap::new(),
+        node_trait_object_upcasts: HashMap::new(),
         node_builtin_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
         node_function_references: HashMap::new(),
@@ -278,6 +280,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
             array_to_slice_coercions: checker.array_to_slice_coercions,
             c_string_pointer_coercions: checker.c_string_pointer_coercions,
+            trait_object_upcasts: checker.trait_object_upcasts,
             local_types: checker.local_types,
             builtin_values: checker.builtin_values,
             resolved_calls: checker.resolved_calls,
@@ -287,6 +290,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
             node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
+            node_trait_object_upcasts: checker.node_trait_object_upcasts,
             node_builtin_values: checker.node_builtin_values,
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
@@ -323,6 +327,7 @@ struct BodyChecker<'a> {
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
+    trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     builtin_values: HashMap<Span, BuiltinValue>,
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
@@ -330,6 +335,7 @@ struct BodyChecker<'a> {
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     node_function_references: HashMap<NodeKey, FunctionReference>,
@@ -390,6 +396,13 @@ impl<'a> BodyChecker<'a> {
         self.c_string_pointer_coercions.insert(span, coercion);
         if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
             self.node_c_string_pointer_coercions.insert(key, coercion);
+        }
+    }
+
+    fn record_trait_object_upcast(&mut self, span: Span, upcast: TraitObjectUpcast) {
+        self.trait_object_upcasts.insert(span, upcast);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_trait_object_upcasts.insert(key, upcast);
         }
     }
 

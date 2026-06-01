@@ -292,6 +292,12 @@ impl<'a> ModuleLowerer<'a> {
                     expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
                     ty,
                 },
+                FunctionExprKind::TraitObjectUpcast { expr, target_ty } => {
+                    FunctionExprKind::TraitObjectUpcast {
+                        expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                        target_ty,
+                    }
+                }
                 FunctionExprKind::Call { callee, args } => {
                     let callee = self.resolve_builtin_operator_calls_in_callee(callee);
                     let args = args

@@ -318,6 +318,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let value = self.emit_expr(inner)?;
                 self.emit_cast(expr.span, inner.ty, *ty, value)
             }
+            FunctionExprKind::TraitObjectUpcast { expr: inner, .. } => {
+                self.emit_trait_object_upcast(expr.span, inner)
+            }
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
             FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {
@@ -342,6 +345,38 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "cannot emit erroneous expression"))
             }
         }
+    }
+
+    fn emit_trait_object_upcast(
+        &mut self,
+        span: Span,
+        inner: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let value = self.emit_expr(inner)?;
+        let value = value
+            .into_struct_value()
+            .map_err(|_| self.error(span, "trait object upcast source is not a trait object"))?;
+        let trait_object_ty = self.module.trait_object_type();
+        let object_ptr = self
+            .builder
+            .build_extract_value(value, 0, "traitobj.ptr")
+            .map_err(|_| self.error(span, "failed to extract trait object pointer"))?;
+        let metadata = self
+            .builder
+            .build_extract_value(value, 1, "traitobj.metadata")
+            .map_err(|_| self.error(span, "failed to extract trait object metadata"))?;
+        let result = trait_object_ty.get_undef();
+        let result = self
+            .builder
+            .build_insert_value(result, object_ptr, 0, "traitobj.upcast.ptr")
+            .map_err(|_| self.error(span, "failed to build trait object upcast"))?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "failed to build trait object upcast"))?;
+        let result = self
+            .builder
+            .build_insert_value(result, metadata, 1, "traitobj.upcast.metadata")
+            .map_err(|_| self.error(span, "failed to build trait object upcast"))?;
+        Ok(result.into())
     }
 
     fn emit_range(

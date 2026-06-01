@@ -6,7 +6,7 @@ use crate::literals::{
     string_literal_char_len,
 };
 use nia_ast::{Expr, ExprKind, UnaryOp};
-use nia_body_ir::{ArrayToSliceCoercion, CStringPointerCoercion};
+use nia_body_ir::{ArrayToSliceCoercion, CStringPointerCoercion, TraitObjectUpcast};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
@@ -239,6 +239,10 @@ impl<'a> BodyChecker<'a> {
             self.record_expr_type(expr.span, coerced);
             return;
         }
+        if let Some(coerced) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
+            self.record_expr_type(expr.span, coerced);
+            return;
+        }
         if !has_numeric_literal_suffix(expr)
             && self.check_integer_literal_range(expr, expected, context)
         {
@@ -353,6 +357,143 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(expected)
+    }
+
+    pub(crate) fn coerce_trait_object_to_supertrait(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+        actual: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let expected = self.normalization.normalize(expected);
+        let actual = self.normalization.normalize(actual);
+        let Some(TyKind::TraitObject {
+            is_const: expected_const,
+            trait_id: expected_trait,
+            trait_args: expected_args,
+            associated_type_bindings: expected_bindings,
+        }) = self.interner.get(expected).cloned()
+        else {
+            return None;
+        };
+        let Some(TyKind::TraitObject {
+            is_const: actual_const,
+            trait_id: actual_trait,
+            trait_args: actual_args,
+            associated_type_bindings: actual_bindings,
+        }) = self.interner.get(actual).cloned()
+        else {
+            return None;
+        };
+        if expected_const != actual_const
+            || !expected_bindings.is_empty()
+            || !actual_bindings.is_empty()
+            || !self.trait_object_has_supertrait(
+                actual_trait,
+                &actual_args,
+                expected_trait,
+                &expected_args,
+            )
+        {
+            return None;
+        }
+        self.record_trait_object_upcast(
+            expr.span,
+            TraitObjectUpcast {
+                source_ty: actual,
+                target_ty: expected,
+            },
+        );
+        Some(expected)
+    }
+
+    fn trait_object_has_supertrait(
+        &mut self,
+        source_trait: TraitId,
+        source_args: &[InternedTyId],
+        target_trait: TraitId,
+        target_args: &[InternedTyId],
+    ) -> bool {
+        self.trait_object_has_supertrait_inner(
+            source_trait,
+            source_args,
+            target_trait,
+            target_args,
+            &mut Vec::new(),
+        )
+    }
+
+    fn trait_object_has_supertrait_inner(
+        &mut self,
+        source_trait: TraitId,
+        source_args: &[InternedTyId],
+        target_trait: TraitId,
+        target_args: &[InternedTyId],
+        visited: &mut Vec<(TraitId, Vec<InternedTyId>)>,
+    ) -> bool {
+        if source_trait == target_trait
+            && source_args.len() == target_args.len()
+            && source_args
+                .iter()
+                .zip(target_args.iter())
+                .all(|(source, target)| self.types_match(*source, *target))
+        {
+            return true;
+        }
+        if visited
+            .iter()
+            .any(|(trait_id, args)| *trait_id == source_trait && args == source_args)
+        {
+            return false;
+        }
+        visited.push((source_trait, source_args.to_vec()));
+        match source_trait {
+            TraitId::Builtin(trait_id) => trait_id.supertraits().iter().any(|supertrait| {
+                let supertrait_args = if supertrait.preserves_trait_args {
+                    source_args.to_vec()
+                } else {
+                    Vec::new()
+                };
+                self.trait_object_has_supertrait_inner(
+                    TraitId::Builtin(supertrait.trait_id),
+                    &supertrait_args,
+                    target_trait,
+                    target_args,
+                    visited,
+                )
+            }),
+            TraitId::Source(source_trait_id) => {
+                let Some(signature) = self.resolved_trait_signature(source_trait_id) else {
+                    return false;
+                };
+                let substitutions = self.generic_substitutions(&signature.generics, source_args);
+                signature.supertraits.iter().any(|supertrait| {
+                    let supertrait = self.substitute_generics(*supertrait, &substitutions);
+                    let supertrait = self.normalization.normalize(supertrait);
+                    match self.interner.get(supertrait).cloned() {
+                        Some(TyKind::Nominal { def_id, args }) => {
+                            self.trait_object_has_supertrait_inner(
+                                TraitId::Source(def_id),
+                                &args,
+                                target_trait,
+                                target_args,
+                                visited,
+                            )
+                        }
+                        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                            self.trait_object_has_supertrait_inner(
+                                TraitId::Builtin(trait_id),
+                                &args,
+                                target_trait,
+                                target_args,
+                                visited,
+                            )
+                        }
+                        _ => false,
+                    }
+                })
+            }
+        }
     }
 
     pub(crate) fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
@@ -641,6 +782,7 @@ impl<'a> BodyChecker<'a> {
             bracket_suffix_resolutions: HashMap::new(),
             array_to_slice_coercions: HashMap::new(),
             c_string_pointer_coercions: HashMap::new(),
+            trait_object_upcasts: HashMap::new(),
             builtin_values: HashMap::new(),
             resolved_calls: HashMap::new(),
             function_references: HashMap::new(),
@@ -648,6 +790,7 @@ impl<'a> BodyChecker<'a> {
             node_bracket_suffix_resolutions: HashMap::new(),
             node_array_to_slice_coercions: HashMap::new(),
             node_c_string_pointer_coercions: HashMap::new(),
+            node_trait_object_upcasts: HashMap::new(),
             node_builtin_values: HashMap::new(),
             node_resolved_calls: HashMap::new(),
             node_function_references: HashMap::new(),
