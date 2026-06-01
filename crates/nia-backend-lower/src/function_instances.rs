@@ -6,7 +6,6 @@ use nia_backend_ir::{BackendFunction, BackendFunctionInstance, BackendTraitObjec
 use nia_defs::DefKind;
 use nia_function_ir::{FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind, FunctionOp};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
-use nia_mangle::mangle_instance_symbol;
 use nia_ty::TyKind;
 
 type InstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
@@ -419,21 +418,8 @@ impl<'a> ModuleLowerer<'a> {
         ) {
             return;
         }
-        let symbol = mangle_instance_symbol(
-            def_id,
-            &def.name,
-            args,
-            &self.interner.clone(),
-            |def_id| {
-                self.input
-                    .defs
-                    .defs
-                    .get(def_id.def_id)
-                    .map(|def| def.name.clone())
-                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
-            },
-            |id| self.resolved_array_len(id),
-        );
+        let name = def.name.clone();
+        let symbol = self.mangle_instance_symbol(def_id, &name, args);
         queue.push(def_id, arg_module_id, key.2, symbol);
     }
 

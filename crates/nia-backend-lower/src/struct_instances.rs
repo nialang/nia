@@ -6,22 +6,15 @@ use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendStructInstance,
     BackendUnionInstance,
 };
-use nia_defs::{DefId, DefKind, DefMap};
+use nia_defs::{DefId, DefKind};
 use nia_function_ir::{
     FunctionArrayElements, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
     FunctionExprKind, FunctionForHeader, FunctionOp, FunctionPlace, FunctionPlaceBase,
     FunctionPlaceElem, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_mangle::mangle_instance_symbol;
 use nia_span::Span;
 use nia_ty::TyKind;
-
-fn def_name_from(defs: &DefMap, def_id: GlobalDefId) -> String {
-    defs.get(def_id.def_id)
-        .map(|def| def.name.clone())
-        .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
-}
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct_instances(
@@ -38,8 +31,6 @@ impl<'a> ModuleLowerer<'a> {
         if signature.generics.is_empty() {
             return Vec::new();
         }
-        let interner = self.interner.clone();
-        let defs = &self.input.defs.defs;
         let keys = self
             .struct_layout_instances_by_def
             .get(&def_id)
@@ -54,13 +45,10 @@ impl<'a> ModuleLowerer<'a> {
                     def_id: self.global_def_id(def_id),
                     name: item.name.clone(),
                     args: key.args.clone(),
-                    symbol: mangle_instance_symbol(
+                    symbol: self.mangle_instance_symbol(
                         self.global_def_id(def_id),
                         &item.name,
                         &key.args,
-                        &interner,
-                        |def_id| def_name_from(defs, def_id),
-                        |id| self.resolved_array_len(id),
                     ),
                     fields: signature
                         .fields
@@ -93,8 +81,6 @@ impl<'a> ModuleLowerer<'a> {
         if signature.generics.is_empty() {
             return Vec::new();
         }
-        let interner = self.interner.clone();
-        let defs = &self.input.defs.defs;
         let keys = self
             .union_layout_instances_by_def
             .get(&def_id)
@@ -109,13 +95,10 @@ impl<'a> ModuleLowerer<'a> {
                     def_id: self.global_def_id(def_id),
                     name: item.name.clone(),
                     args: key.args.clone(),
-                    symbol: mangle_instance_symbol(
+                    symbol: self.mangle_instance_symbol(
                         self.global_def_id(def_id),
                         &item.name,
                         &key.args,
-                        &interner,
-                        |def_id| def_name_from(defs, def_id),
-                        |id| self.resolved_array_len(id),
                     ),
                     fields: signature
                         .fields
@@ -553,19 +536,11 @@ impl<'a> ModuleLowerer<'a> {
         }
         let def = self.input.defs.defs.get(def_id)?;
         let substitutions = self.generic_substitutions(&signature.generics, &args);
-        let defs = &self.input.defs.defs;
         Some(BackendStructInstance {
             def_id: self.global_def_id(def_id),
             name: def.name.clone(),
             args: args.clone(),
-            symbol: mangle_instance_symbol(
-                self.global_def_id(def_id),
-                &def.name,
-                &args,
-                &self.interner.clone(),
-                |def_id| def_name_from(defs, def_id),
-                |id| self.resolved_array_len(id),
-            ),
+            symbol: self.mangle_instance_symbol(self.global_def_id(def_id), &def.name, &args),
             fields: signature
                 .fields
                 .iter()
@@ -959,19 +934,11 @@ impl<'a> ModuleLowerer<'a> {
         }
         let def = self.input.defs.defs.get(def_id)?;
         let substitutions = self.generic_substitutions(&signature.generics, &args);
-        let defs = &self.input.defs.defs;
         Some(BackendUnionInstance {
             def_id: self.global_def_id(def_id),
             name: def.name.clone(),
             args: args.clone(),
-            symbol: mangle_instance_symbol(
-                self.global_def_id(def_id),
-                &def.name,
-                &args,
-                &self.interner.clone(),
-                |def_id| def_name_from(defs, def_id),
-                |id| self.resolved_array_len(id),
-            ),
+            symbol: self.mangle_instance_symbol(self.global_def_id(def_id), &def.name, &args),
             fields: signature
                 .fields
                 .iter()

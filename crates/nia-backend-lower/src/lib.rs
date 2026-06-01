@@ -21,6 +21,7 @@ use nia_item_signatures::{
 };
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
+use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
 use nia_monomorphize::Monomorphization;
 use nia_opt::OptimizationPolicy;
 use nia_span::Span;
@@ -123,6 +124,7 @@ pub(crate) struct ModuleLowerer<'a> {
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
+    def_names: HashMap<GlobalDefId, String>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
 }
 
@@ -173,6 +175,7 @@ impl<'a> ModuleLowerer<'a> {
             ),
             builtin_trait_resolutions: HashMap::new(),
             type_instantiations: HashMap::new(),
+            def_names: HashMap::new(),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
         }
     }
@@ -368,22 +371,51 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn resolved_array_len(&mut self, id: GlobalConstExprId) -> Option<u64> {
-        let value = self.input.comptime.array_lengths.get(&id).copied();
-        if value.is_none() && self.missing_array_len_diagnostics.insert(id) {
-            let span = self
-                .input
-                .type_lowering
-                .const_exprs
-                .get(&id)
-                .map(|expr| expr.span)
-                .unwrap_or_default();
-            self.diagnostics.push(Diagnostic::error(
-                span,
-                format!("array length {id:?} was not evaluated before backend symbol generation"),
-            ));
-        }
-        value
+    pub(crate) fn mangle_instance_symbol(
+        &mut self,
+        def_id: GlobalDefId,
+        name: &str,
+        args: &[InternedTyId],
+    ) -> String {
+        let defs = &self.input.defs.defs;
+        let const_exprs = &self.input.type_lowering.const_exprs;
+        let comptime = self.input.comptime;
+        let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
+        let diagnostics = &mut self.diagnostics;
+        let def_names = &mut self.def_names;
+        mangle_instance_symbol(
+            def_id,
+            name,
+            args,
+            &self.interner,
+            |def_id| {
+                if let Some(name) = def_names.get(&def_id) {
+                    return name.clone();
+                }
+                let name = defs
+                    .get(def_id.def_id)
+                    .map(|def| sanitize_symbol_part(&def.name))
+                    .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
+                def_names.insert(def_id, name.clone());
+                name
+            },
+            |id| {
+                let value = comptime.array_lengths.get(&id).copied();
+                if value.is_none() && missing_array_len_diagnostics.insert(id) {
+                    let span = const_exprs
+                        .get(&id)
+                        .map(|expr| expr.span)
+                        .unwrap_or_default();
+                    diagnostics.push(Diagnostic::error(
+                        span,
+                        format!(
+                            "array length {id:?} was not evaluated before backend symbol generation"
+                        ),
+                    ));
+                }
+                value
+            },
+        )
     }
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
