@@ -54,6 +54,7 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
             .map(|input| (input.module_id, input.const_exprs))
             .collect(),
         instantiations_by_source: collect_instantiations_by_source(inputs),
+        source_instantiation_edges: collect_source_instantiation_edges(inputs),
         recorded_generics_by_def: collect_recorded_generics_by_def(inputs),
         instances: Vec::new(),
         seen: HashSet::new(),
@@ -77,7 +78,8 @@ struct MonoCollector<'a> {
     interners_by_module: HashMap<ModuleId, &'a TyInterner>,
     comptime_by_module: HashMap<ModuleId, &'a ComptimeCheck>,
     const_exprs_by_module: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, Expr>>,
-    instantiations_by_source: HashMap<GlobalDefId, Vec<(ModuleId, GenericInstantiation)>>,
+    instantiations_by_source: HashMap<GlobalDefId, Vec<usize>>,
+    source_instantiation_edges: Vec<SourceInstantiationEdge>,
     recorded_generics_by_def: HashMap<GlobalDefId, Vec<Vec<String>>>,
     instances: Vec<MonoInstance>,
     seen: HashSet<MonoInstanceKey>,
@@ -93,6 +95,14 @@ struct MonoInstanceKey {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceInstantiationEdge {
+    module_id: ModuleId,
+    def_id: GlobalDefId,
+    args: Vec<InternedTyId>,
+    span: Span,
 }
 
 impl MonoCollector<'_> {
@@ -213,23 +223,32 @@ impl MonoCollector<'_> {
             return;
         }
 
-        let Some(edges) = self.instantiations_by_source.get(&key.def_id).cloned() else {
+        let Some(edge_indices) = self.instantiations_by_source.get(&key.def_id).cloned() else {
             return;
         };
         let substitutions = self.generic_substitutions_for_instance(&key);
         stack.push(key.clone());
-        for (edge_module_id, edge) in edges {
-            if !self.is_generic_def(edge.def_id) {
+        for edge_index in edge_indices {
+            let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
+                continue;
+            };
+            let edge_module_id = edge.module_id;
+            let edge_def_id = edge.def_id;
+            let edge_span = edge.span;
+            if !self.is_generic_def(edge_def_id) {
                 continue;
             }
+            let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
+                continue;
+            };
             let args = self.instantiate_args(edge_module_id, &edge.args, &substitutions);
             let edge_key = MonoInstanceKey {
-                def_id: edge.def_id,
+                def_id: edge_def_id,
                 arg_module_id: edge_module_id,
                 args,
             };
             self.add_instance(edge_key.clone());
-            self.expand_instance(edge_key, edge.span, stack);
+            self.expand_instance(edge_key, edge_span, stack);
         }
         stack.pop();
     }
@@ -436,20 +455,39 @@ fn def_name(defs_by_module: &HashMap<ModuleId, &DefCollection>, def_id: GlobalDe
 
 fn collect_instantiations_by_source(
     inputs: &[MonomorphizeModuleInput<'_>],
-) -> HashMap<GlobalDefId, Vec<(ModuleId, GenericInstantiation)>> {
-    let mut by_source: HashMap<GlobalDefId, Vec<(ModuleId, GenericInstantiation)>> = HashMap::new();
+) -> HashMap<GlobalDefId, Vec<usize>> {
+    let mut by_source: HashMap<GlobalDefId, Vec<usize>> = HashMap::new();
+    let mut edge_index = 0;
     for input in inputs {
         for instantiation in input.instantiations {
             let Some(source_def_id) = instantiation.source_def_id else {
                 continue;
             };
-            by_source
-                .entry(source_def_id)
-                .or_default()
-                .push((input.module_id, instantiation.clone()));
+            by_source.entry(source_def_id).or_default().push(edge_index);
+            edge_index += 1;
         }
     }
     by_source
+}
+
+fn collect_source_instantiation_edges(
+    inputs: &[MonomorphizeModuleInput<'_>],
+) -> Vec<SourceInstantiationEdge> {
+    let mut edges = Vec::new();
+    for input in inputs {
+        for instantiation in input.instantiations {
+            if instantiation.source_def_id.is_none() {
+                continue;
+            }
+            edges.push(SourceInstantiationEdge {
+                module_id: input.module_id,
+                def_id: instantiation.def_id,
+                args: instantiation.args.clone(),
+                span: instantiation.span,
+            });
+        }
+    }
+    edges
 }
 
 fn collect_recorded_generics_by_def(
@@ -720,6 +758,7 @@ fn wrap[T](value: T) T { value }
             comptime_by_module: HashMap::new(),
             const_exprs_by_module: HashMap::new(),
             instantiations_by_source: HashMap::new(),
+            source_instantiation_edges: Vec::new(),
             recorded_generics_by_def: HashMap::from([(
                 def_id,
                 vec![Vec::new(), vec!["T".to_string(), "U".to_string()]],
