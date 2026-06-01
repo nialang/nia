@@ -497,6 +497,98 @@ fn main() i32 {
 }
 
 #[test]
+fn o1_folds_constant_bool_backend_if_branches() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let mut original = body.blocks[0].clone();
+            let then_id = FunctionBlockId(998);
+            let else_id = FunctionBlockId(999);
+            original.id = then_id;
+            body.blocks[0].terminator = FunctionTerminator::If {
+                cond: nia_function_ir::FunctionExpr {
+                    span: body.blocks[0].span,
+                    ty: body.ty,
+                    kind: FunctionExprKind::Bool(false),
+                },
+                then_target: then_id,
+                else_target: else_id,
+                span: body.blocks[0].span,
+            };
+            body.blocks.push(original);
+            let mut selected = body.blocks[0].clone();
+            selected.id = else_id;
+            selected.terminator = FunctionTerminator::Return {
+                value: None,
+                span: selected.span,
+            };
+            body.blocks.push(selected);
+        },
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.block(FunctionBlockId(998)).is_none());
+    assert!(body.block(FunctionBlockId(999)).is_some());
+}
+
+#[test]
+fn o0_preserves_constant_bool_backend_if_branches() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let mut original = body.blocks[0].clone();
+            let then_id = FunctionBlockId(998);
+            let else_id = FunctionBlockId(999);
+            original.id = then_id;
+            body.blocks[0].terminator = FunctionTerminator::If {
+                cond: nia_function_ir::FunctionExpr {
+                    span: body.blocks[0].span,
+                    ty: body.ty,
+                    kind: FunctionExprKind::Bool(false),
+                },
+                then_target: then_id,
+                else_target: else_id,
+                span: body.blocks[0].span,
+            };
+            body.blocks.push(original);
+            let mut selected = body.blocks[0].clone();
+            selected.id = else_id;
+            selected.terminator = FunctionTerminator::Return {
+                value: None,
+                span: selected.span,
+            };
+            body.blocks.push(selected);
+        },
+        nia_opt::OptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.block(FunctionBlockId(998)).is_some());
+    assert!(body.block(FunctionBlockId(999)).is_some());
+}
+
+#[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
 comptime N: usize = 3;
