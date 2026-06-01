@@ -104,13 +104,13 @@ impl Parser {
             ));
         }
         if self.eat(TokenKind::DotDotEq).is_some() {
-            let end = Some(Box::new(self.parse_binary_until(0, stops)?));
-            let span = Span::new(start_expr.span.start, end.as_ref().unwrap().span.end);
+            let end = Box::new(self.parse_binary_until(0, stops)?);
+            let span = Span::new(start_expr.span.start, end.span.end);
             return Some(self.make_expr(
                 span,
                 ExprKind::Range(nia_ast::SliceRange {
                     start: Some(Box::new(start_expr)),
-                    end,
+                    end: Some(end),
                     inclusive: true,
                 }),
             ));
