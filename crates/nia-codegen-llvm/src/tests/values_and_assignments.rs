@@ -165,6 +165,33 @@ fn main() i32 {
 }
 
 #[test]
+fn scalar_call_assignment_evaluates_rhs_before_place_address() {
+    let root = temp_dir("scalar_call_assignment_evaluates_rhs_before_place_address");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn rhs() i32;
+extern fn slot() &i32;
+
+fn main() i32 {
+    slot().* = rhs();
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_substrings_in_order(ir, &["call i32 @rhs()", "call ptr @slot()"]);
+}
+
+#[test]
 fn emits_struct_array_field_index_and_compound_assignment() {
     let root = temp_dir("emits_struct_array_field_index_and_compound_assignment");
     let main = root.join("main.nia");
