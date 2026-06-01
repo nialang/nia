@@ -668,6 +668,9 @@ LLVM codegen uses the whole-program index for layout queries so repeated
 aggregate ABI and field-access decisions do not rescan generic layout instance
 lists. Function-instance declarations also reuse the signature type builder
 instead of cloning instance bodies just to discover their LLVM function type.
+The backend validator also memoizes layout probes during pre-codegen validation,
+so repeated runtime-type checks do not recursively recompute the same ABI
+layout.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level. Size-oriented levels (`-Os` and `-Oz`) also remain visible in
