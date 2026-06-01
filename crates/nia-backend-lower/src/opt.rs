@@ -24,6 +24,7 @@ enum BackendOptPass {
     RemoveNoopLocalStores,
     RemovePureExprOps,
     PropagateLocalCopies,
+    RemoveOverwrittenLocalStores,
     RemoveNeverReadLocalStores,
     RemoveUnusedLocalBindings,
     FoldConstantBoolBranches,
@@ -39,6 +40,7 @@ impl BackendOptPass {
             Self::RemoveNoopLocalStores => "remove-noop-local-stores",
             Self::RemovePureExprOps => "remove-pure-expr-ops",
             Self::PropagateLocalCopies => "propagate-local-copies",
+            Self::RemoveOverwrittenLocalStores => "remove-overwritten-local-stores",
             Self::RemoveNeverReadLocalStores => "remove-never-read-local-stores",
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
             Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
@@ -54,6 +56,7 @@ impl BackendOptPass {
             Self::RemoveNoopLocalStores => remove_noop_local_stores(&mut body.blocks),
             Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
             Self::PropagateLocalCopies => propagate_local_copies(body),
+            Self::RemoveOverwrittenLocalStores => remove_overwritten_local_stores(&mut body.blocks),
             Self::RemoveNeverReadLocalStores => remove_never_read_local_stores(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
             Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
@@ -107,6 +110,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::PropagateLocalCopies,
+    BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
@@ -352,6 +356,62 @@ fn remove_unused_local_binding_ops(
         block.ops = replacement_ops;
     }
     changed
+}
+
+fn remove_overwritten_local_stores(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        changed |= remove_overwritten_local_stores_in_block(block);
+    }
+    changed
+}
+
+fn remove_overwritten_local_stores_in_block(block: &mut FunctionBlock) -> bool {
+    let mut changed = false;
+    let mut replacement_ops = Vec::with_capacity(block.ops.len());
+    let mut pending_stores = HashMap::<LocalId, usize>::new();
+    for op in block.ops.drain(..) {
+        let read_locals = collect_read_locals_in_current_op(&op);
+        for local_id in read_locals {
+            pending_stores.remove(&local_id);
+        }
+
+        match op {
+            FunctionOp::StoreLocal {
+                local_id,
+                value,
+                span,
+            } => {
+                if let Some(previous_index) = pending_stores.insert(local_id, replacement_ops.len())
+                {
+                    changed = true;
+                    preserve_store_value_if_needed(&mut replacement_ops[previous_index]);
+                }
+                replacement_ops.push(Some(FunctionOp::StoreLocal {
+                    local_id,
+                    value,
+                    span,
+                }));
+            }
+            FunctionOp::Defer(mut body) => {
+                changed |= remove_overwritten_local_stores(&mut body.blocks);
+                pending_stores.clear();
+                replacement_ops.push(Some(FunctionOp::Defer(body)));
+            }
+            other => replacement_ops.push(Some(other)),
+        }
+    }
+    block.ops = replacement_ops.into_iter().flatten().collect();
+    changed
+}
+
+fn preserve_store_value_if_needed(op: &mut Option<FunctionOp>) {
+    let Some(FunctionOp::StoreLocal { value, .. }) = op.take() else {
+        return;
+    };
+    if !is_pure_discardable_expr(&value) {
+        *op = Some(FunctionOp::Expr(value));
+    }
 }
 
 fn remove_never_read_local_stores(body: &mut FunctionBody) -> bool {
@@ -881,6 +941,15 @@ fn collect_place_locals_in_range(range: &FunctionRange, locals: &mut HashSet<Loc
 fn collect_read_locals(body: &FunctionBody) -> HashSet<LocalId> {
     let mut locals = HashSet::new();
     collect_read_locals_in_blocks(&body.blocks, &mut locals);
+    locals
+}
+
+fn collect_read_locals_in_current_op(op: &FunctionOp) -> HashSet<LocalId> {
+    let mut locals = HashSet::new();
+    match op {
+        FunctionOp::StoreLocal { value, .. } => collect_read_locals_in_expr(value, &mut locals),
+        other => collect_read_locals_in_op(other, &mut locals),
+    }
     locals
 }
 
@@ -2182,6 +2251,200 @@ mod tests {
             }]
         ));
         validate_function_body(&body).expect("preserved-store body should remain valid");
+    }
+
+    #[test]
+    fn removes_local_store_overwritten_before_read() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    },
+                    span,
+                },
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("2".to_string()),
+                    },
+                    span,
+                },
+            ],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "target".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(remove_overwritten_local_stores(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].ops.as_slice(),
+            [FunctionOp::StoreLocal {
+                local_id: LocalId(0),
+                value: FunctionExpr {
+                    kind: FunctionExprKind::Integer(value),
+                    ..
+                },
+                ..
+            }] if value == "2"
+        ));
+        validate_function_body(&body).expect("overwritten-store body should remain valid");
+    }
+
+    #[test]
+    fn preserves_effects_from_overwritten_local_store_value() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                                module_id: nia_ids::ModuleId(0),
+                                def_id: nia_ids::DefId(0),
+                            }),
+                            args: Vec::new(),
+                        },
+                    },
+                    span,
+                },
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("2".to_string()),
+                    },
+                    span,
+                },
+            ],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "target".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(remove_overwritten_local_stores(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].ops.as_slice(),
+            [
+                FunctionOp::Expr(FunctionExpr {
+                    kind: FunctionExprKind::Call { .. },
+                    ..
+                }),
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    ..
+                },
+            ]
+        ));
+        validate_function_body(&body)
+            .expect("effect-preserving overwritten-store body should remain valid");
+    }
+
+    #[test]
+    fn preserves_local_store_read_before_overwrite() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    },
+                    span,
+                },
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("2".to_string()),
+                    },
+                    span,
+                },
+            ],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "target".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(!remove_overwritten_local_stores(&mut body.blocks));
+
+        assert_eq!(
+            body.blocks[0]
+                .ops
+                .iter()
+                .filter(|op| matches!(op, FunctionOp::StoreLocal { .. }))
+                .count(),
+            2
+        );
+        validate_function_body(&body).expect("read-before-overwrite body should remain valid");
     }
 
     #[test]
