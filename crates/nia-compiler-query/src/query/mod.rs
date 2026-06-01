@@ -31,6 +31,7 @@ use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
+use std::collections::HashMap;
 
 mod base;
 mod checked;
@@ -72,8 +73,10 @@ fn check_loaded_program_with_providers(
 ) -> CheckedProgram {
     let graph = loaded.graph.clone();
     let imports = loaded.imports.clone();
+    let modules_by_id = index_loaded_modules(&loaded);
     let db = QueryDb::new(DriverContext {
         loaded,
+        modules_by_id,
         optimization,
         providers,
     });
@@ -137,16 +140,16 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
 
 struct DriverContext {
     loaded: LoadedProgram,
+    modules_by_id: HashMap<ModuleId, usize>,
     optimization: OptimizationPolicy,
     providers: CompilerQueryProviders,
 }
 
 impl DriverContext {
     fn loaded_module(&self, module_id: ModuleId) -> Option<&LoadedModule> {
-        self.loaded
-            .modules
-            .iter()
-            .find(|module| module.id == module_id)
+        self.modules_by_id
+            .get(&module_id)
+            .and_then(|index| self.loaded.modules.get(*index))
     }
 
     fn path_for_module(&self, module_id: ModuleId) -> SourcePath {
@@ -154,6 +157,15 @@ impl DriverContext {
             .map(|module| module.path.clone())
             .unwrap_or_else(|| SourcePath::new("<unknown>"))
     }
+}
+
+fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
+    loaded
+        .modules
+        .iter()
+        .enumerate()
+        .map(|(index, module)| (module.id, index))
+        .collect()
 }
 
 #[cfg(test)]
@@ -185,6 +197,16 @@ mod tests {
             parse_errors,
             origins: nia_node_id::NodeOriginTable::default(),
         }
+    }
+
+    fn query_db(loaded: LoadedProgram) -> QueryDb<DriverContext> {
+        let modules_by_id = index_loaded_modules(&loaded);
+        QueryDb::new(DriverContext {
+            loaded,
+            modules_by_id,
+            optimization: OptimizationPolicy::default(),
+            providers: CompilerQueryProviders::default(),
+        })
     }
 
     #[test]
@@ -247,11 +269,7 @@ mod tests {
             "main.nia",
             "struct S { value: i32 }",
         )]);
-        let db = QueryDb::new(DriverContext {
-            loaded,
-            optimization: OptimizationPolicy::default(),
-            providers: CompilerQueryProviders::default(),
-        });
+        let db = query_db(loaded);
 
         let _ = db.query(ProgramSignaturesQuery);
         let trace = db.query_trace();
@@ -271,11 +289,7 @@ mod tests {
             "main.nia",
             "pub struct S { value: i32 }",
         )]);
-        let db = QueryDb::new(DriverContext {
-            loaded,
-            optimization: OptimizationPolicy::default(),
-            providers: CompilerQueryProviders::default(),
-        });
+        let db = query_db(loaded);
 
         let _ = db.query(PublicSurfaceQuery);
         let trace = db.query_trace();
@@ -295,11 +309,7 @@ mod tests {
             "main.nia",
             "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
         )]);
-        let db = QueryDb::new(DriverContext {
-            loaded,
-            optimization: OptimizationPolicy::default(),
-            providers: CompilerQueryProviders::default(),
-        });
+        let db = query_db(loaded);
 
         let _ = db.query(ExtensionMethodsQuery);
         let trace = db.query_trace();
@@ -323,11 +333,7 @@ mod tests {
             "main.nia",
             "fn main() i32 { 0 }",
         )]);
-        let db = QueryDb::new(DriverContext {
-            loaded,
-            optimization: OptimizationPolicy::default(),
-            providers: CompilerQueryProviders::default(),
-        });
+        let db = query_db(loaded);
 
         let _ = db.query(BackendLoweringQuery);
         let trace = db.query_trace();
@@ -347,11 +353,7 @@ mod tests {
             "main.nia",
             "pub struct S { value: i32 } fn main() i32 { 0 }",
         )]);
-        let db = QueryDb::new(DriverContext {
-            loaded,
-            optimization: OptimizationPolicy::default(),
-            providers: CompilerQueryProviders::default(),
-        });
+        let db = query_db(loaded);
 
         let _ = db.query(TypeResolutionQuery(ModuleId(0)));
         let invalidation = db.invalidate(ModuleDefsQuery(ModuleId(0)));
