@@ -259,6 +259,7 @@ fn main() i32 {
     assert!(stdout.contains("inline=normal"), "{stdout}");
     assert!(stdout.contains("specialize=normal"), "{stdout}");
     assert!(stdout.contains("prefer_size=false"), "{stdout}");
+    assert!(stdout.contains("llvm_codegen=default"), "{stdout}");
     assert!(stdout.contains("enabled_module_passes="), "{stdout}");
     assert!(stdout.contains("inline-leaf-functions"), "{stdout}");
     assert!(stdout.contains("remove-unused-functions"), "{stdout}");
@@ -287,10 +288,29 @@ fn main() i32 {
     assert!(stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stdout.contains("policy level=O0"), "{stdout}");
     assert!(stdout.contains("inline=never"), "{stdout}");
+    assert!(stdout.contains("llvm_codegen=none"), "{stdout}");
     assert!(stdout.contains("enabled_module_passes=none"), "{stdout}");
     assert!(stdout.contains("enabled_function_passes=none"), "{stdout}");
     assert!(stdout.contains("enabled_global_passes=none"), "{stdout}");
     assert!(stdout.contains("no changes"), "{stdout}");
+
+    let oz = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-Oz")
+        .arg("check")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac -Oz check --emit-opt-report");
+
+    assert!(
+        oz.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&oz.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&oz.stdout);
+    assert!(stdout.contains("policy level=Oz"), "{stdout}");
+    assert!(stdout.contains("prefer_size=true"), "{stdout}");
+    assert!(stdout.contains("llvm_codegen=less"), "{stdout}");
 }
 
 #[test]

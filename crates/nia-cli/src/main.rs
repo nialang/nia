@@ -929,7 +929,7 @@ fn print_optimization_report_with(
     print_line(format!(
         "  policy level={} simplify_cfg={} const_fold={} dead_code_elim={} \
          local_copy_prop={} inline={} specialize={} dedup_monomorphized_instances={} \
-         prefer_size={}",
+         prefer_size={} llvm_codegen={}",
         optimization_level_name(policy.level),
         optimization_depth_name(policy.simplify_cfg),
         optimization_depth_name(policy.const_fold),
@@ -938,7 +938,8 @@ fn print_optimization_report_with(
         inline_threshold_name(policy.inline_threshold),
         specialization_policy_name(policy.specialize_generics),
         policy.dedup_monomorphized_instances,
-        policy.prefer_size
+        policy.prefer_size,
+        nia_codegen_llvm::llvm_codegen_optimization_level(policy.level).name()
     ));
     print_line(format!(
         "  enabled_module_passes={}",
