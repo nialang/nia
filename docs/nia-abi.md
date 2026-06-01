@@ -656,7 +656,9 @@ loads, and stores must use ABI field identity and physical layout metadata.
 
 For zero-sized values, lowering may omit storage and runtime operands. Omission
 must not remove source-level checks, field identity, type identity, or evaluation
-order that the language requires.
+order that the language requires. If a zero-sized aggregate literal contains
+field or element initializers with side effects, those effects must still be
+emitted even though the aggregate itself has no runtime representation.
 
 ## 22. ABI Invariants
 
