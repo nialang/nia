@@ -874,8 +874,8 @@ fn main() i32 {
 #[test]
 fn o2_removes_unused_private_functions() {
     let source = r#"
-fn used() i32 {
-    1
+fn used(value: i32) i32 {
+    value
 }
 
 fn unused() i32 {
@@ -887,7 +887,7 @@ pub fn exported() i32 {
 }
 
 fn main() i32 {
-    used()
+    used(1)
 }
 "#;
     let lowering = lower_source_with_body_mutation_and_optimization(
@@ -940,12 +940,12 @@ fn main() i32 {
 #[test]
 fn o2_preserves_transitively_used_private_functions() {
     let source = r#"
-fn leaf() i32 {
-    1
+fn leaf(value: i32) i32 {
+    value
 }
 
 fn middle() i32 {
-    leaf()
+    leaf(1)
 }
 
 fn unused() i32 {
@@ -1155,6 +1155,126 @@ fn main() i32 {
             .function_instances
             .iter()
             .any(|instance| instance.name == "id")
+    );
+}
+
+#[test]
+fn o1_inlines_constant_leaf_function_calls() {
+    let source = r#"
+fn answer() i32 {
+    42
+}
+
+fn main() i32 {
+    answer()
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::Integer(ref text) if text == "42"));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-constant-functions",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o0_preserves_constant_leaf_function_calls() {
+    let source = r#"
+fn answer() i32 {
+    42
+}
+
+fn main() i32 {
+    answer()
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::Call { .. }));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-constant-functions",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o1_inlines_constant_leaf_function_instance_calls() {
+    let source = r#"
+fn one[T]() i32 {
+    1
+}
+
+fn main() i32 {
+    one[i32]()
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::Integer(ref text) if text == "1"));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-constant-functions",
+                    is_instance: true,
+                    type_arg_count: 1,
+                    ..
+                }
+            ))
     );
 }
 
