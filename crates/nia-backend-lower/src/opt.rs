@@ -41,6 +41,7 @@ enum BackendOptPass {
     RemoveNoopLocalStores,
     RemovePureExprOps,
     PropagateLocalCopies,
+    PropagateLocalConstants,
     RemoveOverwrittenLocalStores,
     RemoveNeverReadLocalStores,
     RemoveUnusedLocalBindings,
@@ -60,6 +61,7 @@ impl BackendOptPass {
             Self::RemoveNoopLocalStores => "remove-noop-local-stores",
             Self::RemovePureExprOps => "remove-pure-expr-ops",
             Self::PropagateLocalCopies => "propagate-local-copies",
+            Self::PropagateLocalConstants => "propagate-local-constants",
             Self::RemoveOverwrittenLocalStores => "remove-overwritten-local-stores",
             Self::RemoveNeverReadLocalStores => "remove-never-read-local-stores",
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
@@ -79,6 +81,7 @@ impl BackendOptPass {
             Self::RemoveNoopLocalStores => remove_noop_local_stores(&mut body.blocks),
             Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
             Self::PropagateLocalCopies => propagate_local_copies(body),
+            Self::PropagateLocalConstants => propagate_local_constants(body),
             Self::RemoveOverwrittenLocalStores => remove_overwritten_local_stores(&mut body.blocks),
             Self::RemoveNeverReadLocalStores => remove_never_read_local_stores(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
@@ -101,6 +104,11 @@ impl BackendOptPass {
                 at_least(policy.local_copy_prop, OptimizationDepth::Full)
                     || (policy.prefer_size
                         && at_least(policy.local_copy_prop, OptimizationDepth::Cheap))
+            }
+            Self::PropagateLocalConstants => {
+                at_least(policy.const_fold, OptimizationDepth::Aggressive)
+                    && at_least(policy.local_copy_prop, OptimizationDepth::Aggressive)
+                    && !policy.prefer_size
             }
             Self::RemoveOverwrittenLocalStores
             | Self::RemoveNeverReadLocalStores
@@ -155,6 +163,7 @@ const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::PropagateLocalCopies,
+    BackendOptPass::PropagateLocalConstants,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
@@ -199,6 +208,25 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::PropagateLocalCopies,
+    BackendOptPass::RemoveOverwrittenLocalStores,
+    BackendOptPass::RemoveNeverReadLocalStores,
+    BackendOptPass::RemoveUnusedLocalBindings,
+    BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::FoldConstantSwitches,
+    BackendOptPass::SimplifyTrivialBranches,
+    BackendOptPass::SimplifySameTargetSwitches,
+    BackendOptPass::MergeEmptyJumpBlocks,
+    BackendOptPass::RemoveUnreachableBlocks,
+    BackendOptPass::OptimizeDeferBodies,
+];
+
+#[cfg(test)]
+const O3_PASSES: &[BackendOptPass] = &[
+    BackendOptPass::SimplifySameTypeCasts,
+    BackendOptPass::RemoveNoopLocalStores,
+    BackendOptPass::RemovePureExprOps,
+    BackendOptPass::PropagateLocalCopies,
+    BackendOptPass::PropagateLocalConstants,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
@@ -834,6 +862,267 @@ fn resolve_copy_source(local_id: LocalId, copies: &HashMap<LocalId, LocalId>) ->
         current = next;
     }
     current
+}
+
+fn propagate_local_constants(body: &mut FunctionBody) -> bool {
+    let unstable_locals = collect_place_locals_in_body(body);
+    let cfg = FunctionCfg::new(&body.blocks);
+    let mut changed = false;
+    let mut input_constants = HashMap::<FunctionBlockId, HashMap<LocalId, FunctionExpr>>::new();
+    let mut stack = vec![body.entry];
+    let mut visited = HashSet::new();
+    while let Some(block_id) = stack.pop() {
+        if !visited.insert(block_id) {
+            continue;
+        }
+        let Some(index) = cfg.block(block_id) else {
+            continue;
+        };
+        let mut constants = input_constants.remove(&block_id).unwrap_or_default();
+        changed |= propagate_local_constants_in_block(
+            &mut body.blocks[index],
+            &unstable_locals,
+            &mut constants,
+        );
+        for successor in cfg.referenced_blocks(&body.blocks[index].terminator) {
+            let preds = cfg.predecessors(successor);
+            if preds.len() == 1 && preds[0] == block_id {
+                input_constants.insert(successor, constants.clone());
+            }
+            stack.push(successor);
+        }
+    }
+    changed
+}
+
+fn propagate_local_constants_in_block(
+    block: &mut FunctionBlock,
+    unstable_locals: &HashSet<LocalId>,
+    constants: &mut HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    let mut changed = false;
+    for op in &mut block.ops {
+        match op {
+            FunctionOp::Binding(binding) => {
+                if let Some(value) = &mut binding.value {
+                    changed |= rewrite_local_constants_in_expr(value, constants);
+                }
+                constants.remove(&binding.local_id);
+                if !unstable_locals.contains(&binding.local_id)
+                    && let Some(value) = &binding.value
+                    && let Some(value) = local_constant_value(value)
+                {
+                    constants.insert(binding.local_id, value);
+                }
+            }
+            FunctionOp::StoreLocal {
+                local_id, value, ..
+            } => {
+                changed |= rewrite_local_constants_in_expr(value, constants);
+                constants.remove(local_id);
+            }
+            FunctionOp::Expr(expr) => {
+                changed |= rewrite_local_constants_in_expr(expr, constants);
+            }
+            FunctionOp::Defer(_) => {
+                constants.clear();
+            }
+        }
+    }
+    changed |= rewrite_local_constants_in_terminator(&mut block.terminator, constants);
+    changed
+}
+
+fn local_constant_value(expr: &FunctionExpr) -> Option<FunctionExpr> {
+    match expr.kind {
+        FunctionExprKind::Integer(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::EnumVariant(_) => Some(expr.clone()),
+        _ => None,
+    }
+}
+
+fn rewrite_local_constants_in_terminator(
+    terminator: &mut FunctionTerminator,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    match terminator {
+        FunctionTerminator::If { cond, .. } => rewrite_local_constants_in_expr(cond, constants),
+        FunctionTerminator::Switch { target, arms, .. } => {
+            let mut changed = rewrite_local_constants_in_expr(target, constants);
+            for arm in arms {
+                changed |= rewrite_local_constants_in_expr(&mut arm.pattern, constants);
+            }
+            changed
+        }
+        FunctionTerminator::Loop { header, .. } => match header {
+            FunctionForHeader::Condition(cond) => rewrite_local_constants_in_expr(cond, constants),
+            FunctionForHeader::CStyle { cond } => cond
+                .as_deref_mut()
+                .is_some_and(|cond| rewrite_local_constants_in_expr(cond, constants)),
+            FunctionForHeader::Infinite => false,
+        },
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
+            .as_mut()
+            .is_some_and(|value| rewrite_local_constants_in_expr(value, constants)),
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. } => false,
+    }
+}
+
+fn rewrite_local_constants_in_expr(
+    expr: &mut FunctionExpr,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    match &mut expr.kind {
+        FunctionExprKind::Local(local_id) => {
+            let Some(value) = constants.get(local_id) else {
+                return false;
+            };
+            let mut value = value.clone();
+            value.span = expr.span;
+            *expr = value;
+            true
+        }
+        FunctionExprKind::Range(range) => rewrite_local_constants_in_range(range, constants),
+        FunctionExprKind::InlineAsm(asm) => rewrite_local_constants_in_inline_asm(asm, constants),
+        FunctionExprKind::CStringPointer { array, .. } => {
+            rewrite_local_constants_in_expr(array, constants)
+        }
+        FunctionExprKind::ArrayLiteral { elems } => {
+            rewrite_local_constants_in_array_elements(elems, constants)
+        }
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            let mut changed = false;
+            for field in fields {
+                changed |= rewrite_local_constants_in_expr(&mut field.value, constants);
+            }
+            changed
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            rewrite_local_constants_in_expr(&mut field.value, constants)
+        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr, .. }
+        | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+            rewrite_local_constants_in_expr(expr, constants)
+        }
+        FunctionExprKind::AddrOf(_) => false,
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            rewrite_local_constants_in_expr(lhs, constants)
+                | rewrite_local_constants_in_expr(rhs, constants)
+        }
+        FunctionExprKind::Assign { rhs, .. } => rewrite_local_constants_in_expr(rhs, constants),
+        FunctionExprKind::Call { callee, args } => {
+            let mut changed = rewrite_local_constants_in_callee(callee, constants);
+            for arg in args {
+                changed |= rewrite_local_constants_in_expr(arg, constants);
+            }
+            changed
+        }
+        FunctionExprKind::Field { lhs, .. } => rewrite_local_constants_in_expr(lhs, constants),
+        FunctionExprKind::Index { lhs, index } => {
+            rewrite_local_constants_in_expr(lhs, constants)
+                | rewrite_local_constants_in_expr(index, constants)
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            rewrite_local_constants_in_expr(lhs, constants)
+                | rewrite_local_constants_in_slice_range(range, constants)
+        }
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => false,
+    }
+}
+
+fn rewrite_local_constants_in_inline_asm(
+    asm: &mut FunctionInlineAsm,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    let mut changed = false;
+    for input in &mut asm.inputs {
+        changed |= rewrite_local_constants_in_expr(&mut input.value, constants);
+    }
+    changed
+}
+
+fn rewrite_local_constants_in_array_elements(
+    elems: &mut FunctionArrayElements,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    match elems {
+        FunctionArrayElements::List(elems) => {
+            let mut changed = false;
+            for elem in elems {
+                changed |= rewrite_local_constants_in_expr(elem, constants);
+            }
+            changed
+        }
+        FunctionArrayElements::Repeat { value, .. } => {
+            rewrite_local_constants_in_expr(value, constants)
+        }
+    }
+}
+
+fn rewrite_local_constants_in_callee(
+    callee: &mut FunctionCallee,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    match callee {
+        FunctionCallee::Method { receiver, .. }
+        | FunctionCallee::TraitMethod { receiver, .. }
+        | FunctionCallee::DynamicTraitMethod { receiver, .. }
+        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::FunctionPointer(receiver) => {
+            rewrite_local_constants_in_expr(receiver, constants)
+        }
+        FunctionCallee::Function(_)
+        | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::BuiltinOperator(_) => false,
+    }
+}
+
+fn rewrite_local_constants_in_slice_range(
+    range: &mut FunctionSliceRange,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    let mut changed = false;
+    if let Some(start) = &mut range.start {
+        changed |= rewrite_local_constants_in_expr(start, constants);
+    }
+    if let Some(end) = &mut range.end {
+        changed |= rewrite_local_constants_in_expr(end, constants);
+    }
+    changed
+}
+
+fn rewrite_local_constants_in_range(
+    range: &mut FunctionRange,
+    constants: &HashMap<LocalId, FunctionExpr>,
+) -> bool {
+    let mut changed = false;
+    if let Some(start) = &mut range.start {
+        changed |= rewrite_local_constants_in_expr(start, constants);
+    }
+    if let Some(end) = &mut range.end {
+        changed |= rewrite_local_constants_in_expr(end, constants);
+    }
+    changed
 }
 
 fn collect_place_locals_in_body(body: &FunctionBody) -> HashSet<LocalId> {
@@ -2129,7 +2418,6 @@ mod tests {
     fn o2_family_pipeline_starts_from_o1_cleanup_passes() {
         for level in [
             NiaOptimizationLevel::O2,
-            NiaOptimizationLevel::O3,
             NiaOptimizationLevel::Os,
             NiaOptimizationLevel::Oz,
         ] {
@@ -2150,6 +2438,18 @@ mod tests {
                     .contains(&BackendOptPass::RemoveUnusedLocalBindings)
             );
         }
+    }
+
+    #[test]
+    fn o3_pipeline_adds_aggressive_constant_propagation() {
+        let pipeline = BackendOptPipeline::for_policy(&NiaOptimizationLevel::O3.policy());
+
+        assert_eq!(pipeline.passes.as_slice(), O3_PASSES);
+        assert!(
+            pipeline
+                .passes
+                .contains(&BackendOptPass::PropagateLocalConstants)
+        );
     }
 
     #[test]
@@ -2309,6 +2609,34 @@ mod tests {
     }
 
     #[test]
+    fn local_constant_propagation_requires_aggressive_non_size_policy() {
+        for level in [
+            NiaOptimizationLevel::O0,
+            NiaOptimizationLevel::O1,
+            NiaOptimizationLevel::O2,
+            NiaOptimizationLevel::Os,
+            NiaOptimizationLevel::Oz,
+        ] {
+            let pipeline = BackendOptPipeline::for_policy(&level.policy());
+
+            assert!(
+                !pipeline
+                    .passes
+                    .contains(&BackendOptPass::PropagateLocalConstants),
+                "{level:?} unexpectedly enables local constant propagation"
+            );
+        }
+
+        let pipeline = BackendOptPipeline::for_policy(&NiaOptimizationLevel::O3.policy());
+
+        assert!(
+            pipeline
+                .passes
+                .contains(&BackendOptPass::PropagateLocalConstants)
+        );
+    }
+
+    #[test]
     fn propagates_local_copies_within_one_block() {
         let span = Span::default();
         let ty = test_ty();
@@ -2376,6 +2704,116 @@ mod tests {
         };
         assert!(matches!(value.kind, FunctionExprKind::Local(LocalId(0))));
         validate_function_body(&body).expect("copy-propagated body should remain valid");
+    }
+
+    #[test]
+    fn propagates_local_constants_within_one_block() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                local_id: LocalId(0),
+                name: "value".to_string(),
+                ty,
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("42".to_string()),
+                }),
+                is_const: false,
+            })],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "value".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(propagate_local_constants(&mut body));
+
+        let FunctionTerminator::Tail {
+            value: Some(value), ..
+        } = &body.blocks[0].terminator
+        else {
+            panic!("expected tail value");
+        };
+        assert!(matches!(
+            &value.kind,
+            FunctionExprKind::Integer(value) if value == "42"
+        ));
+        validate_function_body(&body).expect("constant-propagated body should remain valid");
+    }
+
+    #[test]
+    fn does_not_propagate_constants_for_locals_used_as_places() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(0),
+                    name: "value".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    }),
+                    is_const: false,
+                }),
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(0),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("2".to_string()),
+                    },
+                    span,
+                },
+            ],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "value".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(!propagate_local_constants(&mut body));
+
+        let FunctionTerminator::Tail {
+            value: Some(value), ..
+        } = &body.blocks[0].terminator
+        else {
+            panic!("expected tail value");
+        };
+        assert!(matches!(value.kind, FunctionExprKind::Local(LocalId(0))));
+        validate_function_body(&body).expect("unpropagated body should remain valid");
     }
 
     #[test]

@@ -927,6 +927,78 @@ fn main() i32 {
 }
 
 #[test]
+fn o3_propagates_backend_local_constants() {
+    let source = r#"
+fn main() i32 {
+    var value = 42;
+    value
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+    let value = first_terminal_value(body);
+
+    assert!(matches!(
+        &value.kind,
+        FunctionExprKind::Integer(value) if value == "42"
+    ));
+    assert!(body.locals.iter().all(|local| local.name != "value"));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| change.pass == "propagate-local-constants")
+    );
+}
+
+#[test]
+fn o2_preserves_backend_local_constants() {
+    let source = r#"
+fn main() i32 {
+    var value = 42;
+    value
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+    let value_id = body
+        .locals
+        .iter()
+        .find(|local| local.name == "value")
+        .expect("value local")
+        .id;
+    let value = first_terminal_value(body);
+
+    assert!(matches!(value.kind, FunctionExprKind::Local(id) if id == value_id));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| change.pass != "propagate-local-constants")
+    );
+}
+
+#[test]
 fn o2_folds_constant_backend_switches() {
     let source = r#"
 fn main() i32 {
