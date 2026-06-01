@@ -125,7 +125,9 @@ Current Nia-owned optimization consumers:
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,
   pointer, slice, and builtin place-method lowering can ask the same solver
-  question many times while producing identical backend IR.
+  question many times while producing identical backend IR. Generic function
+  instance discovery keeps a queued-instance set beside its FIFO work queue so
+  repeated references do not rescan pending work or rebuild mangled symbols.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.
