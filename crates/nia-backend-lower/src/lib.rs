@@ -25,7 +25,7 @@ use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
 use nia_monomorphize::Monomorphization;
-use nia_opt::OptimizationPolicy;
+use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_span::Span;
 use nia_trait_solve::TraitResolution;
 use nia_ty::TyKind;
@@ -43,7 +43,9 @@ pub struct BackendLowering {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BackendOptimizationReport {
+    pub enabled_module_passes: Vec<&'static str>,
     pub enabled_function_passes: Vec<&'static str>,
+    pub enabled_global_passes: Vec<&'static str>,
     pub changed_passes: Vec<BackendOptimizationChange>,
 }
 
@@ -92,7 +94,9 @@ pub fn lower_backend_program(
 ) -> BackendLowering {
     let mut diagnostics = Vec::new();
     let mut optimization_report = BackendOptimizationReport {
+        enabled_module_passes: enabled_module_passes(&optimization),
         enabled_function_passes: opt::enabled_function_passes(&optimization),
+        enabled_global_passes: enabled_global_passes(&optimization),
         changed_passes: Vec::new(),
     };
     let lowered_modules = modules
@@ -115,6 +119,33 @@ pub fn lower_backend_program(
         optimization_report,
         diagnostics,
     }
+}
+
+fn enabled_module_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
+    let mut passes = Vec::new();
+    if !matches!(optimization.inline_threshold, InlineThreshold::Never) {
+        passes.push(module_inline::INLINE_LEAF_FUNCTIONS_PASS);
+    }
+    if optimization
+        .dead_code_elim
+        .at_least(OptimizationDepth::Full)
+    {
+        passes.push(module_dce::REMOVE_UNUSED_FUNCTIONS_PASS);
+        passes.push(module_dce::REMOVE_UNUSED_FUNCTION_INSTANCES_PASS);
+    }
+    passes
+}
+
+fn enabled_global_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
+    if static_init_simplification_enabled(optimization) {
+        vec![items::SIMPLIFY_STATIC_INIT_PASS]
+    } else {
+        Vec::new()
+    }
+}
+
+pub(crate) fn static_init_simplification_enabled(optimization: &OptimizationPolicy) -> bool {
+    optimization.const_fold.at_least(OptimizationDepth::Full) || optimization.prefer_size
 }
 
 pub(crate) struct ModuleLowerer<'a> {

@@ -11,6 +11,8 @@ use nia_function_ir::{
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_opt::{InlineThreshold, SpecializationPolicy};
 
+pub(crate) const INLINE_LEAF_FUNCTIONS_PASS: &str = "inline-leaf-functions";
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FunctionInstanceKey {
     def_id: GlobalDefId,
@@ -416,7 +418,7 @@ impl<'a> ModuleLowerer<'a> {
             .push(BackendOptimizationChange::Function {
                 module_id: self.input.module_id,
                 function: candidate.function(),
-                pass: "inline-leaf-functions",
+                pass: INLINE_LEAF_FUNCTIONS_PASS,
                 is_instance: candidate.is_instance(),
                 type_arg_count: candidate.type_arg_count(),
             });

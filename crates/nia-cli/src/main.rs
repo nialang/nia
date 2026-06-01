@@ -940,13 +940,17 @@ fn print_optimization_report_with(
         policy.dedup_monomorphized_instances,
         policy.prefer_size
     ));
-    let enabled_function_passes = if report.enabled_function_passes.is_empty() {
-        "none".to_string()
-    } else {
-        report.enabled_function_passes.join(",")
-    };
     print_line(format!(
-        "  enabled_function_passes={enabled_function_passes}"
+        "  enabled_module_passes={}",
+        enabled_passes_name(&report.enabled_module_passes)
+    ));
+    print_line(format!(
+        "  enabled_function_passes={}",
+        enabled_passes_name(&report.enabled_function_passes)
+    ));
+    print_line(format!(
+        "  enabled_global_passes={}",
+        enabled_passes_name(&report.enabled_global_passes)
     ));
     if report.changed_passes.is_empty() {
         print_line("  no changes".to_string());
@@ -974,6 +978,14 @@ fn print_optimization_report_with(
                 ));
             }
         }
+    }
+}
+
+fn enabled_passes_name(passes: &[&'static str]) -> String {
+    if passes.is_empty() {
+        "none".to_string()
+    } else {
+        passes.join(",")
     }
 }
 

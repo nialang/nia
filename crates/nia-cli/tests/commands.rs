@@ -259,7 +259,14 @@ fn main() i32 {
     assert!(stdout.contains("inline=normal"), "{stdout}");
     assert!(stdout.contains("specialize=normal"), "{stdout}");
     assert!(stdout.contains("prefer_size=false"), "{stdout}");
+    assert!(stdout.contains("enabled_module_passes="), "{stdout}");
+    assert!(stdout.contains("inline-leaf-functions"), "{stdout}");
+    assert!(stdout.contains("remove-unused-functions"), "{stdout}");
     assert!(stdout.contains("enabled_function_passes="), "{stdout}");
+    assert!(
+        stdout.contains("enabled_global_passes=simplify-static-init"),
+        "{stdout}"
+    );
     assert!(stdout.contains("remove-unused-local-bindings"), "{stdout}");
     assert!(stdout.contains("global simplify-static-init"), "{stdout}");
 
@@ -280,7 +287,9 @@ fn main() i32 {
     assert!(stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stdout.contains("policy level=O0"), "{stdout}");
     assert!(stdout.contains("inline=never"), "{stdout}");
+    assert!(stdout.contains("enabled_module_passes=none"), "{stdout}");
     assert!(stdout.contains("enabled_function_passes=none"), "{stdout}");
+    assert!(stdout.contains("enabled_global_passes=none"), "{stdout}");
     assert!(stdout.contains("no changes"), "{stdout}");
 }
 
@@ -354,6 +363,7 @@ fn main() i32 {
     assert!(stdout.contains("BackendProgram"), "{stdout}");
     assert!(!stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
     assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
 }
@@ -430,6 +440,7 @@ fn main() i32 {
     assert!(stderr.contains("backend optimization report:"), "{stderr}");
     assert!(stderr.contains("policy level=O1"), "{stderr}");
     assert!(stderr.contains("inline=small"), "{stderr}");
+    assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
     assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
 }
