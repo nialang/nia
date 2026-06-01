@@ -43,6 +43,7 @@ pub struct BackendLowering {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BackendOptimizationReport {
+    pub enabled_function_passes: Vec<&'static str>,
     pub changed_passes: Vec<BackendOptimizationChange>,
 }
 
@@ -90,7 +91,10 @@ pub fn lower_backend_program(
     optimization: OptimizationPolicy,
 ) -> BackendLowering {
     let mut diagnostics = Vec::new();
-    let mut optimization_report = BackendOptimizationReport::default();
+    let mut optimization_report = BackendOptimizationReport {
+        enabled_function_passes: opt::enabled_function_passes(&optimization),
+        changed_passes: Vec::new(),
+    };
     let lowered_modules = modules
         .iter()
         .map(|input| {
