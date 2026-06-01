@@ -161,6 +161,8 @@ pub(crate) struct ModuleLowerer<'a> {
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
+    type_substitutions: Vec<HashMap<String, InternedTyId>>,
+    type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
     def_names: HashMap<GlobalDefId, String>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
@@ -176,18 +178,15 @@ pub(crate) struct BuiltinTraitGoalKey {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TypeInstantiationKey {
     ty: InternedTyId,
-    substitutions: Vec<(String, InternedTyId)>,
+    substitutions: TypeSubstitutionId,
 }
 
-impl TypeInstantiationKey {
-    pub(crate) fn new(ty: InternedTyId, substitutions: &HashMap<String, InternedTyId>) -> Self {
-        let mut substitutions = substitutions
-            .iter()
-            .map(|(name, ty)| (name.clone(), *ty))
-            .collect::<Vec<_>>();
-        substitutions.sort_by(|left, right| left.0.cmp(&right.0));
-        Self { ty, substitutions }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct TypeSubstitutionId(pub(crate) usize);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct TypeSubstitutionKey {
+    substitutions: Vec<(String, InternedTyId)>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -213,6 +212,8 @@ impl<'a> ModuleLowerer<'a> {
             ),
             builtin_trait_resolutions: HashMap::new(),
             type_instantiations: HashMap::new(),
+            type_substitutions: Vec::new(),
+            type_substitution_ids: HashMap::new(),
             effective_generics: HashMap::new(),
             def_names: HashMap::new(),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
