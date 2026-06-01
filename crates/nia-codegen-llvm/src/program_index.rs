@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_backend_ir::{BackendFunctionInstance, BackendProgram, BackendStructInstanceKey};
+use nia_backend_ir::{
+    BackendFunctionInstance, BackendProgram, BackendStructInstanceKey, BackendTraitObjectVtable,
+};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
 
@@ -19,6 +21,7 @@ pub(super) struct ProgramIndex<'a> {
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), &'a BackendFunctionInstance>,
     pub(super) function_instances_by_def: HashMap<GlobalDefId, Vec<&'a BackendFunctionInstance>>,
+    trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<&'a BackendTraitObjectVtable>>,
     type_layouts: HashMap<InternedTyId, &'a TypeLayout>,
     struct_layouts: HashMap<GlobalDefId, &'a StructLayout>,
     union_layouts: HashMap<GlobalDefId, &'a StructLayout>,
@@ -48,6 +51,7 @@ impl<'a> ProgramIndex<'a> {
             functions: HashMap::new(),
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
+            trait_object_vtables_by_object_ty: HashMap::new(),
             type_layouts: HashMap::new(),
             struct_layouts: HashMap::new(),
             union_layouts: HashMap::new(),
@@ -126,6 +130,13 @@ impl<'a> ProgramIndex<'a> {
                     .or_default()
                     .push(item);
             }
+            for vtable in &module.trait_object_vtables {
+                index
+                    .trait_object_vtables_by_object_ty
+                    .entry(vtable.key.object_ty)
+                    .or_default()
+                    .push(vtable);
+            }
         }
         index
     }
@@ -164,5 +175,16 @@ impl<'a> ProgramIndex<'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
+    }
+
+    pub(super) fn trait_object_vtables_for_object_ty(
+        &self,
+        object_ty: InternedTyId,
+    ) -> impl Iterator<Item = &'a BackendTraitObjectVtable> {
+        self.trait_object_vtables_by_object_ty
+            .get(&object_ty)
+            .into_iter()
+            .flatten()
+            .copied()
     }
 }
