@@ -719,7 +719,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
-        if let Some(ty) = self.struct_instances.get(&(def_id, args.to_vec())).copied() {
+        if let Some(ty) = self
+            .struct_instances
+            .get(&def_id)
+            .and_then(|instances| instances.get(args))
+            .copied()
+        {
             return Some(ty);
         }
         self.struct_instances_by_def
@@ -750,7 +755,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
-        if let Some(ty) = self.union_instances.get(&(def_id, args.to_vec())).copied() {
+        if let Some(ty) = self
+            .union_instances
+            .get(&def_id)
+            .and_then(|instances| instances.get(args))
+            .copied()
+        {
             return Some(ty);
         }
         self.union_instances_by_def
@@ -805,7 +815,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     ) -> Option<FunctionValue<'ctx>> {
         if let Some(value) = self
             .function_instances
-            .get(&(def_id, self.source.id, args.to_vec()))
+            .get(&(def_id, self.source.id))
+            .and_then(|instances| instances.get(args))
             .copied()
         {
             return Some(value);
