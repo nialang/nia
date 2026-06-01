@@ -631,6 +631,11 @@ constant merging, static initializer simplification, or vtable data
 deduplication only when the resulting program still exposes the same ABI
 surface defined by this document.
 
+Static initializer simplification is representation-preserving. For example, a
+repeated zero array may be emitted as an equivalent backend `zeroinitializer`,
+but the global's type, layout, addressability, and element values remain the same
+as the explicit repeated initializer.
+
 ## 20. Inline Assembly Boundary
 
 Inline assembly observes backend-level values and machine registers.

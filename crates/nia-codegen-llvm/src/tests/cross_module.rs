@@ -17,10 +17,11 @@ const ratio: f64 = 1.5;
 const letter: char = 'A';
 const xs: [3]i32 = [1, 2, 3];
 const ys: [4]u8 = [b'z'; 4];
+const zeroes: [8]i32 = [0; 8];
 const pair: Pair = { x: 10, y: 20 };
 
 fn main() i32 {
-    pair.x + xs[1]
+    pair.x + xs[1] + zeroes[0]
 }
 "#,
     )
@@ -36,6 +37,10 @@ fn main() i32 {
     assert!(ir.contains("i32 65"));
     assert!(ir.contains("[3 x i32] [i32 1, i32 2, i32 3]"));
     assert!(ir.contains("[4 x i8] c\"zzzz\"") || ir.contains("[4 x i8] [i8 122"));
+    assert!(
+        ir.contains("__zeroes = constant [8 x i32] zeroinitializer"),
+        "{ir}"
+    );
     assert!(ir.contains("%nia__m0__d0__Pair { i32 10, i32 20 }"));
 }
 
