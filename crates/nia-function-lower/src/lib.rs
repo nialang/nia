@@ -74,6 +74,9 @@ impl FunctionLowerer {
     }
 
     fn lower_body(&mut self, body: &TypedBody) -> FunctionBody {
+        // Function IR keeps one flat local table per function body. Nested
+        // source bodies still have their own scopes and blocks, but their
+        // locals must be visible to validation and later codegen by id.
         self.next_temp_local = self.next_available_local(body);
         let root_scope = self.alloc_scope(None, body.span);
         let entry = self.alloc_block();
