@@ -6,7 +6,7 @@ mod types;
 
 pub(crate) use types::{AbiParam, AbiReturn};
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
 
 use crate::function_codegen::FunctionCodegen;
 use crate::output::LlvmCodegenOptions;
@@ -45,6 +45,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) function_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, FunctionValue<'ctx>)>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
+    layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
 }
 
@@ -73,6 +74,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
             globals: HashMap::new(),
+            layouts: RefCell::new(HashMap::new()),
             trait_object_vtables: HashMap::new(),
         })
     }
@@ -140,6 +142,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
+        if let Some(layout) = self.layouts.borrow().get(&ty) {
+            return layout.clone();
+        }
+        let layout = self.compute_layout_of(ty);
+        self.layouts.borrow_mut().insert(ty, layout.clone());
+        layout
+    }
+
+    fn compute_layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
         let owner = self.program.module(ty.interner_id)?;
         if let Some(layout) = self.program.type_layout(ty) {
             return Some(layout.clone());
