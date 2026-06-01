@@ -372,6 +372,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         value: Option<&FunctionExpr>,
     ) -> Result<(), Diagnostic> {
         if let Some(value) = value {
+            if self.emit_indirect_aggregate_literal_return(body, block, span, value)? {
+                return Ok(());
+            }
             let value = self.emit_expr(value)?;
             self.emit_function_tail_defers(body, block, span)?;
             if self.is_never(self.function.return_type) {
@@ -423,6 +426,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             self.builder
                 .build_return(None)
                 .map_err(|_| self.error(span, "failed to build void return"))?;
+            return Ok(());
+        }
+        if self.emit_indirect_aggregate_literal_return(body, block, span, value)? {
             return Ok(());
         }
         let value = self.emit_expr(value)?;
@@ -539,20 +545,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ptr: nia_llvm::values::PointerValue<'ctx>,
         value: &FunctionExpr,
     ) -> Result<(), Diagnostic> {
-        match &value.kind {
-            FunctionExprKind::ArrayLiteral { elems } => {
-                self.emit_array_literal_into(value, elems, ptr)?;
-                return Ok(());
-            }
-            FunctionExprKind::StructLiteral { fields, .. } => {
-                self.emit_struct_literal_into(value, fields, ptr)?;
-                return Ok(());
-            }
-            FunctionExprKind::UnionLiteral { field, .. } => {
-                self.emit_union_literal_into(value, field, ptr)?;
-                return Ok(());
-            }
-            _ => {}
+        if self.emit_aggregate_literal_into(ptr, value)? {
+            return Ok(());
         }
         let value = self.emit_expr(value)?;
         self.builder
@@ -567,17 +561,62 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         place: &nia_function_ir::FunctionPlace,
         value: &FunctionExpr,
     ) -> Result<bool, Diagnostic> {
-        if !matches!(
-            value.kind,
-            FunctionExprKind::ArrayLiteral { .. }
-                | FunctionExprKind::StructLiteral { .. }
-                | FunctionExprKind::UnionLiteral { .. }
-        ) {
+        if !is_aggregate_literal(value) {
             return Ok(false);
         }
         let ptr = self.emit_typed_place_addr(place)?;
         self.emit_store_value(span, ptr, value)?;
         Ok(true)
+    }
+
+    fn emit_indirect_aggregate_literal_return(
+        &mut self,
+        body: &FunctionBody,
+        block: FunctionBlockId,
+        span: Span,
+        value: &FunctionExpr,
+    ) -> Result<bool, Diagnostic> {
+        if self.out_ptr.is_none()
+            || self.is_never(self.function.return_type)
+            || !is_aggregate_literal(value)
+        {
+            return Ok(false);
+        }
+        let ty = self.module.llvm_basic_type(value.ty, value.span)?;
+        let return_copy = self
+            .builder
+            .build_alloca(ty, "return.copy")
+            .map_err(|_| self.error(span, "failed to allocate aggregate return"))?;
+        self.emit_aggregate_literal_into(return_copy, value)?;
+        self.emit_function_tail_defers(body, block, span)?;
+        let value = self
+            .builder
+            .build_load(ty, return_copy, "return.value")
+            .map_err(|_| self.error(span, "failed to load aggregate return"))?;
+        self.emit_return_value(span, value)?;
+        Ok(true)
+    }
+
+    fn emit_aggregate_literal_into(
+        &mut self,
+        ptr: nia_llvm::values::PointerValue<'ctx>,
+        value: &FunctionExpr,
+    ) -> Result<bool, Diagnostic> {
+        match &value.kind {
+            FunctionExprKind::ArrayLiteral { elems } => {
+                self.emit_array_literal_into(value, elems, ptr)?;
+                Ok(true)
+            }
+            FunctionExprKind::StructLiteral { fields, .. } => {
+                self.emit_struct_literal_into(value, fields, ptr)?;
+                Ok(true)
+            }
+            FunctionExprKind::UnionLiteral { field, .. } => {
+                self.emit_union_literal_into(value, field, ptr)?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
     }
 
     pub(super) fn emit_effect_expr(&mut self, expr: &FunctionExpr) -> Result<(), Diagnostic> {
@@ -639,5 +678,14 @@ fn function_ir_diagnostic(error: FunctionIrError) -> Diagnostic {
     Diagnostic::error(
         error.span,
         format!("invalid function IR: {}", error.message),
+    )
+}
+
+fn is_aggregate_literal(value: &FunctionExpr) -> bool {
+    matches!(
+        value.kind,
+        FunctionExprKind::ArrayLiteral { .. }
+            | FunctionExprKind::StructLiteral { .. }
+            | FunctionExprKind::UnionLiteral { .. }
     )
 }
