@@ -122,6 +122,7 @@ pub(crate) struct ModuleLowerer<'a> {
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
+    type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
 }
 
@@ -130,6 +131,23 @@ pub(crate) struct BuiltinTraitGoalKey {
     self_ty: InternedTyId,
     trait_id: nia_ids::BuiltinTrait,
     trait_args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct TypeInstantiationKey {
+    ty: InternedTyId,
+    substitutions: Vec<(String, InternedTyId)>,
+}
+
+impl TypeInstantiationKey {
+    pub(crate) fn new(ty: InternedTyId, substitutions: &HashMap<String, InternedTyId>) -> Self {
+        let mut substitutions = substitutions
+            .iter()
+            .map(|(name, ty)| (name.clone(), *ty))
+            .collect::<Vec<_>>();
+        substitutions.sort_by(|left, right| left.0.cmp(&right.0));
+        Self { ty, substitutions }
+    }
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -154,6 +172,7 @@ impl<'a> ModuleLowerer<'a> {
                 input.layouts.union_instances.keys(),
             ),
             builtin_trait_resolutions: HashMap::new(),
+            type_instantiations: HashMap::new(),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
         }
     }
