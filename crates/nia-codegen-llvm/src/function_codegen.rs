@@ -444,7 +444,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ty: InternedTyId,
         range: &FunctionRange,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(TyKind::Range { bound, .. }) = self.module.ty_kind(ty) else {
+        let Some(TyKind::Range { kind, bound }) = self.module.ty_kind(ty) else {
             return Err(self.error(span, "range expression target type is not a range"));
         };
         let Some(bound) = bound else {
@@ -456,14 +456,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         let mut value = self
             .module
-            .range_type(
-                match self.module.ty_kind(ty) {
-                    Some(TyKind::Range { kind, .. }) => *kind,
-                    _ => unreachable!("range type checked above"),
-                },
-                Some(*bound),
-                span,
-            )?
+            .range_type(*kind, Some(*bound), span)?
             .into_struct_type()?
             .get_undef();
         let mut index = 0u32;

@@ -31,8 +31,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             | FunctionExprKind::Field { .. }
             | FunctionExprKind::Index { .. } => self.emit_place_addr(expr.span, expr),
             FunctionExprKind::CStringPointer { array, .. } => self
-                .emit_c_string_pointer(expr.span, array)
-                .map(|value| value.into_pointer_value().expect("C string pointer value")),
+                .emit_c_string_pointer(expr.span, array)?
+                .into_pointer_value()
+                .map_err(|_| self.error(expr.span, "C string pointer value is not a pointer")),
             _ => Err(self.error(expr.span, "expression is not a place")),
         }
     }
