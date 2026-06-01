@@ -22,7 +22,7 @@ impl NiaOptimizationLevel {
                 local_copy_prop: OptimizationDepth::Disabled,
                 inline_threshold: InlineThreshold::Never,
                 specialize_generics: SpecializationPolicy::RequiredOnly,
-                dedup_monomorphized_instances: false,
+                dedup_monomorphized_instances: true,
                 prefer_size: false,
             },
             Self::O1 => OptimizationPolicy {
@@ -163,7 +163,7 @@ mod tests {
                     local_copy_prop: OptimizationDepth::Disabled,
                     inline_threshold: InlineThreshold::Never,
                     specialize_generics: SpecializationPolicy::RequiredOnly,
-                    dedup_monomorphized_instances: false,
+                    dedup_monomorphized_instances: true,
                     prefer_size: false,
                 },
             ),

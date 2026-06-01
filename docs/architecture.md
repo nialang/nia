@@ -111,7 +111,10 @@ Current Nia-owned optimization consumers:
   lowering. It pre-indexes instantiations by source definition and caches
   effective generic lists and mangled type symbols during collection so
   repeated generic-instance discovery does not rebuild the same symbol inputs
-  or clone whole definition maps.
+  or clone whole definition maps. The policy keeps monomorphized instance
+  deduplication visible at this boundary; exact-key deduplication is required
+  for symbol uniqueness, while size-oriented levels may later add stronger
+  cross-instance deduplication.
 - `nia-backend-lower` consumes the policy while lowering function bodies into
   backend IR. Backend passes are selected from policy capabilities, not directly
   from the user-facing level. Cheap dead-code elimination enables same-type cast
@@ -524,7 +527,8 @@ source-shaped body IR that currently feeds it.
 ### 10.1 `nia-monomorphize`
 
 Collects concrete generic function and method instances required by the checked
-program. It deduplicates instances and diagnoses recursive generic expansion.
+program. It deduplicates exact instance keys for symbol uniqueness and uses
+recursive-expansion guards to diagnose cycles.
 
 ### 10.2 `nia-mangle`
 
