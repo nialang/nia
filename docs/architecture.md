@@ -179,7 +179,13 @@ Current Nia-owned optimization consumers:
   monomorphized vtable entries. Vtable-driven generic instance discovery scans
   root functions once and then scans only function instances added by the
   previous queue drain, avoiding repeated full traversals of all
-  already-discovered instances.
+  already-discovered instances. Generic type instantiation interns the active
+  substitution map once and keys recursive type-instantiation cache entries by
+  that compact substitution id, avoiding repeated clone-and-sort work while
+  expanding nested generic types. Module-level DCE also builds per-pass indexes
+  from function ids and instance refs to bodies, then walks transitive
+  reachability with queues instead of repeatedly scanning every lowered
+  function for each discovered reference.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.
@@ -190,8 +196,11 @@ Current Nia-owned optimization consumers:
   each query. Exact instance-layout keys are indexed as a fast path, enum
   variants are indexed with their owning enum and ordinal for emission, trait
   object vtables are indexed both by exact object type and by object trait for
-  bounded cross-interner fallback, and structural type-argument matching is
-  retained as a fallback for cross-interner cases.
+  bounded cross-interner fallback, and type-layout lookup is served directly
+  from the index. Structural type-argument matching is retained as a fallback
+  for cross-interner cases. Function-instance declarations derive their LLVM
+  function type directly from the signature helper, so declarations do not need
+  to construct temporary backend function bodies or clone instance bodies.
 - `nia-codegen-llvm` performs local ABI-lowering cleanup while preserving the
   backend IR contract. Aggregate literals stored into locals, returned through
   Nia hidden out pointers, or passed as Nia indirect readonly arguments are
@@ -649,10 +658,14 @@ Emits LLVM IR, objects, and native codegen units from backend IR. It owns:
 
 Backend lowering caches generic type instantiations while expanding function
 instances so repeated uses of the same type under the same substitutions do not
-rebuild the same interned type graph.
+rebuild the same interned type graph. Substitution maps are interned before
+recursive instantiation, so cache keys can carry a compact substitution id
+instead of repeatedly cloning and sorting the same name-to-type map.
 
-LLVM codegen caches module-local layout queries so repeated aggregate ABI and
-field-access decisions do not rescan generic layout instance lists.
+LLVM codegen uses the whole-program index for layout queries so repeated
+aggregate ABI and field-access decisions do not rescan generic layout instance
+lists. Function-instance declarations also reuse the signature type builder
+instead of cloning instance bodies just to discover their LLVM function type.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level. Size-oriented levels (`-Os` and `-Oz`) also remain visible in
