@@ -331,6 +331,110 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_aggregate_call_returns_directly_without_defers() {
+    let root = temp_dir("emits_aggregate_call_returns_directly_without_defers");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn make_pair(a: i32, b: i32) Pair {
+    { a: a, b: b }
+}
+
+fn forward_pair() Pair {
+    make_pair(10, 20)
+}
+
+fn sum_pair(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn main() i32 {
+    sum_pair(forward_pair())
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(!ir.contains("call.out"), "{ir}");
+    assert_substrings_in_order(
+        ir,
+        &[
+            "define void @nia__m0__d4__forward_pair(ptr %0)",
+            "call void @nia__m0__d3__make_pair(ptr %0, i32 10, i32 20)",
+            "ret void",
+        ],
+    );
+}
+
+#[test]
+fn aggregate_call_return_with_defer_keeps_return_store_after_defer() {
+    let root = temp_dir("aggregate_call_return_with_defer_keeps_return_store_after_defer");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(value: i32) i32;
+
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn cleanup(value: i32) void {
+    _ = log(value);
+}
+
+fn make_pair(a: i32, b: i32) Pair {
+    { a: a, b: b }
+}
+
+fn forward_pair() Pair {
+    defer cleanup(1);
+    make_pair(10, 20)
+}
+
+fn sum_pair(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn main() i32 {
+    sum_pair(forward_pair())
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call.out"), "{ir}");
+    assert_substrings_in_order(
+        ir,
+        &[
+            "define void @nia__m0__d6__forward_pair(ptr %0)",
+            "call void @nia__m0__d5__make_pair(ptr %call.out, i32 10, i32 20)",
+            "cleanup(i32 1)",
+            "store %nia__m0__d1__Pair %call.result, ptr %0",
+        ],
+    );
+}
+
+#[test]
 fn emits_unary_cast_float_and_enum_values() {
     let root = temp_dir("emits_unary_cast_float_and_enum_values");
     let main = root.join("main.nia");
