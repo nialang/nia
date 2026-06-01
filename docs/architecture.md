@@ -115,8 +115,10 @@ Current Nia-owned optimization consumers:
   backend IR. Backend passes are selected from policy capabilities, not directly
   from the user-facing level. Cheap dead-code elimination enables same-type cast
   removal, no-op local store removal, and pure discarded expression removal.
-  Cheap constant folding enables constant boolean branch folding, including
-  inside defer bodies. Cheap CFG simplification enables empty jump block merging,
+  Cheap constant folding enables short-circuit logical expression
+  simplification when constant operands make it safe, plus constant boolean
+  branch folding, including inside defer bodies. Cheap CFG simplification
+  enables empty jump block merging,
   same-target branch simplification when the condition is pure, unreachable
   block removal, and the same CFG cleanup inside defer bodies. Full CFG
   simplification additionally folds pure same-target switch terminators to
