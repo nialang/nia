@@ -601,6 +601,35 @@ than directly exposing LLVM's codegen levels. Backend-only instruction selection
 optimizations may vary by target backend, but ABI-visible optimizations must
 still satisfy this section regardless of optimization level.
 
+Optimization levels may change backend IR shape, generated instruction
+sequences, temporary storage, and whether unreachable or redundant runtime work
+is emitted. They must not change:
+
+- type size or alignment for a target;
+- Nia field identity or physical field offsets;
+- C ABI field order or function signatures;
+- Nia function parameter and return classification;
+- hidden out-pointer use for aggregate returns;
+- omitted runtime representation for ZST parameters and returns;
+- static data layout and relocation meaning;
+- normal, generic, method, extern, global, and hosted `main` symbol identity;
+- diagnostics and semantic checks required by earlier phases.
+
+The current `O1` backend cleanup passes are backend-visible only. Removing
+unreachable Function IR blocks, merging empty jump blocks, folding constant
+boolean branches, removing same-type casts, removing no-op local stores, and
+discarding pure value-only expression statements must preserve the ABI metadata
+chosen before backend lowering. These passes may make generated code smaller or
+clearer, but they must not become a second layout, name-mangling, or calling
+convention authority.
+
+Size-oriented levels (`Os` and `Oz`) have an additional constraint: reducing code
+size must not create a new ABI variant. They may prefer deduplication, smaller
+inlining thresholds, less specialization, wrapper/thunk merging, repeated
+constant merging, static initializer simplification, or vtable data
+deduplication only when the resulting program still exposes the same ABI
+surface defined by this document.
+
 ## 20. Inline Assembly Boundary
 
 Inline assembly observes backend-level values and machine registers.

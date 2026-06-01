@@ -73,6 +73,65 @@ threaded through compiler-query, backend lowering, and LLVM codegen even when a
 phase has no optimization pass yet. This keeps future Nia IR passes from
 depending directly on LLVM's smaller codegen-only optimization enum.
 
+### 2.1 Optimization Levels And Policy
+
+Nia optimization levels are user-facing presets. Internally, each level expands
+to a policy matrix with separate decisions for CFG simplification, constant
+folding, dead-code elimination, local copy propagation, inlining,
+specialization, monomorphized instance deduplication, and size preference.
+
+The levels have these architectural meanings:
+
+- `O0` performs only required canonicalization. It should preserve a direct
+  debugging shape and avoid optional backend cleanup.
+- `O1` enables cheap, local, low-risk cleanup. It must not require heavy data
+  flow, cross-function analysis, or optimization loops with unpredictable
+  compile-time cost.
+- `O2` is the normal optimized mode. It may use full CFG cleanup, function-local
+  data-flow analyses, ordinary DCE, normal inlining, aggregate lowering
+  improvements, and monomorphized instance deduplication.
+- `O3` is performance-aggressive. It may spend more compile time on inlining,
+  specialization, cross-function reasoning, and other transforms that can
+  increase code size.
+- `Os` is size-oriented but still permits profitable normal optimization. It
+  should prefer deduplication and keep inlining and specialization conservative
+  when they duplicate code.
+- `Oz` is the most size-constrained mode. It should avoid specialization and
+  inlining unless required or clearly size-reducing, and should maximize
+  deduplication.
+
+This policy split is intentional. LLVM's optimization enum only controls LLVM
+codegen choices. Nia must also make earlier size and performance decisions in
+monomorphization, backend lowering, specialization, and future inlining, where
+LLVM cannot undo duplicated Nia-level work.
+
+Current Nia-owned optimization consumers:
+
+- `nia-backend-lower` consumes the policy while lowering function bodies into
+  backend IR. At `O1` it runs cheap Function IR cleanup: same-type cast removal,
+  no-op local store removal, pure discarded expression removal, constant boolean
+  branch folding, empty jump block merging, unreachable block removal, and the
+  same cleanup inside defer bodies.
+- `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
+  Size-oriented policy remains visible outside LLVM for future Nia-level
+  decisions that affect code size before LLVM emission.
+
+Future Nia-owned optimization consumers should follow the same boundary:
+
+- required normalization belongs in the phase that needs the invariant and must
+  not depend on a user optimization level;
+- optional performance or size transforms must be gated by
+  `OptimizationPolicy`;
+- ABI-visible transforms must be documented in `docs/nia-abi.md`;
+- backend-visible transforms must preserve type layout, parameter and return
+  ABI, symbol identity, static data representation, source-level checks, and
+  evaluation-order guarantees.
+
+O2 and higher should use an explicit backend optimization pipeline rather than
+adding an unstructured list of calls. Each pass should have a stable name,
+documented level boundary, focused tests, and eventually statistics so IR diffs
+can explain why a function changed.
+
 ## 3. Foundation Crates
 
 ### 3.1 `nia-span`
