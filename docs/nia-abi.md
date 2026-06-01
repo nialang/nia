@@ -615,13 +615,14 @@ is emitted. They must not change:
 - normal, generic, method, extern, global, and hosted `main` symbol identity;
 - diagnostics and semantic checks required by earlier phases.
 
-The current `O1` backend cleanup passes are backend-visible only. Removing
+The current backend cleanup passes are backend-visible only. Removing
 unreachable Function IR blocks, merging empty jump blocks, folding constant
-boolean branches, removing same-type casts, removing no-op local stores, and
-discarding pure value-only expression statements must preserve the ABI metadata
-chosen before backend lowering. These passes may make generated code smaller or
-clearer, but they must not become a second layout, name-mangling, or calling
-convention authority.
+boolean branches, removing same-type casts, removing no-op local stores,
+discarding pure value-only expression statements, propagating local copies,
+removing overwritten local stores, removing never-read local stores, and removing
+unused local bindings must preserve the ABI metadata chosen before backend
+lowering. These passes may make generated code smaller or clearer, but they must
+not become a second layout, name-mangling, or calling convention authority.
 
 Size-oriented levels (`Os` and `Oz`) have an additional constraint: reducing code
 size must not create a new ABI variant. They may prefer deduplication, smaller
