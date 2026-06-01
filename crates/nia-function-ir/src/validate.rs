@@ -98,6 +98,7 @@ impl<'a> FunctionIrValidator<'a> {
                     ));
                 }
             }
+            self.validate_scope_parent_chain(scope)?;
         }
         for block in self.blocks {
             self.require_scope(block.scope, block.span, "block scope")?;
@@ -105,6 +106,24 @@ impl<'a> FunctionIrValidator<'a> {
                 self.validate_op(op)?;
             }
             self.validate_terminator(&block.terminator)?;
+        }
+        Ok(())
+    }
+
+    fn validate_scope_parent_chain(&self, scope: &FunctionScope) -> Result<(), FunctionIrError> {
+        let mut seen = HashSet::new();
+        let mut current = Some(scope.id);
+        while let Some(scope_id) = current {
+            if !seen.insert(scope_id) {
+                return Err(FunctionIrError::new(
+                    scope.span,
+                    "scope parent chain contains a cycle",
+                ));
+            }
+            let Some(scope) = self.scopes.iter().find(|scope| scope.id == scope_id) else {
+                return Ok(());
+            };
+            current = scope.parent;
         }
         Ok(())
     }
@@ -394,5 +413,55 @@ impl FunctionTerminator {
             | FunctionTerminator::Return { span, .. }
             | FunctionTerminator::Tail { span, .. } => *span,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_body(scopes: Vec<FunctionScope>) -> FunctionBody {
+        let span = Span::default();
+        let interner = nia_ty::TyInterner::new(nia_ids::ModuleId(0));
+        let ty = interner.primitive(nia_ty::PrimitiveTy::Void);
+        FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes,
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail { value: None, span },
+            }],
+            entry: FunctionBlockId(0),
+            ty,
+        }
+    }
+
+    #[test]
+    fn rejects_scope_parent_cycles() {
+        let body = empty_body(vec![
+            FunctionScope {
+                id: FunctionScopeId(0),
+                parent: Some(FunctionScopeId(1)),
+                span: Span::default(),
+            },
+            FunctionScope {
+                id: FunctionScopeId(1),
+                parent: Some(FunctionScopeId(0)),
+                span: Span::default(),
+            },
+        ]);
+
+        let error = validate_function_body(&body).expect_err("scope cycle should fail");
+
+        assert!(
+            error
+                .message
+                .contains("scope parent chain contains a cycle"),
+            "{error:?}"
+        );
     }
 }
