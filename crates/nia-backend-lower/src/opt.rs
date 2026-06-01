@@ -62,8 +62,10 @@ impl BackendOptPipeline {
     fn for_policy(policy: &OptimizationPolicy) -> Self {
         if matches!(
             policy.simplify_cfg,
-            OptimizationDepth::Cheap | OptimizationDepth::Full | OptimizationDepth::Aggressive
+            OptimizationDepth::Full | OptimizationDepth::Aggressive
         ) {
+            Self { passes: O2_PASSES }
+        } else if matches!(policy.simplify_cfg, OptimizationDepth::Cheap) {
             Self { passes: O1_PASSES }
         } else {
             Self { passes: &[] }
@@ -89,6 +91,118 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveUnreachableBlocks,
     BackendOptPass::OptimizeDeferBodies,
 ];
+
+const O2_PASSES: &[BackendOptPass] = O1_PASSES;
+
+#[derive(Debug)]
+struct FunctionCfg {
+    blocks_by_id: HashMap<FunctionBlockId, usize>,
+    predecessors: HashMap<FunctionBlockId, Vec<FunctionBlockId>>,
+}
+
+impl FunctionCfg {
+    fn new(blocks: &[FunctionBlock]) -> Self {
+        let blocks_by_id = blocks
+            .iter()
+            .enumerate()
+            .map(|(index, block)| (block.id, index))
+            .collect::<HashMap<_, _>>();
+        let mut predecessors: HashMap<FunctionBlockId, Vec<FunctionBlockId>> = HashMap::new();
+        for block in blocks {
+            predecessors.entry(block.id).or_default();
+            for target in terminator_referenced_blocks(&block.terminator) {
+                if blocks_by_id.contains_key(&target) {
+                    predecessors.entry(target).or_default().push(block.id);
+                }
+            }
+        }
+        Self {
+            blocks_by_id,
+            predecessors,
+        }
+    }
+
+    fn block(&self, id: FunctionBlockId) -> Option<usize> {
+        self.blocks_by_id.get(&id).copied()
+    }
+
+    fn predecessors(&self, id: FunctionBlockId) -> &[FunctionBlockId] {
+        self.predecessors.get(&id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    fn referenced_blocks(&self, terminator: &FunctionTerminator) -> Vec<FunctionBlockId> {
+        terminator_referenced_blocks(terminator)
+            .into_iter()
+            .filter(|id| self.blocks_by_id.contains_key(id))
+            .collect()
+    }
+
+    fn reachable_from(
+        &self,
+        blocks: &[FunctionBlock],
+        entry: FunctionBlockId,
+    ) -> HashSet<FunctionBlockId> {
+        let mut reachable = HashSet::new();
+        let mut stack = vec![entry];
+        while let Some(id) = stack.pop() {
+            if !reachable.insert(id) {
+                continue;
+            }
+            let Some(index) = self.block(id) else {
+                continue;
+            };
+            stack.extend(self.referenced_blocks(&blocks[index].terminator));
+        }
+        reachable
+    }
+}
+
+#[derive(Debug)]
+struct DeferCfg {
+    blocks_by_id: HashMap<FunctionBlockId, usize>,
+}
+
+impl DeferCfg {
+    fn new(blocks: &[FunctionBlock]) -> Self {
+        Self {
+            blocks_by_id: blocks
+                .iter()
+                .enumerate()
+                .map(|(index, block)| (block.id, index))
+                .collect(),
+        }
+    }
+
+    fn block(&self, id: FunctionBlockId) -> Option<usize> {
+        self.blocks_by_id.get(&id).copied()
+    }
+
+    fn referenced_blocks(&self, terminator: &FunctionTerminator) -> Vec<FunctionBlockId> {
+        terminator_referenced_blocks(terminator)
+            .into_iter()
+            .filter(|id| self.blocks_by_id.contains_key(id))
+            .collect()
+    }
+
+    fn reachable_from(
+        &self,
+        blocks: &[FunctionBlock],
+        entry: FunctionBlockId,
+    ) -> HashSet<FunctionBlockId> {
+        let mut reachable = HashSet::new();
+        let mut stack = vec![entry];
+        while let Some(id) = stack.pop() {
+            if !reachable.insert(id) {
+                continue;
+            }
+            let Some(index) = self.block(id) else {
+                continue;
+            };
+            stack.extend(self.referenced_blocks(&blocks[index].terminator));
+        }
+        reachable
+    }
+}
 
 fn remove_pure_expr_ops(blocks: &mut [FunctionBlock]) -> bool {
     let mut changed = false;
@@ -433,16 +547,14 @@ fn empty_jump_targets(
     blocks: &[FunctionBlock],
     protected_entry: Option<FunctionBlockId>,
 ) -> HashMap<FunctionBlockId, FunctionBlockId> {
-    let blocks_by_id = blocks
-        .iter()
-        .map(|block| (block.id, block))
-        .collect::<HashMap<_, _>>();
+    let cfg = FunctionCfg::new(blocks);
     blocks
         .iter()
         .filter(|block| Some(block.id) != protected_entry && block.ops.is_empty())
+        .filter(|block| !cfg.predecessors(block.id).is_empty())
         .filter_map(|block| {
             let target = jump_target(&block.terminator)?;
-            let target_block = blocks_by_id.get(&target)?;
+            let target_block = &blocks[cfg.block(target)?];
             (target != block.id && target_block.scope == block.scope).then_some((block.id, target))
         })
         .collect()
@@ -538,33 +650,11 @@ fn remove_unreachable_blocks(body: &mut FunctionBody) -> bool {
 }
 
 fn reachable_blocks(body: &FunctionBody) -> HashSet<FunctionBlockId> {
-    reachable_block_ids(&body.blocks, body.entry)
+    FunctionCfg::new(&body.blocks).reachable_from(&body.blocks, body.entry)
 }
 
 fn reachable_defer_blocks(body: &FunctionDeferBody) -> HashSet<FunctionBlockId> {
-    reachable_block_ids(&body.blocks, body.entry)
-}
-
-fn reachable_block_ids(
-    blocks: &[FunctionBlock],
-    entry: FunctionBlockId,
-) -> HashSet<FunctionBlockId> {
-    let blocks_by_id = blocks
-        .iter()
-        .map(|block| (block.id, block))
-        .collect::<HashMap<_, _>>();
-    let mut reachable = HashSet::new();
-    let mut stack = vec![entry];
-    while let Some(id) = stack.pop() {
-        if !reachable.insert(id) {
-            continue;
-        }
-        let Some(block) = blocks_by_id.get(&id) else {
-            continue;
-        };
-        stack.extend(terminator_referenced_blocks(&block.terminator));
-    }
-    reachable
+    DeferCfg::new(&body.blocks).reachable_from(&body.blocks, body.entry)
 }
 
 fn terminator_referenced_blocks(terminator: &FunctionTerminator) -> Vec<FunctionBlockId> {
@@ -667,6 +757,85 @@ mod tests {
         let pipeline = BackendOptPipeline::for_policy(&OptimizationLevel::O1.policy());
 
         assert_eq!(pipeline.passes, O1_PASSES);
+    }
+
+    #[test]
+    fn o2_family_pipeline_starts_from_o1_cleanup_passes() {
+        for level in [
+            OptimizationLevel::O2,
+            OptimizationLevel::O3,
+            OptimizationLevel::Os,
+            OptimizationLevel::Oz,
+        ] {
+            let pipeline = BackendOptPipeline::for_policy(&level.policy());
+
+            assert_eq!(pipeline.passes, O2_PASSES);
+            assert!(pipeline.passes.starts_with(O1_PASSES));
+        }
+    }
+
+    #[test]
+    fn cfg_indexes_blocks_and_structural_predecessors() {
+        let span = Span::default();
+        let body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Loop {
+                    header: nia_function_ir::FunctionForHeader::Infinite,
+                    body: FunctionBlockId(1),
+                    continue_target: FunctionBlockId(2),
+                    break_target: FunctionBlockId(3),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Branch {
+                    target: FunctionBlockId(2),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(2),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Branch {
+                    target: FunctionBlockId(0),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(3),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        let cfg = FunctionCfg::new(&body.blocks);
+
+        assert_eq!(cfg.block(FunctionBlockId(2)), Some(2));
+        assert_eq!(
+            cfg.predecessors(FunctionBlockId(2)),
+            &[FunctionBlockId(0), FunctionBlockId(1)]
+        );
+        assert_eq!(
+            cfg.reachable_from(&body.blocks, body.entry),
+            HashSet::from([
+                FunctionBlockId(0),
+                FunctionBlockId(1),
+                FunctionBlockId(2),
+                FunctionBlockId(3),
+            ])
+        );
     }
 
     #[test]
