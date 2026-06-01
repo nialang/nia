@@ -179,6 +179,10 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stdout.contains("policy level=O2"), "{stdout}");
+    assert!(stdout.contains("inline=normal"), "{stdout}");
+    assert!(stdout.contains("specialize=normal"), "{stdout}");
+    assert!(stdout.contains("prefer_size=false"), "{stdout}");
     assert!(stdout.contains("remove-unused-local-bindings"), "{stdout}");
     assert!(stdout.contains("global simplify-static-init"), "{stdout}");
 
@@ -196,10 +200,10 @@ fn main() i32 {
         String::from_utf8_lossy(&o0.stderr)
     );
     let stdout = String::from_utf8_lossy(&o0.stdout);
-    assert!(
-        stdout.contains("backend optimization report: no changes"),
-        "{stdout}"
-    );
+    assert!(stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stdout.contains("policy level=O0"), "{stdout}");
+    assert!(stdout.contains("inline=never"), "{stdout}");
+    assert!(stdout.contains("no changes"), "{stdout}");
 }
 
 #[test]
@@ -272,6 +276,8 @@ fn main() i32 {
     assert!(stdout.contains("define i32 @"), "{stdout}");
     assert!(!stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    assert!(stderr.contains("policy level=O1"), "{stderr}");
+    assert!(stderr.contains("inline=small"), "{stderr}");
     assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
 }
 

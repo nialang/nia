@@ -8,7 +8,10 @@ use std::{
 use nia_diagnostic::{Diagnostic, render_diagnostic};
 use nia_ids::ModuleId;
 use nia_imports::ModuleMap;
-use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
+use nia_opt::{
+    InlineThreshold, NiaOptimizationLevel, OptimizationDepth, OptimizationPolicy,
+    SpecializationPolicy,
+};
 use nia_parser::ParseError;
 use nia_source::SourcePath;
 
@@ -857,11 +860,26 @@ fn print_optimization_report_with(
     mut print_line: impl FnMut(String),
 ) {
     let report = &program.backend_lowering.optimization_report;
+    let policy = program.optimization;
+    print_line("backend optimization report:".to_string());
+    print_line(format!(
+        "  policy level={} simplify_cfg={} const_fold={} dead_code_elim={} \
+         local_copy_prop={} inline={} specialize={} dedup_monomorphized_instances={} \
+         prefer_size={}",
+        optimization_level_name(policy.level),
+        optimization_depth_name(policy.simplify_cfg),
+        optimization_depth_name(policy.const_fold),
+        optimization_depth_name(policy.dead_code_elim),
+        optimization_depth_name(policy.local_copy_prop),
+        inline_threshold_name(policy.inline_threshold),
+        specialization_policy_name(policy.specialize_generics),
+        policy.dedup_monomorphized_instances,
+        policy.prefer_size
+    ));
     if report.changed_passes.is_empty() {
-        print_line("backend optimization report: no changes".to_string());
+        print_line("  no changes".to_string());
         return;
     }
-    print_line("backend optimization report:".to_string());
     for change in &report.changed_passes {
         match change {
             nia_driver::BackendOptimizationChange::Function {
@@ -884,6 +902,47 @@ fn print_optimization_report_with(
                 ));
             }
         }
+    }
+}
+
+fn optimization_level_name(level: NiaOptimizationLevel) -> &'static str {
+    match level {
+        NiaOptimizationLevel::O0 => "O0",
+        NiaOptimizationLevel::O1 => "O1",
+        NiaOptimizationLevel::O2 => "O2",
+        NiaOptimizationLevel::O3 => "O3",
+        NiaOptimizationLevel::Os => "Os",
+        NiaOptimizationLevel::Oz => "Oz",
+    }
+}
+
+fn optimization_depth_name(depth: OptimizationDepth) -> &'static str {
+    match depth {
+        OptimizationDepth::Disabled => "disabled",
+        OptimizationDepth::Required => "required",
+        OptimizationDepth::Cheap => "cheap",
+        OptimizationDepth::Full => "full",
+        OptimizationDepth::Aggressive => "aggressive",
+    }
+}
+
+fn inline_threshold_name(threshold: InlineThreshold) -> &'static str {
+    match threshold {
+        InlineThreshold::Never => "never",
+        InlineThreshold::Minimal => "minimal",
+        InlineThreshold::Size => "size",
+        InlineThreshold::Small => "small",
+        InlineThreshold::Normal => "normal",
+        InlineThreshold::Aggressive => "aggressive",
+    }
+}
+
+fn specialization_policy_name(policy: SpecializationPolicy) -> &'static str {
+    match policy {
+        SpecializationPolicy::RequiredOnly => "required-only",
+        SpecializationPolicy::SizeAware => "size-aware",
+        SpecializationPolicy::Normal => "normal",
+        SpecializationPolicy::Aggressive => "aggressive",
     }
 }
 
