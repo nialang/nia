@@ -195,7 +195,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.emit_call_raw_with_out(expr, callee, args, None)
     }
 
-    fn emit_call_raw_with_out(
+    pub(super) fn emit_call_raw_with_out(
         &mut self,
         expr: &FunctionExpr,
         callee: &FunctionCallee,

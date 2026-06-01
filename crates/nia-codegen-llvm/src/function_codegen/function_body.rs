@@ -548,6 +548,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if self.emit_aggregate_literal_into(ptr, value)? {
             return Ok(());
         }
+        if self.emit_aggregate_call_result_into(ptr, value)? {
+            return Ok(());
+        }
         let value = self.emit_expr(value)?;
         self.builder
             .build_store(ptr, value)
@@ -561,7 +564,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         place: &nia_function_ir::FunctionPlace,
         value: &FunctionExpr,
     ) -> Result<bool, Diagnostic> {
-        if !is_aggregate_literal(value) {
+        if !is_direct_store_candidate(value) {
             return Ok(false);
         }
         let ptr = self.emit_typed_place_addr(place)?;
@@ -617,6 +620,24 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             _ => Ok(false),
         }
+    }
+
+    fn emit_aggregate_call_result_into(
+        &mut self,
+        ptr: nia_llvm::values::PointerValue<'ctx>,
+        value: &FunctionExpr,
+    ) -> Result<bool, Diagnostic> {
+        let FunctionExprKind::Call { callee, args } = &value.kind else {
+            return Ok(false);
+        };
+        if !matches!(
+            self.module.classify_function_return(value.ty),
+            crate::module_codegen::AbiReturn::IndirectOut(_)
+        ) {
+            return Ok(false);
+        }
+        let _ = self.emit_call_raw_with_out(value, callee, args, Some(ptr))?;
+        Ok(true)
     }
 
     pub(super) fn emit_effect_expr(&mut self, expr: &FunctionExpr) -> Result<(), Diagnostic> {
@@ -688,4 +709,8 @@ fn is_aggregate_literal(value: &FunctionExpr) -> bool {
             | FunctionExprKind::StructLiteral { .. }
             | FunctionExprKind::UnionLiteral { .. }
     )
+}
+
+fn is_direct_store_candidate(value: &FunctionExpr) -> bool {
+    is_aggregate_literal(value) || matches!(value.kind, FunctionExprKind::Call { .. })
 }
