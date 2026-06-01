@@ -729,10 +729,27 @@ fn propagate_local_copies(body: &mut FunctionBody) -> bool {
         .map(|local| (local.id, local.ty))
         .collect::<HashMap<_, _>>();
     let unstable_locals = collect_place_locals_in_body(body);
-    let cfg = FunctionCfg::new(&body.blocks);
+    propagate_local_copies_in_blocks(&mut body.blocks, body.entry, &local_tys, &unstable_locals)
+}
+
+fn propagate_local_copies_in_defer_body(
+    body: &mut FunctionDeferBody,
+    local_tys: &HashMap<LocalId, nia_ids::InternedTyId>,
+    unstable_locals: &HashSet<LocalId>,
+) -> bool {
+    propagate_local_copies_in_blocks(&mut body.blocks, body.entry, local_tys, unstable_locals)
+}
+
+fn propagate_local_copies_in_blocks(
+    blocks: &mut [FunctionBlock],
+    entry: FunctionBlockId,
+    local_tys: &HashMap<LocalId, nia_ids::InternedTyId>,
+    unstable_locals: &HashSet<LocalId>,
+) -> bool {
+    let cfg = FunctionCfg::new(blocks);
     let mut changed = false;
     let mut input_copies = HashMap::<FunctionBlockId, HashMap<LocalId, LocalId>>::new();
-    let mut stack = vec![body.entry];
+    let mut stack = vec![entry];
     let mut visited = HashSet::new();
     while let Some(block_id) = stack.pop() {
         if !visited.insert(block_id) {
@@ -743,12 +760,12 @@ fn propagate_local_copies(body: &mut FunctionBody) -> bool {
         };
         let mut copies = input_copies.remove(&block_id).unwrap_or_default();
         changed |= propagate_local_copies_in_block(
-            &mut body.blocks[index],
-            &local_tys,
-            &unstable_locals,
+            &mut blocks[index],
+            local_tys,
+            unstable_locals,
             &mut copies,
         );
-        for successor in cfg.referenced_blocks(&body.blocks[index].terminator) {
+        for successor in cfg.referenced_blocks(&blocks[index].terminator) {
             let preds = cfg.predecessors(successor);
             if preds.len() == 1 && preds[0] == block_id {
                 input_copies.insert(successor, copies.clone());
@@ -792,6 +809,10 @@ fn propagate_local_copies_in_block(
                 }
             }
             FunctionOp::Expr(_) | FunctionOp::Defer(_) => {
+                if let FunctionOp::Defer(body) = op {
+                    changed |=
+                        propagate_local_copies_in_defer_body(body, local_tys, unstable_locals);
+                }
                 copies.clear();
             }
         }
@@ -1019,10 +1040,25 @@ fn resolve_copy_source(local_id: LocalId, copies: &HashMap<LocalId, LocalId>) ->
 
 fn propagate_local_constants(body: &mut FunctionBody) -> bool {
     let unstable_locals = collect_place_locals_in_body(body);
-    let cfg = FunctionCfg::new(&body.blocks);
+    propagate_local_constants_in_blocks(&mut body.blocks, body.entry, &unstable_locals)
+}
+
+fn propagate_local_constants_in_defer_body(
+    body: &mut FunctionDeferBody,
+    unstable_locals: &HashSet<LocalId>,
+) -> bool {
+    propagate_local_constants_in_blocks(&mut body.blocks, body.entry, unstable_locals)
+}
+
+fn propagate_local_constants_in_blocks(
+    blocks: &mut [FunctionBlock],
+    entry: FunctionBlockId,
+    unstable_locals: &HashSet<LocalId>,
+) -> bool {
+    let cfg = FunctionCfg::new(blocks);
     let mut changed = false;
     let mut input_constants = HashMap::<FunctionBlockId, HashMap<LocalId, FunctionExpr>>::new();
-    let mut stack = vec![body.entry];
+    let mut stack = vec![entry];
     let mut visited = HashSet::new();
     while let Some(block_id) = stack.pop() {
         if !visited.insert(block_id) {
@@ -1032,12 +1068,9 @@ fn propagate_local_constants(body: &mut FunctionBody) -> bool {
             continue;
         };
         let mut constants = input_constants.remove(&block_id).unwrap_or_default();
-        changed |= propagate_local_constants_in_block(
-            &mut body.blocks[index],
-            &unstable_locals,
-            &mut constants,
-        );
-        for successor in cfg.referenced_blocks(&body.blocks[index].terminator) {
+        changed |=
+            propagate_local_constants_in_block(&mut blocks[index], unstable_locals, &mut constants);
+        for successor in cfg.referenced_blocks(&blocks[index].terminator) {
             let preds = cfg.predecessors(successor);
             if preds.len() == 1 && preds[0] == block_id {
                 input_constants.insert(successor, constants.clone());
@@ -1078,6 +1111,9 @@ fn propagate_local_constants_in_block(
                 changed |= rewrite_local_constants_in_expr(expr, constants);
             }
             FunctionOp::Defer(_) => {
+                if let FunctionOp::Defer(body) = op {
+                    changed |= propagate_local_constants_in_defer_body(body, unstable_locals);
+                }
                 constants.clear();
             }
         }
@@ -3133,6 +3169,94 @@ mod tests {
     }
 
     #[test]
+    fn propagates_local_copies_inside_defer_bodies() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Defer(nia_function_ir::FunctionDeferBody {
+                span,
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![FunctionBlock {
+                    id: FunctionBlockId(10),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: vec![
+                        FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                            local_id: LocalId(0),
+                            name: "source".to_string(),
+                            ty,
+                            value: Some(FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Integer("1".to_string()),
+                            }),
+                            is_const: false,
+                        }),
+                        FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                            local_id: LocalId(1),
+                            name: "copy".to_string(),
+                            ty,
+                            value: Some(FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Local(LocalId(0)),
+                            }),
+                            is_const: false,
+                        }),
+                    ],
+                    terminator: FunctionTerminator::Tail {
+                        value: Some(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Local(LocalId(1)),
+                        }),
+                        span,
+                    },
+                }],
+                entry: FunctionBlockId(10),
+            })],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+        body.locals = vec![
+            nia_function_ir::FunctionLocal {
+                id: LocalId(0),
+                name: "source".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+            nia_function_ir::FunctionLocal {
+                id: LocalId(1),
+                name: "copy".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+        ];
+
+        assert!(propagate_local_copies(&mut body));
+
+        let FunctionOp::Defer(defer_body) = &body.blocks[0].ops[0] else {
+            panic!("expected defer body");
+        };
+        let FunctionTerminator::Tail {
+            value: Some(value), ..
+        } = &defer_body.blocks[0].terminator
+        else {
+            panic!("expected defer tail value");
+        };
+        assert!(matches!(value.kind, FunctionExprKind::Local(LocalId(0))));
+        validate_function_body(&body).expect("copy-propagated defer body should remain valid");
+    }
+
+    #[test]
     fn propagates_local_constants_within_one_block() {
         let span = Span::default();
         let ty = test_ty();
@@ -3181,6 +3305,75 @@ mod tests {
             FunctionExprKind::Integer(value) if value == "42"
         ));
         validate_function_body(&body).expect("constant-propagated body should remain valid");
+    }
+
+    #[test]
+    fn propagates_local_constants_inside_defer_bodies() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Defer(nia_function_ir::FunctionDeferBody {
+                span,
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![FunctionBlock {
+                    id: FunctionBlockId(10),
+                    scope: FunctionScopeId(0),
+                    span,
+                    ops: vec![FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                        local_id: LocalId(0),
+                        name: "value".to_string(),
+                        ty,
+                        value: Some(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Integer("42".to_string()),
+                        }),
+                        is_const: false,
+                    })],
+                    terminator: FunctionTerminator::Tail {
+                        value: Some(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Local(LocalId(0)),
+                        }),
+                        span,
+                    },
+                }],
+                entry: FunctionBlockId(10),
+            })],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "value".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(propagate_local_constants(&mut body));
+
+        let FunctionOp::Defer(defer_body) = &body.blocks[0].ops[0] else {
+            panic!("expected defer body");
+        };
+        let FunctionTerminator::Tail {
+            value: Some(value), ..
+        } = &defer_body.blocks[0].terminator
+        else {
+            panic!("expected defer tail value");
+        };
+        assert!(matches!(
+            &value.kind,
+            FunctionExprKind::Integer(value) if value == "42"
+        ));
+        validate_function_body(&body).expect("constant-propagated defer body should remain valid");
     }
 
     #[test]
