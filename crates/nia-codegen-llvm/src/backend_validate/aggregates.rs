@@ -80,12 +80,7 @@ impl BackendValidator<'_> {
         span: Span,
         message: &str,
     ) {
-        if !self
-            .index
-            .enums
-            .values()
-            .any(|item| item.variants.iter().any(|variant| variant.def_id == def_id))
-        {
+        if !self.index.enum_variants.contains_key(&def_id) {
             self.diagnostics
                 .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
         }
