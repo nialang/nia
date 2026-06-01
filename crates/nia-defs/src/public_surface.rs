@@ -22,6 +22,7 @@ pub struct PublicItem {
     pub target_module: nia_ids::ModuleId,
     pub target_def_id: DefId,
     pub namespace: PublicNamespace,
+    pub name_span: Span,
     pub source: PublicSource,
     /// When this item is an enum variant, the GlobalDefId of the parent enum.
     /// `None` for ordinary function / global / type / variant-from-a-non-enum cases.
