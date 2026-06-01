@@ -107,28 +107,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         expr: &FunctionExpr,
         def_id: GlobalDefId,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let Some(enum_item) = self
-            .module
-            .program
-            .enums
-            .values()
-            .find(|item| item.variants.iter().any(|variant| variant.def_id == def_id))
-        else {
+        let Some(variant_info) = self.module.program.enum_variant_infos.get(&def_id) else {
             return Err(self.error(expr.span, "missing enum variant"));
         };
-        let Some(variant_index) = enum_item
-            .variants
-            .iter()
-            .position(|variant| variant.def_id == def_id)
-        else {
-            return Err(self.error(expr.span, "missing enum variant"));
-        };
-        let value = enum_item
-            .variants
-            .iter()
-            .find(|variant| variant.def_id == def_id)
-            .and_then(|variant| variant.value)
-            .unwrap_or(variant_index as i128);
+        let enum_item = variant_info.owner;
+        let value = variant_info
+            .variant
+            .value
+            .unwrap_or(variant_info.index as i128);
         let Some(TyKind::Primitive(primitive)) = self.module.ty_kind(enum_item.backing_type) else {
             return Err(self.error(expr.span, "enum backing type is not primitive"));
         };
