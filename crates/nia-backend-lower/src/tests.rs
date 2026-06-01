@@ -971,11 +971,19 @@ fn main() i32 {
                 .push(FunctionOp::Expr(nia_function_ir::FunctionExpr {
                     span,
                     ty,
-                    kind: FunctionExprKind::Discard(Box::new(nia_function_ir::FunctionExpr {
-                        span,
-                        ty,
-                        kind: FunctionExprKind::Local(LocalId(0)),
-                    })),
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(nia_function_ir::FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Local(LocalId(0)),
+                        }),
+                        op: nia_ast::BinaryOp::Add,
+                        rhs: Box::new(nia_function_ir::FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Integer("1".to_string()),
+                        }),
+                    },
                 }));
         },
         nia_opt::NiaOptimizationLevel::O1.policy(),
@@ -1007,11 +1015,19 @@ fn main() i32 {
                 .push(FunctionOp::Expr(nia_function_ir::FunctionExpr {
                     span,
                     ty,
-                    kind: FunctionExprKind::Discard(Box::new(nia_function_ir::FunctionExpr {
-                        span,
-                        ty,
-                        kind: FunctionExprKind::Local(LocalId(0)),
-                    })),
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(nia_function_ir::FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Local(LocalId(0)),
+                        }),
+                        op: nia_ast::BinaryOp::Add,
+                        rhs: Box::new(nia_function_ir::FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Integer("1".to_string()),
+                        }),
+                    },
                 }));
         },
         nia_opt::NiaOptimizationLevel::O0.policy(),
