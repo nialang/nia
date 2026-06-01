@@ -938,6 +938,52 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_preserves_transitively_used_private_functions() {
+    let source = r#"
+fn leaf() i32 {
+    1
+}
+
+fn middle() i32 {
+    leaf()
+}
+
+fn unused() i32 {
+    2
+}
+
+fn main() i32 {
+    middle()
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == "leaf")
+    );
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == "middle")
+    );
+    assert!(
+        !module
+            .functions
+            .iter()
+            .any(|function| function.name == "unused")
+    );
+}
+
+#[test]
 fn o1_preserves_unused_private_functions() {
     let source = r#"
 fn unused() i32 {
@@ -973,6 +1019,142 @@ fn main() i32 {
                     ..
                 }
             ))
+    );
+}
+
+#[test]
+fn o2_removes_unused_private_function_instances() {
+    let source = r#"
+fn unused_id[T](value: T) T {
+    value
+}
+
+fn unused() i32 {
+    unused_id[i32](2)
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        !module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == "unused_id")
+    );
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "remove-unused-function-instances",
+                    is_instance: true,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o2_preserves_used_private_function_instances() {
+    let source = r#"
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    id[i32](1)
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == "id")
+    );
+}
+
+#[test]
+fn o2_preserves_transitively_used_private_function_instances() {
+    let source = r#"
+fn id[T](value: T) T {
+    value
+}
+
+fn wrapper[T](value: T) T {
+    id[T](value)
+}
+
+fn main() i32 {
+    wrapper[i32](1)
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == "id")
+    );
+    assert!(
+        module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == "wrapper")
+    );
+}
+
+#[test]
+fn o2_preserves_public_function_instances() {
+    let source = r#"
+pub fn id[T](value: T) T {
+    value
+}
+
+fn unused() i32 {
+    id[i32](1)
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == "id")
     );
 }
 
