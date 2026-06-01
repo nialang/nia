@@ -317,9 +317,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         _interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
-        if self
-            .layout_of_in(ty, layouts)
-            .is_some_and(|layout| layout.size == 0)
+        if self.layout_of_in(ty).is_some_and(|layout| layout.size == 0)
             && !matches!(
                 self.ty_kind(ty),
                 Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
@@ -512,15 +510,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .ok_or_else(|| self.error(span, "missing struct field"))
     }
 
-    fn layout_of_in(
-        &self,
-        ty: InternedTyId,
-        layouts: &BackendLayouts,
-    ) -> Option<nia_layout::TypeLayout> {
-        self.program
-            .type_layout(ty)
-            .cloned()
-            .or_else(|| layout_of_in_layouts(ty, layouts))
+    fn layout_of_in(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
+        self.program.type_layout(ty).cloned()
     }
 
     pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {
@@ -1014,15 +1005,4 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             _ => Err(self.error(span, "index base is not an array, pointer, or slice")),
         }
     }
-}
-
-fn layout_of_in_layouts(
-    ty: InternedTyId,
-    layouts: &BackendLayouts,
-) -> Option<nia_layout::TypeLayout> {
-    layouts
-        .types
-        .iter()
-        .find(|(candidate, _)| *candidate == ty)
-        .map(|(_, layout)| layout.clone())
 }
