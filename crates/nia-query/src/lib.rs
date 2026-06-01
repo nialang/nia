@@ -259,7 +259,7 @@ impl<C> QueryDb<C> {
                     let entry = query_stack_entry::<C, K>(&key);
                     let identity = entry.identity.clone();
                     self.clear_dependencies_from(&identity);
-                    let _guard = self.enter_query(entry);
+                    let _guard = self.enter_query(entry)?;
                     let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         key.execute(self)
                     })) {
@@ -419,13 +419,12 @@ impl<C> QueryDb<C> {
         slot
     }
 
-    fn enter_query(&self, entry: QueryStackEntry) -> QueryStackGuard {
-        self.check_not_recursive_identity(&entry.identity)
-            .unwrap_or_else(|err| panic!("{err}"));
+    fn enter_query(&self, entry: QueryStackEntry) -> QueryResult<QueryStackGuard> {
+        self.check_not_recursive_identity(&entry.identity)?;
         QUERY_STACK.with(|stack| {
             stack.borrow_mut().push(entry);
         });
-        QueryStackGuard
+        Ok(QueryStackGuard)
     }
 
     fn check_not_recursive<K>(&self, key: &K) -> QueryResult<()>

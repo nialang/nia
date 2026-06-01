@@ -390,6 +390,10 @@ fn syntax_kind(kind: LosslessTokenKind) -> SyntaxKind {
 
 fn build_green_root(source: &str, tokens: Vec<LosslessToken>) -> GreenNode {
     let end = tokens.last().map(|token| token.span.end).unwrap_or(0);
+    // The root builder stays at stack[0] for the whole construction. The
+    // remaining stack entries are open delimiter nodes; this invariant is why
+    // the stack unwraps below are structural assertions rather than parser
+    // diagnostics.
     let mut stack = vec![NodeBuilder::new(SyntaxKind::SourceFile, Span::new(0, end))];
     for token in tokens {
         let kind = syntax_kind(token.kind);
@@ -618,6 +622,8 @@ fn rewrite_after_single_token_edit(
     let span = if matches!(node.kind(), SyntaxKind::SourceFile) {
         Span::new(0, source_len)
     } else {
+        // All green nodes originate from token spans. Partial reparse only
+        // rewrites an existing token, so non-root nodes remain non-empty.
         element_span(
             children.first().expect("green nodes always contain tokens"),
             children.last().expect("green nodes always contain tokens"),

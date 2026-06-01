@@ -86,6 +86,9 @@ impl SourceTable {
     }
 
     pub fn id_for_path(&self, path: &SourcePath) -> SourceId {
+        // Source tables are shared across query workers. Poisoning means a
+        // worker panicked while mutating the id map, so continuing could assign
+        // inconsistent SourceIds and break versioned node identity.
         let mut inner = self.inner.lock().expect("source table lock poisoned");
         if let Some(id) = inner.paths.get(path).copied() {
             return id;
@@ -122,6 +125,9 @@ impl SourceDatabase {
     }
 
     pub fn source_for_id(&self, id: SourceId) -> Option<SourceFile> {
+        // A poisoned source database may contain a partially updated revision.
+        // Treat that as process-level corruption rather than a recoverable
+        // missing-source diagnostic.
         self.files
             .lock()
             .expect("source database lock poisoned")
@@ -136,6 +142,9 @@ impl SourceDatabase {
 
     pub fn set_source(&self, path: SourcePath, text: impl Into<String>) -> SourceFile {
         let id = self.id_for_path(&path);
+        // Holding this lock covers both revision selection and replacement; a
+        // poisoned lock would make stale source-version queries indistinguishable
+        // from valid older revisions.
         let mut files = self.files.lock().expect("source database lock poisoned");
         let revision = files
             .get(&id)
