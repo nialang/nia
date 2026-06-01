@@ -604,3 +604,170 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
         output.diagnostics
     );
 }
+
+#[test]
+fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let callee_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(1),
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Tail {
+                            value: Some(FunctionExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: FunctionExprKind::Call {
+                                    callee: FunctionCallee::FunctionInstance {
+                                        def_id: callee_id,
+                                        args: vec![i32_ty],
+                                    },
+                                    args: Vec::new(),
+                                },
+                            }),
+                            span,
+                        },
+                    }],
+                    entry: FunctionBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("call references missing function instance")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let object_ty = interner.intern(TyKind::TraitObject {
+        is_const: true,
+        trait_id: TraitId::Source(GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: DefId(0),
+        }),
+        trait_args: Vec::new(),
+        associated_type_bindings: Vec::new(),
+    });
+    let span = Span::default();
+    let missing_fn = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(1),
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: Vec::new(),
+            function_instances: Vec::new(),
+            trait_object_vtables: vec![BackendTraitObjectVtable {
+                key: BackendTraitObjectVtableKey {
+                    self_ty: i32_ty,
+                    object_ty,
+                },
+                trait_id: TraitId::Source(GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                }),
+                trait_args: Vec::new(),
+                entries: vec![BackendTraitObjectVtableEntry {
+                    trait_id: TraitId::Source(GlobalDefId {
+                        module_id: ModuleId(0),
+                        def_id: DefId(0),
+                    }),
+                    method_id: missing_fn,
+                    method_name: "show".to_string(),
+                    slot: 0,
+                    function: BackendTraitObjectVtableFunction::Function(missing_fn),
+                }],
+                span,
+            }],
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("vtable references missing function")),
+        "{:?}",
+        output.diagnostics
+    );
+}
