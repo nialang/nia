@@ -614,6 +614,9 @@ Backend lowering caches generic type instantiations while expanding function
 instances so repeated uses of the same type under the same substitutions do not
 rebuild the same interned type graph.
 
+LLVM codegen caches module-local layout queries so repeated aggregate ABI and
+field-access decisions do not rescan generic layout instance lists.
+
 LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level. Size-oriented levels (`-Os` and `-Oz`) also remain visible in
 the Nia policy so monomorphization, inlining, specialization, and deduplication
