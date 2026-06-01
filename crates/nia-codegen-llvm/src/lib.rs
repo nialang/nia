@@ -144,13 +144,45 @@ fn catch_llvm_object_ice(f: impl FnOnce() -> LlvmObjectOutput) -> LlvmObjectOutp
     }
 }
 
-fn llvm_optimization_level(level: NiaOptimizationLevel) -> LlvmOptimizationLevel {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LlvmCodegenOptimizationLevel {
+    None,
+    Less,
+    Default,
+    Aggressive,
+}
+
+impl LlvmCodegenOptimizationLevel {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Less => "less",
+            Self::Default => "default",
+            Self::Aggressive => "aggressive",
+        }
+    }
+}
+
+pub fn llvm_codegen_optimization_level(
+    level: NiaOptimizationLevel,
+) -> LlvmCodegenOptimizationLevel {
     match level {
-        NiaOptimizationLevel::O0 => LlvmOptimizationLevel::None,
-        NiaOptimizationLevel::O1 => LlvmOptimizationLevel::Less,
-        NiaOptimizationLevel::O2 | NiaOptimizationLevel::Os => LlvmOptimizationLevel::Default,
-        NiaOptimizationLevel::O3 => LlvmOptimizationLevel::Aggressive,
-        NiaOptimizationLevel::Oz => LlvmOptimizationLevel::Less,
+        NiaOptimizationLevel::O0 => LlvmCodegenOptimizationLevel::None,
+        NiaOptimizationLevel::O1 => LlvmCodegenOptimizationLevel::Less,
+        NiaOptimizationLevel::O2 | NiaOptimizationLevel::Os => {
+            LlvmCodegenOptimizationLevel::Default
+        }
+        NiaOptimizationLevel::O3 => LlvmCodegenOptimizationLevel::Aggressive,
+        NiaOptimizationLevel::Oz => LlvmCodegenOptimizationLevel::Less,
+    }
+}
+
+fn llvm_optimization_level(level: NiaOptimizationLevel) -> LlvmOptimizationLevel {
+    match llvm_codegen_optimization_level(level) {
+        LlvmCodegenOptimizationLevel::None => LlvmOptimizationLevel::None,
+        LlvmCodegenOptimizationLevel::Less => LlvmOptimizationLevel::Less,
+        LlvmCodegenOptimizationLevel::Default => LlvmOptimizationLevel::Default,
+        LlvmCodegenOptimizationLevel::Aggressive => LlvmOptimizationLevel::Aggressive,
     }
 }
 
@@ -164,28 +196,39 @@ mod optimization_tests {
     #[test]
     fn maps_nia_optimization_levels_to_llvm_codegen_levels() {
         assert_eq!(
-            llvm_optimization_level(NiaOptimizationLevel::O0),
-            LlvmOptimizationLevel::None
+            llvm_codegen_optimization_level(NiaOptimizationLevel::O0),
+            LlvmCodegenOptimizationLevel::None
         );
         assert_eq!(
-            llvm_optimization_level(NiaOptimizationLevel::O1),
-            LlvmOptimizationLevel::Less
+            llvm_codegen_optimization_level(NiaOptimizationLevel::O1),
+            LlvmCodegenOptimizationLevel::Less
         );
         assert_eq!(
-            llvm_optimization_level(NiaOptimizationLevel::O2),
-            LlvmOptimizationLevel::Default
+            llvm_codegen_optimization_level(NiaOptimizationLevel::O2),
+            LlvmCodegenOptimizationLevel::Default
         );
         assert_eq!(
-            llvm_optimization_level(NiaOptimizationLevel::O3),
-            LlvmOptimizationLevel::Aggressive
+            llvm_codegen_optimization_level(NiaOptimizationLevel::O3),
+            LlvmCodegenOptimizationLevel::Aggressive
         );
         assert_eq!(
-            llvm_optimization_level(NiaOptimizationLevel::Os),
-            LlvmOptimizationLevel::Default
+            llvm_codegen_optimization_level(NiaOptimizationLevel::Os),
+            LlvmCodegenOptimizationLevel::Default
         );
         assert_eq!(
-            llvm_optimization_level(NiaOptimizationLevel::Oz),
-            LlvmOptimizationLevel::Less
+            llvm_codegen_optimization_level(NiaOptimizationLevel::Oz),
+            LlvmCodegenOptimizationLevel::Less
+        );
+    }
+
+    #[test]
+    fn llvm_codegen_optimization_level_names_are_stable_for_reports() {
+        assert_eq!(LlvmCodegenOptimizationLevel::None.name(), "none");
+        assert_eq!(LlvmCodegenOptimizationLevel::Less.name(), "less");
+        assert_eq!(LlvmCodegenOptimizationLevel::Default.name(), "default");
+        assert_eq!(
+            LlvmCodegenOptimizationLevel::Aggressive.name(),
+            "aggressive"
         );
     }
 }
