@@ -126,13 +126,15 @@ Current Nia-owned optimization consumers:
   constant folding plus aggressive local propagation enables local constant
   propagation for O3, but not for size-oriented modes. Full dead-code elimination
   enables overwritten-store cleanup, never-read local store cleanup, and unused
-  local binding cleanup.
+  local binding cleanup. Full constant folding or size-oriented policy also
+  simplifies all-zero static initializers to the canonical `Zero` initializer.
 - `nia-backend-lower` records a lightweight optimization report alongside the
-  lowered backend program. Each entry names the changed pass and function
-  context, including whether the body was a monomorphized instance. This is the
-  stable observability hook for reviewing pass behavior without embedding full
-  before/after IR snapshots in normal compiler output. `niac check
-  --emit-opt-report` prints this report for direct CLI inspection.
+  lowered backend program. Each entry names the changed pass and the affected
+  function or global context, including whether a function body was a
+  monomorphized instance. This is the stable observability hook for reviewing
+  pass behavior without embedding full before/after IR snapshots in normal
+  compiler output. `niac check --emit-opt-report` prints this report for direct
+  CLI inspection.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,
@@ -152,9 +154,11 @@ Current Nia-owned optimization consumers:
   object vtables are indexed both by exact object type and by object trait for
   bounded cross-interner fallback, and structural type-argument matching is
   retained as a fallback for cross-interner cases.
-- Static initializer emission may choose cheaper equivalent LLVM constants, such
-  as `zeroinitializer` for repeated zero arrays, but this must preserve the
-  documented Nia static data representation and ABI layout.
+- Backend lowering canonicalizes all-zero static initializers to
+  `StaticInit::Zero` under full constant folding or size-oriented policy, and
+  static initializer emission may choose cheaper equivalent LLVM constants such
+  as `zeroinitializer`. Both must preserve the documented Nia static data
+  representation and ABI layout.
 
 Future Nia-owned optimization consumers should follow the same boundary:
 

@@ -2,7 +2,8 @@
 mod pipeline;
 
 pub use nia_compiler_query::{
-    CheckedModule, CheckedProgram, LoadedModule, LoadedProgram, ProgramDiagnostic,
+    BackendOptimizationChange, CheckedModule, CheckedProgram, LoadedModule, LoadedProgram,
+    ProgramDiagnostic,
 };
 pub use nia_loader_query::{load_program, load_program_with_map};
 pub use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};

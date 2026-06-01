@@ -21,15 +21,15 @@ impl<'a> ModuleLowerer<'a> {
         mut body: FunctionBody,
     ) -> FunctionBody {
         for pass in BackendOptPipeline::for_policy(&self.optimization).run(&mut body) {
-            self.optimization_report
-                .changed_passes
-                .push(crate::BackendOptimizationChange {
+            self.optimization_report.changed_passes.push(
+                crate::BackendOptimizationChange::Function {
                     module_id: self.input.module_id,
                     function,
                     pass,
                     is_instance,
                     type_arg_count,
-                });
+                },
+            );
         }
         body
     }
@@ -98,34 +98,36 @@ impl BackendOptPass {
     fn enabled_by(self, policy: &OptimizationPolicy) -> bool {
         match self {
             Self::SimplifySameTypeCasts | Self::RemoveNoopLocalStores | Self::RemovePureExprOps => {
-                at_least(policy.dead_code_elim, OptimizationDepth::Cheap)
+                policy.dead_code_elim.at_least(OptimizationDepth::Cheap)
             }
             Self::PropagateLocalCopies => {
-                at_least(policy.local_copy_prop, OptimizationDepth::Full)
+                policy.local_copy_prop.at_least(OptimizationDepth::Full)
                     || (policy.prefer_size
-                        && at_least(policy.local_copy_prop, OptimizationDepth::Cheap))
+                        && policy.local_copy_prop.at_least(OptimizationDepth::Cheap))
             }
             Self::PropagateLocalConstants => {
-                at_least(policy.const_fold, OptimizationDepth::Aggressive)
-                    && at_least(policy.local_copy_prop, OptimizationDepth::Aggressive)
+                policy.const_fold.at_least(OptimizationDepth::Aggressive)
+                    && policy
+                        .local_copy_prop
+                        .at_least(OptimizationDepth::Aggressive)
                     && !policy.prefer_size
             }
             Self::RemoveOverwrittenLocalStores
             | Self::RemoveNeverReadLocalStores
             | Self::RemoveUnusedLocalBindings => {
-                at_least(policy.dead_code_elim, OptimizationDepth::Full)
+                policy.dead_code_elim.at_least(OptimizationDepth::Full)
             }
-            Self::FoldConstantBoolBranches => at_least(policy.const_fold, OptimizationDepth::Cheap),
+            Self::FoldConstantBoolBranches => policy.const_fold.at_least(OptimizationDepth::Cheap),
             Self::FoldConstantSwitches => {
-                at_least(policy.const_fold, OptimizationDepth::Full)
-                    && at_least(policy.simplify_cfg, OptimizationDepth::Full)
+                policy.const_fold.at_least(OptimizationDepth::Full)
+                    && policy.simplify_cfg.at_least(OptimizationDepth::Full)
             }
             Self::SimplifyTrivialBranches
             | Self::MergeEmptyJumpBlocks
             | Self::RemoveUnreachableBlocks
-            | Self::OptimizeDeferBodies => at_least(policy.simplify_cfg, OptimizationDepth::Cheap),
+            | Self::OptimizeDeferBodies => policy.simplify_cfg.at_least(OptimizationDepth::Cheap),
             Self::SimplifySameTargetSwitches => {
-                at_least(policy.simplify_cfg, OptimizationDepth::Full)
+                policy.simplify_cfg.at_least(OptimizationDepth::Full)
             }
         }
     }
@@ -187,20 +189,6 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveUnreachableBlocks,
     BackendOptPass::OptimizeDeferBodies,
 ];
-
-fn at_least(depth: OptimizationDepth, minimum: OptimizationDepth) -> bool {
-    optimization_depth_rank(depth) >= optimization_depth_rank(minimum)
-}
-
-fn optimization_depth_rank(depth: OptimizationDepth) -> u8 {
-    match depth {
-        OptimizationDepth::Disabled => 0,
-        OptimizationDepth::Required => 1,
-        OptimizationDepth::Cheap => 2,
-        OptimizationDepth::Full => 3,
-        OptimizationDepth::Aggressive => 4,
-    }
-}
 
 #[cfg(test)]
 const O2_PASSES: &[BackendOptPass] = &[

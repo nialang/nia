@@ -151,9 +151,11 @@ fn check_can_emit_backend_optimization_report() {
     std::fs::write(
         &main,
         r#"
+const zeroes: [4]i32 = [0; 4];
+
 fn main() i32 {
     var unused = 1;
-    0
+    zeroes[0]
 }
 "#,
     )
@@ -175,6 +177,7 @@ fn main() i32 {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stdout.contains("remove-unused-local-bindings"), "{stdout}");
+    assert!(stdout.contains("global simplify-static-init"), "{stdout}");
 
     let o0 = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("-O0")

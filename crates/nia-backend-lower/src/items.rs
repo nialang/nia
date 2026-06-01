@@ -7,7 +7,9 @@ use nia_backend_ir::{
 };
 use nia_comptime_check::ComptimeValue;
 use nia_defs::DefKind;
+use nia_opt::OptimizationDepth;
 use nia_span::Span;
+use nia_static_ir::StaticInit;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct(
@@ -100,6 +102,7 @@ impl<'a> ModuleLowerer<'a> {
         binding: &BindingItem,
     ) -> Option<BackendGlobal> {
         let def_id = self.def_id_for_span(span, DefKind::Global)?;
+        let global_def_id = self.global_def_id(def_id);
         let signature = self.input.signatures.globals.get(&def_id)?;
         let ty = signature
             .explicit_type
@@ -110,10 +113,11 @@ impl<'a> ModuleLowerer<'a> {
             .body_check
             .ir
             .global_inits
-            .get(&self.global_def_id(def_id))
-            .cloned();
+            .get(&global_def_id)
+            .cloned()
+            .map(|init| self.optimize_static_init(global_def_id, init));
         Some(BackendGlobal {
-            def_id: self.global_def_id(def_id),
+            def_id: global_def_id,
             name: binding.name.clone(),
             ty,
             is_const: signature.is_const,
@@ -121,6 +125,34 @@ impl<'a> ModuleLowerer<'a> {
             init,
             span,
         })
+    }
+
+    fn optimize_static_init(
+        &mut self,
+        global: nia_ids::GlobalDefId,
+        init: StaticInit,
+    ) -> StaticInit {
+        if !self.static_init_simplification_enabled() {
+            return init;
+        }
+        let simplified = simplify_static_init(init.clone());
+        if simplified != init {
+            self.optimization_report.changed_passes.push(
+                crate::BackendOptimizationChange::Global {
+                    module_id: self.input.module_id,
+                    global,
+                    pass: "simplify-static-init",
+                },
+            );
+        }
+        simplified
+    }
+
+    fn static_init_simplification_enabled(&self) -> bool {
+        self.optimization
+            .const_fold
+            .at_least(OptimizationDepth::Full)
+            || self.optimization.prefer_size
     }
 
     pub(crate) fn lower_function(
@@ -172,5 +204,78 @@ impl<'a> ModuleLowerer<'a> {
             function_body,
             span,
         })
+    }
+}
+
+fn simplify_static_init(init: StaticInit) -> StaticInit {
+    match init {
+        StaticInit::Array(elems) => {
+            let elems = elems
+                .into_iter()
+                .map(simplify_static_init)
+                .collect::<Vec<_>>();
+            if elems.iter().all(is_zero_static_init) {
+                StaticInit::Zero
+            } else {
+                StaticInit::Array(elems)
+            }
+        }
+        StaticInit::Repeat { value, count } => {
+            let value = simplify_static_init(*value);
+            if is_zero_static_init(&value) {
+                StaticInit::Zero
+            } else {
+                StaticInit::Repeat {
+                    value: Box::new(value),
+                    count,
+                }
+            }
+        }
+        StaticInit::Struct(fields) => {
+            let fields = fields
+                .into_iter()
+                .map(|mut field| {
+                    field.value = simplify_static_init(field.value);
+                    field
+                })
+                .collect::<Vec<_>>();
+            if fields.iter().all(|field| is_zero_static_init(&field.value)) {
+                StaticInit::Zero
+            } else {
+                StaticInit::Struct(fields)
+            }
+        }
+        StaticInit::Chars(scalars) if scalars.iter().all(|scalar| *scalar == 0) => StaticInit::Zero,
+        StaticInit::Bytes(bytes) if bytes.iter().all(|byte| *byte == 0) => StaticInit::Zero,
+        StaticInit::Int(0)
+        | StaticInit::Bool(false)
+        | StaticInit::Char(0)
+        | StaticInit::Byte(0)
+        | StaticInit::NullPtr
+        | StaticInit::Zero => StaticInit::Zero,
+        other => other,
+    }
+}
+
+fn is_zero_static_init(init: &StaticInit) -> bool {
+    match init {
+        StaticInit::Zero
+        | StaticInit::Int(0)
+        | StaticInit::Bool(false)
+        | StaticInit::Char(0)
+        | StaticInit::Byte(0)
+        | StaticInit::NullPtr => true,
+        StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
+        StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
+        StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
+        StaticInit::Repeat { value, .. } => is_zero_static_init(value),
+        StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
+        StaticInit::Int(_)
+        | StaticInit::Float(_)
+        | StaticInit::Bool(_)
+        | StaticInit::Char(_)
+        | StaticInit::Byte(_)
+        | StaticInit::AddrOfGlobal { .. }
+        | StaticInit::AddrOfFunction { .. } => false,
     }
 }

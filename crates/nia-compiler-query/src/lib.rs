@@ -27,6 +27,7 @@ use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 
+pub use nia_backend_lower::BackendOptimizationChange;
 pub use query::check_loaded_program;
 pub use query::check_loaded_program_with_options;
 
