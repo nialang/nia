@@ -570,7 +570,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         place: &nia_function_ir::FunctionPlace,
         value: &FunctionExpr,
     ) -> Result<bool, Diagnostic> {
-        if !is_direct_store_candidate(value) {
+        if !self.is_direct_store_candidate(value) {
             return Ok(false);
         }
         let ptr = self.emit_typed_place_addr(place)?;
@@ -763,6 +763,13 @@ fn is_aggregate_literal(value: &FunctionExpr) -> bool {
     )
 }
 
-fn is_direct_store_candidate(value: &FunctionExpr) -> bool {
-    is_aggregate_literal(value) || matches!(value.kind, FunctionExprKind::Call { .. })
+impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
+    fn is_direct_store_candidate(&self, value: &FunctionExpr) -> bool {
+        is_aggregate_literal(value)
+            || (matches!(value.kind, FunctionExprKind::Call { .. })
+                && matches!(
+                    self.module.classify_function_return(value.ty),
+                    crate::module_codegen::AbiReturn::IndirectOut(_)
+                ))
+    }
 }
