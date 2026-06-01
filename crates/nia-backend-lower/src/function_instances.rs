@@ -85,9 +85,17 @@ impl<'a> ModuleLowerer<'a> {
             &mut queue,
             &mut instances,
         );
+        let mut next_vtable_scan_start = 0;
         loop {
             let mut vtables = Vec::new();
-            self.collect_trait_object_vtables(&mut vtables, functions, &instances);
+            if next_vtable_scan_start == 0 {
+                self.collect_trait_object_vtables_from_functions(&mut vtables, functions);
+            }
+            self.collect_trait_object_vtables_from_function_instances(
+                &mut vtables,
+                &instances[next_vtable_scan_start..],
+            );
+            next_vtable_scan_start = instances.len();
             for vtable in &vtables {
                 for entry in &vtable.entries {
                     if let BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } =
@@ -100,12 +108,15 @@ impl<'a> ModuleLowerer<'a> {
             if queue.is_empty() {
                 break;
             }
-            self.drain_function_instance_queue(
+            let drained = self.drain_function_instance_queue(
                 &functions_by_def,
                 &mut seen,
                 &mut queue,
                 &mut instances,
             );
+            if drained == 0 {
+                break;
+            }
         }
         instances
     }
@@ -116,7 +127,8 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<InstanceKey>,
         queue: &mut InstanceWorkQueue,
         instances: &mut Vec<BackendFunctionInstance>,
-    ) {
+    ) -> usize {
+        let start_len = instances.len();
         while let Some((def_id, arg_module_id, args, symbol)) = queue.pop_front() {
             if !seen.insert((def_id, arg_module_id, args.clone())) {
                 continue;
@@ -145,6 +157,7 @@ impl<'a> ModuleLowerer<'a> {
                 span: base.span,
             });
         }
+        instances.len() - start_len
     }
 
     fn enqueue_function_instances_from_functions(

@@ -169,7 +169,10 @@ Current Nia-owned optimization consumers:
   Trait-object vtable collection caches vtable construction by concrete
   `(self_ty, object_ty)` key across instance-discovery rounds so repeated
   coercions do not rebuild identical vtable metadata while discovering
-  monomorphized vtable entries.
+  monomorphized vtable entries. Vtable-driven generic instance discovery scans
+  root functions once and then scans only function instances added by the
+  previous queue drain, avoiding repeated full traversals of all
+  already-discovered instances.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.
