@@ -275,13 +275,18 @@ pub fn add_resolved_imports(
     graph: &mut ModuleGraph,
     module_id: ModuleId,
     imports: impl IntoIterator<Item = ResolvedImport>,
-) {
+) -> Result<(), Diagnostic> {
     // The query loader only calls this with ids read from the same graph. Keep
-    // that as an explicit invariant so graph corruption fails at the boundary.
-    assert!(
-        graph.get(module_id).is_some(),
-        "unknown module id {module_id:?} while adding resolved imports"
-    );
+    // that as an explicit boundary error so graph corruption is reported before
+    // unreachable target modules can be interned.
+    if graph.get(module_id).is_none() {
+        return Err(Diagnostic::error(
+            Span::default(),
+            format!(
+                "internal error: unknown module id {module_id:?} while adding resolved imports"
+            ),
+        ));
+    }
 
     for import in imports {
         let target = graph.intern_path(import.path.clone());
@@ -295,6 +300,7 @@ pub fn add_resolved_imports(
             },
         );
     }
+    Ok(())
 }
 
 pub fn resolve_import_path(
@@ -518,11 +524,10 @@ import math.ops;
     }
 
     #[test]
-    #[should_panic(expected = "unknown module id ModuleId(99) while adding resolved imports")]
-    fn add_resolved_imports_rejects_invalid_source_module_id() {
+    fn add_resolved_imports_reports_invalid_source_module_id() {
         let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
 
-        add_resolved_imports(
+        let err = add_resolved_imports(
             &mut graph,
             ModuleId(99),
             [ResolvedImport {
@@ -530,6 +535,10 @@ import math.ops;
                 path: SourcePath::new("math.nia"),
                 span: Span::default(),
             }],
-        );
+        )
+        .expect_err("unknown source module id should be reported");
+
+        assert!(err.message.contains("unknown module id"));
+        assert_eq!(graph.modules().count(), 1);
     }
 }
