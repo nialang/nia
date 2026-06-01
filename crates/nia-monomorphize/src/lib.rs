@@ -118,11 +118,7 @@ impl MonoCollector<'_> {
     }
 
     fn is_generic_def(&mut self, def_id: GlobalDefId) -> bool {
-        if self
-            .all_recorded_generics(def_id)
-            .iter()
-            .any(|generics| !generics.is_empty())
-        {
+        if self.has_recorded_generics(def_id) {
             return true;
         }
         let Some(defs) = self.defs_by_module.get(&def_id.module_id) else {
@@ -140,7 +136,13 @@ impl MonoCollector<'_> {
         !self.effective_generics_for(def_id).is_empty()
     }
 
-    fn compute_effective_generics(&self, defs: &DefCollection, def_id: GlobalDefId) -> Vec<String> {
+    fn compute_effective_generics(&self, def_id: GlobalDefId) -> Vec<String> {
+        if let Some(generics) = self.first_non_empty_recorded_generics(def_id) {
+            return generics.to_vec();
+        }
+        let Some(defs) = self.defs_by_module.get(&def_id.module_id) else {
+            return Vec::new();
+        };
         let Some(def) = defs.defs.get(def_id.def_id) else {
             return Vec::new();
         };
@@ -164,31 +166,28 @@ impl MonoCollector<'_> {
         generics
     }
 
-    fn effective_generics_for(&mut self, def_id: GlobalDefId) -> Vec<String> {
-        if let Some(generics) = self.effective_generics.get(&def_id) {
-            return generics.clone();
+    fn effective_generics_for(&mut self, def_id: GlobalDefId) -> &[String] {
+        if !self.effective_generics.contains_key(&def_id) {
+            let generics = self.compute_effective_generics(def_id);
+            self.effective_generics.insert(def_id, generics);
         }
-        let generics = if let Some(generics) = self
-            .all_recorded_generics(def_id)
-            .into_iter()
-            .find(|generics| !generics.is_empty())
-        {
-            generics
-        } else {
-            self.defs_by_module
-                .get(&def_id.module_id)
-                .map(|defs| self.compute_effective_generics(defs, def_id))
-                .unwrap_or_default()
-        };
-        self.effective_generics.insert(def_id, generics.clone());
-        generics
+        self.effective_generics
+            .get(&def_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
-    fn all_recorded_generics(&self, def_id: GlobalDefId) -> Vec<Vec<String>> {
+    fn has_recorded_generics(&self, def_id: GlobalDefId) -> bool {
         self.recorded_generics_by_def
             .get(&def_id)
-            .cloned()
-            .unwrap_or_default()
+            .is_some_and(|all| all.iter().any(|generics| !generics.is_empty()))
+    }
+
+    fn first_non_empty_recorded_generics(&self, def_id: GlobalDefId) -> Option<&[String]> {
+        self.recorded_generics_by_def
+            .get(&def_id)
+            .and_then(|all| all.iter().find(|generics| !generics.is_empty()))
+            .map(Vec::as_slice)
     }
 
     fn expand_instance(
@@ -707,5 +706,41 @@ fn wrap[T](value: T) T { value }
 
         assert_eq!(mono.instances.len(), 2);
         assert_eq!(mono.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn effective_generics_cache_uses_recorded_generics_by_reference() {
+        let def_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: nia_ids::DefId(0),
+        };
+        let mut collector = MonoCollector {
+            defs_by_module: HashMap::new(),
+            interners_by_module: HashMap::new(),
+            comptime_by_module: HashMap::new(),
+            const_exprs_by_module: HashMap::new(),
+            instantiations_by_source: HashMap::new(),
+            recorded_generics_by_def: HashMap::from([(
+                def_id,
+                vec![Vec::new(), vec!["T".to_string(), "U".to_string()]],
+            )]),
+            instances: Vec::new(),
+            seen: HashSet::new(),
+            expanded: HashSet::new(),
+            type_symbols: HashMap::new(),
+            effective_generics: HashMap::new(),
+            missing_array_len_diagnostics: HashSet::new(),
+            diagnostics: Vec::new(),
+        };
+
+        assert_eq!(
+            collector.effective_generics_for(def_id),
+            &["T".to_string(), "U".to_string()]
+        );
+        collector.recorded_generics_by_def.clear();
+        assert_eq!(
+            collector.effective_generics_for(def_id),
+            &["T".to_string(), "U".to_string()]
+        );
     }
 }
