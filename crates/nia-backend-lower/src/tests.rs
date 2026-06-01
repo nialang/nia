@@ -1818,6 +1818,47 @@ fn main(value: Box[[N]u8]) void {}
     );
 }
 
+#[test]
+fn append_missing_layout_instances_uses_existing_keys_as_set() {
+    let key_existing = nia_layout::StructLayoutKey {
+        def_id: DefId(1),
+        args: Vec::new(),
+    };
+    let key_new = nia_layout::StructLayoutKey {
+        def_id: DefId(2),
+        args: Vec::new(),
+    };
+    let existing_layout = nia_layout::StructLayout {
+        layout: nia_layout::TypeLayout { size: 4, align: 4 },
+        fields: Vec::new(),
+    };
+    let duplicate_layout = nia_layout::StructLayout {
+        layout: nia_layout::TypeLayout { size: 8, align: 8 },
+        fields: Vec::new(),
+    };
+    let new_layout = nia_layout::StructLayout {
+        layout: nia_layout::TypeLayout { size: 16, align: 8 },
+        fields: Vec::new(),
+    };
+    let module_id = ModuleId(0);
+    let mut output = vec![(
+        BackendStructInstanceKey::from_module_key(module_id, &key_existing),
+        existing_layout.clone(),
+    )];
+    let computed = HashMap::from([
+        (key_existing.clone(), duplicate_layout),
+        (key_new.clone(), new_layout.clone()),
+    ]);
+
+    append_missing_layout_instances(module_id, &mut output, computed);
+
+    assert_eq!(output.len(), 2);
+    assert_eq!(output[0].1, existing_layout);
+    assert!(output.iter().any(|(key, layout)| key
+        == &BackendStructInstanceKey::from_module_key(module_id, &key_new)
+        && layout == &new_layout));
+}
+
 fn lower_source(source: &str) -> BackendLowering {
     let lowering = lower_source_with_comptime_mutation(source, |_, _| {});
     assert!(
