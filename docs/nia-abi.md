@@ -618,9 +618,10 @@ is emitted. They must not change:
 The current backend cleanup passes are backend-visible only. Removing
 unreachable Function IR blocks, merging empty jump blocks, folding constant
 boolean branches, removing same-type casts, removing no-op local stores,
-discarding pure value-only expression statements, propagating local copies,
-removing overwritten local stores, removing never-read local stores, and removing
-unused local bindings must preserve the ABI metadata chosen before backend
+discarding pure value-only expression statements, removing unused
+compiler-generated temporary bindings, propagating local copies, removing
+overwritten local stores, removing never-read local stores, and removing unused
+user local bindings must preserve the ABI metadata chosen before backend
 lowering. These passes may make generated code smaller or clearer, but they must
 not become a second layout, name-mangling, or calling convention authority.
 

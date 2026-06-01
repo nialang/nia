@@ -5,7 +5,8 @@ use nia_body_check::{BodyCheckInput, check_module_bodies_with_program_signatures
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
 use nia_function_ir::{
-    FunctionArrayElements, FunctionBlockId, FunctionExprKind, FunctionOp, FunctionTerminator,
+    FunctionArrayElements, FunctionBlockId, FunctionExpr, FunctionExprKind, FunctionOp,
+    FunctionTerminator,
 };
 use nia_function_lower::lower_function_body;
 use nia_ids::LocalId;
@@ -1102,6 +1103,75 @@ fn main() i32 {
             )
         })
     }));
+}
+
+#[test]
+fn o1_removes_unused_backend_temp_bindings() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let span = body.span;
+            let ty = body.ty;
+            let temp = LocalId(999);
+            body.locals.push(nia_function_ir::FunctionLocal {
+                id: temp,
+                name: "fir.tmp.999".to_string(),
+                kind: nia_function_ir::FunctionLocalKind::Binding,
+                ty,
+                span,
+            });
+            body.blocks[0]
+                .ops
+                .push(FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: temp,
+                    name: "fir.tmp.999".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    }),
+                    is_const: false,
+                }));
+        },
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.locals.iter().all(|local| local.name != "fir.tmp.999"));
+    assert!(body.blocks.iter().all(|block| {
+        block.ops.iter().all(|op| {
+            !matches!(
+                op,
+                FunctionOp::Binding(binding) if binding.name == "fir.tmp.999"
+            )
+        })
+    }));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| {
+                matches!(
+                    change,
+                    BackendOptimizationChange::Function {
+                        pass: "remove-unused-temp-bindings",
+                        ..
+                    }
+                )
+            })
+    );
 }
 
 #[test]
