@@ -146,7 +146,12 @@ impl BackendValidator<'_> {
     }
 
     fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
-        self.layout_of_with_active(ty, &mut HashSet::new())
+        if let Some(layout) = self.layout_cache.borrow().get(&ty) {
+            return layout.clone();
+        }
+        let layout = self.layout_of_with_active(ty, &mut HashSet::new());
+        self.layout_cache.borrow_mut().insert(ty, layout.clone());
+        layout
     }
 
     fn layout_of_with_active(

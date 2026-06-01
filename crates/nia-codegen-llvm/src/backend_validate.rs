@@ -5,7 +5,10 @@ mod refs;
 mod static_init;
 mod types;
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+};
 
 use crate::program_index::ProgramIndex;
 use nia_backend_ir::{BackendModule, BackendProgram, BackendTraitObjectVtableFunction};
@@ -22,6 +25,7 @@ pub(super) fn validate_backend_program(
         index,
         diagnostics: Vec::new(),
         seen_types: HashSet::new(),
+        layout_cache: RefCell::new(HashMap::new()),
         local_tys: Vec::new(),
     };
     for module in &program.modules {
@@ -34,6 +38,7 @@ pub(super) struct BackendValidator<'a> {
     index: &'a ProgramIndex<'a>,
     diagnostics: Vec<Diagnostic>,
     seen_types: HashSet<InternedTyId>,
+    layout_cache: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     local_tys: Vec<HashMap<LocalId, InternedTyId>>,
 }
 
