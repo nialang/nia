@@ -46,6 +46,7 @@ enum BackendOptPass {
     RemoveUnusedLocalBindings,
     FoldConstantBoolBranches,
     SimplifyTrivialBranches,
+    SimplifySameTargetSwitches,
     MergeEmptyJumpBlocks,
     RemoveUnreachableBlocks,
     OptimizeDeferBodies,
@@ -63,6 +64,7 @@ impl BackendOptPass {
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
             Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
             Self::SimplifyTrivialBranches => "simplify-trivial-branches",
+            Self::SimplifySameTargetSwitches => "simplify-same-target-switches",
             Self::MergeEmptyJumpBlocks => "merge-empty-jump-blocks",
             Self::RemoveUnreachableBlocks => "remove-unreachable-blocks",
             Self::OptimizeDeferBodies => "optimize-defer-bodies",
@@ -80,6 +82,7 @@ impl BackendOptPass {
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
             Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
             Self::SimplifyTrivialBranches => simplify_trivial_branches(&mut body.blocks),
+            Self::SimplifySameTargetSwitches => simplify_same_target_switches(&mut body.blocks),
             Self::MergeEmptyJumpBlocks => merge_empty_jump_blocks(body),
             Self::RemoveUnreachableBlocks => remove_unreachable_blocks(body),
             Self::OptimizeDeferBodies => optimize_defer_bodies(&mut body.blocks),
@@ -106,6 +109,9 @@ impl BackendOptPass {
             | Self::MergeEmptyJumpBlocks
             | Self::RemoveUnreachableBlocks
             | Self::OptimizeDeferBodies => at_least(policy.simplify_cfg, OptimizationDepth::Cheap),
+            Self::SimplifySameTargetSwitches => {
+                at_least(policy.simplify_cfg, OptimizationDepth::Full)
+            }
         }
     }
 }
@@ -147,6 +153,7 @@ const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::SimplifyTrivialBranches,
+    BackendOptPass::SimplifySameTargetSwitches,
     BackendOptPass::MergeEmptyJumpBlocks,
     BackendOptPass::RemoveUnreachableBlocks,
     BackendOptPass::OptimizeDeferBodies,
@@ -189,6 +196,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::SimplifyTrivialBranches,
+    BackendOptPass::SimplifySameTargetSwitches,
     BackendOptPass::MergeEmptyJumpBlocks,
     BackendOptPass::RemoveUnreachableBlocks,
     BackendOptPass::OptimizeDeferBodies,
@@ -1713,6 +1721,45 @@ fn simplify_trivial_branches(blocks: &mut [FunctionBlock]) -> bool {
     changed
 }
 
+fn simplify_same_target_switches(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        for op in &mut block.ops {
+            if let FunctionOp::Defer(body) = op {
+                changed |= simplify_same_target_switches(&mut body.blocks);
+            }
+        }
+        if let FunctionTerminator::Switch {
+            target,
+            arms,
+            default,
+            fallback,
+            span,
+        } = &block.terminator
+            && is_pure_discardable_expr(target)
+            && arms
+                .iter()
+                .all(|arm| is_pure_discardable_expr(&arm.pattern))
+            && switch_targets_same(arms, *default, *fallback)
+        {
+            block.terminator = FunctionTerminator::Branch {
+                target: *fallback,
+                span: *span,
+            };
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn switch_targets_same(
+    arms: &[nia_function_ir::FunctionSwitchArm],
+    default: Option<FunctionBlockId>,
+    fallback: FunctionBlockId,
+) -> bool {
+    arms.iter().all(|arm| arm.target == fallback) && default.is_none_or(|target| target == fallback)
+}
+
 fn merge_empty_jump_blocks(body: &mut FunctionBody) -> bool {
     let mut any_changed = false;
     loop {
@@ -2046,6 +2093,40 @@ mod tests {
             !pipeline
                 .passes
                 .contains(&BackendOptPass::SimplifyTrivialBranches)
+        );
+    }
+
+    #[test]
+    fn same_target_switch_simplification_requires_full_cfg_policy() {
+        let policy = nia_opt::OptimizationPolicy {
+            level: NiaOptimizationLevel::O2,
+            simplify_cfg: OptimizationDepth::Cheap,
+            const_fold: OptimizationDepth::Disabled,
+            dead_code_elim: OptimizationDepth::Disabled,
+            local_copy_prop: OptimizationDepth::Disabled,
+            inline_threshold: nia_opt::InlineThreshold::Never,
+            specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+            dedup_monomorphized_instances: false,
+            prefer_size: false,
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            !pipeline
+                .passes
+                .contains(&BackendOptPass::SimplifySameTargetSwitches)
+        );
+
+        let policy = nia_opt::OptimizationPolicy {
+            simplify_cfg: OptimizationDepth::Full,
+            ..policy
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            pipeline
+                .passes
+                .contains(&BackendOptPass::SimplifySameTargetSwitches)
         );
     }
 
@@ -3058,6 +3139,267 @@ mod tests {
             }
         ));
         validate_function_body(&body).expect("effectful-condition body should remain valid");
+    }
+
+    #[test]
+    fn simplifies_same_target_switch_with_pure_target() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Switch {
+                    target: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    },
+                    arms: vec![
+                        nia_function_ir::FunctionSwitchArm {
+                            pattern: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Integer("1".to_string()),
+                            },
+                            target: FunctionBlockId(1),
+                        },
+                        nia_function_ir::FunctionSwitchArm {
+                            pattern: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Integer("2".to_string()),
+                            },
+                            target: FunctionBlockId(1),
+                        },
+                    ],
+                    default: Some(FunctionBlockId(1)),
+                    fallback: FunctionBlockId(1),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "target".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(simplify_same_target_switches(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(1),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("same-target switch body should remain valid");
+    }
+
+    #[test]
+    fn preserves_same_target_switch_with_effectful_target() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Switch {
+                    target: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                                module_id: nia_ids::ModuleId(0),
+                                def_id: nia_ids::DefId(0),
+                            }),
+                            args: Vec::new(),
+                        },
+                    },
+                    arms: vec![nia_function_ir::FunctionSwitchArm {
+                        pattern: FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Integer("1".to_string()),
+                        },
+                        target: FunctionBlockId(1),
+                    }],
+                    default: Some(FunctionBlockId(1)),
+                    fallback: FunctionBlockId(1),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        assert!(!simplify_same_target_switches(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::Switch {
+                fallback: FunctionBlockId(1),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("effectful-target switch body should remain valid");
+    }
+
+    #[test]
+    fn preserves_same_target_switch_with_effectful_pattern() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Switch {
+                    target: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    },
+                    arms: vec![nia_function_ir::FunctionSwitchArm {
+                        pattern: FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Call {
+                                callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                                    module_id: nia_ids::ModuleId(0),
+                                    def_id: nia_ids::DefId(0),
+                                }),
+                                args: Vec::new(),
+                            },
+                        },
+                        target: FunctionBlockId(1),
+                    }],
+                    default: Some(FunctionBlockId(1)),
+                    fallback: FunctionBlockId(1),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "target".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(!simplify_same_target_switches(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::Switch {
+                fallback: FunctionBlockId(1),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("effectful-pattern switch body should remain valid");
+    }
+
+    #[test]
+    fn simplifies_same_target_switches_inside_defer_bodies() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Defer(nia_function_ir::FunctionDeferBody {
+                span,
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![
+                    FunctionBlock {
+                        id: FunctionBlockId(10),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Switch {
+                            target: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Local(LocalId(0)),
+                            },
+                            arms: vec![nia_function_ir::FunctionSwitchArm {
+                                pattern: FunctionExpr {
+                                    span,
+                                    ty,
+                                    kind: FunctionExprKind::Integer("1".to_string()),
+                                },
+                                target: FunctionBlockId(11),
+                            }],
+                            default: Some(FunctionBlockId(11)),
+                            fallback: FunctionBlockId(11),
+                            span,
+                        },
+                    },
+                    FunctionBlock {
+                        id: FunctionBlockId(11),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Error { span },
+                    },
+                ],
+                entry: FunctionBlockId(10),
+            })],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "target".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(simplify_same_target_switches(&mut body.blocks));
+
+        let FunctionOp::Defer(defer_body) = &body.blocks[0].ops[0] else {
+            panic!("expected defer op");
+        };
+        assert!(matches!(
+            defer_body.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(11),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("defer switch body should remain valid");
     }
 
     #[test]
