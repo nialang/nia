@@ -43,8 +43,12 @@ pub fn validate_function_defer_body(
     enclosing_locals: &[FunctionLocal],
     body: &FunctionDeferBody,
 ) -> Result<(), FunctionIrError> {
+    // Defer bodies execute in the enclosing function's local namespace: captures are plain
+    // local references, while control-flow scopes are private to this deferred mini-body.
+    // Keeping that split explicit here prevents codegen-only failures when nested defer
+    // lowering changes either side of the representation.
     FunctionIrValidator::new(enclosing_locals, &body.scopes, &body.blocks, body.entry)
-        .validate_body(body.span)?;
+        .validate_defer_body(body.span)?;
     for block in &body.blocks {
         for op in &block.ops {
             if let FunctionOp::Defer(defer_body) = op {
@@ -84,6 +88,28 @@ impl<'a> FunctionIrValidator<'a> {
     }
 
     fn validate_body(&self, span: Span) -> Result<(), FunctionIrError> {
+        self.validate_body_shape(span)?;
+        for block in self.blocks {
+            for op in &block.ops {
+                self.validate_op(op)?;
+            }
+            self.validate_terminator(&block.terminator)?;
+        }
+        Ok(())
+    }
+
+    fn validate_defer_body(&self, span: Span) -> Result<(), FunctionIrError> {
+        self.validate_body_shape(span)?;
+        for block in self.blocks {
+            for op in &block.ops {
+                self.validate_op(op)?;
+            }
+            self.validate_defer_terminator(&block.terminator)?;
+        }
+        Ok(())
+    }
+
+    fn validate_body_shape(&self, span: Span) -> Result<(), FunctionIrError> {
         self.validate_unique_locals()?;
         self.validate_unique_scopes()?;
         self.validate_unique_blocks()?;
@@ -102,10 +128,6 @@ impl<'a> FunctionIrValidator<'a> {
         }
         for block in self.blocks {
             self.require_scope(block.scope, block.span, "block scope")?;
-            for op in &block.ops {
-                self.validate_op(op)?;
-            }
-            self.validate_terminator(&block.terminator)?;
         }
         Ok(())
     }
@@ -210,6 +232,22 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionTerminator::Error { .. }
             | FunctionTerminator::Branch { .. }
             | FunctionTerminator::Next { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn validate_defer_terminator(
+        &self,
+        terminator: &FunctionTerminator,
+    ) -> Result<(), FunctionIrError> {
+        match terminator {
+            FunctionTerminator::Return { span, .. } => {
+                return Err(FunctionIrError::new(
+                    *span,
+                    "`return` is not valid in defer function IR",
+                ));
+            }
+            _ => self.validate_terminator(terminator)?,
         }
         Ok(())
     }
@@ -461,6 +499,35 @@ mod tests {
             error
                 .message
                 .contains("scope parent chain contains a cycle"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn rejects_return_in_defer_body() {
+        let span = Span::default();
+        let defer_body = FunctionDeferBody {
+            span,
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            }],
+            entry: FunctionBlockId(0),
+        };
+
+        let error =
+            validate_function_defer_body(&[], &defer_body).expect_err("defer return should fail");
+
+        assert!(
+            error.message.contains("not valid in defer function IR"),
             "{error:?}"
         );
     }
