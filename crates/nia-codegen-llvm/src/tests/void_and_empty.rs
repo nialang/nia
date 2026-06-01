@@ -224,3 +224,54 @@ fn main() i32 {
     assert!(ir.contains("call void @nia__m0__d1__effect"));
     assert!(ir.contains("call i32 @nia__m0__d2__value"));
 }
+
+#[test]
+fn preserves_effects_inside_zero_sized_aggregate_literals() {
+    let root = temp_dir("preserves_effects_inside_zero_sized_aggregate_literals");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Wrap {
+    value: void,
+}
+
+extern fn log(value: i32);
+
+fn effect(value: i32) void {
+    log(value);
+}
+
+fn take(value: Wrap) void {}
+fn take_array(value: [2]void) void {}
+
+fn main() i32 {
+    var local: Wrap = { value: effect(1) };
+    take({ value: effect(2) });
+    take_array([effect(3), effect(4)]);
+    take_array([effect(5); 2]);
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    for value in 1..=5 {
+        assert!(
+            ir.contains(&format!("call void @nia__m0__d3__effect(i32 {value})")),
+            "{ir}"
+        );
+    }
+    assert_eq!(
+        ir.matches("call void @nia__m0__d3__effect(i32 5)").count(),
+        2
+    );
+    assert!(ir.contains("call void @nia__m0__d4__take()"), "{ir}");
+    assert!(ir.contains("call void @nia__m0__d5__take_array()"), "{ir}");
+}

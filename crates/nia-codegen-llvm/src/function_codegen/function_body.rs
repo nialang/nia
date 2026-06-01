@@ -551,8 +551,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(())
             }
             FunctionExprKind::InlineAsm(asm) => self.emit_inline_asm(asm),
-            FunctionExprKind::StructLiteral { .. }
-            | FunctionExprKind::Local(_)
+            FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal_effects(elems),
+            FunctionExprKind::StructLiteral { fields, .. } => {
+                for field in fields {
+                    self.emit_effect_expr(&field.value)?;
+                }
+                Ok(())
+            }
+            FunctionExprKind::UnionLiteral { field, .. } => self.emit_effect_expr(&field.value),
+            FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::CStringPointer { .. } => Ok(()),
             _ => {
@@ -560,6 +567,25 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(())
             }
         }
+    }
+
+    fn emit_array_literal_effects(
+        &mut self,
+        elems: &nia_function_ir::FunctionArrayElements,
+    ) -> Result<(), Diagnostic> {
+        match elems {
+            nia_function_ir::FunctionArrayElements::List(values) => {
+                for value in values {
+                    self.emit_effect_expr(value)?;
+                }
+            }
+            nia_function_ir::FunctionArrayElements::Repeat { value, count } => {
+                for _ in 0..*count {
+                    self.emit_effect_expr(value)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
