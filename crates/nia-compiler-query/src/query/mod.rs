@@ -211,6 +211,56 @@ mod tests {
     }
 
     #[test]
+    fn public_options_flow_through_compiler_query_context() {
+        for level in [
+            NiaOptimizationLevel::O0,
+            NiaOptimizationLevel::O1,
+            NiaOptimizationLevel::O2,
+            NiaOptimizationLevel::O3,
+            NiaOptimizationLevel::Os,
+            NiaOptimizationLevel::Oz,
+        ] {
+            let checked = check_loaded_program_with_options(
+                loaded_program_with_modules(vec![loaded_module(
+                    ModuleId(0),
+                    "main.nia",
+                    r#"
+const zeroes: [4]i32 = [0; 4];
+
+fn main() i32 {
+    zeroes[0]
+}
+"#,
+                )]),
+                level,
+            );
+            let policy = level.policy();
+
+            assert!(
+                checked.diagnostics.is_empty(),
+                "{level:?}: {:?}",
+                checked.diagnostics
+            );
+            assert_eq!(checked.optimization, policy, "{level:?}");
+            assert_eq!(checked.backend_lowering.optimization, policy, "{level:?}");
+            assert_eq!(
+                checked
+                    .backend_lowering
+                    .optimization_report
+                    .enabled_global_passes,
+                if policy.prefer_size
+                    || policy.const_fold.at_least(nia_opt::OptimizationDepth::Full)
+                {
+                    vec!["simplify-static-init"]
+                } else {
+                    Vec::new()
+                },
+                "{level:?}"
+            );
+        }
+    }
+
+    #[test]
     fn compiler_query_providers_can_override_query_execution() {
         fn no_parse_ok_modules(_: &QueryDb<DriverContext>) -> Vec<ModuleId> {
             Vec::new()
