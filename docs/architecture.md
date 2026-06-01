@@ -114,7 +114,9 @@ Current Nia-owned optimization consumers:
 - `nia-backend-lower` consumes the policy while lowering function bodies into
   backend IR. Backend passes are selected from policy capabilities, not directly
   from the user-facing level. Cheap dead-code elimination enables same-type cast
-  removal, no-op local store removal, and pure discarded expression removal.
+  removal, no-op local store removal, and removal of discarded expressions whose
+  entire wrapper tree is pure, including pure casts, operators, ranges, indexes,
+  slices, and aggregate literals.
   Cheap constant folding enables short-circuit logical expression
   simplification when constant operands make it safe, plus constant boolean
   branch folding, including inside defer bodies. Cheap CFG simplification
