@@ -156,6 +156,48 @@ fn collects_unique_locals_from_statement_block_expressions() {
 }
 
 #[test]
+fn collects_locals_from_deferred_block_expressions() {
+    let span = Span::default();
+    let ty = test_ty();
+    let deferred_local = TypedLocal {
+        id: LocalId(3),
+        name: "deferred_local".to_string(),
+        kind: TypedLocalKind::Binding,
+        ty,
+        span,
+    };
+    let body = TypedBody {
+        span,
+        locals: Vec::new(),
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Defer(TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Block(TypedBody {
+                    span,
+                    locals: vec![deferred_local],
+                    stmts: Vec::new(),
+                    tail: Some(Box::new(int_expr(1))),
+                    ty,
+                }),
+            }),
+        }],
+        tail: None,
+        ty,
+    };
+
+    let function_body = lower_function_body(&body);
+
+    assert!(function_body.locals.iter().any(|local| {
+        local.id == LocalId(3)
+            && local.name == "deferred_local"
+            && local.kind == FunctionLocalKind::Binding
+    }));
+    validate_function_body(&function_body).expect("valid defer block local table");
+}
+
+#[test]
 fn collects_unique_locals_from_statement_if_arms() {
     let span = Span::default();
     let ty = test_ty();

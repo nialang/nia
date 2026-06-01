@@ -243,6 +243,10 @@ impl FunctionLowerer {
     }
 
     pub(super) fn next_available_local(&self, body: &TypedBody) -> u32 {
+        // Temporaries are allocated after every source local referenced by the
+        // typed body, including locals hidden inside expression blocks, switch
+        // arms, and defer bodies. This keeps generated locals disjoint from
+        // ids assigned before function lowering.
         pub(super) fn visit_body(body: &TypedBody, max_id: &mut u32) {
             for local in &body.locals {
                 *max_id = (*max_id).max(local.id.0.saturating_add(1));
