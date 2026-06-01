@@ -243,6 +243,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty) else {
             return Err(self.error(span, "repeat static initializer target is not array"));
         };
+        if is_zero_static_init(value) {
+            return Ok(self
+                .llvm_basic_type_in(ty, span, interner, layouts)?
+                .into_array_type()?
+                .const_zero()
+                .into());
+        }
         let value = self.static_init_value_in(*elem, value, span, interner, layouts)?;
         let values = std::iter::repeat_n(value, count as usize).collect::<Vec<_>>();
         self.const_array_from_values_in(*elem, &values, span, interner, layouts)
@@ -364,5 +371,26 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.interner(),
             self.layouts_for(elem_ty),
         )
+    }
+}
+
+fn is_zero_static_init(init: &StaticInit) -> bool {
+    match init {
+        StaticInit::Zero
+        | StaticInit::Int(0)
+        | StaticInit::Bool(false)
+        | StaticInit::Char(0)
+        | StaticInit::Byte(0)
+        | StaticInit::NullPtr => true,
+        StaticInit::Float(text) => parse_float_literal(text) == Some(0.0),
+        StaticInit::Int(_) | StaticInit::Bool(_) | StaticInit::Char(_) | StaticInit::Byte(_) => {
+            false
+        }
+        StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
+        StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
+        StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
+        StaticInit::Repeat { value, .. } => is_zero_static_init(value),
+        StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
+        StaticInit::AddrOfGlobal { .. } | StaticInit::AddrOfFunction { .. } => false,
     }
 }

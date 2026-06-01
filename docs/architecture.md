@@ -141,6 +141,9 @@ Current Nia-owned optimization consumers:
   object vtables are indexed both by exact object type and by object trait for
   bounded cross-interner fallback, and structural type-argument matching is
   retained as a fallback for cross-interner cases.
+- Static initializer emission may choose cheaper equivalent LLVM constants, such
+  as `zeroinitializer` for repeated zero arrays, but this must preserve the
+  documented Nia static data representation and ABI layout.
 
 Future Nia-owned optimization consumers should follow the same boundary:
 
