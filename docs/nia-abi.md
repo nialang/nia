@@ -618,12 +618,13 @@ is emitted. They must not change:
 The current backend cleanup passes are backend-visible only. Removing
 unreachable Function IR blocks, merging empty jump blocks, folding constant
 boolean branches, removing same-type casts, removing no-op local stores,
-discarding pure value-only expression statements, removing unused
-compiler-generated temporary bindings, propagating local copies, removing
+discarding pure value-only expression statements, removing zero-sized local
+runtime binding/store operations while preserving initializer effects, removing
+unused compiler-generated temporary bindings, propagating local copies, removing
 overwritten local stores, removing never-read local stores, and removing unused
 user local bindings must preserve the ABI metadata chosen before backend
-lowering. These passes may make generated code smaller or clearer, but they must
-not become a second layout, name-mangling, or calling convention authority.
+lowering. These passes may make generated code smaller or clearer, but they
+must not become a second layout, name-mangling, or calling convention authority.
 
 Size-oriented levels (`Os` and `Oz`) have an additional constraint: reducing code
 size must not create a new ABI variant. They may prefer deduplication, smaller

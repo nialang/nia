@@ -9,6 +9,7 @@ use nia_function_ir::{
     FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::GlobalDefId;
+use nia_ids::InternedTyId;
 use nia_ids::LocalId;
 use nia_opt::{OptimizationDepth, OptimizationPolicy};
 
@@ -20,7 +21,10 @@ impl<'a> ModuleLowerer<'a> {
         type_arg_count: usize,
         mut body: FunctionBody,
     ) -> FunctionBody {
-        for pass in BackendOptPipeline::for_policy(&self.optimization).run(&mut body) {
+        let zero_sized_types = |ty| self.layout_of(ty).is_some_and(|layout| layout.size == 0);
+        for pass in
+            BackendOptPipeline::for_policy(&self.optimization).run(&mut body, zero_sized_types)
+        {
             self.optimization_report.changed_passes.push(
                 crate::BackendOptimizationChange::Function {
                     module_id: self.input.module_id,
@@ -40,6 +44,7 @@ enum BackendOptPass {
     SimplifySameTypeCasts,
     RemoveNoopLocalStores,
     RemovePureExprOps,
+    RemoveZstLocalRuntimeOps,
     PropagateLocalCopies,
     PropagateLocalConstants,
     SimplifyConstantLogicalExprs,
@@ -62,6 +67,7 @@ impl BackendOptPass {
             Self::SimplifySameTypeCasts => "simplify-same-type-casts",
             Self::RemoveNoopLocalStores => "remove-noop-local-stores",
             Self::RemovePureExprOps => "remove-pure-expr-ops",
+            Self::RemoveZstLocalRuntimeOps => "remove-zst-local-runtime-ops",
             Self::PropagateLocalCopies => "propagate-local-copies",
             Self::PropagateLocalConstants => "propagate-local-constants",
             Self::SimplifyConstantLogicalExprs => "simplify-constant-logical-exprs",
@@ -79,11 +85,16 @@ impl BackendOptPass {
         }
     }
 
-    fn run(self, body: &mut FunctionBody) -> bool {
+    fn run(
+        self,
+        body: &mut FunctionBody,
+        is_zero_sized: impl Fn(InternedTyId) -> bool + Copy,
+    ) -> bool {
         match self {
             Self::SimplifySameTypeCasts => simplify_same_type_casts_in_blocks(&mut body.blocks),
             Self::RemoveNoopLocalStores => remove_noop_local_stores(&mut body.blocks),
             Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
+            Self::RemoveZstLocalRuntimeOps => remove_zst_local_runtime_ops(body, is_zero_sized),
             Self::PropagateLocalCopies => propagate_local_copies(body),
             Self::PropagateLocalConstants => propagate_local_constants(body),
             Self::SimplifyConstantLogicalExprs => simplify_constant_logical_exprs(body),
@@ -104,6 +115,9 @@ impl BackendOptPass {
     fn enabled_by(self, policy: &OptimizationPolicy) -> bool {
         match self {
             Self::SimplifySameTypeCasts | Self::RemoveNoopLocalStores | Self::RemovePureExprOps => {
+                policy.dead_code_elim.at_least(OptimizationDepth::Cheap)
+            }
+            Self::RemoveZstLocalRuntimeOps => {
                 policy.dead_code_elim.at_least(OptimizationDepth::Cheap)
             }
             Self::PropagateLocalCopies => {
@@ -159,12 +173,16 @@ impl BackendOptPipeline {
         Self { passes }
     }
 
-    fn run(&self, body: &mut FunctionBody) -> Vec<&'static str> {
+    fn run(
+        &self,
+        body: &mut FunctionBody,
+        is_zero_sized: impl Fn(InternedTyId) -> bool + Copy,
+    ) -> Vec<&'static str> {
         let mut changed_passes = Vec::new();
         for pass in &self.passes {
             let name = pass.name();
             debug_assert!(!name.is_empty());
-            if (*pass).run(body) {
+            if (*pass).run(body, is_zero_sized) {
                 changed_passes.push(name);
             }
         }
@@ -176,6 +194,7 @@ const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
+    BackendOptPass::RemoveZstLocalRuntimeOps,
     BackendOptPass::PropagateLocalCopies,
     BackendOptPass::PropagateLocalConstants,
     BackendOptPass::SimplifyConstantLogicalExprs,
@@ -197,6 +216,7 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
+    BackendOptPass::RemoveZstLocalRuntimeOps,
     BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveUnusedTempBindings,
     BackendOptPass::FoldConstantBoolBranches,
@@ -211,6 +231,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
+    BackendOptPass::RemoveZstLocalRuntimeOps,
     BackendOptPass::PropagateLocalCopies,
     BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveOverwrittenLocalStores,
@@ -231,6 +252,7 @@ const O3_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
+    BackendOptPass::RemoveZstLocalRuntimeOps,
     BackendOptPass::PropagateLocalCopies,
     BackendOptPass::PropagateLocalConstants,
     BackendOptPass::SimplifyConstantLogicalExprs,
@@ -444,6 +466,88 @@ fn remove_noop_local_stores(blocks: &mut [FunctionBlock]) -> bool {
         }
     }
     changed
+}
+
+fn remove_zst_local_runtime_ops(
+    body: &mut FunctionBody,
+    is_zero_sized: impl Fn(InternedTyId) -> bool + Copy,
+) -> bool {
+    let zst_locals = body
+        .locals
+        .iter()
+        .filter(|local| is_zero_sized(local.ty))
+        .map(|local| local.id)
+        .collect::<HashSet<_>>();
+    if zst_locals.is_empty() {
+        return false;
+    }
+    remove_zst_local_runtime_ops_in_blocks(&mut body.blocks, &zst_locals, is_zero_sized)
+}
+
+fn remove_zst_local_runtime_ops_in_blocks(
+    blocks: &mut [FunctionBlock],
+    zst_locals: &HashSet<LocalId>,
+    is_zero_sized: impl Fn(InternedTyId) -> bool + Copy,
+) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        let mut replacement_ops = Vec::with_capacity(block.ops.len());
+        for op in block.ops.drain(..) {
+            match op {
+                FunctionOp::Binding(binding) if zst_locals.contains(&binding.local_id) => {
+                    changed = true;
+                    if let Some(value) = binding.value
+                        && !is_pure_discardable_expr(&value)
+                    {
+                        replacement_ops.push(FunctionOp::Expr(value));
+                    }
+                }
+                FunctionOp::StoreLocal {
+                    local_id, value, ..
+                } if zst_locals.contains(&local_id) => {
+                    changed = true;
+                    if !is_pure_discardable_expr(&value) {
+                        replacement_ops.push(FunctionOp::Expr(value));
+                    }
+                }
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Assign { place, rhs, .. },
+                }) if is_direct_zst_local_place(&place, zst_locals, is_zero_sized) => {
+                    changed = true;
+                    if !is_pure_discardable_expr(&rhs) {
+                        replacement_ops.push(FunctionOp::Expr(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Discard(rhs),
+                        }));
+                    }
+                }
+                FunctionOp::Defer(mut body) => {
+                    changed |= remove_zst_local_runtime_ops_in_blocks(
+                        &mut body.blocks,
+                        zst_locals,
+                        is_zero_sized,
+                    );
+                    replacement_ops.push(FunctionOp::Defer(body));
+                }
+                other => replacement_ops.push(other),
+            }
+        }
+        block.ops = replacement_ops;
+    }
+    changed
+}
+
+fn is_direct_zst_local_place(
+    place: &FunctionPlace,
+    zst_locals: &HashSet<LocalId>,
+    is_zero_sized: impl Fn(InternedTyId) -> bool,
+) -> bool {
+    matches!(place.base, FunctionPlaceBase::Local(local_id) if zst_locals.contains(&local_id))
+        && place.elems.is_empty()
+        && is_zero_sized(place.ty)
 }
 
 fn remove_unused_local_bindings(body: &mut FunctionBody) -> bool {
@@ -2750,6 +2854,7 @@ mod tests {
                 BackendOptPass::SimplifySameTypeCasts,
                 BackendOptPass::RemoveNoopLocalStores,
                 BackendOptPass::RemovePureExprOps,
+                BackendOptPass::RemoveZstLocalRuntimeOps,
                 BackendOptPass::SimplifyConstantLogicalExprs,
                 BackendOptPass::RemoveOverwrittenLocalStores,
                 BackendOptPass::RemoveNeverReadLocalStores,
