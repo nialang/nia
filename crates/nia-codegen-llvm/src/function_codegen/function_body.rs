@@ -375,6 +375,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             if self.emit_indirect_aggregate_literal_return(body, block, span, value)? {
                 return Ok(());
             }
+            if self.emit_indirect_aggregate_call_return(body, block, span, value)? {
+                return Ok(());
+            }
             let value = self.emit_expr(value)?;
             self.emit_function_tail_defers(body, block, span)?;
             if self.is_never(self.function.return_type) {
@@ -429,6 +432,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             return Ok(());
         }
         if self.emit_indirect_aggregate_literal_return(body, block, span, value)? {
+            return Ok(());
+        }
+        if self.emit_indirect_aggregate_call_return(body, block, span, value)? {
             return Ok(());
         }
         let value = self.emit_expr(value)?;
@@ -598,6 +604,52 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to load aggregate return"))?;
         self.emit_return_value(span, value)?;
         Ok(true)
+    }
+
+    fn emit_indirect_aggregate_call_return(
+        &mut self,
+        body: &FunctionBody,
+        block: FunctionBlockId,
+        span: Span,
+        value: &FunctionExpr,
+    ) -> Result<bool, Diagnostic> {
+        let FunctionExprKind::Call { callee, args } = &value.kind else {
+            return Ok(false);
+        };
+        let Some(out_ptr) = self.out_ptr else {
+            return Ok(false);
+        };
+        if self.is_never(self.function.return_type)
+            || !matches!(
+                self.module.classify_function_return(value.ty),
+                crate::module_codegen::AbiReturn::IndirectOut(_)
+            )
+            || self.return_path_has_registered_defers(body, block, span)?
+        {
+            return Ok(false);
+        }
+        let _ = self.emit_call_raw_with_out(value, callee, args, Some(out_ptr))?;
+        self.builder
+            .build_return(None)
+            .map_err(|_| self.error(span, "failed to build aggregate return"))?;
+        Ok(true)
+    }
+
+    fn return_path_has_registered_defers(
+        &self,
+        body: &FunctionBody,
+        block: FunctionBlockId,
+        span: Span,
+    ) -> Result<bool, Diagnostic> {
+        let Some(scopes) = body.return_exited_scopes(block) else {
+            return Err(self.error(span, "invalid function tail scopes"));
+        };
+        Ok(scopes.into_iter().any(|scope| {
+            self.function_defer_scopes
+                .get(&scope)
+                .and_then(|index| self.defer_scopes.get(*index))
+                .is_some_and(|scope| !scope.bodies.is_empty())
+        }))
     }
 
     fn emit_aggregate_literal_into(
