@@ -350,6 +350,8 @@ fn main() i32 {
 fn o1_removes_unreachable_backend_function_blocks() {
     let source = r#"
 fn main() i32 {
+    defer {
+    };
     0
 }
 "#;
@@ -381,6 +383,8 @@ fn main() i32 {
 fn o0_preserves_unreachable_backend_function_blocks() {
     let source = r#"
 fn main() i32 {
+    defer {
+    };
     0
 }
 "#;
@@ -406,6 +410,90 @@ fn main() i32 {
     let body = main.function_body.as_ref().expect("main function body");
 
     assert!(body.block(FunctionBlockId(999)).is_some());
+}
+
+#[test]
+fn o1_merges_empty_backend_function_jump_blocks() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let mut original = body.blocks[0].clone();
+            let empty_id = FunctionBlockId(998);
+            let original_id = FunctionBlockId(999);
+            original.id = original_id;
+            body.blocks[0].terminator = FunctionTerminator::Next {
+                target: empty_id,
+                span: body.blocks[0].span,
+            };
+            body.blocks.push(nia_function_ir::FunctionBlock {
+                id: empty_id,
+                scope: original.scope,
+                span: original.span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Next {
+                    target: original_id,
+                    span: original.span,
+                },
+            });
+            body.blocks.push(original);
+        },
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.block(FunctionBlockId(998)).is_none());
+}
+
+#[test]
+fn o0_preserves_empty_backend_function_jump_blocks() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let mut original = body.blocks[0].clone();
+            let empty_id = FunctionBlockId(998);
+            let original_id = FunctionBlockId(999);
+            original.id = original_id;
+            body.blocks[0].terminator = FunctionTerminator::Next {
+                target: empty_id,
+                span: body.blocks[0].span,
+            };
+            body.blocks.push(nia_function_ir::FunctionBlock {
+                id: empty_id,
+                scope: original.scope,
+                span: original.span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Next {
+                    target: original_id,
+                    span: original.span,
+                },
+            });
+            body.blocks.push(original);
+        },
+        nia_opt::OptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.block(FunctionBlockId(998)).is_some());
 }
 
 #[test]
