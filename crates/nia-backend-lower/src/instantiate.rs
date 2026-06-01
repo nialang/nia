@@ -217,7 +217,8 @@ impl<'a> ModuleLowerer<'a> {
             entry: body.entry,
             ty: self.instantiate_ty(body.ty, substitutions),
         };
-        self.resolve_builtin_operator_calls_in_body(body)
+        let body = self.resolve_builtin_operator_calls_in_body(body);
+        self.optimize_function_body(body)
     }
 
     pub(crate) fn generic_params_in_extension_ty(&self, ty: InternedTyId) -> Vec<String> {
