@@ -147,7 +147,8 @@ Current Nia-owned optimization consumers:
   arguments, inline assembly, address-taking, assignments, trait-object
   conversions, or references to non-parameter callee locals.
 - `nia-backend-lower` records a lightweight optimization report alongside the
-  lowered backend program. Each entry names the changed pass and the affected
+  lowered backend program. The CLI report starts with the selected
+  `OptimizationPolicy` summary, then lists each changed pass and the affected
   function or global context, including whether a function body was a
   monomorphized instance. This is the stable observability hook for reviewing
   pass behavior without embedding full before/after IR snapshots in normal
@@ -682,10 +683,10 @@ Global optimization options are listed explicitly in CLI help:
 -Oz
 ```
 
-`niac check --emit-opt-report` prints backend optimization changes to stdout.
-`niac emit llvm --emit-opt-report` prints the same report to stderr while leaving
-stdout as LLVM IR, which is useful when reviewing pass behavior next to emitted
-code.
+`niac check --emit-opt-report` prints the active optimization policy and backend
+optimization changes to stdout. `niac emit llvm --emit-opt-report` prints the
+same report to stderr while leaving stdout as LLVM IR, which is useful when
+reviewing pass behavior next to emitted code.
 
 `emit obj` may produce multiple object files because backend lowering can produce
 multiple codegen units. `-o` is only valid for single-unit output; `--out-dir` is
