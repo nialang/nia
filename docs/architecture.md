@@ -122,9 +122,11 @@ Current Nia-owned optimization consumers:
   simplification additionally folds pure same-target switch terminators to
   direct branches. Full constant folding plus full CFG simplification folds
   switches with literal targets and literal patterns to the selected branch.
-  Full local-copy propagation enables local copy propagation. Full dead-code
-  elimination enables overwritten-store cleanup, never-read local store cleanup,
-  and unused local binding cleanup.
+  Full local-copy propagation enables local copy propagation. Aggressive
+  constant folding plus aggressive local propagation enables local constant
+  propagation for O3, but not for size-oriented modes. Full dead-code elimination
+  enables overwritten-store cleanup, never-read local store cleanup, and unused
+  local binding cleanup.
 - `nia-backend-lower` records a lightweight optimization report alongside the
   lowered backend program. Each entry names the changed pass and function
   context, including whether the body was a monomorphized instance. This is the
