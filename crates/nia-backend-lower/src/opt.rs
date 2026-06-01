@@ -8,6 +8,7 @@ use nia_function_ir::{
     FunctionInlineAsm, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
     FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
+use nia_ids::LocalId;
 use nia_opt::{OptimizationDepth, OptimizationPolicy};
 
 impl<'a> ModuleLowerer<'a> {
@@ -22,6 +23,7 @@ enum BackendOptPass {
     SimplifySameTypeCasts,
     RemoveNoopLocalStores,
     RemovePureExprOps,
+    PropagateLocalCopies,
     RemoveUnusedLocalBindings,
     FoldConstantBoolBranches,
     MergeEmptyJumpBlocks,
@@ -35,6 +37,7 @@ impl BackendOptPass {
             Self::SimplifySameTypeCasts => "simplify-same-type-casts",
             Self::RemoveNoopLocalStores => "remove-noop-local-stores",
             Self::RemovePureExprOps => "remove-pure-expr-ops",
+            Self::PropagateLocalCopies => "propagate-local-copies",
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
             Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
             Self::MergeEmptyJumpBlocks => "merge-empty-jump-blocks",
@@ -48,6 +51,7 @@ impl BackendOptPass {
             Self::SimplifySameTypeCasts => simplify_same_type_casts_in_blocks(&mut body.blocks),
             Self::RemoveNoopLocalStores => remove_noop_local_stores(&mut body.blocks),
             Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
+            Self::PropagateLocalCopies => propagate_local_copies(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
             Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
             Self::MergeEmptyJumpBlocks => merge_empty_jump_blocks(body),
@@ -99,6 +103,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
+    BackendOptPass::PropagateLocalCopies,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::MergeEmptyJumpBlocks,
@@ -318,7 +323,7 @@ fn remove_unused_local_bindings_once(body: &mut FunctionBody) -> bool {
 
 fn remove_unused_local_binding_ops(
     blocks: &mut [FunctionBlock],
-    removable_locals: &HashSet<nia_ids::LocalId>,
+    removable_locals: &HashSet<LocalId>,
 ) -> bool {
     let mut changed = false;
     for block in blocks {
@@ -345,7 +350,496 @@ fn remove_unused_local_binding_ops(
     changed
 }
 
-fn collect_referenced_locals(body: &FunctionBody) -> HashSet<nia_ids::LocalId> {
+fn propagate_local_copies(body: &mut FunctionBody) -> bool {
+    let local_tys = body
+        .locals
+        .iter()
+        .map(|local| (local.id, local.ty))
+        .collect::<HashMap<_, _>>();
+    let unstable_locals = collect_place_locals_in_body(body);
+    let cfg = FunctionCfg::new(&body.blocks);
+    let mut changed = false;
+    let mut input_copies = HashMap::<FunctionBlockId, HashMap<LocalId, LocalId>>::new();
+    let mut stack = vec![body.entry];
+    let mut visited = HashSet::new();
+    while let Some(block_id) = stack.pop() {
+        if !visited.insert(block_id) {
+            continue;
+        }
+        let Some(index) = cfg.block(block_id) else {
+            continue;
+        };
+        let mut copies = input_copies.remove(&block_id).unwrap_or_default();
+        changed |= propagate_local_copies_in_block(
+            &mut body.blocks[index],
+            &local_tys,
+            &unstable_locals,
+            &mut copies,
+        );
+        for successor in cfg.referenced_blocks(&body.blocks[index].terminator) {
+            let preds = cfg.predecessors(successor);
+            if preds.len() == 1 && preds[0] == block_id {
+                input_copies.insert(successor, copies.clone());
+            }
+            stack.push(successor);
+        }
+    }
+    changed
+}
+
+fn propagate_local_copies_in_block(
+    block: &mut FunctionBlock,
+    local_tys: &HashMap<LocalId, nia_ids::InternedTyId>,
+    unstable_locals: &HashSet<LocalId>,
+    copies: &mut HashMap<LocalId, LocalId>,
+) -> bool {
+    let mut changed = false;
+    for op in &mut block.ops {
+        match op {
+            FunctionOp::Binding(binding) => {
+                if let Some(value) = &mut binding.value {
+                    changed |= rewrite_local_copies_in_expr(value, copies);
+                }
+                invalidate_local_copy(copies, binding.local_id);
+                if let Some(value) = &binding.value
+                    && let Some(source) = copy_source_from_expr(value, copies)
+                    && can_copy_local(binding.local_id, source, local_tys, unstable_locals)
+                {
+                    copies.insert(binding.local_id, source);
+                }
+            }
+            FunctionOp::StoreLocal {
+                local_id, value, ..
+            } => {
+                changed |= rewrite_local_copies_in_expr(value, copies);
+                invalidate_local_copy(copies, *local_id);
+                if let Some(source) = copy_source_from_expr(value, copies)
+                    && can_copy_local(*local_id, source, local_tys, unstable_locals)
+                {
+                    copies.insert(*local_id, source);
+                }
+            }
+            FunctionOp::Expr(_) | FunctionOp::Defer(_) => {
+                copies.clear();
+            }
+        }
+    }
+    changed |= rewrite_local_copies_in_terminator(&mut block.terminator, copies);
+    changed
+}
+
+fn copy_source_from_expr(
+    expr: &FunctionExpr,
+    copies: &HashMap<LocalId, LocalId>,
+) -> Option<LocalId> {
+    let FunctionExprKind::Local(local_id) = expr.kind else {
+        return None;
+    };
+    Some(resolve_copy_source(local_id, copies))
+}
+
+fn can_copy_local(
+    dest: LocalId,
+    source: LocalId,
+    local_tys: &HashMap<LocalId, nia_ids::InternedTyId>,
+    unstable_locals: &HashSet<LocalId>,
+) -> bool {
+    dest != source
+        && !unstable_locals.contains(&dest)
+        && !unstable_locals.contains(&source)
+        && local_tys.get(&dest).is_some()
+        && local_tys.get(&dest) == local_tys.get(&source)
+}
+
+fn invalidate_local_copy(copies: &mut HashMap<LocalId, LocalId>, local_id: LocalId) {
+    copies.remove(&local_id);
+    copies.retain(|dest, source| *dest != local_id && *source != local_id);
+}
+
+fn rewrite_local_copies_in_terminator(
+    terminator: &mut FunctionTerminator,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    match terminator {
+        FunctionTerminator::If { cond, .. } => rewrite_local_copies_in_expr(cond, copies),
+        FunctionTerminator::Switch { target, arms, .. } => {
+            let mut changed = rewrite_local_copies_in_expr(target, copies);
+            for arm in arms {
+                changed |= rewrite_local_copies_in_expr(&mut arm.pattern, copies);
+            }
+            changed
+        }
+        FunctionTerminator::Loop { header, .. } => match header {
+            FunctionForHeader::Condition(cond) => rewrite_local_copies_in_expr(cond, copies),
+            FunctionForHeader::CStyle { cond } => cond
+                .as_deref_mut()
+                .is_some_and(|cond| rewrite_local_copies_in_expr(cond, copies)),
+            FunctionForHeader::Infinite => false,
+        },
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
+            .as_mut()
+            .is_some_and(|value| rewrite_local_copies_in_expr(value, copies)),
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. } => false,
+    }
+}
+
+fn rewrite_local_copies_in_expr(
+    expr: &mut FunctionExpr,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    match &mut expr.kind {
+        FunctionExprKind::Local(local_id) => {
+            let source = resolve_copy_source(*local_id, copies);
+            if source == *local_id {
+                false
+            } else {
+                *local_id = source;
+                true
+            }
+        }
+        FunctionExprKind::Range(range) => rewrite_local_copies_in_range(range, copies),
+        FunctionExprKind::InlineAsm(asm) => rewrite_local_copies_in_inline_asm(asm, copies),
+        FunctionExprKind::CStringPointer { array, .. } => {
+            rewrite_local_copies_in_expr(array, copies)
+        }
+        FunctionExprKind::ArrayLiteral { elems } => {
+            rewrite_local_copies_in_array_elements(elems, copies)
+        }
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            let mut changed = false;
+            for field in fields {
+                changed |= rewrite_local_copies_in_expr(&mut field.value, copies);
+            }
+            changed
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            rewrite_local_copies_in_expr(&mut field.value, copies)
+        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr, .. }
+        | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+            rewrite_local_copies_in_expr(expr, copies)
+        }
+        FunctionExprKind::AddrOf(_) => false,
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            rewrite_local_copies_in_expr(lhs, copies) | rewrite_local_copies_in_expr(rhs, copies)
+        }
+        FunctionExprKind::Assign { rhs, .. } => rewrite_local_copies_in_expr(rhs, copies),
+        FunctionExprKind::Call { callee, args } => {
+            let mut changed = rewrite_local_copies_in_callee(callee, copies);
+            for arg in args {
+                changed |= rewrite_local_copies_in_expr(arg, copies);
+            }
+            changed
+        }
+        FunctionExprKind::Field { lhs, .. } => rewrite_local_copies_in_expr(lhs, copies),
+        FunctionExprKind::Index { lhs, index } => {
+            rewrite_local_copies_in_expr(lhs, copies) | rewrite_local_copies_in_expr(index, copies)
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            rewrite_local_copies_in_expr(lhs, copies)
+                | rewrite_local_copies_in_slice_range(range, copies)
+        }
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => false,
+    }
+}
+
+fn rewrite_local_copies_in_inline_asm(
+    asm: &mut FunctionInlineAsm,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    let mut changed = false;
+    for input in &mut asm.inputs {
+        changed |= rewrite_local_copies_in_expr(&mut input.value, copies);
+    }
+    changed
+}
+
+fn rewrite_local_copies_in_array_elements(
+    elems: &mut FunctionArrayElements,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    match elems {
+        FunctionArrayElements::List(elems) => {
+            let mut changed = false;
+            for elem in elems {
+                changed |= rewrite_local_copies_in_expr(elem, copies);
+            }
+            changed
+        }
+        FunctionArrayElements::Repeat { value, .. } => rewrite_local_copies_in_expr(value, copies),
+    }
+}
+
+fn rewrite_local_copies_in_callee(
+    callee: &mut FunctionCallee,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    match callee {
+        FunctionCallee::Method { receiver, .. }
+        | FunctionCallee::TraitMethod { receiver, .. }
+        | FunctionCallee::DynamicTraitMethod { receiver, .. }
+        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::FunctionPointer(receiver) => {
+            rewrite_local_copies_in_expr(receiver, copies)
+        }
+        FunctionCallee::Function(_)
+        | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::BuiltinOperator(_) => false,
+    }
+}
+
+fn rewrite_local_copies_in_slice_range(
+    range: &mut FunctionSliceRange,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    let mut changed = false;
+    if let Some(start) = &mut range.start {
+        changed |= rewrite_local_copies_in_expr(start, copies);
+    }
+    if let Some(end) = &mut range.end {
+        changed |= rewrite_local_copies_in_expr(end, copies);
+    }
+    changed
+}
+
+fn rewrite_local_copies_in_range(
+    range: &mut FunctionRange,
+    copies: &HashMap<LocalId, LocalId>,
+) -> bool {
+    let mut changed = false;
+    if let Some(start) = &mut range.start {
+        changed |= rewrite_local_copies_in_expr(start, copies);
+    }
+    if let Some(end) = &mut range.end {
+        changed |= rewrite_local_copies_in_expr(end, copies);
+    }
+    changed
+}
+
+fn resolve_copy_source(local_id: LocalId, copies: &HashMap<LocalId, LocalId>) -> LocalId {
+    let mut current = local_id;
+    let mut seen = HashSet::new();
+    while let Some(next) = copies.get(&current).copied() {
+        if !seen.insert(current) {
+            break;
+        }
+        current = next;
+    }
+    current
+}
+
+fn collect_place_locals_in_body(body: &FunctionBody) -> HashSet<LocalId> {
+    let mut locals = HashSet::new();
+    collect_place_locals_in_blocks(&body.blocks, &mut locals);
+    locals
+}
+
+fn collect_place_locals_in_blocks(blocks: &[FunctionBlock], locals: &mut HashSet<LocalId>) {
+    for block in blocks {
+        for op in &block.ops {
+            collect_place_locals_in_op(op, locals);
+        }
+        collect_place_locals_in_terminator(&block.terminator, locals);
+    }
+}
+
+fn collect_place_locals_in_op(op: &FunctionOp, locals: &mut HashSet<LocalId>) {
+    match op {
+        FunctionOp::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                collect_place_locals_in_expr(value, locals);
+            }
+        }
+        FunctionOp::StoreLocal {
+            local_id, value, ..
+        } => {
+            locals.insert(*local_id);
+            collect_place_locals_in_expr(value, locals);
+        }
+        FunctionOp::Expr(expr) => collect_place_locals_in_expr(expr, locals),
+        FunctionOp::Defer(body) => collect_place_locals_in_blocks(&body.blocks, locals),
+    }
+}
+
+fn collect_place_locals_in_terminator(
+    terminator: &FunctionTerminator,
+    locals: &mut HashSet<LocalId>,
+) {
+    match terminator {
+        FunctionTerminator::If { cond, .. } => collect_place_locals_in_expr(cond, locals),
+        FunctionTerminator::Switch { target, arms, .. } => {
+            collect_place_locals_in_expr(target, locals);
+            for arm in arms {
+                collect_place_locals_in_expr(&arm.pattern, locals);
+            }
+        }
+        FunctionTerminator::Loop { header, .. } => match header {
+            FunctionForHeader::Condition(cond) => collect_place_locals_in_expr(cond, locals),
+            FunctionForHeader::CStyle { cond } => {
+                if let Some(cond) = cond {
+                    collect_place_locals_in_expr(cond, locals);
+                }
+            }
+            FunctionForHeader::Infinite => {}
+        },
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+            if let Some(value) = value {
+                collect_place_locals_in_expr(value, locals);
+            }
+        }
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. } => {}
+    }
+}
+
+fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId>) {
+    match &expr.kind {
+        FunctionExprKind::Range(range) => collect_place_locals_in_range(range, locals),
+        FunctionExprKind::InlineAsm(asm) => collect_place_locals_in_inline_asm(asm, locals),
+        FunctionExprKind::CStringPointer { array, .. } => {
+            collect_place_locals_in_expr(array, locals)
+        }
+        FunctionExprKind::ArrayLiteral { elems } => {
+            collect_place_locals_in_array_elements(elems, locals)
+        }
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_place_locals_in_expr(&field.value, locals);
+            }
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            collect_place_locals_in_expr(&field.value, locals)
+        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr, .. }
+        | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+            collect_place_locals_in_expr(expr, locals);
+        }
+        FunctionExprKind::AddrOf(place) => collect_place_locals_in_place(place, locals),
+        FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
+            collect_place_locals_in_expr(lhs, locals);
+            collect_place_locals_in_expr(rhs, locals);
+        }
+        FunctionExprKind::Assign { place, rhs, .. } => {
+            collect_place_locals_in_place(place, locals);
+            collect_place_locals_in_expr(rhs, locals);
+        }
+        FunctionExprKind::Call { callee, args } => {
+            collect_place_locals_in_callee(callee, locals);
+            for arg in args {
+                collect_place_locals_in_expr(arg, locals);
+            }
+        }
+        FunctionExprKind::Field { lhs, .. } => collect_place_locals_in_expr(lhs, locals),
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            collect_place_locals_in_expr(lhs, locals);
+            collect_place_locals_in_slice_range(range, locals);
+        }
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => {}
+    }
+}
+
+fn collect_place_locals_in_inline_asm(asm: &FunctionInlineAsm, locals: &mut HashSet<LocalId>) {
+    for input in &asm.inputs {
+        collect_place_locals_in_expr(&input.value, locals);
+    }
+    for output in &asm.outputs {
+        collect_place_locals_in_place(&output.place, locals);
+    }
+}
+
+fn collect_place_locals_in_array_elements(
+    elems: &FunctionArrayElements,
+    locals: &mut HashSet<LocalId>,
+) {
+    match elems {
+        FunctionArrayElements::List(elems) => {
+            for elem in elems {
+                collect_place_locals_in_expr(elem, locals);
+            }
+        }
+        FunctionArrayElements::Repeat { value, .. } => collect_place_locals_in_expr(value, locals),
+    }
+}
+
+fn collect_place_locals_in_callee(callee: &FunctionCallee, locals: &mut HashSet<LocalId>) {
+    match callee {
+        FunctionCallee::Method { receiver, .. }
+        | FunctionCallee::TraitMethod { receiver, .. }
+        | FunctionCallee::DynamicTraitMethod { receiver, .. }
+        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::FunctionPointer(receiver) => {
+            collect_place_locals_in_expr(receiver, locals)
+        }
+        FunctionCallee::Function(_)
+        | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::BuiltinOperator(_) => {}
+    }
+}
+
+fn collect_place_locals_in_place(place: &FunctionPlace, locals: &mut HashSet<LocalId>) {
+    if let FunctionPlaceBase::Local(local_id) = &place.base {
+        locals.insert(*local_id);
+    }
+    for elem in &place.elems {
+        if let FunctionPlaceElem::Index(index) = elem {
+            collect_place_locals_in_expr(index, locals);
+        }
+    }
+}
+
+fn collect_place_locals_in_slice_range(range: &FunctionSliceRange, locals: &mut HashSet<LocalId>) {
+    if let Some(start) = &range.start {
+        collect_place_locals_in_expr(start, locals);
+    }
+    if let Some(end) = &range.end {
+        collect_place_locals_in_expr(end, locals);
+    }
+}
+
+fn collect_place_locals_in_range(range: &FunctionRange, locals: &mut HashSet<LocalId>) {
+    if let Some(start) = &range.start {
+        collect_place_locals_in_expr(start, locals);
+    }
+    if let Some(end) = &range.end {
+        collect_place_locals_in_expr(end, locals);
+    }
+}
+
+fn collect_referenced_locals(body: &FunctionBody) -> HashSet<LocalId> {
     let mut refs = HashSet::new();
     collect_referenced_locals_in_blocks(&body.blocks, &mut refs);
     refs
@@ -1064,9 +1558,163 @@ mod tests {
             assert!(
                 pipeline
                     .passes
+                    .contains(&BackendOptPass::PropagateLocalCopies)
+            );
+            assert!(
+                pipeline
+                    .passes
                     .contains(&BackendOptPass::RemoveUnusedLocalBindings)
             );
         }
+    }
+
+    #[test]
+    fn propagates_local_copies_within_one_block() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(0),
+                    name: "source".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    }),
+                    is_const: false,
+                }),
+                FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(1),
+                    name: "copy".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    }),
+                    is_const: false,
+                }),
+            ],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(1)),
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![
+            nia_function_ir::FunctionLocal {
+                id: LocalId(0),
+                name: "source".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+            nia_function_ir::FunctionLocal {
+                id: LocalId(1),
+                name: "copy".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+        ];
+
+        assert!(propagate_local_copies(&mut body));
+
+        let FunctionTerminator::Tail {
+            value: Some(value), ..
+        } = &body.blocks[0].terminator
+        else {
+            panic!("expected tail value");
+        };
+        assert!(matches!(value.kind, FunctionExprKind::Local(LocalId(0))));
+        validate_function_body(&body).expect("copy-propagated body should remain valid");
+    }
+
+    #[test]
+    fn does_not_propagate_locals_used_as_places() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(0),
+                    name: "source".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    }),
+                    is_const: false,
+                }),
+                FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(1),
+                    name: "copy".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    }),
+                    is_const: false,
+                }),
+                FunctionOp::StoreLocal {
+                    local_id: LocalId(1),
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("2".to_string()),
+                    },
+                    span,
+                },
+            ],
+            terminator: FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Local(LocalId(1)),
+                }),
+                span,
+            },
+        }]);
+        body.locals = vec![
+            nia_function_ir::FunctionLocal {
+                id: LocalId(0),
+                name: "source".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+            nia_function_ir::FunctionLocal {
+                id: LocalId(1),
+                name: "copy".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+        ];
+
+        assert!(!propagate_local_copies(&mut body));
+
+        let FunctionTerminator::Tail {
+            value: Some(value), ..
+        } = &body.blocks[0].terminator
+        else {
+            panic!("expected tail value");
+        };
+        assert!(matches!(value.kind, FunctionExprKind::Local(LocalId(1))));
+        validate_function_body(&body).expect("unpropagated body should remain valid");
     }
 
     #[test]
