@@ -132,12 +132,14 @@ Current Nia-owned optimization consumers:
   simplification additionally folds pure same-target switch terminators to
   direct branches. Full constant folding plus full CFG simplification folds
   switches with literal targets and literal patterns to the selected branch.
-  Full local-copy propagation enables local copy propagation. Aggressive
-  constant folding plus aggressive local propagation enables local constant
-  propagation for O3, but not for size-oriented modes. Full dead-code elimination
-  enables overwritten-store cleanup, never-read local store cleanup, and unused
-  user local binding cleanup. Full constant folding or size-oriented policy also
-  simplifies all-zero static initializers to the canonical `Zero` initializer.
+  Full local-copy propagation enables local copy propagation, including
+  independent propagation inside defer bodies. Aggressive constant folding plus
+  aggressive local propagation enables local constant propagation for O3,
+  including inside defer bodies, but not for size-oriented modes. Full
+  dead-code elimination enables overwritten-store cleanup, never-read local
+  store cleanup, and unused user local binding cleanup. Full constant folding
+  or size-oriented policy also simplifies all-zero static initializers to the
+  canonical `Zero` initializer.
   Module-level leaf inlining is gated by `inline_threshold`: `O0` disables it,
   `O1`, `Os`, and `Oz` inline only no-argument leaf functions that return a
   backend constant. Size-oriented levels deliberately keep non-constant pure
