@@ -223,6 +223,9 @@ fn main() i32 {
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
     assert!(ir.contains("return.copy"), "{ir}");
+    assert!(!ir.contains("call.out"), "{ir}");
+    assert_substrings_in_order(ir, &["%arg.copy = alloca", "make_pair(ptr %arg.copy)"]);
+    assert_substrings_in_order(ir, &["%arg.copy1 = alloca", "make_array(ptr %arg.copy1)"]);
     assert!(!ir.contains("structtmp"), "{ir}");
     assert!(!ir.contains("arraytmp"), "{ir}");
 }
