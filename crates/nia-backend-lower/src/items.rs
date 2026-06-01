@@ -247,6 +247,7 @@ fn simplify_static_init(init: StaticInit) -> StaticInit {
         }
         StaticInit::Chars(scalars) if scalars.iter().all(|scalar| *scalar == 0) => StaticInit::Zero,
         StaticInit::Bytes(bytes) if bytes.iter().all(|byte| *byte == 0) => StaticInit::Zero,
+        StaticInit::Float(text) if is_zero_float_static_init(&text) => StaticInit::Zero,
         StaticInit::Int(0)
         | StaticInit::Bool(false)
         | StaticInit::Char(0)
@@ -265,17 +266,21 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         | StaticInit::Char(0)
         | StaticInit::Byte(0)
         | StaticInit::NullPtr => true,
+        StaticInit::Float(text) => is_zero_float_static_init(text),
         StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
         StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
         StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
         StaticInit::Repeat { value, .. } => is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
         StaticInit::Int(_)
-        | StaticInit::Float(_)
         | StaticInit::Bool(_)
         | StaticInit::Char(_)
         | StaticInit::Byte(_)
         | StaticInit::AddrOfGlobal { .. }
         | StaticInit::AddrOfFunction { .. } => false,
     }
+}
+
+fn is_zero_float_static_init(text: &str) -> bool {
+    nia_comptime_engine::eval_float_literal(text) == Ok(0.0)
 }
