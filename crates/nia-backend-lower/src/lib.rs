@@ -3,6 +3,7 @@ mod function_instances;
 mod instantiate;
 mod items;
 mod operator_dispatch;
+mod opt;
 mod struct_instances;
 mod trait_object_vtables;
 
@@ -66,7 +67,7 @@ pub fn lower_backend_program(
     let lowered_modules = modules
         .iter()
         .map(|input| {
-            let mut lowerer = ModuleLowerer::new(input, monomorphization);
+            let mut lowerer = ModuleLowerer::new(input, monomorphization, optimization);
             let module = lowerer.lower_module();
             diagnostics.extend(lowerer.diagnostics);
             module
@@ -84,6 +85,7 @@ pub fn lower_backend_program(
 pub(crate) struct ModuleLowerer<'a> {
     pub(crate) input: &'a BackendLowerModuleInput<'a>,
     pub(crate) monomorphization: &'a Monomorphization,
+    pub(crate) optimization: OptimizationPolicy,
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
@@ -93,10 +95,15 @@ pub(crate) struct ModuleLowerer<'a> {
 }
 
 impl<'a> ModuleLowerer<'a> {
-    fn new(input: &'a BackendLowerModuleInput<'a>, monomorphization: &'a Monomorphization) -> Self {
+    fn new(
+        input: &'a BackendLowerModuleInput<'a>,
+        monomorphization: &'a Monomorphization,
+        optimization: OptimizationPolicy,
+    ) -> Self {
         Self {
             input,
             monomorphization,
+            optimization,
             interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
             missing_array_len_diagnostics: HashSet::new(),

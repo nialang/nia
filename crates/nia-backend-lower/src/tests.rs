@@ -4,7 +4,9 @@ use nia_abi_check::check_module_abi;
 use nia_body_check::{BodyCheckInput, check_module_bodies_with_program_signatures_and_layouts};
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
-use nia_function_ir::{FunctionArrayElements, FunctionExprKind, FunctionOp, FunctionTerminator};
+use nia_function_ir::{
+    FunctionArrayElements, FunctionBlockId, FunctionExprKind, FunctionOp, FunctionTerminator,
+};
 use nia_function_lower::lower_function_body;
 use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
@@ -345,6 +347,68 @@ fn main() i32 {
 }
 
 #[test]
+fn o1_removes_unreachable_backend_function_blocks() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let mut unreachable = body.blocks[0].clone();
+            unreachable.id = FunctionBlockId(999);
+            unreachable.ops.clear();
+            unreachable.terminator = FunctionTerminator::Return {
+                value: None,
+                span: unreachable.span,
+            };
+            body.blocks.push(unreachable);
+        },
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.block(FunctionBlockId(999)).is_none());
+}
+
+#[test]
+fn o0_preserves_unreachable_backend_function_blocks() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let mut unreachable = body.blocks[0].clone();
+            unreachable.id = FunctionBlockId(999);
+            unreachable.ops.clear();
+            unreachable.terminator = FunctionTerminator::Return {
+                value: None,
+                span: unreachable.span,
+            };
+            body.blocks.push(unreachable);
+        },
+        nia_opt::OptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.block(FunctionBlockId(999)).is_some());
+}
+
+#[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
 comptime N: usize = 3;
@@ -396,6 +460,33 @@ fn lower_source(source: &str) -> BackendLowering {
 fn lower_source_with_comptime_mutation(
     source: &str,
     mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
+) -> BackendLowering {
+    lower_source_with_body_mutation_comptime_mutation_and_optimization(
+        source,
+        |_| {},
+        mutate_comptime,
+        nia_opt::OptimizationPolicy::default(),
+    )
+}
+
+fn lower_source_with_body_mutation_and_optimization(
+    source: &str,
+    mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
+    optimization: nia_opt::OptimizationPolicy,
+) -> BackendLowering {
+    lower_source_with_body_mutation_comptime_mutation_and_optimization(
+        source,
+        mutate_body,
+        |_, _| {},
+        optimization,
+    )
+}
+
+fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
+    source: &str,
+    mut mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
+    mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
+    optimization: nia_opt::OptimizationPolicy,
 ) -> BackendLowering {
     let (module, errors) = parse_module(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -464,7 +555,11 @@ fn lower_source_with_comptime_mutation(
         .ir
         .function_bodies
         .iter()
-        .map(|(def_id, body)| (*def_id, lower_function_body(body)))
+        .map(|(def_id, body)| {
+            let mut body = lower_function_body(body);
+            mutate_body(&mut body);
+            (*def_id, body)
+        })
         .collect::<HashMap<_, _>>();
     let monomorphization =
         nia_monomorphize::collect_monomorphizations(&[nia_monomorphize::MonomorphizeModuleInput {
@@ -503,9 +598,5 @@ fn lower_source_with_comptime_mutation(
         program_traits: &HashMap::new(),
         trait_impls: &[],
     };
-    lower_backend_program(
-        &[input],
-        &monomorphization,
-        nia_opt::OptimizationPolicy::default(),
-    )
+    lower_backend_program(&[input], &monomorphization, optimization)
 }
