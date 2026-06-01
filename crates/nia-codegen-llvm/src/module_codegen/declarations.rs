@@ -20,7 +20,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .opaque_struct_type(&item.symbol)
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.struct_instances
-                .insert((item.def_id, item.args.clone()), ty);
+                .entry(item.def_id)
+                .or_default()
+                .insert(item.args.clone(), ty);
             self.struct_instances_by_def
                 .entry(item.def_id)
                 .or_default()
@@ -40,7 +42,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .opaque_struct_type(&item.symbol)
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.union_instances
-                .insert((item.def_id, item.args.clone()), ty);
+                .entry(item.def_id)
+                .or_default()
+                .insert(item.args.clone(), ty);
             self.union_instances_by_def
                 .entry(item.def_id)
                 .or_default()
@@ -77,7 +81,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             };
             let Some(struct_ty) = self
                 .struct_instances
-                .get(&(item.def_id, item.args.clone()))
+                .get(&item.def_id)
+                .and_then(|instances| instances.get(item.args.as_slice()))
                 .copied()
             else {
                 return Err(self.error(item.span, "missing LLVM struct instance"));
@@ -107,7 +112,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         for item in self.program.union_instances.values() {
             let Some(union_ty) = self
                 .union_instances
-                .get(&(item.def_id, item.args.clone()))
+                .get(&item.def_id)
+                .and_then(|instances| instances.get(item.args.as_slice()))
                 .copied()
             else {
                 return Err(self.error(item.span, "missing LLVM union instance"));
@@ -168,14 +174,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     },
                 )
                 .map_err(Self::diagnostic_from_llvm_error)?;
-            self.function_instances.insert(
-                (
-                    instance.def_id,
-                    instance.arg_module_id,
-                    instance.args.clone(),
-                ),
-                value,
-            );
+            self.function_instances
+                .entry((instance.def_id, instance.arg_module_id))
+                .or_default()
+                .insert(instance.args.clone(), value);
             self.function_instances_by_def
                 .entry(instance.def_id)
                 .or_default()

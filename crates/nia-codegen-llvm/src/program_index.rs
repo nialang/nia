@@ -30,8 +30,8 @@ pub(super) struct ProgramIndex<'a> {
     type_layouts: HashMap<InternedTyId, &'a TypeLayout>,
     struct_layouts: HashMap<GlobalDefId, &'a StructLayout>,
     union_layouts: HashMap<GlobalDefId, &'a StructLayout>,
-    struct_instance_layouts: HashMap<(GlobalDefId, Vec<InternedTyId>), &'a StructLayout>,
-    union_instance_layouts: HashMap<(GlobalDefId, Vec<InternedTyId>), &'a StructLayout>,
+    struct_instance_layouts: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a StructLayout>>,
+    union_instance_layouts: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a StructLayout>>,
     struct_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     union_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     pub(super) struct_instances_by_def:
@@ -92,7 +92,9 @@ impl<'a> ProgramIndex<'a> {
             for (key, layout) in &module.layouts.struct_instances {
                 index
                     .struct_instance_layouts
-                    .insert((key.def_id, key.args.clone()), layout);
+                    .entry(key.def_id)
+                    .or_default()
+                    .insert(key.args.clone(), layout);
                 index
                     .struct_instance_layouts_by_def
                     .entry(key.def_id)
@@ -102,7 +104,9 @@ impl<'a> ProgramIndex<'a> {
             for (key, layout) in &module.layouts.union_instances {
                 index
                     .union_instance_layouts
-                    .insert((key.def_id, key.args.clone()), layout);
+                    .entry(key.def_id)
+                    .or_default()
+                    .insert(key.args.clone(), layout);
                 index
                     .union_instance_layouts_by_def
                     .entry(key.def_id)
@@ -207,7 +211,8 @@ impl<'a> ProgramIndex<'a> {
         args: &[InternedTyId],
     ) -> Option<&'a StructLayout> {
         self.struct_instance_layouts
-            .get(&(def_id, args.to_vec()))
+            .get(&def_id)
+            .and_then(|layouts| layouts.get(args))
             .copied()
     }
 
@@ -217,7 +222,8 @@ impl<'a> ProgramIndex<'a> {
         args: &[InternedTyId],
     ) -> Option<&'a StructLayout> {
         self.union_instance_layouts
-            .get(&(def_id, args.to_vec()))
+            .get(&def_id)
+            .and_then(|layouts| layouts.get(args))
             .copied()
     }
 

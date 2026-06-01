@@ -33,15 +33,15 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) options: LlvmCodegenOptions,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) unions: HashMap<GlobalDefId, StructType<'ctx>>,
-    pub(super) struct_instances: HashMap<(GlobalDefId, Vec<InternedTyId>), StructType<'ctx>>,
+    pub(super) struct_instances: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, StructType<'ctx>>>,
     pub(super) struct_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
-    pub(super) union_instances: HashMap<(GlobalDefId, Vec<InternedTyId>), StructType<'ctx>>,
+    pub(super) union_instances: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, StructType<'ctx>>>,
     pub(super) union_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
     pub(super) function_instances:
-        HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), FunctionValue<'ctx>>,
+        HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, FunctionValue<'ctx>>>,
     pub(super) function_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, FunctionValue<'ctx>)>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
