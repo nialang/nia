@@ -69,7 +69,7 @@ struct Cli {
 enum CliCommand {
     Lex { path: String },
     Parse { path: String },
-    Check { path: String },
+    Check { path: String, emit_opt_report: bool },
     EmitLlvm { path: String },
     EmitObj { path: String, args: Vec<String> },
     EmitExe { path: String, args: Vec<String> },
@@ -129,7 +129,15 @@ fn run_cli(cli: Cli) -> ExitCode {
     match cli.command {
         CliCommand::Lex { .. } => run_lex(&source),
         CliCommand::Parse { .. } => run_parse(&path, &source),
-        CliCommand::Check { .. } => run_check(&path, &source, cli.module_map, cli.optimization),
+        CliCommand::Check {
+            emit_opt_report, ..
+        } => run_check(
+            &path,
+            &source,
+            cli.module_map,
+            cli.optimization,
+            emit_opt_report,
+        ),
         CliCommand::EmitLlvm { .. } => {
             run_emit_llvm(&path, &source, cli.module_map, cli.optimization)
         }
@@ -146,7 +154,7 @@ fn read_source_for_command(command: &CliCommand) -> Result<(String, String), Str
     let path = match command {
         CliCommand::Lex { path }
         | CliCommand::Parse { path }
-        | CliCommand::Check { path }
+        | CliCommand::Check { path, .. }
         | CliCommand::EmitLlvm { path }
         | CliCommand::EmitObj { path, .. }
         | CliCommand::EmitExe { path, .. } => path,
@@ -291,10 +299,7 @@ fn parse_command(args: Vec<String>) -> Result<ParsedCommand, CliError> {
             CliCommand::Parse { path }
         })
         .map(ParsedCommand::Run),
-        "check" => parse_source_command("check", rest, HelpTopic::Check, |path| {
-            CliCommand::Check { path }
-        })
-        .map(ParsedCommand::Run),
+        "check" => parse_check_command(rest).map(ParsedCommand::Run),
         "emit" => parse_emit_command(rest).map(ParsedCommand::Run),
         _ => Err(CliError::new(
             format!("unknown command `{command}`"),
@@ -340,6 +345,36 @@ fn parse_source_command(
         ));
     }
     Ok(build(path))
+}
+
+fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
+    if has_help_flag(&args) {
+        return Err(CliError::help(HelpTopic::Check));
+    }
+    let mut path = None;
+    let mut emit_opt_report = false;
+    for arg in args {
+        match arg.as_str() {
+            "--emit-opt-report" => emit_opt_report = true,
+            _ if path.is_none() => path = Some(arg),
+            _ => {
+                return Err(CliError::new(
+                    format!("unexpected argument `{arg}` for `niac check`"),
+                    HelpTopic::Check,
+                ));
+            }
+        }
+    }
+    let Some(path) = path else {
+        return Err(CliError::new(
+            "missing source file for `niac check`",
+            HelpTopic::Check,
+        ));
+    };
+    Ok(CliCommand::Check {
+        path,
+        emit_opt_report,
+    })
 }
 
 fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -440,13 +475,17 @@ fn run_check(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    emit_opt_report: bool,
 ) -> ExitCode {
     let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
-    if program.diagnostics.is_empty() {
-        return ExitCode::SUCCESS;
+    if !program.diagnostics.is_empty() {
+        print_program_diagnostics(path, source, &program);
+        return ExitCode::FAILURE;
     }
-    print_program_diagnostics(path, source, &program);
-    ExitCode::FAILURE
+    if emit_opt_report {
+        print_optimization_report(&program);
+    }
+    ExitCode::SUCCESS
 }
 
 fn run_emit_llvm(
@@ -764,6 +803,26 @@ fn print_codegen_diagnostics(path: &str, source: &str, diagnostics: &[nia_diagno
     eprintln!("codegen diagnostics:");
     for diagnostic in diagnostics {
         eprintln!("{}", render_diagnostic(path, source, diagnostic));
+    }
+}
+
+fn print_optimization_report(program: &nia_driver::CheckedProgram) {
+    let report = &program.backend_lowering.optimization_report;
+    if report.changed_passes.is_empty() {
+        println!("backend optimization report: no changes");
+        return;
+    }
+    println!("backend optimization report:");
+    for change in &report.changed_passes {
+        let instance = if change.is_instance { " instance" } else { "" };
+        println!(
+            "  m{}::d{}{} {} type_args={}",
+            change.function.module_id.0,
+            change.function.def_id.0,
+            instance,
+            change.pass,
+            change.type_arg_count
+        );
     }
 }
 
