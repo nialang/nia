@@ -66,16 +66,8 @@ impl BackendValidator<'_> {
     ) {
         if !self.index.structs.contains_key(&def_id)
             && !self.index.unions.contains_key(&def_id)
-            && !self
-                .index
-                .struct_instances
-                .keys()
-                .any(|(candidate, _)| *candidate == def_id)
-            && !self
-                .index
-                .union_instances
-                .keys()
-                .any(|(candidate, _)| *candidate == def_id)
+            && !self.index.struct_instances_by_def.contains_key(&def_id)
+            && !self.index.union_instances_by_def.contains_key(&def_id)
         {
             self.diagnostics
                 .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
@@ -147,13 +139,13 @@ impl BackendValidator<'_> {
     }
 
     fn struct_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
-        if let Some((_, item)) =
-            self.index
-                .struct_instances
-                .iter()
-                .find(|((candidate_def, candidate_args), _)| {
-                    *candidate_def == def_id && self.same_type_args(candidate_args, args)
-                })
+        if let Some(item) = self
+            .index
+            .struct_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find(|item| self.same_type_args(&item.args, args))
         {
             return Some(&item.fields);
         }
@@ -164,13 +156,13 @@ impl BackendValidator<'_> {
     }
 
     fn union_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
-        if let Some((_, item)) =
-            self.index
-                .union_instances
-                .iter()
-                .find(|((candidate_def, candidate_args), _)| {
-                    *candidate_def == def_id && self.same_type_args(candidate_args, args)
-                })
+        if let Some(item) = self
+            .index
+            .union_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find(|item| self.same_type_args(&item.args, args))
         {
             return Some(&item.fields);
         }

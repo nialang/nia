@@ -517,10 +517,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         ty: InternedTyId,
         layouts: &BackendLayouts,
     ) -> Option<nia_layout::TypeLayout> {
-        layouts
-            .types
-            .iter()
-            .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
+        self.program
+            .type_layout(ty)
+            .cloned()
+            .or_else(|| layout_of_in_layouts(ty, layouts))
     }
 
     pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {
@@ -675,20 +675,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&nia_layout::StructLayout> {
-        let owner = self.program.module(def_id.module_id)?;
+        self.program.module(def_id.module_id)?;
         if args.is_empty() {
-            owner
-                .layouts
-                .unions
-                .iter()
-                .find_map(|(candidate, layout)| (*candidate == def_id).then_some(layout))
+            self.program.union_layout(def_id)
         } else {
-            owner
-                .layouts
-                .union_instances
-                .iter()
-                .find_map(|(key, layout)| {
-                    (key.def_id == def_id && self.same_type_args(&key.args, args)).then_some(layout)
+            self.program
+                .union_instance_layouts(def_id)
+                .find_map(|item| {
+                    self.same_type_args(&item.key.args, args)
+                        .then_some(item.layout)
                 })
         }
     }
@@ -698,20 +693,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&nia_layout::StructLayout> {
-        let owner = self.program.module(def_id.module_id)?;
+        self.program.module(def_id.module_id)?;
         if args.is_empty() {
-            owner
-                .layouts
-                .structs
-                .iter()
-                .find_map(|(candidate, layout)| (*candidate == def_id).then_some(layout))
+            self.program.struct_layout(def_id)
         } else {
-            owner
-                .layouts
-                .struct_instances
-                .iter()
-                .find_map(|(key, layout)| {
-                    (key.def_id == def_id && self.same_type_args(&key.args, args)).then_some(layout)
+            self.program
+                .struct_instance_layouts(def_id)
+                .find_map(|item| {
+                    self.same_type_args(&item.key.args, args)
+                        .then_some(item.layout)
                 })
         }
     }
@@ -721,11 +711,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
-        self.struct_instances
-            .iter()
-            .find_map(|((candidate_def, candidate_args), ty)| {
-                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
-                    .then_some(*ty)
+        self.struct_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find_map(|(candidate_args, ty)| {
+                self.same_type_args(args, candidate_args).then_some(*ty)
             })
     }
 
@@ -735,12 +726,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         args: &[InternedTyId],
     ) -> Option<&BackendStructInstance> {
         self.program
-            .struct_instances
-            .iter()
-            .find_map(|((candidate_def, candidate_args), item)| {
-                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
-                    .then_some(*item)
-            })
+            .struct_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find(|item| self.same_type_args(args, &item.args))
+            .copied()
     }
 
     fn union_instance_type(
@@ -748,11 +739,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
-        self.union_instances
-            .iter()
-            .find_map(|((candidate_def, candidate_args), ty)| {
-                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
-                    .then_some(*ty)
+        self.union_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find_map(|(candidate_args, ty)| {
+                self.same_type_args(args, candidate_args).then_some(*ty)
             })
     }
 
@@ -762,12 +754,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         args: &[InternedTyId],
     ) -> Option<&BackendUnionInstance> {
         self.program
-            .union_instances
-            .iter()
-            .find_map(|((candidate_def, candidate_args), item)| {
-                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
-                    .then_some(*item)
-            })
+            .union_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find(|item| self.same_type_args(args, &item.args))
+            .copied()
     }
 
     pub(crate) fn function(&self, def_id: GlobalDefId) -> Option<FunctionValue<'ctx>> {
@@ -783,12 +775,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&'a BackendFunctionInstance> {
-        self.program.function_instances.iter().find_map(
-            |((candidate_def, _, candidate_args), item)| {
-                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
-                    .then_some(*item)
-            },
-        )
+        self.program
+            .function_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find(|item| self.same_type_args(args, &item.args))
+            .copied()
     }
 
     pub(crate) fn function_instance_value(
@@ -796,11 +789,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<FunctionValue<'ctx>> {
-        self.function_instances
-            .iter()
-            .find_map(|((candidate_def, _, candidate_args), value)| {
-                (*candidate_def == def_id && self.same_type_args(args, candidate_args))
-                    .then_some(*value)
+        self.function_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .find_map(|(candidate_args, value)| {
+                self.same_type_args(args, candidate_args).then_some(*value)
             })
     }
 
@@ -988,4 +982,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             _ => Err(self.error(span, "index base is not an array, pointer, or slice")),
         }
     }
+}
+
+fn layout_of_in_layouts(
+    ty: InternedTyId,
+    layouts: &BackendLayouts,
+) -> Option<nia_layout::TypeLayout> {
+    layouts
+        .types
+        .iter()
+        .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
 }

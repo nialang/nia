@@ -168,13 +168,8 @@ impl BackendValidator<'_> {
         active: &mut HashSet<InternedTyId>,
     ) -> Option<TypeLayout> {
         let owner = self.index.module(ty.interner_id)?;
-        if let Some(layout) = owner
-            .layouts
-            .types
-            .iter()
-            .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
-        {
-            return Some(layout);
+        if let Some(layout) = self.index.type_layout(ty) {
+            return Some(layout.clone());
         }
         match owner.interner.get(ty)? {
             TyKind::Primitive(primitive) => Some(primitive_layout(*primitive)),
@@ -212,24 +207,12 @@ impl BackendValidator<'_> {
                 })
             }
             TyKind::Nominal { def_id, args } => {
-                let def_owner = self.index.module(def_id.module_id)?;
+                self.index.module(def_id.module_id)?;
                 if args.is_empty() {
-                    def_owner
-                        .layouts
-                        .structs
-                        .iter()
-                        .find_map(|(candidate, layout)| {
-                            (*candidate == *def_id).then_some(layout.layout.clone())
-                        })
-                        .or_else(|| {
-                            def_owner
-                                .layouts
-                                .unions
-                                .iter()
-                                .find_map(|(candidate, layout)| {
-                                    (*candidate == *def_id).then_some(layout.layout.clone())
-                                })
-                        })
+                    self.index
+                        .struct_layout(*def_id)
+                        .or_else(|| self.index.union_layout(*def_id))
+                        .map(|layout| layout.layout.clone())
                         .or_else(|| {
                             self.index.structs.get(def_id).and_then(|item| {
                                 self.zero_sized_aggregate_layout(&item.fields, active)
@@ -241,33 +224,26 @@ impl BackendValidator<'_> {
                             })
                         })
                 } else {
-                    def_owner
-                        .layouts
-                        .struct_instances
-                        .iter()
-                        .find_map(|(key, layout)| {
-                            (key.def_id == *def_id && self.same_type_args(&key.args, args))
-                                .then_some(layout.layout.clone())
+                    self.index
+                        .struct_instance_layouts(*def_id)
+                        .find_map(|item| {
+                            self.same_type_args(&item.key.args, args)
+                                .then_some(item.layout.layout.clone())
                         })
                         .or_else(|| {
-                            def_owner
-                                .layouts
-                                .union_instances
-                                .iter()
-                                .find_map(|(key, layout)| {
-                                    (key.def_id == *def_id && self.same_type_args(&key.args, args))
-                                        .then_some(layout.layout.clone())
-                                })
+                            self.index.union_instance_layouts(*def_id).find_map(|item| {
+                                self.same_type_args(&item.key.args, args)
+                                    .then_some(item.layout.layout.clone())
+                            })
                         })
                         .or_else(|| {
                             self.index
-                                .struct_instances
-                                .iter()
-                                .find(|((candidate_def, candidate_args), _)| {
-                                    *candidate_def == *def_id
-                                        && self.same_type_args(candidate_args, args)
-                                })
-                                .and_then(|(_, item)| {
+                                .struct_instances_by_def
+                                .get(def_id)
+                                .into_iter()
+                                .flatten()
+                                .find(|item| self.same_type_args(&item.args, args))
+                                .and_then(|item| {
                                     self.zero_sized_aggregate_layout(&item.fields, active)
                                 })
                         })
@@ -278,13 +254,12 @@ impl BackendValidator<'_> {
                         })
                         .or_else(|| {
                             self.index
-                                .union_instances
-                                .iter()
-                                .find(|((candidate_def, candidate_args), _)| {
-                                    *candidate_def == *def_id
-                                        && self.same_type_args(candidate_args, args)
-                                })
-                                .and_then(|(_, item)| {
+                                .union_instances_by_def
+                                .get(def_id)
+                                .into_iter()
+                                .flatten()
+                                .find(|item| self.same_type_args(&item.args, args))
+                                .and_then(|item| {
                                     self.zero_sized_aggregate_layout(&item.fields, active)
                                 })
                         })

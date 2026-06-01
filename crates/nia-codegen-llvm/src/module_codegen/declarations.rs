@@ -21,6 +21,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.struct_instances
                 .insert((item.def_id, item.args.clone()), ty);
+            self.struct_instances_by_def
+                .entry(item.def_id)
+                .or_default()
+                .push((item.args.clone(), ty));
         }
         for item in self.program.unions.values() {
             let name = self.struct_symbol_name(item.def_id, &item.name);
@@ -37,6 +41,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.union_instances
                 .insert((item.def_id, item.args.clone()), ty);
+            self.union_instances_by_def
+                .entry(item.def_id)
+                .or_default()
+                .push((item.args.clone(), ty));
         }
         Ok(())
     }
@@ -168,6 +176,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 ),
                 value,
             );
+            self.function_instances_by_def
+                .entry(instance.def_id)
+                .or_default()
+                .push((instance.args.clone(), value));
         }
         Ok(())
     }

@@ -727,6 +727,155 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
 }
 
 #[test]
+fn validates_indexed_function_instances_with_equivalent_type_args() {
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let struct_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(10),
+    };
+    let canonical_struct_ty = interner.intern(TyKind::Nominal {
+        def_id: struct_id,
+        args: Vec::new(),
+    });
+    let equivalent_struct_ty = interner.intern(TyKind::Nominal {
+        def_id: struct_id,
+        args: Vec::new(),
+    });
+    let span = Span::default();
+    let callee_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(1),
+    };
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![
+                    (i32_ty, TypeLayout { size: 4, align: 4 }),
+                    (canonical_struct_ty, TypeLayout { size: 0, align: 1 }),
+                    (equivalent_struct_ty, TypeLayout { size: 0, align: 1 }),
+                ],
+                structs: vec![(
+                    struct_id,
+                    StructLayout {
+                        layout: TypeLayout { size: 0, align: 1 },
+                        fields: Vec::new(),
+                    },
+                )],
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: vec![BackendStruct {
+                def_id: struct_id,
+                name: "Marker".to_string(),
+                generics: Vec::new(),
+                fields: Vec::new(),
+                is_extern: false,
+                span,
+            }],
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Tail {
+                            value: Some(FunctionExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: FunctionExprKind::Call {
+                                    callee: FunctionCallee::FunctionInstance {
+                                        def_id: callee_id,
+                                        args: vec![equivalent_struct_ty],
+                                    },
+                                    args: Vec::new(),
+                                },
+                            }),
+                            span,
+                        },
+                    }],
+                    entry: FunctionBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: vec![BackendFunctionInstance {
+                def_id: callee_id,
+                name: "make".to_string(),
+                arg_module_id: ModuleId(0),
+                args: vec![canonical_struct_ty],
+                symbol: "make_marker".to_string(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Tail {
+                            value: Some(FunctionExpr {
+                                span,
+                                ty: i32_ty,
+                                kind: FunctionExprKind::Integer("1".to_string()),
+                            }),
+                            span,
+                        },
+                    }],
+                    entry: FunctionBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert!(output.modules[0].ir.contains("@make_marker()"));
+}
+
+#[test]
 fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
     let mut interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);

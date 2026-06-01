@@ -3,10 +3,10 @@ pub(super) use crate::{
     LlvmCodegenOptions, catch_llvm_codegen_ice, emit_llvm_ir, emit_llvm_ir_with_options,
 };
 pub(super) use nia_backend_ir::{
-    BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendGlobal, BackendLayouts,
-    BackendModule, BackendParam, BackendProgram, BackendStruct, BackendTraitObjectVtable,
-    BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
-    BackendUnion,
+    BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendFunctionInstance,
+    BackendGlobal, BackendLayouts, BackendModule, BackendParam, BackendProgram, BackendStruct,
+    BackendTraitObjectVtable, BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction,
+    BackendTraitObjectVtableKey, BackendUnion,
 };
 pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
 pub(super) use nia_comptime_check::ComptimeCheck;
