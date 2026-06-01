@@ -471,6 +471,7 @@ fn lower_source_with_comptime_mutation(
             defs: &defs,
             interner: &body_check.ir.interner,
             comptime: &comptime,
+            const_exprs: &type_lowering.const_exprs,
             instantiations: &body_check.ir.generic_instantiations,
         }]);
     assert!(

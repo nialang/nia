@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
+use nia_ast::Expr;
 use nia_body_ir::GenericInstantiation;
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefKind};
@@ -30,6 +31,7 @@ pub struct MonomorphizeModuleInput<'a> {
     pub defs: &'a DefCollection,
     pub interner: &'a TyInterner,
     pub comptime: &'a ComptimeCheck,
+    pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
     pub instantiations: &'a [GenericInstantiation],
 }
 
@@ -46,6 +48,10 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         comptime_by_module: inputs
             .iter()
             .map(|input| (input.module_id, input.comptime))
+            .collect(),
+        const_exprs_by_module: inputs
+            .iter()
+            .map(|input| (input.module_id, input.const_exprs))
             .collect(),
         instantiations_by_source: collect_instantiations_by_source(inputs),
         recorded_generics: collect_recorded_generics(inputs),
@@ -68,6 +74,7 @@ struct MonoCollector<'a> {
     defs_by_module: HashMap<ModuleId, &'a DefCollection>,
     interners_by_module: HashMap<ModuleId, &'a TyInterner>,
     comptime_by_module: HashMap<ModuleId, &'a ComptimeCheck>,
+    const_exprs_by_module: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, Expr>>,
     instantiations_by_source: HashMap<GlobalDefId, Vec<(ModuleId, GenericInstantiation)>>,
     recorded_generics: HashMap<GlobalDefId, Vec<String>>,
     instances: Vec<MonoInstance>,
@@ -377,12 +384,14 @@ impl MonoCollector<'_> {
             .get(&id.module_id)
             .and_then(|comptime| comptime.array_lengths.get(&id).copied());
         if value.is_none() && self.missing_array_len_diagnostics.insert(id) {
-            // Monomorphization only receives evaluated comptime facts, not the
-            // source const-expression table from type lowering. Keep this as a
-            // phase-boundary diagnostic rather than assuming the array length
-            // was computed before symbol generation.
+            let span = self
+                .const_exprs_by_module
+                .get(&id.module_id)
+                .and_then(|const_exprs| const_exprs.get(&id))
+                .map(|expr| expr.span)
+                .unwrap_or_default();
             self.diagnostics.push(Diagnostic::error(
-                Span::default(),
+                span,
                 format!(
                     "array length {id:?} was not evaluated before monomorphization symbol generation"
                 ),
@@ -480,6 +489,7 @@ mod tests {
             defs: &defs,
             interner: &interner,
             comptime: &ComptimeCheck::default(),
+            const_exprs: &HashMap::new(),
             instantiations: &instantiations,
         }]);
 
@@ -531,6 +541,7 @@ fn main() i32 { outer(1) }
             defs: &defs,
             interner: &interner,
             comptime: &ComptimeCheck::default(),
+            const_exprs: &HashMap::new(),
             instantiations: &instantiations,
         }]);
 
@@ -580,12 +591,21 @@ fn main() i32 { outer(1) }
             span: Span::new(1, 2),
             source_def_id: None,
         }];
+        let mut const_exprs = HashMap::new();
+        const_exprs.insert(
+            len_id,
+            nia_ast::Expr {
+                span: Span::new(10, 12),
+                kind: nia_ast::ExprKind::Integer("N".to_string()),
+            },
+        );
 
         let mono = collect_monomorphizations(&[MonomorphizeModuleInput {
             module_id: ModuleId(0),
             defs: &defs,
             interner: &interner,
             comptime: &ComptimeCheck::default(),
+            const_exprs: &const_exprs,
             instantiations: &instantiations,
         }]);
 
@@ -601,5 +621,6 @@ fn main() i32 { outer(1) }
                 .message
                 .contains("was not evaluated before monomorphization")
         );
+        assert_eq!(mono.diagnostics[0].span, Span::new(10, 12));
     }
 }
