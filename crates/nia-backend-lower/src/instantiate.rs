@@ -19,7 +19,6 @@ mod trait_resolution;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn generic_substitutions(
-        &self,
         generics: &[String],
         args: &[InternedTyId],
     ) -> HashMap<String, InternedTyId> {
@@ -27,6 +26,39 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn effective_generics(
+        &mut self,
+        def_id: GlobalDefId,
+        own_generics: &[String],
+    ) -> &[String] {
+        if !self.effective_generics.contains_key(&def_id) {
+            let generics = self.compute_effective_generics(def_id, own_generics);
+            self.effective_generics.insert(def_id, generics);
+        }
+        self.effective_generics
+            .get(&def_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn effective_generics_for_def(&mut self, def_id: GlobalDefId) -> &[String] {
+        if !self.effective_generics.contains_key(&def_id) {
+            let own_generics = self
+                .input
+                .defs
+                .defs
+                .get(def_id.def_id)
+                .map(|def| def.generics.as_slice())
+                .unwrap_or(&[]);
+            let generics = self.compute_effective_generics(def_id, own_generics);
+            self.effective_generics.insert(def_id, generics);
+        }
+        self.effective_generics
+            .get(&def_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn compute_effective_generics(
         &self,
         def_id: GlobalDefId,
         own_generics: &[String],
@@ -147,19 +179,12 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn effective_generic_substitutions(
-        &self,
+        &mut self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> HashMap<String, InternedTyId> {
-        let own_generics = self
-            .input
-            .defs
-            .defs
-            .get(def_id.def_id)
-            .map(|def| def.generics.as_slice())
-            .unwrap_or(&[]);
-        let generics = self.effective_generics(def_id, own_generics);
-        self.generic_substitutions(&generics, args)
+        let generics = self.effective_generics_for_def(def_id);
+        Self::generic_substitutions(generics, args)
     }
 
     pub(crate) fn instantiate_params(
