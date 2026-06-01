@@ -220,7 +220,7 @@ fn simplify_static_init(init: StaticInit) -> StaticInit {
         }
         StaticInit::Repeat { value, count } => {
             let value = simplify_static_init(*value);
-            if is_zero_static_init(&value) {
+            if count == 0 || is_zero_static_init(&value) {
                 StaticInit::Zero
             } else {
                 StaticInit::Repeat {
@@ -268,7 +268,7 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
         StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
         StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
-        StaticInit::Repeat { value, .. } => is_zero_static_init(value),
+        StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
         StaticInit::Int(_)
         | StaticInit::Bool(_)
@@ -281,4 +281,35 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
 
 fn is_zero_float_static_init(text: &str) -> bool {
     nia_comptime_engine::eval_float_literal(text) == Ok(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn simplifies_empty_repeat_static_init_to_zero() {
+        let init = StaticInit::Repeat {
+            value: Box::new(StaticInit::Int(1)),
+            count: 0,
+        };
+
+        assert_eq!(simplify_static_init(init), StaticInit::Zero);
+    }
+
+    #[test]
+    fn treats_empty_repeat_static_init_as_zero() {
+        let init = StaticInit::Repeat {
+            value: Box::new(StaticInit::AddrOfFunction {
+                function: nia_ids::GlobalDefId {
+                    module_id: nia_ids::ModuleId(0),
+                    def_id: nia_ids::DefId(0),
+                },
+                args: Vec::new(),
+            }),
+            count: 0,
+        };
+
+        assert!(is_zero_static_init(&init));
+    }
 }

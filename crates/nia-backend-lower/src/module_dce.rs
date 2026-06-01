@@ -469,7 +469,11 @@ fn collect_function_refs_from_static_init(init: &StaticInit, refs: &mut Function
                 collect_function_refs_from_static_init(elem, refs);
             }
         }
-        StaticInit::Repeat { value, .. } => collect_function_refs_from_static_init(value, refs),
+        StaticInit::Repeat { value, count } => {
+            if *count != 0 {
+                collect_function_refs_from_static_init(value, refs);
+            }
+        }
         StaticInit::Struct(fields) => {
             for field in fields {
                 collect_function_refs_from_static_init(&field.value, refs);
