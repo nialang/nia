@@ -109,8 +109,9 @@ Current Nia-owned optimization consumers:
 
 - `nia-monomorphize` collects concrete generic instances before backend
   lowering. It pre-indexes instantiations by source definition and caches
-  mangled type symbols during collection so repeated generic-instance discovery
-  does not rebuild the same symbol inputs or clone whole definition maps.
+  effective generic lists and mangled type symbols during collection so
+  repeated generic-instance discovery does not rebuild the same symbol inputs
+  or clone whole definition maps.
 - `nia-backend-lower` consumes the policy while lowering function bodies into
   backend IR. Backend passes are selected from policy capabilities, not directly
   from the user-facing level. Cheap dead-code elimination enables same-type cast

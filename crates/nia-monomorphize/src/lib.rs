@@ -59,6 +59,7 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         seen: HashSet::new(),
         expanded: HashSet::new(),
         type_symbols: HashMap::new(),
+        effective_generics: HashMap::new(),
         missing_array_len_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
     };
@@ -82,6 +83,7 @@ struct MonoCollector<'a> {
     seen: HashSet<MonoInstanceKey>,
     expanded: HashSet<MonoInstanceKey>,
     type_symbols: HashMap<(ModuleId, InternedTyId), String>,
+    effective_generics: HashMap<GlobalDefId, Vec<String>>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -115,7 +117,7 @@ impl MonoCollector<'_> {
         }
     }
 
-    fn is_generic_def(&self, def_id: GlobalDefId) -> bool {
+    fn is_generic_def(&mut self, def_id: GlobalDefId) -> bool {
         if self
             .all_recorded_generics(def_id)
             .iter()
@@ -126,18 +128,19 @@ impl MonoCollector<'_> {
         let Some(defs) = self.defs_by_module.get(&def_id.module_id) else {
             return false;
         };
-        defs.defs.get(def_id.def_id).is_some_and(|def| {
-            if !matches!(
-                def.kind,
-                DefKind::Function | DefKind::Method | DefKind::TraitMethod
-            ) {
-                return false;
-            }
-            !self.effective_generics(defs, def_id).is_empty()
-        })
+        let Some(def) = defs.defs.get(def_id.def_id) else {
+            return false;
+        };
+        if !matches!(
+            def.kind,
+            DefKind::Function | DefKind::Method | DefKind::TraitMethod
+        ) {
+            return false;
+        }
+        !self.effective_generics_for(def_id).is_empty()
     }
 
-    fn effective_generics(&self, defs: &DefCollection, def_id: GlobalDefId) -> Vec<String> {
+    fn compute_effective_generics(&self, defs: &DefCollection, def_id: GlobalDefId) -> Vec<String> {
         let Some(def) = defs.defs.get(def_id.def_id) else {
             return Vec::new();
         };
@@ -161,18 +164,24 @@ impl MonoCollector<'_> {
         generics
     }
 
-    fn effective_generics_for(&self, def_id: GlobalDefId) -> Vec<String> {
-        if let Some(generics) = self
+    fn effective_generics_for(&mut self, def_id: GlobalDefId) -> Vec<String> {
+        if let Some(generics) = self.effective_generics.get(&def_id) {
+            return generics.clone();
+        }
+        let generics = if let Some(generics) = self
             .all_recorded_generics(def_id)
             .into_iter()
             .find(|generics| !generics.is_empty())
         {
-            return generics;
-        }
-        self.defs_by_module
-            .get(&def_id.module_id)
-            .map(|defs| self.effective_generics(defs, def_id))
-            .unwrap_or_default()
+            generics
+        } else {
+            self.defs_by_module
+                .get(&def_id.module_id)
+                .map(|defs| self.compute_effective_generics(defs, def_id))
+                .unwrap_or_default()
+        };
+        self.effective_generics.insert(def_id, generics.clone());
+        generics
     }
 
     fn all_recorded_generics(&self, def_id: GlobalDefId) -> Vec<Vec<String>> {
@@ -239,7 +248,7 @@ impl MonoCollector<'_> {
     }
 
     fn generic_substitutions_for_instance(
-        &self,
+        &mut self,
         key: &MonoInstanceKey,
     ) -> HashMap<String, InternedTyId> {
         self.effective_generics_for(key.def_id)
