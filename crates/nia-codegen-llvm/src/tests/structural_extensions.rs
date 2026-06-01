@@ -34,7 +34,7 @@ fn main() i32 {
     let ir = &output.modules[0].ir;
     assert!(ir.contains("%nia__m0__d0__Box__inst__t_i32"));
     assert!(ir.contains("@nia__m0__d2__make__inst__i32"));
-    assert!(ir.contains("call void @nia__m0__d2__make__inst__i32(ptr %call.out, i32 42"));
+    assert!(ir.contains("call void @nia__m0__d2__make__inst__i32(ptr %b, i32 42"));
     assert!(ir.contains("define void @nia__m0__d2__make__inst__i32(ptr %0, i32 %1)"));
     assert!(ir.contains("ret i32"));
 }
@@ -206,8 +206,8 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("call void @nia__m0__d3__make(ptr %call.out, i32 41"));
-    assert!(ir.contains("call void @nia__m0__d2__make__inst__bool(ptr %call.out1, i1 true"));
+    assert!(ir.contains("call void @nia__m0__d3__make(ptr %a, i32 41"));
+    assert!(ir.contains("call void @nia__m0__d2__make__inst__bool(ptr %b, i1 true"));
 }
 
 #[test]

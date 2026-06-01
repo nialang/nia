@@ -173,8 +173,8 @@ Current Nia-owned optimization consumers:
   Nia hidden out pointers, or passed as Nia indirect readonly arguments are
   materialized directly into the destination storage instead of building a
   separate literal temporary and copying it again. Aggregate-return calls used
-  immediately as indirect arguments reuse the argument copy as their hidden
-  return pointer.
+  immediately as local stores or indirect arguments reuse the destination
+  storage as their hidden return pointer.
 - Backend lowering canonicalizes all-zero static initializers to
   `StaticInit::Zero` under full constant folding or size-oriented policy, and
   static initializer emission may choose cheaper equivalent LLVM constants such
