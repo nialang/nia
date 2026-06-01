@@ -18,12 +18,65 @@ impl<'a> ModuleLowerer<'a> {
         ) {
             simplify_same_type_casts_in_blocks(&mut body.blocks);
             remove_noop_local_stores(&mut body.blocks);
+            remove_pure_expr_ops(&mut body.blocks);
             fold_constant_bool_branches(&mut body.blocks);
             merge_empty_jump_blocks(&mut body);
             remove_unreachable_blocks(&mut body);
             optimize_defer_bodies(&mut body.blocks);
         }
         body
+    }
+}
+
+fn remove_pure_expr_ops(blocks: &mut [FunctionBlock]) {
+    for block in blocks {
+        block.ops.retain(|op| !is_pure_expr_op(op));
+        for op in &mut block.ops {
+            if let FunctionOp::Defer(body) = op {
+                remove_pure_expr_ops(&mut body.blocks);
+            }
+        }
+    }
+}
+
+fn is_pure_expr_op(op: &FunctionOp) -> bool {
+    matches!(op, FunctionOp::Expr(expr) if is_pure_discardable_expr(expr))
+}
+
+fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
+    match &expr.kind {
+        FunctionExprKind::Error => false,
+        FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => true,
+        FunctionExprKind::Discard(expr) => is_pure_discardable_expr(expr),
+        FunctionExprKind::Range(_)
+        | FunctionExprKind::ArrayLiteral { .. }
+        | FunctionExprKind::StructLiteral { .. }
+        | FunctionExprKind::UnionLiteral { .. }
+        | FunctionExprKind::Unary { .. }
+        | FunctionExprKind::Binary { .. }
+        | FunctionExprKind::Cast { .. }
+        | FunctionExprKind::InlineAsm(_)
+        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::AddrOf(_)
+        | FunctionExprKind::Assign { .. }
+        | FunctionExprKind::TraitObjectUpcast { .. }
+        | FunctionExprKind::TraitObjectCoercion { .. }
+        | FunctionExprKind::Call { .. }
+        | FunctionExprKind::Field { .. }
+        | FunctionExprKind::Index { .. }
+        | FunctionExprKind::Slice { .. } => false,
     }
 }
 
@@ -837,6 +890,51 @@ mod tests {
         remove_noop_local_stores(&mut body.blocks);
 
         assert!(body.blocks[0].ops.is_empty());
+    }
+
+    #[test]
+    fn removes_pure_expr_ops_but_preserves_effectful_expr_ops() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Discard(Box::new(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    })),
+                }),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Call {
+                        callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                            module_id: nia_ids::ModuleId(0),
+                            def_id: nia_ids::DefId(0),
+                        }),
+                        args: Vec::new(),
+                    },
+                }),
+            ],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+
+        remove_pure_expr_ops(&mut body.blocks);
+
+        assert_eq!(body.blocks[0].ops.len(), 1);
+        assert!(matches!(
+            body.blocks[0].ops[0],
+            FunctionOp::Expr(FunctionExpr {
+                kind: FunctionExprKind::Call { .. },
+                ..
+            })
+        ));
     }
 
     #[test]
