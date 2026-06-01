@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use nia_ast::{UsingGroupItem, UsingSelector, Visibility};
 use nia_defs::{
@@ -39,6 +39,7 @@ pub(crate) fn compute_public_surfaces(
                 target_module: defs.module_id,
                 target_def_id: def_id,
                 namespace,
+                name_span: def.span,
                 source: PublicSource::Direct,
                 parent_enum: None,
             };
@@ -441,7 +442,6 @@ fn expand_root_group(
 ) -> UsingExpansion {
     let mut entries = Vec::new();
     let mut any_unresolved = false;
-    let mut seen: HashSet<ResolvedEntryKey> = HashSet::new();
     for item in items {
         match expand_root_group_item(
             defs_by_module,
@@ -451,7 +451,7 @@ fn expand_root_group(
             item,
             source.clone(),
         ) {
-            UsingExpansion::Resolved(sub) => merge_entries(&mut entries, &mut seen, sub),
+            UsingExpansion::Resolved(sub) => entries.extend(sub),
             UsingExpansion::Unresolved => any_unresolved = true,
             UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
         }
@@ -510,35 +510,6 @@ fn expand_root_group_item(
     }
 }
 
-fn merge_entries(
-    entries: &mut Vec<ResolvedEntry>,
-    seen: &mut HashSet<ResolvedEntryKey>,
-    mut sub: Vec<ResolvedEntry>,
-) {
-    for entry in sub.drain(..) {
-        if seen.insert(entry.key()) {
-            entries.push(entry);
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum ResolvedEntryKey {
-    Module(String),
-    Item(String, PublicNamespace),
-}
-
-impl ResolvedEntry {
-    fn key(&self) -> ResolvedEntryKey {
-        match &self.kind {
-            ResolvedEntryKind::Module(_) => ResolvedEntryKey::Module(self.name.clone()),
-            ResolvedEntryKind::Item(item) => {
-                ResolvedEntryKey::Item(self.name.clone(), item.namespace)
-            }
-        }
-    }
-}
-
 fn expand_module_host(
     defs_by_module: &[DefCollection],
     target_module: ModuleId,
@@ -576,6 +547,7 @@ fn expand_module_host(
                         target_module: public_item.target_module,
                         target_def_id: public_item.target_def_id,
                         namespace: public_item.namespace,
+                        name_span: public_item.name_span,
                         source: source.clone(),
                         parent_enum: public_item.parent_enum,
                     }),
@@ -587,7 +559,6 @@ fn expand_module_host(
         UsingSelector::Group(items) => {
             let mut entries = Vec::new();
             let mut any_unresolved = false;
-            let mut seen: HashSet<ResolvedEntryKey> = HashSet::new();
             for item in items {
                 match expand_group_item(
                     defs_by_module,
@@ -596,7 +567,7 @@ fn expand_module_host(
                     surfaces,
                     source.clone(),
                 ) {
-                    UsingExpansion::Resolved(sub) => merge_entries(&mut entries, &mut seen, sub),
+                    UsingExpansion::Resolved(sub) => entries.extend(sub),
                     UsingExpansion::Unresolved => {
                         any_unresolved = true;
                     }
@@ -674,6 +645,7 @@ fn expand_self_namespace(
                 target_module: enum_id.module_id,
                 target_def_id: enum_id.def_id,
                 namespace: PublicNamespace::Type,
+                name_span,
                 source: source.clone(),
                 parent_enum: None,
             }),
@@ -780,6 +752,7 @@ fn resolve_module_single(
                 target_module: item.target_module,
                 target_def_id: item.target_def_id,
                 namespace: PublicNamespace::Value,
+                name_span: local_span,
                 source: source.clone(),
                 parent_enum: item.parent_enum,
             }),
@@ -793,6 +766,7 @@ fn resolve_module_single(
                 target_module: item.target_module,
                 target_def_id: item.target_def_id,
                 namespace: PublicNamespace::Type,
+                name_span: local_span,
                 source: source.clone(),
                 parent_enum: item.parent_enum,
             }),
@@ -826,6 +800,7 @@ fn resolve_current_single(
                 target_module: current.module_id,
                 target_def_id: def_id,
                 namespace: PublicNamespace::Value,
+                name_span: local_span,
                 source: source.clone(),
                 parent_enum: None,
             }),
@@ -845,6 +820,7 @@ fn resolve_current_single(
                 target_module: current.module_id,
                 target_def_id: def_id,
                 namespace: PublicNamespace::Type,
+                name_span: local_span,
                 source: source.clone(),
                 parent_enum: None,
             }),
@@ -888,6 +864,11 @@ fn expand_enum_host(
                 target_module: enum_id.module_id,
                 target_def_id: enum_id.def_id,
                 namespace: PublicNamespace::Type,
+                name_span: target_defs
+                    .defs
+                    .get(enum_id.def_id)
+                    .map(|def| def.span)
+                    .unwrap_or_default(),
                 source: source.clone(),
                 parent_enum: None,
             }),
@@ -906,6 +887,11 @@ fn expand_enum_host(
                         target_module: enum_id.module_id,
                         target_def_id: def_id,
                         namespace: PublicNamespace::Value,
+                        name_span: target_defs
+                            .defs
+                            .get(def_id)
+                            .map(|def| def.span)
+                            .unwrap_or_default(),
                         source: source.clone(),
                         parent_enum: Some(enum_id),
                     }),
@@ -918,11 +904,10 @@ fn expand_enum_host(
         }
         UsingSelector::Group(items) => {
             let mut entries = Vec::new();
-            let mut seen: HashSet<ResolvedEntryKey> = HashSet::new();
             for item in items {
                 match expand_enum_group_item(enum_id, target_defs, enum_scope, item, source.clone())
                 {
-                    UsingExpansion::Resolved(sub) => merge_entries(&mut entries, &mut seen, sub),
+                    UsingExpansion::Resolved(sub) => entries.extend(sub),
                     UsingExpansion::Unresolved => return UsingExpansion::Unresolved,
                     UsingExpansion::HardError(diag) => return UsingExpansion::HardError(diag),
                 }
@@ -976,12 +961,76 @@ fn resolve_enum_single(
             target_module: enum_id.module_id,
             target_def_id: variant_def_id,
             namespace: PublicNamespace::Value,
+            name_span: local_span,
             source: source.clone(),
             parent_enum: Some(enum_id),
         }),
     }])
 }
 
-fn public_item_name_span(_item: &PublicItem) -> Span {
-    Span::default()
+fn public_item_name_span(item: &PublicItem) -> Span {
+    item.name_span
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_imports::{ModuleGraph, SourcePath, collect_import_aliases};
+
+    fn defs(module_id: ModuleId, source: &str) -> DefCollection {
+        let (module, errors) = nia_parser::parse_module(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        nia_defs::collect_module_defs(module_id, &module)
+    }
+
+    fn graph_with_imports(imports: &[(&str, &str)]) -> ModuleGraph {
+        let source = imports
+            .iter()
+            .map(|(alias, path)| format!("import .{path} as {alias};"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (module, errors) = nia_parser::parse_module(&source);
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let mut graph = ModuleGraph::new(SourcePath::new("main.nia"));
+        let root = graph.root();
+        let mut diagnostics = Vec::new();
+        nia_imports::collect_module_imports(
+            &mut graph,
+            &mut diagnostics,
+            root,
+            &SourcePath::new("main.nia"),
+            &module,
+            &nia_imports::ModuleMap::default(),
+        );
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        graph
+    }
+
+    #[test]
+    fn wildcard_reexports_preserve_item_name_spans_for_duplicate_diagnostics() {
+        let main = defs(
+            ModuleId(0),
+            r#"
+import .left as left;
+import .right as right;
+using { left::*, right::* };
+"#,
+        );
+        let left = defs(ModuleId(1), "pub fn value() i32 { 1 }");
+        let right = defs(ModuleId(2), "pub fn value() i32 { 2 }");
+        let imports =
+            collect_import_aliases(&graph_with_imports(&[("left", "left"), ("right", "right")]));
+
+        let (_, _, diagnostics) = compute_public_surfaces(&[main, left, right], &imports);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(
+            diagnostics[0]
+                .1
+                .message
+                .contains("duplicate using name `value`")
+        );
+        assert_ne!(diagnostics[0].1.span, Span::default());
+    }
 }
