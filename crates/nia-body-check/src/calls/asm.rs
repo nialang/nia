@@ -107,7 +107,7 @@ impl<'a> BodyChecker<'a> {
                     format!("{context} cannot have void or never type"),
                 ));
             }
-            Some(TyKind::Array { .. } | TyKind::Slice { .. }) => {
+            Some(TyKind::Array { .. } | TyKind::Slice { .. } | TyKind::TraitObject { .. }) => {
                 self.diagnostics.push(Diagnostic::error(
                     span,
                     format!("{context} cannot use aggregate type directly"),

@@ -573,6 +573,41 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            Some(TyKind::TraitObject {
+                is_const: pattern_const,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                associated_type_bindings: pattern_bindings,
+            }) => {
+                if let Some(TyKind::TraitObject {
+                    is_const: actual_const,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    associated_type_bindings: actual_bindings,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_const == actual_const
+                    && pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                    && pattern_bindings.len() == actual_bindings.len()
+                {
+                    for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                    for (pattern_name, pattern_ty) in pattern_bindings {
+                        if let Some((_, actual_ty)) = actual_bindings
+                            .iter()
+                            .find(|(actual_name, _)| actual_name == &pattern_name)
+                        {
+                            self.infer_generics_from_type(
+                                pattern_ty,
+                                *actual_ty,
+                                substitutions,
+                                span,
+                            );
+                        }
+                    }
+                }
+            }
             Some(TyKind::Projection {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,

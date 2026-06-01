@@ -190,6 +190,31 @@ impl<'a> BodyChecker<'a> {
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let is_const = *is_const;
+                let trait_id = *trait_id;
+                let trait_args = trait_args.clone();
+                let associated_type_bindings = associated_type_bindings.clone();
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .iter()
+                    .map(|(name, ty)| (name.clone(), self.substitute_generics(*ty, substitutions)))
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,

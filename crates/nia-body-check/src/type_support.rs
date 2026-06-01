@@ -66,6 +66,27 @@ impl<'a> BodyChecker<'a> {
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|(name, ty)| (name, self.normalize_projection(ty)))
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -556,6 +577,37 @@ impl<'a> BodyChecker<'a> {
                         .zip(actual_args.iter())
                         .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
             }
+            (
+                Some(TyKind::TraitObject {
+                    is_const: expected_const,
+                    trait_id: expected_trait,
+                    trait_args: expected_args,
+                    associated_type_bindings: expected_bindings,
+                }),
+                Some(TyKind::TraitObject {
+                    is_const: actual_const,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    associated_type_bindings: actual_bindings,
+                }),
+            ) => {
+                expected_const == actual_const
+                    && expected_trait == actual_trait
+                    && expected_args.len() == actual_args.len()
+                    && expected_bindings.len() == actual_bindings.len()
+                    && expected_args
+                        .iter()
+                        .zip(actual_args.iter())
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+                    && expected_bindings.iter().all(|(expected_name, expected_ty)| {
+                        actual_bindings
+                            .iter()
+                            .find(|(actual_name, _)| actual_name == expected_name)
+                            .is_some_and(|(_, actual_ty)| {
+                                self.types_match_normalized(*expected_ty, *actual_ty)
+                            })
+                    })
+            }
             _ => false,
         }
     }
@@ -713,6 +765,17 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 self.builtin_trait_ty_name(*trait_id, args)
             }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => self.trait_object_ty_name(
+                *is_const,
+                *trait_id,
+                trait_args,
+                associated_type_bindings,
+            ),
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -796,6 +859,38 @@ impl<'a> BodyChecker<'a> {
         match trait_id {
             TraitId::Source(def_id) => self.nominal_ty_name(def_id, args),
             TraitId::Builtin(trait_id) => self.builtin_trait_ty_name(trait_id, args),
+        }
+    }
+
+    fn trait_object_ty_name(
+        &self,
+        is_const: bool,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        associated_type_bindings: &[(String, InternedTyId)],
+    ) -> String {
+        let const_part = if is_const { "const " } else { "" };
+        let base = match trait_id {
+            TraitId::Source(def_id) => self
+                .defs_for_module(def_id.module_id)
+                .and_then(|defs| defs.defs.get(def_id.def_id))
+                .map(|def| def.name.clone())
+                .unwrap_or_else(|| "<unknown trait>".to_string()),
+            TraitId::Builtin(trait_id) => trait_id.name().to_string(),
+        };
+        let mut args = trait_args
+            .iter()
+            .map(|arg| self.ty_name(*arg))
+            .collect::<Vec<_>>();
+        args.extend(
+            associated_type_bindings
+                .iter()
+                .map(|(name, ty)| format!("{name} = {}", self.ty_name(*ty))),
+        );
+        if args.is_empty() {
+            format!("&{const_part}{base}")
+        } else {
+            format!("&{const_part}{base}[{}]", args.join(", "))
         }
     }
 

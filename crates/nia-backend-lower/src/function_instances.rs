@@ -380,6 +380,18 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => {
                 args.iter().any(|arg| self.ty_contains_generic_param(*arg))
             }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.ty_contains_generic_param(*arg))
+                    || associated_type_bindings
+                        .iter()
+                        .any(|(_, ty)| self.ty_contains_generic_param(*ty))
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,

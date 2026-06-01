@@ -485,6 +485,18 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(arg, seen, out);
                 }
             }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(arg, seen, out);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_struct_instance_ty(ty, seen, out);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
@@ -861,6 +873,18 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::BuiltinTrait { args, .. }) => {
                 for arg in args {
                     self.collect_union_instance_ty(arg, seen, out);
+                }
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_union_instance_ty(arg, seen, out);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_union_instance_ty(ty, seen, out);
                 }
             }
             Some(TyKind::Projection {

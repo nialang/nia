@@ -120,6 +120,18 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_generic_params_in_ty(*ty, generics);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
@@ -1109,6 +1121,18 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_generic_params_in_extension_ty(*arg, generics);
                 }
             }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_generic_params_in_extension_ty(*arg, generics);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_generic_params_in_extension_ty(*ty, generics);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
@@ -1271,6 +1295,28 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Vec<_>>();
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .iter()
+                    .copied()
+                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .collect::<Vec<_>>();
+                let associated_type_bindings = associated_type_bindings
+                    .iter()
+                    .map(|(name, ty)| (name.clone(), self.instantiate_ty(*ty, substitutions)))
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
             }
             Some(TyKind::Projection {
                 self_ty,
@@ -1447,6 +1493,43 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::TraitObject {
+                is_const: pattern_const,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                associated_type_bindings: pattern_bindings,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }) if is_const == pattern_const
+                    && trait_id == pattern_trait
+                    && pattern_args.len() == trait_args.len()
+                    && pattern_bindings.len() == associated_type_bindings.len() =>
+                {
+                    pattern_args
+                        .iter()
+                        .zip(trait_args)
+                        .all(|(pattern, actual)| {
+                            self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                        })
+                        && pattern_bindings.iter().all(|(pattern_name, pattern_ty)| {
+                            associated_type_bindings
+                                .iter()
+                                .find(|(actual_name, _)| actual_name == pattern_name)
+                                .is_some_and(|(_, actual_ty)| {
+                                    self.match_extension_type_pattern(
+                                        *pattern_ty,
+                                        *actual_ty,
+                                        substitutions,
+                                    )
+                                })
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::Projection {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,
@@ -1527,6 +1610,35 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .zip(right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
+            }
+            (
+                Some(TyKind::TraitObject {
+                    is_const: left_const,
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    associated_type_bindings: left_bindings,
+                }),
+                Some(TyKind::TraitObject {
+                    is_const: right_const,
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    associated_type_bindings: right_bindings,
+                }),
+            ) => {
+                left_const == right_const
+                    && left_trait == right_trait
+                    && left_args.len() == right_args.len()
+                    && left_bindings.len() == right_bindings.len()
+                    && left_args
+                        .iter()
+                        .zip(right_args)
+                        .all(|(left, right)| self.types_match(*left, *right))
+                    && left_bindings.iter().all(|(left_name, left_ty)| {
+                        right_bindings
+                            .iter()
+                            .find(|(right_name, _)| right_name == left_name)
+                            .is_some_and(|(_, right_ty)| self.types_match(*left_ty, *right_ty))
+                    })
             }
             (
                 Some(TyKind::Range {

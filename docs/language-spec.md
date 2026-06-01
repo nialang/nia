@@ -409,6 +409,25 @@ Identifiers, field access, array indexing, slice indexing, and pointer
 dereference may be places. Field access and indexing inherit place-ness from
 their left-hand side.
 
+When the pointee type is a trait name, `&Trait[...]` and `&const Trait[...]`
+denote trait object pointers, not thin object pointers. A trait object is a Nia
+fat pointer carrying an object pointer plus implementation metadata. Bare
+`Trait[...]` remains a trait type for bounds and projections; it is not a valid
+value, field, parameter, or array element type.
+
+```nia
+trait Source {
+    type Item;
+}
+
+fn consume(source: &const Source[Item = i32]) void {}
+```
+
+Trait object syntax uses the same bracket list as trait bounds: positional trait
+arguments come first, followed by associated type bindings. Binding names must
+be associated types declared by the trait, and a single object type may not bind
+the same associated type more than once.
+
 Literals, ordinary call results, arithmetic results, and struct rvalues are not
 places and cannot be addressed directly. Bind them to a local or global object
 when a stable address is needed:
@@ -1932,6 +1951,12 @@ concrete trait implementation during checking and monomorphization. Supertrait
 method obligations are resolved through the same visible concrete implementation
 lookup.
 
+Trait object pointer types are represented as fat pointers. This version
+supports the type syntax and representation; object-safety checking, coercion
+from concrete pointers to trait object pointers, vtable construction, and
+dynamic method dispatch are reserved for the next trait-object implementation
+step.
+
 ## 12. Modules
 
 Each `.nia` file is a module. Import resolution always produces one concrete
@@ -2204,6 +2229,8 @@ Type encoding rules:
 - primitive types use their names, such as `i32`, `u8`, `bool`, `void`;
 - `&T` encodes as `ptr__<T>`;
 - `&const T` encodes as `ptr_const__<T>`;
+- trait object pointers encode as `trait_obj__<trait>...` or
+  `trait_obj_const__<trait>...`;
 - `[N]T` encodes as `arr__<len>__<elem>`;
 - function pointers encode as `fnptr__pc<N>__<p1>__...__ret__<ret>`, with
   `__variadic` appended for variadic function pointers;
