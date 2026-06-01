@@ -632,58 +632,38 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let method = operator.method()?;
-        let candidates = self
-            .input
-            .extensions
-            .targets()
-            .iter()
-            .filter_map(|target| {
-                self.builtin_operator_impl_method_for_target(
-                    target,
-                    operator.trait_id,
-                    trait_args,
-                    method.name(),
-                    lhs_ty,
-                )
-            })
-            .collect::<Vec<_>>();
-        match candidates.as_slice() {
-            [candidate] => Some(candidate.clone()),
-            _ => None,
-        }
+        self.resolve_builtin_extension_impl_method(
+            operator.trait_id,
+            trait_args,
+            method.name(),
+            lhs_ty,
+        )
     }
 
-    fn builtin_operator_impl_method_for_target(
+    fn resolve_builtin_extension_impl_method(
         &self,
-        target: &VisibleExtensionTarget,
-        trait_id: nia_ids::BuiltinTrait,
+        trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
         method_name: &str,
-        lhs_ty: InternedTyId,
+        self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if !self.extension_type_pattern_matches(target.target_ty, lhs_ty) {
-            return None;
+        let mut candidate = None;
+        for target in self.input.extensions.targets() {
+            let Some(next) = self.builtin_impl_method_for_target(
+                target,
+                trait_id,
+                trait_args,
+                method_name,
+                self_ty,
+            ) else {
+                continue;
+            };
+            if candidate.is_some() {
+                return None;
+            }
+            candidate = Some(next);
         }
-        let method = target.methods.iter().find(|method| {
-            method.name == method_name
-                && method.trait_id == Some(TraitId::Builtin(trait_id))
-                && method.trait_args.len() == trait_args.len()
-                && method
-                    .trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| self.types_match(*actual, *expected))
-        })?;
-        let mut substitutions = HashMap::new();
-        self.match_extension_type_pattern(target.target_ty, lhs_ty, &mut substitutions)
-            .then(|| {
-                let args = self
-                    .generic_params_in_extension_ty(target.target_ty)
-                    .iter()
-                    .filter_map(|generic| substitutions.get(generic).copied())
-                    .collect::<Vec<_>>();
-                (method.def_id, args)
-            })
+        candidate
     }
 
     fn resolve_builtin_place_impl_method(
@@ -693,28 +673,10 @@ impl<'a> ModuleLowerer<'a> {
         method: BuiltinTraitMethod,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let candidates = self
-            .input
-            .extensions
-            .targets()
-            .iter()
-            .filter_map(|target| {
-                self.dispatch_builtin_place_impl_method_for_target(
-                    target,
-                    trait_id,
-                    trait_args,
-                    method.name(),
-                    self_ty,
-                )
-            })
-            .collect::<Vec<_>>();
-        match candidates.as_slice() {
-            [candidate] => Some(candidate.clone()),
-            _ => None,
-        }
+        self.resolve_builtin_extension_impl_method(trait_id, trait_args, method.name(), self_ty)
     }
 
-    fn dispatch_builtin_place_impl_method_for_target(
+    fn builtin_impl_method_for_target(
         &self,
         target: &VisibleExtensionTarget,
         trait_id: BuiltinTrait,
