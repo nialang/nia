@@ -5,8 +5,8 @@ use crate::ModuleLowerer;
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee,
     FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
-    FunctionInlineAsm, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
-    FunctionRange, FunctionSliceRange, FunctionTerminator,
+    FunctionInlineAsm, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
+    FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_opt::{OptimizationDepth, OptimizationPolicy};
 
@@ -22,6 +22,7 @@ enum BackendOptPass {
     SimplifySameTypeCasts,
     RemoveNoopLocalStores,
     RemovePureExprOps,
+    RemoveUnusedLocalBindings,
     FoldConstantBoolBranches,
     MergeEmptyJumpBlocks,
     RemoveUnreachableBlocks,
@@ -34,6 +35,7 @@ impl BackendOptPass {
             Self::SimplifySameTypeCasts => "simplify-same-type-casts",
             Self::RemoveNoopLocalStores => "remove-noop-local-stores",
             Self::RemovePureExprOps => "remove-pure-expr-ops",
+            Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
             Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
             Self::MergeEmptyJumpBlocks => "merge-empty-jump-blocks",
             Self::RemoveUnreachableBlocks => "remove-unreachable-blocks",
@@ -46,6 +48,7 @@ impl BackendOptPass {
             Self::SimplifySameTypeCasts => simplify_same_type_casts_in_blocks(&mut body.blocks),
             Self::RemoveNoopLocalStores => remove_noop_local_stores(&mut body.blocks),
             Self::RemovePureExprOps => remove_pure_expr_ops(&mut body.blocks),
+            Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
             Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
             Self::MergeEmptyJumpBlocks => merge_empty_jump_blocks(body),
             Self::RemoveUnreachableBlocks => remove_unreachable_blocks(body),
@@ -92,7 +95,16 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::OptimizeDeferBodies,
 ];
 
-const O2_PASSES: &[BackendOptPass] = O1_PASSES;
+const O2_PASSES: &[BackendOptPass] = &[
+    BackendOptPass::SimplifySameTypeCasts,
+    BackendOptPass::RemoveNoopLocalStores,
+    BackendOptPass::RemovePureExprOps,
+    BackendOptPass::RemoveUnusedLocalBindings,
+    BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::MergeEmptyJumpBlocks,
+    BackendOptPass::RemoveUnreachableBlocks,
+    BackendOptPass::OptimizeDeferBodies,
+];
 
 #[derive(Debug)]
 struct FunctionCfg {
@@ -273,6 +285,282 @@ fn remove_noop_local_stores(blocks: &mut [FunctionBlock]) -> bool {
         }
     }
     changed
+}
+
+fn remove_unused_local_bindings(body: &mut FunctionBody) -> bool {
+    let mut changed = false;
+    while remove_unused_local_bindings_once(body) {
+        changed = true;
+    }
+    changed
+}
+
+fn remove_unused_local_bindings_once(body: &mut FunctionBody) -> bool {
+    let referenced_locals = collect_referenced_locals(body);
+    let removable_locals = body
+        .locals
+        .iter()
+        .filter(|local| matches!(local.kind, FunctionLocalKind::Binding))
+        .filter(|local| !referenced_locals.contains(&local.id))
+        .map(|local| local.id)
+        .collect::<HashSet<_>>();
+    if removable_locals.is_empty() {
+        return false;
+    }
+
+    let mut changed = remove_unused_local_binding_ops(&mut body.blocks, &removable_locals);
+    let before = body.locals.len();
+    body.locals
+        .retain(|local| !removable_locals.contains(&local.id));
+    changed |= body.locals.len() != before;
+    changed
+}
+
+fn remove_unused_local_binding_ops(
+    blocks: &mut [FunctionBlock],
+    removable_locals: &HashSet<nia_ids::LocalId>,
+) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        let mut replacement_ops = Vec::with_capacity(block.ops.len());
+        for op in block.ops.drain(..) {
+            match op {
+                FunctionOp::Binding(binding) if removable_locals.contains(&binding.local_id) => {
+                    changed = true;
+                    if let Some(value) = binding.value
+                        && !is_pure_discardable_expr(&value)
+                    {
+                        replacement_ops.push(FunctionOp::Expr(value));
+                    }
+                }
+                FunctionOp::Defer(mut body) => {
+                    changed |= remove_unused_local_binding_ops(&mut body.blocks, removable_locals);
+                    replacement_ops.push(FunctionOp::Defer(body));
+                }
+                other => replacement_ops.push(other),
+            }
+        }
+        block.ops = replacement_ops;
+    }
+    changed
+}
+
+fn collect_referenced_locals(body: &FunctionBody) -> HashSet<nia_ids::LocalId> {
+    let mut refs = HashSet::new();
+    collect_referenced_locals_in_blocks(&body.blocks, &mut refs);
+    refs
+}
+
+fn collect_referenced_locals_in_blocks(
+    blocks: &[FunctionBlock],
+    refs: &mut HashSet<nia_ids::LocalId>,
+) {
+    for block in blocks {
+        for op in &block.ops {
+            collect_referenced_locals_in_op(op, refs);
+        }
+        collect_referenced_locals_in_terminator(&block.terminator, refs);
+    }
+}
+
+fn collect_referenced_locals_in_op(op: &FunctionOp, refs: &mut HashSet<nia_ids::LocalId>) {
+    match op {
+        FunctionOp::Binding(binding) => {
+            if let Some(value) = &binding.value {
+                collect_referenced_locals_in_expr(value, refs);
+            }
+        }
+        FunctionOp::StoreLocal {
+            local_id, value, ..
+        } => {
+            refs.insert(*local_id);
+            collect_referenced_locals_in_expr(value, refs);
+        }
+        FunctionOp::Expr(expr) => collect_referenced_locals_in_expr(expr, refs),
+        FunctionOp::Defer(body) => collect_referenced_locals_in_blocks(&body.blocks, refs),
+    }
+}
+
+fn collect_referenced_locals_in_terminator(
+    terminator: &FunctionTerminator,
+    refs: &mut HashSet<nia_ids::LocalId>,
+) {
+    match terminator {
+        FunctionTerminator::If { cond, .. } => collect_referenced_locals_in_expr(cond, refs),
+        FunctionTerminator::Switch { target, arms, .. } => {
+            collect_referenced_locals_in_expr(target, refs);
+            for arm in arms {
+                collect_referenced_locals_in_expr(&arm.pattern, refs);
+            }
+        }
+        FunctionTerminator::Loop { header, .. } => match header {
+            FunctionForHeader::Condition(cond) => collect_referenced_locals_in_expr(cond, refs),
+            FunctionForHeader::CStyle { cond } => {
+                if let Some(cond) = cond {
+                    collect_referenced_locals_in_expr(cond, refs);
+                }
+            }
+            FunctionForHeader::Infinite => {}
+        },
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+            if let Some(value) = value {
+                collect_referenced_locals_in_expr(value, refs);
+            }
+        }
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. } => {}
+    }
+}
+
+fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia_ids::LocalId>) {
+    match &expr.kind {
+        FunctionExprKind::Local(local_id) => {
+            refs.insert(*local_id);
+        }
+        FunctionExprKind::Range(range) => collect_referenced_locals_in_range(range, refs),
+        FunctionExprKind::InlineAsm(asm) => collect_referenced_locals_in_inline_asm(asm, refs),
+        FunctionExprKind::CStringPointer { array, .. } => {
+            collect_referenced_locals_in_expr(array, refs)
+        }
+        FunctionExprKind::ArrayLiteral { elems } => {
+            collect_referenced_locals_in_array_elements(elems, refs)
+        }
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            for field in fields {
+                collect_referenced_locals_in_expr(&field.value, refs);
+            }
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            collect_referenced_locals_in_expr(&field.value, refs)
+        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr, .. }
+        | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+            collect_referenced_locals_in_expr(expr, refs);
+        }
+        FunctionExprKind::AddrOf(place) => collect_referenced_locals_in_place(place, refs),
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            collect_referenced_locals_in_expr(lhs, refs);
+            collect_referenced_locals_in_expr(rhs, refs);
+        }
+        FunctionExprKind::Assign { place, rhs, .. } => {
+            collect_referenced_locals_in_place(place, refs);
+            collect_referenced_locals_in_expr(rhs, refs);
+        }
+        FunctionExprKind::Call { callee, args } => {
+            collect_referenced_locals_in_callee(callee, refs);
+            for arg in args {
+                collect_referenced_locals_in_expr(arg, refs);
+            }
+        }
+        FunctionExprKind::Field { lhs, .. } => collect_referenced_locals_in_expr(lhs, refs),
+        FunctionExprKind::Index { lhs, index } => {
+            collect_referenced_locals_in_expr(lhs, refs);
+            collect_referenced_locals_in_expr(index, refs);
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            collect_referenced_locals_in_expr(lhs, refs);
+            collect_referenced_locals_in_slice_range(range, refs);
+        }
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => {}
+    }
+}
+
+fn collect_referenced_locals_in_inline_asm(
+    asm: &FunctionInlineAsm,
+    refs: &mut HashSet<nia_ids::LocalId>,
+) {
+    for input in &asm.inputs {
+        collect_referenced_locals_in_expr(&input.value, refs);
+    }
+    for output in &asm.outputs {
+        collect_referenced_locals_in_place(&output.place, refs);
+    }
+}
+
+fn collect_referenced_locals_in_array_elements(
+    elems: &FunctionArrayElements,
+    refs: &mut HashSet<nia_ids::LocalId>,
+) {
+    match elems {
+        FunctionArrayElements::List(elems) => {
+            for elem in elems {
+                collect_referenced_locals_in_expr(elem, refs);
+            }
+        }
+        FunctionArrayElements::Repeat { value, .. } => {
+            collect_referenced_locals_in_expr(value, refs)
+        }
+    }
+}
+
+fn collect_referenced_locals_in_callee(
+    callee: &FunctionCallee,
+    refs: &mut HashSet<nia_ids::LocalId>,
+) {
+    match callee {
+        FunctionCallee::Method { receiver, .. }
+        | FunctionCallee::TraitMethod { receiver, .. }
+        | FunctionCallee::DynamicTraitMethod { receiver, .. }
+        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::FunctionPointer(receiver) => {
+            collect_referenced_locals_in_expr(receiver, refs);
+        }
+        FunctionCallee::Function(_)
+        | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::BuiltinOperator(_) => {}
+    }
+}
+
+fn collect_referenced_locals_in_place(place: &FunctionPlace, refs: &mut HashSet<nia_ids::LocalId>) {
+    match &place.base {
+        FunctionPlaceBase::Local(local_id) => {
+            refs.insert(*local_id);
+        }
+        FunctionPlaceBase::Deref(expr) => collect_referenced_locals_in_expr(expr, refs),
+        FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
+    }
+    for elem in &place.elems {
+        if let FunctionPlaceElem::Index(index) = elem {
+            collect_referenced_locals_in_expr(index, refs);
+        }
+    }
+}
+
+fn collect_referenced_locals_in_slice_range(
+    range: &FunctionSliceRange,
+    refs: &mut HashSet<nia_ids::LocalId>,
+) {
+    if let Some(start) = &range.start {
+        collect_referenced_locals_in_expr(start, refs);
+    }
+    if let Some(end) = &range.end {
+        collect_referenced_locals_in_expr(end, refs);
+    }
+}
+
+fn collect_referenced_locals_in_range(range: &FunctionRange, refs: &mut HashSet<nia_ids::LocalId>) {
+    if let Some(start) = &range.start {
+        collect_referenced_locals_in_expr(start, refs);
+    }
+    if let Some(end) = &range.end {
+        collect_referenced_locals_in_expr(end, refs);
+    }
 }
 
 fn is_noop_local_store(op: &FunctionOp) -> bool {
@@ -770,8 +1058,121 @@ mod tests {
             let pipeline = BackendOptPipeline::for_policy(&level.policy());
 
             assert_eq!(pipeline.passes, O2_PASSES);
-            assert!(pipeline.passes.starts_with(O1_PASSES));
+            for pass in O1_PASSES {
+                assert!(pipeline.passes.contains(pass), "{level:?} missing {pass:?}");
+            }
+            assert!(
+                pipeline
+                    .passes
+                    .contains(&BackendOptPass::RemoveUnusedLocalBindings)
+            );
         }
+    }
+
+    #[test]
+    fn removes_unused_local_bindings_to_fixed_point() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(0),
+                    name: "a".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("1".to_string()),
+                    }),
+                    is_const: false,
+                }),
+                FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(1),
+                    name: "b".to_string(),
+                    ty,
+                    value: Some(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    }),
+                    is_const: false,
+                }),
+            ],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+        body.locals = vec![
+            nia_function_ir::FunctionLocal {
+                id: LocalId(0),
+                name: "a".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+            nia_function_ir::FunctionLocal {
+                id: LocalId(1),
+                name: "b".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+        ];
+
+        assert!(remove_unused_local_bindings(&mut body));
+
+        assert!(body.locals.is_empty());
+        assert!(body.blocks[0].ops.is_empty());
+        validate_function_body(&body).expect("DCE body should remain valid");
+    }
+
+    #[test]
+    fn preserves_effects_from_unused_local_binding_initializer() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                local_id: LocalId(0),
+                name: "unused".to_string(),
+                ty,
+                value: Some(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Call {
+                        callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                            module_id: nia_ids::ModuleId(0),
+                            def_id: nia_ids::DefId(0),
+                        }),
+                        args: Vec::new(),
+                    },
+                }),
+                is_const: false,
+            })],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "unused".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(remove_unused_local_bindings(&mut body));
+
+        assert!(body.locals.is_empty());
+        assert!(matches!(
+            body.blocks[0].ops.as_slice(),
+            [FunctionOp::Expr(FunctionExpr {
+                kind: FunctionExprKind::Call { .. },
+                ..
+            })]
+        ));
+        validate_function_body(&body).expect("effect-preserving DCE body should remain valid");
     }
 
     #[test]
