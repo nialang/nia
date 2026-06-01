@@ -267,6 +267,9 @@ impl<C> QueryDb<C> {
                         Err(payload) => {
                             let mut state = slot.state.lock().expect("query cache lock poisoned");
                             *state = QueryState::Empty;
+                            // Dependencies recorded during a failed execution are speculative:
+                            // keeping them would make future invalidations report a query value
+                            // that was never cached and can no longer be reused.
                             self.clear_dependencies_from(&identity);
                             slot.ready.notify_all();
                             drop(state);
@@ -282,6 +285,9 @@ impl<C> QueryDb<C> {
                         matches!(&*state, QueryState::Computing { invalidated: true });
                     if was_invalidated {
                         *state = QueryState::Empty;
+                        // The value was computed from an input that changed while this query was
+                        // running. Return it to the caller that did the work, but drop the cache
+                        // entry and its edges so the next request recomputes against fresh inputs.
                         self.clear_dependencies_from(&identity);
                     } else {
                         *state = QueryState::Ready(value.clone());
@@ -756,6 +762,35 @@ mod tests {
     }
 
     #[test]
+    fn failed_parent_query_drops_speculative_dependencies() {
+        let db = QueryDb::new(TestContext {
+            executions: AtomicUsize::new(0),
+        });
+
+        let err = db
+            .try_query(InvalidAfterDependency)
+            .expect_err("parent query should fail after recording dependency");
+        match err {
+            QueryError::InvalidInput { query, message } => {
+                assert_eq!(query.name, "invalid_after_dependency");
+                assert_eq!(message, "failed after dependency");
+            }
+            QueryError::Cycle { .. } => panic!("expected invalid input error"),
+        }
+        assert!(db.query_trace().dependencies.is_empty());
+
+        let invalidation = db.invalidate(Double(3));
+        assert_eq!(
+            invalidation
+                .invalidated
+                .iter()
+                .map(|frame| frame.description.as_str())
+                .collect::<Vec<_>>(),
+            vec!["double(3)"]
+        );
+    }
+
+    #[test]
     fn query_many_workers_detect_cycles_through_parent_stack() {
         let db = QueryDb::new(TestContext {
             executions: AtomicUsize::new(0),
@@ -1041,6 +1076,22 @@ mod tests {
 
         fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
             db.invalid_input(self, "bad fixture")
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    struct InvalidAfterDependency;
+
+    impl QueryKey<TestContext> for InvalidAfterDependency {
+        type Value = usize;
+
+        fn name() -> &'static str {
+            "invalid_after_dependency"
+        }
+
+        fn execute(&self, db: &QueryDb<TestContext>) -> Self::Value {
+            let _ = db.query(Double(3));
+            db.invalid_input(self, "failed after dependency")
         }
     }
 
