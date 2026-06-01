@@ -130,15 +130,16 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendFunction> {
         let def_id = self.def_id_for_span_any_function(span)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
+        let global_def_id = self.global_def_id(def_id);
         let function_body = self
             .input
             .function_bodies
-            .get(&self.global_def_id(def_id))
+            .get(&global_def_id)
             .cloned()
             .map(|body| self.resolve_builtin_operator_calls_in_body(body))
-            .map(|body| self.optimize_function_body(body));
+            .map(|body| self.optimize_function_body(global_def_id, false, 0, body));
         Some(BackendFunction {
-            def_id: self.global_def_id(def_id),
+            def_id: global_def_id,
             name: function.name.clone(),
             generics: signature.generics.clone(),
             params: function

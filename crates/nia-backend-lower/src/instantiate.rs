@@ -182,6 +182,8 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn instantiate_function_body(
         &mut self,
+        function: nia_ids::GlobalDefId,
+        type_arg_count: usize,
         body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionBody {
@@ -218,7 +220,7 @@ impl<'a> ModuleLowerer<'a> {
             ty: self.instantiate_ty(body.ty, substitutions),
         };
         let body = self.resolve_builtin_operator_calls_in_body(body);
-        self.optimize_function_body(body)
+        self.optimize_function_body(function, true, type_arg_count, body)
     }
 
     pub(crate) fn generic_params_in_extension_ty(&self, ty: InternedTyId) -> Vec<String> {

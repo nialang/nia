@@ -8,12 +8,29 @@ use nia_function_ir::{
     FunctionInlineAsm, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
     FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
+use nia_ids::GlobalDefId;
 use nia_ids::LocalId;
 use nia_opt::{OptimizationDepth, OptimizationPolicy};
 
 impl<'a> ModuleLowerer<'a> {
-    pub(crate) fn optimize_function_body(&mut self, mut body: FunctionBody) -> FunctionBody {
-        BackendOptPipeline::for_policy(&self.optimization).run(&mut body);
+    pub(crate) fn optimize_function_body(
+        &mut self,
+        function: GlobalDefId,
+        is_instance: bool,
+        type_arg_count: usize,
+        mut body: FunctionBody,
+    ) -> FunctionBody {
+        for pass in BackendOptPipeline::for_policy(&self.optimization).run(&mut body) {
+            self.optimization_report
+                .changed_passes
+                .push(crate::BackendOptimizationChange {
+                    module_id: self.input.module_id,
+                    function,
+                    pass,
+                    is_instance,
+                    type_arg_count,
+                });
+        }
         body
     }
 }
@@ -107,13 +124,16 @@ impl BackendOptPipeline {
         Self { passes }
     }
 
-    fn run(&self, body: &mut FunctionBody) -> bool {
-        let mut changed = false;
+    fn run(&self, body: &mut FunctionBody) -> Vec<&'static str> {
+        let mut changed_passes = Vec::new();
         for pass in &self.passes {
-            debug_assert!(!pass.name().is_empty());
-            changed |= (*pass).run(body);
+            let name = pass.name();
+            debug_assert!(!name.is_empty());
+            if (*pass).run(body) {
+                changed_passes.push(name);
+            }
         }
-        changed
+        changed_passes
     }
 }
 

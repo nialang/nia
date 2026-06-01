@@ -34,7 +34,22 @@ use nia_value_resolve::ValueResolution;
 pub struct BackendLowering {
     pub program: BackendProgram,
     pub optimization: OptimizationPolicy,
+    pub optimization_report: BackendOptimizationReport,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct BackendOptimizationReport {
+    pub changed_passes: Vec<BackendOptimizationChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendOptimizationChange {
+    pub module_id: ModuleId,
+    pub function: GlobalDefId,
+    pub pass: &'static str,
+    pub is_instance: bool,
+    pub type_arg_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,12 +80,16 @@ pub fn lower_backend_program(
     optimization: OptimizationPolicy,
 ) -> BackendLowering {
     let mut diagnostics = Vec::new();
+    let mut optimization_report = BackendOptimizationReport::default();
     let lowered_modules = modules
         .iter()
         .map(|input| {
             let mut lowerer = ModuleLowerer::new(input, monomorphization, optimization);
             let module = lowerer.lower_module();
             diagnostics.extend(lowerer.diagnostics);
+            optimization_report
+                .changed_passes
+                .extend(lowerer.optimization_report.changed_passes);
             module
         })
         .collect();
@@ -79,6 +98,7 @@ pub fn lower_backend_program(
             modules: lowered_modules,
         },
         optimization,
+        optimization_report,
         diagnostics,
     }
 }
@@ -89,6 +109,7 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) optimization: OptimizationPolicy,
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
+    optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
@@ -115,6 +136,7 @@ impl<'a> ModuleLowerer<'a> {
             optimization,
             interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
+            optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
             extension_targets_by_method: index_extension_targets_by_method(input.extensions),
             struct_layout_instances_by_def: index_layout_instances_by_def(
