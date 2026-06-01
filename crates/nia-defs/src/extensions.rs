@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::DefId;
 use nia_ast::Visibility;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExtensionMethods {
@@ -14,6 +14,8 @@ pub struct ExtensionMethods {
 pub struct ExtensionMethod {
     pub def_id: GlobalDefId,
     pub target_ty: InternedTyId,
+    pub trait_id: Option<TraitId>,
+    pub trait_args: Vec<InternedTyId>,
     pub visibility: Visibility,
 }
 
@@ -26,6 +28,8 @@ pub struct VisibleExtensionMethods {
 pub struct VisibleExtensionMethod {
     pub name: String,
     pub def_id: GlobalDefId,
+    pub trait_id: Option<TraitId>,
+    pub trait_args: Vec<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

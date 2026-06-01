@@ -17,7 +17,7 @@ use nia_backend_ir::BackendFunction;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBody, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionLocal,
-    FunctionLocalKind, FunctionScopeId,
+    FunctionLocalKind, FunctionRange, FunctionScopeId,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -25,7 +25,7 @@ use nia_llvm::{
     values::{BasicValueEnum, FunctionValue, PointerValue},
 };
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyKind};
+use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
 
 pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     module: &'m ModuleCodegen<'ctx, 'a>,
@@ -264,6 +264,21 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .i64_type()
                 .const_int(*value, false)
                 .into()),
+            FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Layout { builtin, ty }) => {
+                let Some(layout) = self.module.layout_of(*ty) else {
+                    return Err(self.error(expr.span, "layout builtin type has no known layout"));
+                };
+                let value = match builtin {
+                    LayoutBuiltin::Size => layout.size,
+                    LayoutBuiltin::Align => layout.align,
+                };
+                Ok(self
+                    .module
+                    .context
+                    .i64_type()
+                    .const_int(value, false)
+                    .into())
+            }
             FunctionExprKind::BuiltinValue(FunctionBuiltinValue::Int(value)) => {
                 let ty = self
                     .module
@@ -271,8 +286,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .into_int_type()?;
                 Ok(ty.const_u128(*value as u128).into())
             }
-            FunctionExprKind::Len(inner) => self.emit_len(expr.span, inner),
-            FunctionExprKind::Ptr(inner) => self.emit_ptr(expr.span, inner),
+            FunctionExprKind::Range(range) => self.emit_range(expr.span, expr.ty, range),
             FunctionExprKind::InlineAsm(asm) => {
                 self.emit_inline_asm(asm)?;
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
@@ -304,6 +318,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let value = self.emit_expr(inner)?;
                 self.emit_cast(expr.span, inner.ty, *ty, value)
             }
+            FunctionExprKind::TraitObjectUpcast {
+                expr: inner,
+                source_ty,
+                target_ty,
+            } => self.emit_trait_object_upcast(expr.span, inner, *source_ty, *target_ty),
+            FunctionExprKind::TraitObjectCoercion {
+                expr: inner,
+                target_ty,
+                self_ty,
+            } => self.emit_trait_object_coercion(expr.span, inner, *self_ty, *target_ty),
             FunctionExprKind::Call { callee, args } => self.emit_call(expr, callee, args),
             FunctionExprKind::Slice { lhs, range, .. } => self.emit_slice(expr.span, lhs, range),
             FunctionExprKind::Field { .. } | FunctionExprKind::Index { .. } => {
@@ -328,6 +352,141 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Err(self.error(expr.span, "cannot emit erroneous expression"))
             }
         }
+    }
+
+    fn emit_trait_object_coercion(
+        &mut self,
+        span: Span,
+        inner: &FunctionExpr,
+        self_ty: InternedTyId,
+        target_ty: InternedTyId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let object_ptr = self.emit_expr(inner)?.into_pointer_value()?;
+        let Some(vtable) = self.module.trait_object_vtable(self_ty, target_ty) else {
+            return Err(self.error(span, "missing trait object vtable"));
+        };
+        let metadata = vtable.as_pointer_value();
+        let trait_object_ty = self.module.trait_object_type();
+        let result = trait_object_ty.get_undef();
+        let result = self
+            .builder
+            .build_insert_value(result, object_ptr, 0, "traitobj.ptr")
+            .map_err(|_| self.error(span, "failed to build trait object"))?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "failed to build trait object"))?;
+        let result = self
+            .builder
+            .build_insert_value(result, metadata, 1, "traitobj.vtable")
+            .map_err(|_| self.error(span, "failed to build trait object"))?;
+        Ok(result.into())
+    }
+
+    fn emit_trait_object_upcast(
+        &mut self,
+        span: Span,
+        inner: &FunctionExpr,
+        source_ty: InternedTyId,
+        target_ty: InternedTyId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let value = self.emit_expr(inner)?;
+        let value = value
+            .into_struct_value()
+            .map_err(|_| self.error(span, "trait object upcast source is not a trait object"))?;
+        let trait_object_ty = self.module.trait_object_type();
+        let object_ptr = self
+            .builder
+            .build_extract_value(value, 0, "traitobj.ptr")
+            .map_err(|_| self.error(span, "failed to extract trait object pointer"))?;
+        let mut metadata = self
+            .builder
+            .build_extract_value(value, 1, "traitobj.metadata")
+            .map_err(|_| self.error(span, "failed to extract trait object metadata"))?;
+        let offset = self
+            .module
+            .trait_object_upcast_slot_offset(source_ty, target_ty);
+        if offset > 0 {
+            let ptr_ty = self.module.context.ptr_type(Default::default());
+            let zero = self.module.context.i64_type().const_int(0, false);
+            let offset_index = self
+                .module
+                .context
+                .i64_type()
+                .const_int(offset as u64, false);
+            metadata = unsafe {
+                self.builder
+                    .build_gep(
+                        ptr_ty.array_type((offset + 1) as u32),
+                        metadata.into_pointer_value()?,
+                        &[zero, offset_index],
+                        "traitobj.upcast.metadata.offset",
+                    )
+                    .map_err(|_| self.error(span, "failed to offset trait object metadata"))?
+                    .into()
+            };
+        }
+        let result = trait_object_ty.get_undef();
+        let result = self
+            .builder
+            .build_insert_value(result, object_ptr, 0, "traitobj.upcast.ptr")
+            .map_err(|_| self.error(span, "failed to build trait object upcast"))?
+            .into_struct_value()
+            .map_err(|_| self.error(span, "failed to build trait object upcast"))?;
+        let result = self
+            .builder
+            .build_insert_value(result, metadata, 1, "traitobj.upcast.metadata")
+            .map_err(|_| self.error(span, "failed to build trait object upcast"))?;
+        Ok(result.into())
+    }
+
+    fn emit_range(
+        &mut self,
+        span: Span,
+        ty: InternedTyId,
+        range: &FunctionRange,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Range { bound, .. }) = self.module.ty_kind(ty) else {
+            return Err(self.error(span, "range expression target type is not a range"));
+        };
+        let Some(bound) = bound else {
+            return self
+                .module
+                .llvm_basic_type(ty, span)?
+                .const_zero()
+                .map_err(Into::into);
+        };
+        let mut value = self
+            .module
+            .range_type(
+                match self.module.ty_kind(ty) {
+                    Some(TyKind::Range { kind, .. }) => *kind,
+                    _ => unreachable!("range type checked above"),
+                },
+                Some(*bound),
+                span,
+            )?
+            .into_struct_type()?
+            .get_undef();
+        let mut index = 0u32;
+        if let Some(start) = &range.start {
+            let start_span = start.span;
+            let start = self.emit_expr(start)?;
+            value = self
+                .builder
+                .build_insert_value(value, start, index, "range.start")
+                .map_err(|_| self.error(start_span, "failed to insert range start"))?
+                .into_struct_value()?;
+            index += 1;
+        }
+        if let Some(end) = &range.end {
+            let end_span = end.span;
+            let end = self.emit_expr(end)?;
+            value = self
+                .builder
+                .build_insert_value(value, end, index, "range.end")
+                .map_err(|_| self.error(end_span, "failed to insert range end"))?
+                .into_struct_value()?;
+        }
+        Ok(value.into())
     }
 
     fn field_index(

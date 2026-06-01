@@ -171,6 +171,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         llvm_blocks: &std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
     ) -> Result<(), Diagnostic> {
         match terminator {
+            FunctionTerminator::Error { span } => {
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(*span, "failed to build unreachable"))?;
+            }
             FunctionTerminator::Next { target, span }
             | FunctionTerminator::Branch { target, span } => {
                 self.emit_function_edge_defers(body, block, *target, *span)?;
@@ -242,6 +247,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         defer_end: BasicBlock<'ctx>,
     ) -> Result<(), Diagnostic> {
         match terminator {
+            FunctionTerminator::Error { span } => {
+                self.builder
+                    .build_unreachable()
+                    .map_err(|_| self.error(*span, "failed to build defer function unreachable"))?;
+            }
             FunctionTerminator::Next { target, span }
             | FunctionTerminator::Branch { target, span } => {
                 self.emit_defer_function_edge_defers(body, block, *target, *span)?;

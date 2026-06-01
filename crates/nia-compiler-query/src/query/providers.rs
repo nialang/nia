@@ -232,6 +232,8 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
         structs: collect_program_structs(&modules),
         unions: collect_program_unions(&modules),
         enums: collect_program_enums(&modules),
+        traits: collect_program_traits(&modules),
+        trait_impls: crate::program_signatures::collect_program_trait_impls(&modules),
     }
 }
 
@@ -252,6 +254,11 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
         .copied()
         .map(|module_id| db.query(TypeLoweringQuery(module_id)))
         .collect::<Vec<_>>();
+    let item_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
+        .collect::<Vec<_>>();
     let normalizations = module_ids
         .iter()
         .copied()
@@ -261,12 +268,14 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
         .iter()
         .zip(defs.iter())
         .zip(type_lowerings.iter())
+        .zip(item_signatures.iter())
         .zip(normalizations.iter())
         .map(
-            |(((module, defs), lowering), normalization)| ExtensionModuleInput {
+            |((((module, defs), lowering), signatures), normalization)| ExtensionModuleInput {
                 module,
                 defs,
                 lowering,
+                signatures,
                 normalization,
             },
         )
@@ -602,6 +611,7 @@ pub(super) fn provide_backend_lowering(
         .iter()
         .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let program_signatures = db.query(ProgramSignaturesQuery);
     let inputs = checked_modules
         .iter()
         .zip(loaded_modules.iter())
@@ -625,6 +635,9 @@ pub(super) fn provide_backend_lowering(
                     layouts: &checked_module.layouts,
                     function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
+                    program_enums: &program_signatures.enums,
+                    program_traits: &program_signatures.traits,
+                    trait_impls: &program_signatures.trait_impls,
                 }
             },
         )

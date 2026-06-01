@@ -4,9 +4,9 @@ use nia_ast::{
     EnumItem, EnumVariant, Expr, ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit,
     ForHeader, ForInit, ForStmt, FunctionItem, ImportItem, ImportPath, ImportPathKind, Item,
     ItemKind, Module, Param, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm,
-    SwitchArmBody, SwitchPattern, SwitchStmt, TypeAliasItem, TypeArg, TypeKind, TypePathSegment,
-    TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment, UsingItem, UsingName,
-    UsingSelector, Visibility,
+    SwitchArmBody, SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
+    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
+    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};

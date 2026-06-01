@@ -1,0 +1,222 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::common::*;
+
+#[test]
+fn emits_nia_structs_in_physical_layout_order() {
+    let root = temp_dir("emits_nia_structs_in_physical_layout_order");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Mixed {
+    a: u8,
+    b: i64,
+    c: u8,
+}
+
+const mixed: Mixed = { a: 1, b: 2, c: 3 };
+
+fn main() i32 {
+    var local: Mixed = { a: 4, b: 5, c: 6 };
+    mixed.a as i32 + mixed.c as i32 + local.a as i32 + local.c as i32 + local.b as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("%nia__m0__d0__Mixed = type { i64, i8, i8 }"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("@nia__m0__d4__mixed = constant %nia__m0__d0__Mixed { i64 2, i8 1, i8 3 }"),
+        "{ir}"
+    );
+    assert!(ir.contains("ptr @nia__m0__d4__mixed, i32 0, i32 1"), "{ir}");
+    assert!(ir.contains("ptr %local, i32 0, i32 2"), "{ir}");
+    assert!(ir.contains("ptr %local, i32 0, i32 0"), "{ir}");
+}
+
+#[test]
+fn emits_nia_function_aggregate_parameter_and_return_abi() {
+    let root = temp_dir("emits_nia_function_aggregate_parameter_and_return_abi");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn id(pair: Pair) Pair {
+    pair
+}
+
+fn sum(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn main() i32 {
+    var pair: Pair = { a: 10, b: 20 };
+    var copied = id(pair);
+    sum(copied)
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("define void @nia__m0__d3__id(ptr %0, ptr %1)"),
+        "{ir}"
+    );
+    assert!(ir.contains("define i32 @nia__m0__d4__sum(ptr %0)"), "{ir}");
+    assert!(
+        ir.contains("call void @nia__m0__d3__id(ptr %call.out, ptr %arg.copy"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("call i32 @nia__m0__d4__sum(ptr %arg.copy"),
+        "{ir}"
+    );
+}
+
+#[test]
+fn emits_unary_cast_float_and_enum_values() {
+    let root = temp_dir("emits_unary_cast_float_and_enum_values");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Color: u8 {
+    Red,
+    Blue = 3,
+}
+
+fn main(ptr: &const i32) i32 {
+    var x = -1;
+    var y = !false;
+    var n = 1;
+    var z: f64 = n as f64;
+    var w: i32 = z as i32;
+    var addr = ptr as usize;
+    var again = addr as &i32;
+    x + w + again.* + Color::Blue as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("sitofp"));
+    assert!(ir.contains("fptosi"));
+    assert!(ir.contains("ptrtoint"));
+    assert!(ir.contains("inttoptr"));
+    assert!(ir.contains("ret i32"));
+    assert!(ir.contains("store i1 true") || ir.contains("store i1 -2"));
+}
+
+#[test]
+fn emits_local_string_char_and_byte_char_literals() {
+    let root = temp_dir("emits_local_string_char_and_byte_char_literals");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    var text = "A\0";
+    var bytes = b"A\0";
+    var cstr = c"A";
+    var ch = 'A';
+    var byte = b'A';
+    _ = bytes;
+    _ = cstr;
+    text[0] as u32 as i32 + ch as u32 as i32 + byte as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("[2 x i32]"));
+    assert!(ir.contains("[2 x i8] c\"A\\00\"") || ir.contains("[2 x i8] [i8 65, i8 0]"));
+    assert!(ir.contains("store i32 65"));
+    assert!(ir.contains("store i8 65"));
+    assert!(ir.contains("ret i32"));
+}
+
+#[test]
+fn emits_adjacent_string_literal_concatenation() {
+    let root = temp_dir("emits_adjacent_string_literal_concatenation");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn printf(fmt: &const u8, ...);
+
+const fmt =
+    c""
+    c"  #  Type      Offset             VirtAddr           FileSiz"
+    c""
+    c"            MemSiz"
+    c""
+    c"             Flags Align\n";
+
+fn main() i32 {
+    var text = "中" "" "a" "" "b" "" "c" "";
+    var bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+    _ = text;
+    _ = bytes;
+    printf(
+        c""
+        c"  #  Type      Offset             VirtAddr           FileSiz"
+        c""
+        c"            MemSiz"
+        c""
+        c"             Flags Align\n"
+    );
+    printf(&const fmt[0]);
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("[4 x i32]"), "{ir}");
+    assert!(
+        ir.contains("[4 x i8] c\"nia\\00\"")
+            || ir.contains("[4 x i8] [i8 110, i8 105, i8 97, i8 0]"),
+        "{ir}"
+    );
+    assert!(ir.contains("MemSiz"));
+    assert!(ir.contains("Flags Align\\0A\\00"));
+    assert!(ir.contains("@printf"));
+}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::ModuleCodegen;
-use nia_backend_ir::BackendFunction;
+use nia_backend_ir::{BackendFunction, BackendTraitObjectVtableFunction};
 use nia_diagnostic::Diagnostic;
 use nia_llvm::module::Linkage;
 
@@ -215,6 +215,62 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 None => ty.const_zero().map_err(Self::diagnostic_from_llvm_error)?,
             };
             value.set_initializer(&init);
+        }
+        Ok(())
+    }
+
+    pub(super) fn declare_trait_object_vtables(&mut self) -> Result<(), Diagnostic> {
+        let ptr_ty = self.context.ptr_type(Default::default());
+        for module in self.program.modules.values() {
+            for vtable in &module.trait_object_vtables {
+                if self
+                    .trait_object_vtables
+                    .contains_key(&(vtable.key.self_ty, vtable.key.object_ty))
+                {
+                    continue;
+                }
+                let array_ty = ptr_ty.array_type(vtable.entries.len() as u32);
+                let global = self
+                    .module
+                    .add_global(
+                        array_ty.into(),
+                        None,
+                        &self.trait_object_vtable_symbol(vtable.key.self_ty, vtable.key.object_ty),
+                    )
+                    .map_err(Self::diagnostic_from_llvm_error)?;
+                if module.id != self.source.id {
+                    global.set_linkage(Linkage::External);
+                } else {
+                    let mut values = Vec::new();
+                    for entry in &vtable.entries {
+                        let value = match &entry.function {
+                            BackendTraitObjectVtableFunction::Function(def_id) => self
+                                .function(*def_id)
+                                .ok_or_else(|| {
+                                    self.error(vtable.span, "missing vtable method function")
+                                })?
+                                .as_global_value()
+                                .as_pointer_value(),
+                            BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } => {
+                                self.function_instance_value(*def_id, args)
+                                    .ok_or_else(|| {
+                                        self.error(
+                                            vtable.span,
+                                            "missing vtable method function instance",
+                                        )
+                                    })?
+                                    .as_global_value()
+                                    .as_pointer_value()
+                            }
+                        };
+                        values.push(value);
+                    }
+                    global.set_initializer(&ptr_ty.const_array(&values));
+                    global.set_constant(true);
+                }
+                self.trait_object_vtables
+                    .insert((vtable.key.self_ty, vtable.key.object_ty), global);
+            }
         }
         Ok(())
     }

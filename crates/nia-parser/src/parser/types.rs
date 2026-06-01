@@ -42,25 +42,63 @@ impl Parser {
 
     pub(super) fn parse_type(&mut self) -> Option<TypeRef> {
         let start = self.peek().span.start;
+        if self.eat(TokenKind::DotDot).is_some() {
+            let end = if self.type_can_start() {
+                Some(Box::new(self.parse_type()?))
+            } else {
+                None
+            };
+            let span = Span::new(
+                start,
+                end.as_ref().map_or(self.previous_end(), |end| end.span.end),
+            );
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: None,
+                    end,
+                    inclusive: false,
+                },
+            ));
+        }
+        if self.eat(TokenKind::DotDotEq).is_some() {
+            let end = self.parse_type()?;
+            let span = Span::new(start, end.span.end);
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: None,
+                    end: Some(Box::new(end)),
+                    inclusive: true,
+                },
+            ));
+        }
+
         let kind = if self.eat(TokenKind::Amp).is_some() {
             self.parse_type_after_amp(start)?
         } else if self.eat(TokenKind::LBracket).is_some() {
-            let len = if self.eat(TokenKind::Underscore).is_some() {
-                ArrayLen::Infer
+            if let Some(kind) = self.parse_projection_type_after_open() {
+                kind
             } else {
-                ArrayLen::Expr(Box::new(self.parse_expr()?))
-            };
-            self.expect(TokenKind::RBracket, "expected `]` in array type")?;
-            let elem = self.parse_type()?;
-            TypeKind::Array {
-                len,
-                elem: Box::new(elem),
+                let len = if self.eat(TokenKind::Underscore).is_some() {
+                    ArrayLen::Infer
+                } else {
+                    ArrayLen::Expr(Box::new(self.parse_expr()?))
+                };
+                self.expect(TokenKind::RBracket, "expected `]` in array type")?;
+                let elem = self.parse_type()?;
+                TypeKind::Array {
+                    len,
+                    elem: Box::new(elem),
+                }
             }
         } else if self.eat(TokenKind::Underscore).is_some() {
             TypeKind::Infer
         } else if self.at(TokenKind::Fn) {
             self.error_here("function pointer types must be written as `&const fn(...)`");
             return None;
+        } else if self.eat(TokenKind::SelfType).is_some() {
+            TypeKind::SelfType
         } else if self.eat(TokenKind::Void).is_some() {
             TypeKind::Void
         } else if self.eat(TokenKind::Bang).is_some() {
@@ -73,8 +111,84 @@ impl Parser {
             self.error_here("expected type");
             return None;
         };
-        let span = Span::new(start, self.previous_end());
-        Some(self.make_type_ref(span, kind))
+        let start_bound_end = self.previous_end();
+        let start_bound = self.make_type_ref(Span::new(start, start_bound_end), kind);
+        if self.eat(TokenKind::DotDot).is_some() {
+            let end = if self.type_can_start() {
+                Some(Box::new(self.parse_type()?))
+            } else {
+                None
+            };
+            let span = Span::new(
+                start,
+                end.as_ref().map_or(self.previous_end(), |end| end.span.end),
+            );
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: Some(Box::new(start_bound)),
+                    end,
+                    inclusive: false,
+                },
+            ));
+        }
+        if self.eat(TokenKind::DotDotEq).is_some() {
+            let end = self.parse_type()?;
+            let span = Span::new(start, end.span.end);
+            return Some(self.make_type_ref(
+                span,
+                TypeKind::Range {
+                    start: Some(Box::new(start_bound)),
+                    end: Some(Box::new(end)),
+                    inclusive: true,
+                },
+            ));
+        }
+        Some(start_bound)
+    }
+
+    fn parse_projection_type_after_open(&mut self) -> Option<TypeKind> {
+        let checkpoint = self.tokens.checkpoint();
+        let errors_len = self.errors.len();
+        let Some(ty) = self.parse_type() else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        if self.eat(TokenKind::As).is_none() {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        }
+        let trait_ref = match self.parse_type() {
+            Some(trait_ref) => trait_ref,
+            None => {
+                self.tokens.rewind(checkpoint);
+                self.errors.truncate(errors_len);
+                return None;
+            }
+        };
+        if self
+            .expect(TokenKind::RBracket, "expected `]` after projection trait")
+            .is_none()
+            || self
+                .expect(TokenKind::ColonColon, "expected `::` after projection type")
+                .is_none()
+        {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        }
+        let Some(name) = self.expect_text(TokenKind::Ident, "expected associated type name") else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        Some(TypeKind::Projection {
+            ty: Box::new(ty),
+            trait_ref: Box::new(trait_ref),
+            name,
+        })
     }
 
     pub(super) fn parse_type_after_amp(&mut self, _start: usize) -> Option<TypeKind> {
@@ -160,6 +274,44 @@ impl Parser {
         while !self.at(TokenKind::RBracket) && !self.at(TokenKind::Eof) {
             let checkpoint = self.tokens.checkpoint();
             let errors_len = self.errors.len();
+            if self.at(TokenKind::DotDot) || self.at(TokenKind::DotDotEq) {
+                if let Some(ty) = self.parse_type() {
+                    args.push(TypeArg::Type(ty));
+                } else {
+                    self.tokens.rewind(checkpoint);
+                    self.errors.truncate(errors_len);
+                    if let Some(span) = self.collect_until(&[TokenKind::Comma, TokenKind::RBracket])
+                    {
+                        args.push(TypeArg::Const(ExprStub {
+                            span,
+                            text: self.source_text(span),
+                        }));
+                    }
+                }
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+                continue;
+            }
+            if self.at(TokenKind::Ident) {
+                let name_token = self.bump();
+                if self.eat(TokenKind::Eq).is_some() {
+                    let Some(ty) = self.parse_type() else {
+                        self.error_here("expected associated type binding value");
+                        break;
+                    };
+                    args.push(TypeArg::AssocBinding {
+                        name: self.token_text(&name_token).to_string(),
+                        span: Span::new(name_token.span.start, ty.span.end),
+                        ty,
+                    });
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
+                self.tokens.rewind(checkpoint);
+            }
             if let Some(ty) = self.parse_type() {
                 args.push(TypeArg::Type(ty));
             } else {
@@ -190,7 +342,10 @@ impl Parser {
             TokenKind::Amp
                 | TokenKind::LBracket
                 | TokenKind::Ident
+                | TokenKind::DotDot
+                | TokenKind::DotDotEq
                 | TokenKind::Bool
+                | TokenKind::SelfType
                 | TokenKind::Void
                 | TokenKind::Bang
                 | TokenKind::Underscore
@@ -199,5 +354,53 @@ impl Parser {
 
     fn error_type_ref(&mut self, span: Span) -> TypeRef {
         self.make_type_ref(span, TypeKind::Error)
+    }
+
+    pub(super) fn parse_where_clause(&mut self) -> WhereClause {
+        let mut predicates = Vec::new();
+        if self.eat(TokenKind::Where).is_none() {
+            return WhereClause::default();
+        }
+        while !self.at(TokenKind::LBrace)
+            && !self.at(TokenKind::Semicolon)
+            && !self.at(TokenKind::Eof)
+        {
+            let start = self.peek().span.start;
+            let Some(ty) = self.parse_type_until(&[TokenKind::Colon]) else {
+                break;
+            };
+            if self
+                .expect(TokenKind::Colon, "expected `:` in where predicate")
+                .is_none()
+            {
+                break;
+            }
+            let mut bounds = Vec::new();
+            loop {
+                let Some(bound) = self.parse_type_until(&[
+                    TokenKind::Comma,
+                    TokenKind::Plus,
+                    TokenKind::LBrace,
+                    TokenKind::Semicolon,
+                ]) else {
+                    break;
+                };
+                let end = bound.span.end;
+                bounds.push(bound);
+                if self.eat(TokenKind::Plus).is_some() {
+                    continue;
+                }
+                predicates.push(WherePredicate {
+                    ty,
+                    bounds,
+                    span: Span::new(start, end),
+                });
+                break;
+            }
+            if self.eat(TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        WhereClause { predicates }
     }
 }

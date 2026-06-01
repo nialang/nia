@@ -178,6 +178,7 @@ pub enum ExprKind {
         lhs: Box<Expr>,
         index: IndexArg,
     },
+    Range(SliceRange),
     Block(Block),
     If {
         cond: Box<Expr>,
@@ -224,6 +225,7 @@ pub struct FieldInit {
 pub enum UnaryOp {
     Neg,
     Not,
+    BitNot,
     RefConst,
     Ref,
     Deref,

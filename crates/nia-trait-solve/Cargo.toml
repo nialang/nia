@@ -1,0 +1,16 @@
+[package]
+name = "nia-trait-solve"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-ids.workspace = true
+nia-item-signatures.workspace = true
+nia-layout.workspace = true
+nia-ty.workspace = true
+nia-type-normalize.workspace = true
+
+[lib]
+path = "src/lib.rs"

@@ -188,7 +188,9 @@ impl<'a> FunctionIrValidator<'a> {
                     self.validate_expr(value)?;
                 }
             }
-            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+            FunctionTerminator::Error { .. }
+            | FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. } => {}
         }
         Ok(())
     }
@@ -211,12 +213,22 @@ impl<'a> FunctionIrValidator<'a> {
             FunctionExprKind::Local(local_id) => {
                 self.require_local(*local_id, expr.span, "local expression")?
             }
-            FunctionExprKind::Len(inner)
-            | FunctionExprKind::Ptr(inner)
-            | FunctionExprKind::CStringPointer { array: inner, .. }
+            FunctionExprKind::CStringPointer { array: inner, .. }
             | FunctionExprKind::Unary { expr: inner, .. }
             | FunctionExprKind::Discard(inner)
-            | FunctionExprKind::Cast { expr: inner, .. } => self.validate_expr(inner)?,
+            | FunctionExprKind::Cast { expr: inner, .. }
+            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
+            | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {
+                self.validate_expr(inner)?
+            }
+            FunctionExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.validate_expr(start)?;
+                }
+                if let Some(end) = &range.end {
+                    self.validate_expr(end)?;
+                }
+            }
             FunctionExprKind::AddrOf(place) => self.validate_place(place)?,
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
@@ -284,10 +296,14 @@ impl<'a> FunctionIrValidator<'a> {
 
     fn validate_callee(&self, callee: &FunctionCallee) -> Result<(), FunctionIrError> {
         match callee {
-            FunctionCallee::Method { receiver, .. } | FunctionCallee::FunctionPointer(receiver) => {
-                self.validate_expr(receiver)
-            }
-            FunctionCallee::Function(_) | FunctionCallee::FunctionInstance { .. } => Ok(()),
+            FunctionCallee::Method { receiver, .. }
+            | FunctionCallee::TraitMethod { receiver, .. }
+            | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::DynamicTraitMethod { receiver, .. }
+            | FunctionCallee::FunctionPointer(receiver) => self.validate_expr(receiver),
+            FunctionCallee::Function(_)
+            | FunctionCallee::FunctionInstance { .. }
+            | FunctionCallee::BuiltinOperator(_) => Ok(()),
         }
     }
 
@@ -297,11 +313,12 @@ impl<'a> FunctionIrValidator<'a> {
                 self.require_local(*local_id, place.span, "place local")?
             }
             FunctionPlaceBase::Deref(expr) => self.validate_expr(expr)?,
-            FunctionPlaceBase::Global(_) => {}
+            FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
         }
         for elem in &place.elems {
-            if let FunctionPlaceElem::Index(index) = elem {
-                self.validate_expr(index)?;
+            match elem {
+                FunctionPlaceElem::Index(index) => self.validate_expr(index)?,
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
             }
         }
         Ok(())
@@ -368,7 +385,8 @@ impl FunctionBinding {
 impl FunctionTerminator {
     fn span(&self) -> Span {
         match self {
-            FunctionTerminator::Branch { span, .. }
+            FunctionTerminator::Error { span }
+            | FunctionTerminator::Branch { span, .. }
             | FunctionTerminator::Next { span, .. }
             | FunctionTerminator::If { span, .. }
             | FunctionTerminator::Switch { span, .. }

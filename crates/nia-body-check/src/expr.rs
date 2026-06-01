@@ -2,13 +2,13 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_body_ir::BracketSuffixResolution;
+use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -96,10 +96,8 @@ impl<'a> BodyChecker<'a> {
                 }
                 let inner_ty = self.check_expr_with_expected(inner, expected_ref_target);
                 match op {
-                    UnaryOp::Neg => inner_ty,
-                    UnaryOp::Not => {
-                        self.expect_type(expr.span, self.bool(), inner_ty, "logical not");
-                        self.bool()
+                    UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
+                        self.check_builtin_unary_operator_expr(expr.span, *op, inner, inner_ty)
                     }
                     UnaryOp::RefConst => {
                         if self.is_invalid_temporary_type(inner_ty) {
@@ -144,9 +142,10 @@ impl<'a> BodyChecker<'a> {
                     }
                     self.void()
                 } else {
-                    let lhs_ty = self.check_expr(lhs);
-                    let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
+                    self.check_assignment_lhs(lhs);
                     self.check_assignable(lhs, "assignment target");
+                    let lhs_ty = self.assignable_expr_type(lhs);
+                    let rhs_ty = self.check_expr_with_expected(rhs, Some(lhs_ty));
                     self.expect_expr_type(rhs, lhs_ty, rhs_ty, "assignment");
                     self.void()
                 }
@@ -184,9 +183,21 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
                 match index {
                     IndexArg::Expr(index) => {
-                        let index_ty = self.check_expr(index);
+                        let index_ty = self.check_index_expr_for_trait(
+                            lhs_ty,
+                            BuiltinTrait::IndexConst,
+                            index,
+                        );
                         self.expect_integer(index.span, index_ty, "index");
-                        self.index_result_type(expr.span, lhs_ty)
+                        let index_ty = self
+                            .expr_types
+                            .get(&index.span)
+                            .copied()
+                            .unwrap_or(index_ty);
+                        if index_ty == self.error() {
+                            return self.error();
+                        }
+                        self.index_result_type_for_index(expr.span, lhs_ty, index_ty)
                     }
                     IndexArg::Range(range) => {
                         self.check_slice_range_bounds(range);
@@ -198,6 +209,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            ExprKind::Range(range) => self.check_range_expr(expr.span, range, expected),
             ExprKind::Block(block) => self.check_block_with_expected(block, expected),
             ExprKind::If {
                 cond,
@@ -209,6 +221,8 @@ impl<'a> BodyChecker<'a> {
         let ty = if let Some(expected) = expected {
             self.coerce_c_string_to_pointer(expr, expected, ty)
                 .or_else(|| self.coerce_array_to_slice(expr, expected, ty))
+                .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, ty))
+                .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, ty))
                 .or_else(|| self.materialize_inferred_array_type(expected, ty))
                 .unwrap_or(ty)
         } else {
@@ -216,6 +230,96 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_expr_type(expr.span, ty);
         ty
+    }
+
+    fn check_range_expr(
+        &mut self,
+        span: Span,
+        range: &nia_ast::SliceRange,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let expected = expected.and_then(|expected| self.expected_range_parts(expected));
+        let start_expected = expected.and_then(|expected| expected.bound);
+        let end_expected = expected.and_then(|expected| expected.bound);
+        let start_ty = range.start.as_ref().map(|start| {
+            let actual = self.check_expr_with_expected(start, start_expected);
+            if let Some(expected) = start_expected {
+                self.expect_expr_type(start, expected, actual, "range start");
+            }
+            self.expr_types.get(&start.span).copied().unwrap_or(actual)
+        });
+        let end_ty = range.end.as_ref().map(|end| {
+            let actual = self.check_expr_with_expected(end, end_expected);
+            if let Some(expected) = end_expected {
+                self.expect_expr_type(end, expected, actual, "range end");
+            }
+            self.expr_types.get(&end.span).copied().unwrap_or(actual)
+        });
+        for (ty, context) in [(start_ty, "range start"), (end_ty, "range end")] {
+            if let Some(ty) = ty {
+                self.expect_integer(span, ty, context);
+            }
+        }
+        let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
+            (true, true, false) => RangeTyKind::Exclusive,
+            (true, true, true) => RangeTyKind::Inclusive,
+            (true, false, false) => RangeTyKind::From,
+            (false, true, false) => RangeTyKind::To,
+            (false, true, true) => RangeTyKind::ToInclusive,
+            (false, false, false) => RangeTyKind::Full,
+            (true, false, true) | (false, false, true) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "inclusive range expression requires an end bound",
+                ));
+                return self.error();
+            }
+        };
+        if let Some(expected) = expected
+            && expected.kind != kind
+        {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "range kind mismatch: expected {}, got {}",
+                    self.ty_name(expected.ty),
+                    self.range_kind_name(kind)
+                ),
+            ));
+            return self.error();
+        }
+        let bound = match (start_ty, end_ty) {
+            (Some(start_ty), Some(end_ty)) => {
+                self.expect_type(span, start_ty, end_ty, "range bounds");
+                Some(start_ty)
+            }
+            (Some(bound), None) | (None, Some(bound)) => Some(bound),
+            (None, None) => None,
+        };
+        self.interner.intern(TyKind::Range { kind, bound })
+    }
+
+    fn expected_range_parts(&self, expected: InternedTyId) -> Option<ExpectedRangeParts> {
+        let expected = self.normalization.normalize(expected);
+        let Some(TyKind::Range { kind, bound }) = self.interner.get(expected) else {
+            return None;
+        };
+        Some(ExpectedRangeParts {
+            ty: expected,
+            kind: *kind,
+            bound: *bound,
+        })
+    }
+
+    fn range_kind_name(&self, kind: RangeTyKind) -> &'static str {
+        match kind {
+            RangeTyKind::Exclusive => "`T..T`",
+            RangeTyKind::Inclusive => "`T..=T`",
+            RangeTyKind::From => "`T..`",
+            RangeTyKind::To => "`..T`",
+            RangeTyKind::ToInclusive => "`..=T`",
+            RangeTyKind::Full => "`..`",
+        }
     }
 
     fn integer_literal_type(&mut self, expr: &Expr) -> InternedTyId {
@@ -365,19 +469,7 @@ impl<'a> BodyChecker<'a> {
             | BinaryOp::Ge
             | BinaryOp::Eq
             | BinaryOp::Ne => {
-                let (lhs_ty, _) =
-                    self.check_same_type_binary_operands(lhs, rhs, "binary comparison");
-                if matches!(
-                    op,
-                    BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge
-                ) && !self.is_numeric(lhs_ty)
-                {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "ordered comparison requires numeric operands",
-                    ));
-                }
-                self.bool()
+                self.check_builtin_operator_expr(span, lhs, op, rhs, Some(self.bool()))
             }
             BinaryOp::And | BinaryOp::Or => {
                 let expected = self.bool();
@@ -388,110 +480,185 @@ impl<'a> BodyChecker<'a> {
                 self.bool()
             }
             BinaryOp::BitAnd | BinaryOp::BitXor | BinaryOp::BitOr => {
-                let Some(expected) = expected.filter(|ty| self.is_integer(*ty)) else {
-                    let (lhs_ty, _) =
-                        self.check_same_type_binary_operands(lhs, rhs, "binary operator");
-                    if !self.is_integer(lhs_ty) {
-                        self.diagnostics.push(Diagnostic::error(
-                            span,
-                            "bitwise operator requires integer operands",
-                        ));
-                    }
-                    return lhs_ty;
-                };
-                let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
-                self.expect_expr_type(lhs, expected, lhs_ty, "binary operator");
-                let rhs_ty = self.check_expr_with_expected(rhs, Some(expected));
-                self.expect_expr_type(rhs, expected, rhs_ty, "binary operator");
-                expected
+                self.check_builtin_operator_expr(span, lhs, op, rhs, expected)
             }
             BinaryOp::Shl | BinaryOp::Shr => {
-                let lhs_expected = expected.filter(|ty| self.is_integer(*ty));
-                let lhs_actual = self.check_expr_with_expected(lhs, lhs_expected);
-                if let Some(expected) = lhs_expected {
-                    self.expect_expr_type(lhs, expected, lhs_actual, "shift operator");
-                }
-                let lhs_ty = self
-                    .expr_types
-                    .get(&lhs.span)
-                    .copied()
-                    .unwrap_or(lhs_actual);
-                if !self.is_integer(lhs_ty) {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "shift operator requires integer left operand",
-                    ));
-                }
-                let rhs_ty = if self.is_numeric_literal_expr(rhs) {
-                    self.check_expr_with_expected(rhs, Some(lhs_ty))
-                } else {
-                    self.check_expr(rhs)
-                };
-                if self.is_numeric_literal_expr(rhs) {
-                    self.expect_expr_type(rhs, lhs_ty, rhs_ty, "shift operator");
-                }
-                if !self.is_integer(rhs_ty) {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "shift operator requires integer right operand",
-                    ));
-                }
-                lhs_ty
+                self.check_builtin_operator_expr(span, lhs, op, rhs, expected)
             }
-            _ => {
-                let Some(expected) = expected.filter(|ty| self.is_numeric(*ty)) else {
-                    let (lhs_ty, _) =
-                        self.check_same_type_binary_operands(lhs, rhs, "binary operator");
-                    if !self.is_numeric(lhs_ty) {
-                        self.diagnostics.push(Diagnostic::error(
-                            span,
-                            "arithmetic operator requires numeric operands",
-                        ));
-                    }
-                    return lhs_ty;
-                };
-                let lhs_ty = self.check_expr_with_expected(lhs, Some(expected));
-                self.expect_expr_type(lhs, expected, lhs_ty, "binary operator");
-                let rhs_ty = self.check_expr_with_expected(rhs, Some(expected));
-                self.expect_expr_type(rhs, expected, rhs_ty, "binary operator");
-                if !self.is_numeric(lhs_ty) {
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        "arithmetic operator requires numeric operands",
-                    ));
-                }
-                expected
-            }
+            _ => self.check_builtin_operator_expr(span, lhs, op, rhs, expected),
         }
     }
 
-    fn check_same_type_binary_operands(
+    fn check_builtin_operator_expr(
         &mut self,
+        span: Span,
         lhs: &Expr,
+        op: BinaryOp,
         rhs: &Expr,
-        context: &str,
-    ) -> (InternedTyId, InternedTyId) {
-        if self.is_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs) {
-            let rhs_ty = self.check_expr(rhs);
-            let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
-            self.expect_expr_type(lhs, rhs_ty, lhs_actual, context);
-            let lhs_ty = self
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let Some(trait_id) = BuiltinOperatorOp::Binary(op).trait_id() else {
+            return self.error();
+        };
+        let output_is_bool = builtin_trait_output_is_bool(trait_id);
+        if output_is_bool && self.is_numeric_literal_expr(lhs) && !self.is_numeric_literal_expr(rhs)
+        {
+            let rhs_actual = self.check_expr(rhs);
+            let rhs_ty = self
                 .expr_types
-                .get(&lhs.span)
+                .get(&rhs.span)
                 .copied()
-                .unwrap_or(lhs_actual);
-            return (lhs_ty, rhs_ty);
+                .unwrap_or(rhs_actual);
+            let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
+            self.expect_expr_type(lhs, rhs_ty, lhs_actual, "binary operator");
+            return self.finish_builtin_operator_expr(
+                span, trait_id, lhs, lhs_actual, rhs, rhs_actual, expected,
+            );
         }
 
-        let lhs_ty = self.check_expr(lhs);
-        let rhs_actual = self.check_expr_with_expected(rhs, Some(lhs_ty));
-        self.expect_expr_type(rhs, lhs_ty, rhs_actual, context);
+        let lhs_expected = (!output_is_bool).then_some(()).and_then(|_| {
+            expected.filter(|expected| self.can_expected_type_drive_builtin_operator(*expected, op))
+        });
+        let lhs_actual = if let Some(expected) = lhs_expected {
+            self.check_expr_with_expected(lhs, Some(expected))
+        } else {
+            self.check_expr(lhs)
+        };
+        if let Some(expected) = lhs_expected {
+            self.expect_expr_type(lhs, expected, lhs_actual, "binary operator");
+        }
+        let lhs_ty = self
+            .expr_types
+            .get(&lhs.span)
+            .copied()
+            .unwrap_or(lhs_actual);
+        let rhs_expected = if self.is_numeric_literal_expr(rhs) {
+            Some(lhs_ty)
+        } else {
+            None
+        };
+        let rhs_actual = self.check_expr_with_expected(rhs, rhs_expected);
+        if let Some(expected) = rhs_expected {
+            self.expect_expr_type(rhs, expected, rhs_actual, "binary operator");
+        }
+        self.finish_builtin_operator_expr(
+            span, trait_id, lhs, lhs_actual, rhs, rhs_actual, expected,
+        )
+    }
+
+    fn finish_builtin_operator_expr(
+        &mut self,
+        span: Span,
+        trait_id: BuiltinTrait,
+        lhs: &Expr,
+        lhs_actual: InternedTyId,
+        rhs: &Expr,
+        rhs_actual: InternedTyId,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let lhs_ty = self
+            .expr_types
+            .get(&lhs.span)
+            .copied()
+            .unwrap_or(lhs_actual);
         let rhs_ty = self
             .expr_types
             .get(&rhs.span)
             .copied()
             .unwrap_or(rhs_actual);
-        (lhs_ty, rhs_ty)
+
+        let trait_args = vec![rhs_ty];
+        if !self.current_context_proves_trait_obligation(
+            lhs_ty,
+            TraitId::Builtin(trait_id),
+            trait_args.clone(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(lhs_ty),
+                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                ),
+            ));
+        }
+
+        let output = if builtin_trait_output_is_bool(trait_id) {
+            self.bool()
+        } else {
+            let output = self.interner.intern(TyKind::Projection {
+                self_ty: lhs_ty,
+                trait_id: TraitId::Builtin(trait_id),
+                trait_args,
+                name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+            });
+            self.normalize_projection(output)
+        };
+        if let Some(expected) = expected {
+            self.expect_type(span, expected, output, "binary operator");
+        }
+        output
+    }
+
+    fn check_builtin_unary_operator_expr(
+        &mut self,
+        span: Span,
+        op: UnaryOp,
+        inner: &Expr,
+        inner_ty: InternedTyId,
+    ) -> InternedTyId {
+        let Some(trait_id) = BuiltinOperatorOp::Unary(op).trait_id() else {
+            return self.error();
+        };
+        let inner_ty = self
+            .expr_types
+            .get(&inner.span)
+            .copied()
+            .unwrap_or(inner_ty);
+        if !self.current_context_proves_trait_obligation(
+            inner_ty,
+            TraitId::Builtin(trait_id),
+            Vec::new(),
+        ) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "trait bound not satisfied: {}: {}",
+                    self.ty_name(inner_ty),
+                    self.builtin_trait_ty_name(trait_id, &[])
+                ),
+            ));
+        }
+        if builtin_trait_output_is_bool(trait_id) {
+            return self.bool();
+        }
+        let output = self.interner.intern(TyKind::Projection {
+            self_ty: inner_ty,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args: Vec::new(),
+            name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(output)
+    }
+
+    fn can_expected_type_drive_builtin_operator(
+        &self,
+        expected: InternedTyId,
+        op: BinaryOp,
+    ) -> bool {
+        match op {
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+                self.is_numeric(expected)
+            }
+            BinaryOp::BitAnd
+            | BinaryOp::BitXor
+            | BinaryOp::BitOr
+            | BinaryOp::Shl
+            | BinaryOp::Shr => self.is_integer(expected),
+            BinaryOp::Eq | BinaryOp::Ne => true,
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => self.is_numeric(expected),
+            _ => false,
+        }
     }
 
     pub(crate) fn is_numeric_literal_expr(&self, expr: &Expr) -> bool {
@@ -563,9 +730,17 @@ impl<'a> BodyChecker<'a> {
             self.record_bracket_suffix_resolution(span, BracketSuffixResolution::Index);
             let lhs_expected = self.array_expected_from_index_expected(expected);
             let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
-            let index_ty = self.check_expr(index);
+            let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexConst, index);
             self.expect_integer(index.span, index_ty, "index");
-            return self.index_result_type(span, lhs_ty);
+            let index_ty = self
+                .expr_types
+                .get(&index.span)
+                .copied()
+                .unwrap_or(index_ty);
+            if index_ty == self.error() {
+                return self.error();
+            }
+            return self.index_result_type_for_index(span, lhs_ty, index_ty);
         }
         if args.len() > 1 {
             self.diagnostics.push(Diagnostic::error(
@@ -655,4 +830,18 @@ impl<'a> BodyChecker<'a> {
             _ => self.error(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExpectedRangeParts {
+    ty: InternedTyId,
+    kind: RangeTyKind,
+    bound: Option<InternedTyId>,
+}
+
+fn builtin_trait_output_is_bool(trait_id: BuiltinTrait) -> bool {
+    matches!(
+        trait_id,
+        BuiltinTrait::Not | BuiltinTrait::Eq | BuiltinTrait::Ord
+    )
 }

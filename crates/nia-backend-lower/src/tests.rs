@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use nia_abi_check::check_module_abi;
-use nia_body_check::{
-    BodyCheckInput, ProgramSignatureMaps, check_module_bodies_with_program_signatures_and_layouts,
-};
+use nia_body_check::{BodyCheckInput, check_module_bodies_with_program_signatures_and_layouts};
 use nia_defs::{DefKind, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs};
 use nia_flow_check::check_module_flow;
 use nia_function_ir::{FunctionArrayElements, FunctionExprKind, FunctionOp, FunctionTerminator};
 use nia_function_lower::lower_function_body;
-use nia_item_signatures::collect_item_signatures;
+use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
@@ -99,6 +97,8 @@ fn main() i32 {
                 module_id: ModuleId(0),
                 def_id: make_id,
             },
+            trait_id: None,
+            trait_args: Vec::new(),
         },
     );
     let origins = NodeOriginTable::default();
@@ -124,6 +124,8 @@ fn main() i32 {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+            traits: &HashMap::new(),
+            trait_impls: &[],
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -157,6 +159,9 @@ fn main() i32 {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_enums: &HashMap::new(),
+        program_traits: &HashMap::new(),
+        trait_impls: &[],
     };
     let lowering = lower_backend_program(
         &[input],
@@ -390,6 +395,8 @@ fn lower_source(source: &str) -> BackendLowering {
             structs: &HashMap::new(),
             unions: &HashMap::new(),
             enums: &HashMap::new(),
+            traits: &HashMap::new(),
+            trait_impls: &[],
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),
@@ -436,6 +443,9 @@ fn lower_source(source: &str) -> BackendLowering {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_enums: &HashMap::new(),
+        program_traits: &HashMap::new(),
+        trait_impls: &[],
     };
     let lowering = lower_backend_program(&[input], &monomorphization);
     assert!(

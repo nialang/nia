@@ -146,6 +146,7 @@ impl<'a> Tokenizer<'a> {
             b'/' => self.maybe_eq(start, TokenKind::Slash, TokenKind::SlashEq),
             b'%' => self.maybe_eq(start, TokenKind::Percent, TokenKind::PercentEq),
             b'^' => self.maybe_eq(start, TokenKind::Caret, TokenKind::CaretEq),
+            b'~' => self.token(TokenKind::Tilde, start, self.pos),
             b'!' => self.maybe_eq(start, TokenKind::Bang, TokenKind::BangEq),
             b'=' => {
                 if self.eat(b'=') {
@@ -223,14 +224,17 @@ impl<'a> Tokenizer<'a> {
             "or" => TokenKind::Or,
             "pub" => TokenKind::Pub,
             "return" => TokenKind::Return,
+            "Self" => TokenKind::SelfType,
             "struct" => TokenKind::Struct,
             "switch" => TokenKind::Switch,
+            "trait" => TokenKind::Trait,
             "true" => TokenKind::True,
             "type" => TokenKind::Type,
             "union" => TokenKind::Union,
             "using" => TokenKind::Using,
             "var" => TokenKind::Var,
             "void" => TokenKind::Void,
+            "where" => TokenKind::Where,
             _ => TokenKind::Ident,
         };
         self.token(kind, start, self.pos)
@@ -711,7 +715,7 @@ mod tests {
     #[test]
     fn tokenizes_core_syntax() {
         assert_eq!(
-            kinds("pub fn main() i32 { var x = 1; x += 2; x <<= 1; y >> 2; math::add(); }"),
+            kinds("pub fn main() i32 { var x = ~1; x += 2; x <<= 1; y >> 2; math::add(); }"),
             vec![
                 TokenKind::Pub,
                 TokenKind::Fn,
@@ -723,6 +727,7 @@ mod tests {
                 TokenKind::Var,
                 TokenKind::Ident,
                 TokenKind::Eq,
+                TokenKind::Tilde,
                 TokenKind::Integer,
                 TokenKind::Semicolon,
                 TokenKind::Ident,

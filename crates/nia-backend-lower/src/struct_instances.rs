@@ -237,7 +237,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_expr(expr, seen, out);
                 }
             }
-            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+            FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. }
+            | FunctionTerminator::Error { .. } => {}
         }
     }
 
@@ -286,7 +288,10 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::UnionLiteral { field, .. } => {
                 self.collect_struct_instances_expr(&field.value, seen, out);
             }
-            FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
+            FunctionExprKind::Unary { expr, .. }
+            | FunctionExprKind::Cast { expr, .. }
+            | FunctionExprKind::TraitObjectUpcast { expr, .. }
+            | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {
@@ -303,8 +308,13 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Discard(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
-            FunctionExprKind::Len(inner) | FunctionExprKind::Ptr(inner) => {
-                self.collect_struct_instances_expr(inner, seen, out);
+            FunctionExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.collect_struct_instances_expr(start, seen, out);
+                }
+                if let Some(end) = &range.end {
+                    self.collect_struct_instances_expr(end, seen, out);
+                }
             }
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.collect_struct_instances_expr(array, seen, out);
@@ -379,6 +389,47 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_struct_instances_expr(receiver, seen, out);
             }
+            FunctionCallee::TraitMethod {
+                self_ty,
+                trait_args,
+                args,
+                receiver,
+                ..
+            } => {
+                self.collect_struct_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                for arg in args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                self.collect_struct_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::BuiltinPlaceMethod {
+                self_ty,
+                trait_args,
+                receiver,
+                ..
+            } => {
+                self.collect_struct_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                self.collect_struct_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_args,
+                receiver,
+                ..
+            } => {
+                self.collect_struct_instance_ty(*object_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(*arg, seen, out);
+                }
+                self.collect_struct_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::BuiltinOperator(_) => {}
             FunctionCallee::FunctionPointer(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
@@ -397,7 +448,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_struct_instances_expr(expr, seen, out);
                 }
@@ -416,6 +467,11 @@ impl<'a> ModuleLowerer<'a> {
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::Array { elem, .. }) => {
                 self.collect_struct_instance_ty(elem, seen, out);
+            }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_struct_instance_ty(bound, seen, out);
+                }
             }
             Some(TyKind::FunctionPointer {
                 params,
@@ -437,6 +493,33 @@ impl<'a> ModuleLowerer<'a> {
                     && let Some(item) = self.lower_struct_instance(def_id.def_id, args)
                 {
                     out.push(item);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_struct_instance_ty(arg, seen, out);
+                }
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(arg, seen, out);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_struct_instance_ty(ty, seen, out);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_struct_instance_ty(self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_struct_instance_ty(arg, seen, out);
                 }
             }
             Some(TyKind::Error | TyKind::GenericParam(_) | TyKind::Primitive(_)) | None => {}
@@ -559,7 +642,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_expr(expr, seen, out);
                 }
             }
-            FunctionTerminator::Branch { .. } | FunctionTerminator::Next { .. } => {}
+            FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. }
+            | FunctionTerminator::Error { .. } => {}
         }
     }
 
@@ -608,7 +693,10 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::UnionLiteral { field, .. } => {
                 self.collect_union_instances_expr(&field.value, seen, out);
             }
-            FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
+            FunctionExprKind::Unary { expr, .. }
+            | FunctionExprKind::Cast { expr, .. }
+            | FunctionExprKind::TraitObjectUpcast { expr, .. }
+            | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {
@@ -625,8 +713,13 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Discard(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
-            FunctionExprKind::Len(inner) | FunctionExprKind::Ptr(inner) => {
-                self.collect_union_instances_expr(inner, seen, out);
+            FunctionExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.collect_union_instances_expr(start, seen, out);
+                }
+                if let Some(end) = &range.end {
+                    self.collect_union_instances_expr(end, seen, out);
+                }
             }
             FunctionExprKind::CStringPointer { array, .. } => {
                 self.collect_union_instances_expr(array, seen, out);
@@ -701,6 +794,47 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_union_instances_expr(receiver, seen, out);
             }
+            FunctionCallee::TraitMethod {
+                self_ty,
+                trait_args,
+                args,
+                receiver,
+                ..
+            } => {
+                self.collect_union_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                for arg in args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::BuiltinPlaceMethod {
+                self_ty,
+                trait_args,
+                receiver,
+                ..
+            } => {
+                self.collect_union_instance_ty(*self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::DynamicTraitMethod {
+                object_ty,
+                trait_args,
+                receiver,
+                ..
+            } => {
+                self.collect_union_instance_ty(*object_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(*arg, seen, out);
+                }
+                self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::BuiltinOperator(_) => {}
             FunctionCallee::FunctionPointer(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
@@ -719,7 +853,7 @@ impl<'a> ModuleLowerer<'a> {
         }
         for elem in &place.elems {
             match elem {
-                FunctionPlaceElem::Field(_) => {}
+                FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
                 FunctionPlaceElem::Index(expr) => {
                     self.collect_union_instances_expr(expr, seen, out);
                 }
@@ -738,6 +872,11 @@ impl<'a> ModuleLowerer<'a> {
             | Some(TyKind::Slice { elem, .. })
             | Some(TyKind::Array { elem, .. }) => {
                 self.collect_union_instance_ty(elem, seen, out);
+            }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_union_instance_ty(bound, seen, out);
+                }
             }
             Some(TyKind::FunctionPointer {
                 params,
@@ -759,6 +898,33 @@ impl<'a> ModuleLowerer<'a> {
                     && let Some(item) = self.lower_union_instance(def_id.def_id, args)
                 {
                     out.push(item);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_union_instance_ty(arg, seen, out);
+                }
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_union_instance_ty(arg, seen, out);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_union_instance_ty(ty, seen, out);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_union_instance_ty(self_ty, seen, out);
+                for arg in trait_args {
+                    self.collect_union_instance_ty(arg, seen, out);
                 }
             }
             Some(TyKind::Error | TyKind::GenericParam(_) | TyKind::Primitive(_)) | None => {}

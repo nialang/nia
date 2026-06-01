@@ -38,6 +38,8 @@ impl Parser {
             ItemKind::Struct(self.parse_struct(false)?)
         } else if self.at(TokenKind::Union) {
             ItemKind::Union(self.parse_union(false)?)
+        } else if self.at(TokenKind::Trait) {
+            ItemKind::Trait(self.parse_trait()?)
         } else if self.at(TokenKind::Extend) {
             ItemKind::Extend(self.parse_extend()?)
         } else if self.at(TokenKind::Enum) {
@@ -249,6 +251,7 @@ impl Parser {
         self.expect(TokenKind::Struct, "expected `struct`")?;
         let name = self.expect_text(TokenKind::Ident, "expected struct name")?;
         let generics = self.parse_generic_params();
+        let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after struct name")?;
         let mut fields = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
@@ -267,6 +270,7 @@ impl Parser {
         Some(StructItem {
             name,
             generics,
+            where_clause,
             fields,
             is_extern,
         })
@@ -276,6 +280,7 @@ impl Parser {
         self.expect(TokenKind::Union, "expected `union`")?;
         let name = self.expect_text(TokenKind::Ident, "expected union name")?;
         let generics = self.parse_generic_params();
+        let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after union name")?;
         let mut fields = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
@@ -294,16 +299,102 @@ impl Parser {
         Some(UnionItem {
             name,
             generics,
+            where_clause,
             fields,
             is_extern,
+        })
+    }
+
+    fn parse_trait(&mut self) -> Option<TraitItem> {
+        self.expect(TokenKind::Trait, "expected `trait`")?;
+        let name = self.expect_text(TokenKind::Ident, "expected trait name")?;
+        let generics = self.parse_generic_params();
+        let supertraits = self.parse_supertraits();
+        let where_clause = self.parse_where_clause();
+        self.expect(TokenKind::LBrace, "expected `{` after trait name")?;
+        let mut associated_types = Vec::new();
+        let mut methods = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            if self.eat(TokenKind::Pub).is_some() {
+                self.error_here("trait members cannot be marked `pub`");
+            }
+            if self.at(TokenKind::Type) {
+                if let Some(associated_type) = self.parse_trait_associated_type() {
+                    associated_types.push(associated_type);
+                }
+            } else if self.at(TokenKind::Fn) {
+                if let Some(function) = self.parse_function(false) {
+                    methods.push(TraitMethod { function });
+                }
+            } else {
+                self.error_here("expected associated type or method in trait body");
+                self.recover_to_member_boundary();
+            }
+        }
+        self.expect(TokenKind::RBrace, "expected `}` after trait body")?;
+        Some(TraitItem {
+            name,
+            generics,
+            supertraits,
+            where_clause,
+            associated_types,
+            methods,
+        })
+    }
+
+    fn parse_supertraits(&mut self) -> Vec<TypeRef> {
+        let mut supertraits = Vec::new();
+        if self.eat(TokenKind::Colon).is_none() {
+            return supertraits;
+        }
+        loop {
+            let Some(supertrait) =
+                self.parse_type_until(&[TokenKind::Plus, TokenKind::Where, TokenKind::LBrace])
+            else {
+                break;
+            };
+            supertraits.push(supertrait);
+            if self.eat(TokenKind::Plus).is_none() {
+                break;
+            }
+        }
+        supertraits
+    }
+
+    fn parse_trait_associated_type(&mut self) -> Option<TraitAssociatedType> {
+        let start = self.expect(TokenKind::Type, "expected `type`")?.start;
+        let name = self.expect_text(TokenKind::Ident, "expected associated type name")?;
+        if self.eat(TokenKind::LBracket).is_some() {
+            self.error_here("associated type generics are not supported");
+            self.collect_until(&[TokenKind::RBracket])?;
+            self.expect(
+                TokenKind::RBracket,
+                "expected `]` after associated type generics",
+            )?;
+        }
+        self.expect(
+            TokenKind::Semicolon,
+            "expected `;` after associated type declaration",
+        )?;
+        Some(TraitAssociatedType {
+            name,
+            span: Span::new(start, self.previous_end()),
         })
     }
 
     fn parse_extend(&mut self) -> Option<ExtendItem> {
         self.expect(TokenKind::Extend, "expected `extend`")?;
         let generics = self.parse_generic_params();
-        let target = self.parse_type_until(&[TokenKind::LBrace])?;
+        let target =
+            self.parse_type_until(&[TokenKind::Colon, TokenKind::Where, TokenKind::LBrace])?;
+        let trait_ref = if self.eat(TokenKind::Colon).is_some() {
+            Some(self.parse_type_until(&[TokenKind::Where, TokenKind::LBrace])?)
+        } else {
+            None
+        };
+        let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after extend target")?;
+        let mut associated_types = Vec::new();
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let vis = if self.eat(TokenKind::Pub).is_some() {
@@ -311,12 +402,19 @@ impl Parser {
             } else {
                 Visibility::Private
             };
-            if self.at(TokenKind::Fn) {
+            if self.at(TokenKind::Type) {
+                if vis == Visibility::Public {
+                    self.error_here("trait associated type definitions cannot be marked `pub`");
+                }
+                if let Some(associated_type) = self.parse_extend_associated_type() {
+                    associated_types.push(associated_type);
+                }
+            } else if self.at(TokenKind::Fn) {
                 if let Some(function) = self.parse_function(false) {
                     methods.push(ExtendMethod { vis, function });
                 }
             } else {
-                self.error_here("expected method in extend block");
+                self.error_here("expected associated type or method in extend block");
                 self.recover_to_member_boundary();
             }
         }
@@ -324,7 +422,34 @@ impl Parser {
         Some(ExtendItem {
             generics,
             target,
+            trait_ref,
+            where_clause,
+            associated_types,
             methods,
+        })
+    }
+
+    fn parse_extend_associated_type(&mut self) -> Option<nia_ast::ExtendAssociatedType> {
+        let start = self.expect(TokenKind::Type, "expected `type`")?.start;
+        let name = self.expect_text(TokenKind::Ident, "expected associated type name")?;
+        if self.eat(TokenKind::LBracket).is_some() {
+            self.error_here("associated type generics are not supported");
+            self.collect_until(&[TokenKind::RBracket])?;
+            self.expect(
+                TokenKind::RBracket,
+                "expected `]` after associated type generics",
+            )?;
+        }
+        self.expect(TokenKind::Eq, "expected `=` in associated type definition")?;
+        let ty = self.parse_type_until(&[TokenKind::Semicolon])?;
+        self.expect(
+            TokenKind::Semicolon,
+            "expected `;` after associated type definition",
+        )?;
+        Some(nia_ast::ExtendAssociatedType {
+            name,
+            ty,
+            span: Span::new(start, self.previous_end()),
         })
     }
 
@@ -399,10 +524,16 @@ impl Parser {
         self.expect(TokenKind::Type, "expected `type`")?;
         let name = self.expect_text(TokenKind::Ident, "expected type alias name")?;
         let generics = self.parse_generic_params();
+        let where_clause = self.parse_where_clause();
         self.expect(TokenKind::Eq, "expected `=` in type alias")?;
         let ty = self.parse_type_until(&[TokenKind::Semicolon])?;
         self.expect(TokenKind::Semicolon, "expected `;` after type alias")?;
-        Some(TypeAliasItem { name, generics, ty })
+        Some(TypeAliasItem {
+            name,
+            generics,
+            where_clause,
+            ty,
+        })
     }
 
     fn parse_function(&mut self, is_extern: bool) -> Option<FunctionItem> {
@@ -413,11 +544,19 @@ impl Parser {
         self.expect(TokenKind::LParen, "expected `(` after function name")?;
         let (params, is_variadic) = self.parse_params();
         self.expect(TokenKind::RParen, "expected `)` after parameters")?;
-        let return_type = if self.at(TokenKind::LBrace) || self.at(TokenKind::Semicolon) {
+        let return_type = if self.at(TokenKind::Where)
+            || self.at(TokenKind::LBrace)
+            || self.at(TokenKind::Semicolon)
+        {
             None
         } else {
-            Some(self.parse_type_until(&[TokenKind::LBrace, TokenKind::Semicolon])?)
+            Some(self.parse_type_until(&[
+                TokenKind::Where,
+                TokenKind::LBrace,
+                TokenKind::Semicolon,
+            ])?)
         };
+        let where_clause = self.parse_where_clause();
         let body = if self.at(TokenKind::LBrace) {
             Some(self.parse_block()?)
         } else {
@@ -430,6 +569,7 @@ impl Parser {
         Some(FunctionItem {
             name,
             generics,
+            where_clause,
             params,
             return_type,
             body,

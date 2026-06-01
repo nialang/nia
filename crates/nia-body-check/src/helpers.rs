@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{BodyChecker, ReceiverBase};
 use nia_ast::ReceiverKind;
 use nia_defs::{DefId, DefKind};
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::FunctionSignature;
 use nia_ty::TyKind;
 
@@ -15,8 +15,25 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
     ) -> Option<InternedTyId> {
         let method = self.defs.defs.get(def_id)?;
-        if method.kind != DefKind::Method {
+        if !matches!(method.kind, DefKind::Method | DefKind::TraitMethod) {
             return None;
+        }
+        if method.kind == DefKind::TraitMethod {
+            let self_nominal = self
+                .interner
+                .intern(TyKind::GenericParam("Self".to_string()));
+            let receiver = signature.params.first()?.receiver?;
+            return Some(match receiver {
+                ReceiverKind::Value => self_nominal,
+                ReceiverKind::RefConst => self.interner.intern(TyKind::Pointer {
+                    is_const: true,
+                    elem: self_nominal,
+                }),
+                ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
+                    is_const: false,
+                    elem: self_nominal,
+                }),
+            });
         }
         let self_nominal = self.method_owner_type(def_id)?;
         let receiver = signature.params.first()?.receiver?;
@@ -33,7 +50,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
+    pub(crate) fn method_owner_type(&mut self, def_id: DefId) -> Option<InternedTyId> {
         let method_id = self.global_def_id(def_id);
         for item in self.extensions.targets() {
             if item.methods.iter().any(|method| method.def_id == method_id) {
@@ -41,6 +58,15 @@ impl<'a> BodyChecker<'a> {
             }
         }
         None
+    }
+
+    pub(crate) fn extension_trait_id_for_method(&self, method_id: GlobalDefId) -> Option<TraitId> {
+        self.extensions
+            .targets()
+            .iter()
+            .flat_map(|target| target.methods.iter())
+            .find(|method| method.def_id == method_id)
+            .and_then(|method| method.trait_id)
     }
 
     pub(crate) fn receiver_base_type(&self, ty: InternedTyId) -> Option<ReceiverBase> {
@@ -121,6 +147,11 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.substitute_generics(elem, substitutions);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            Some(TyKind::Range { kind, bound }) => {
+                let kind = *kind;
+                let bound = bound.map(|bound| self.substitute_generics(bound, substitutions));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -148,6 +179,63 @@ impl<'a> BodyChecker<'a> {
                     .map(|arg| self.substitute_generics(*arg, substitutions))
                     .collect();
                 self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let trait_id = *trait_id;
+                let args = args.clone();
+                let args = args
+                    .iter()
+                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let is_const = *is_const;
+                let trait_id = *trait_id;
+                let trait_args = trait_args.clone();
+                let associated_type_bindings = associated_type_bindings.clone();
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .iter()
+                    .map(|(name, ty)| (name.clone(), self.substitute_generics(*ty, substitutions)))
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = *self_ty;
+                let trait_id = *trait_id;
+                let trait_args = trait_args.clone();
+                let name = name.clone();
+                let self_ty = self.substitute_generics(self_ty, substitutions);
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
             }
             Some(TyKind::Error | TyKind::Primitive(_)) | None => ty,
         }

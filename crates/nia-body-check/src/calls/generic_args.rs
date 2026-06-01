@@ -65,6 +65,14 @@ impl<'a> BodyChecker<'a> {
             .map(|target| self.generic_params_in_ty(target.target_ty))
             .unwrap_or_default();
         if def_id.module_id == self.defs.module_id {
+            if self
+                .defs
+                .defs
+                .get(def_id.def_id)
+                .is_some_and(|def| def.kind == nia_defs::DefKind::TraitMethod)
+            {
+                generics.push("Self".to_string());
+            }
             if generics.is_empty() {
                 generics = self
                     .defs
@@ -101,6 +109,11 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Array { elem, .. }) => {
                 self.collect_generic_params_in_ty(*elem, generics);
             }
+            Some(TyKind::Range { bound, .. }) => {
+                if let Some(bound) = bound {
+                    self.collect_generic_params_in_ty(*bound, generics);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -113,6 +126,33 @@ impl<'a> BodyChecker<'a> {
             }
             Some(TyKind::Nominal { args, .. }) => {
                 for arg in args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_generic_params_in_ty(*ty, generics);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_generic_params_in_ty(*self_ty, generics);
+                for arg in trait_args {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
