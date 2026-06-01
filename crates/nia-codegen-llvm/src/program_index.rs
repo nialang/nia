@@ -2,7 +2,8 @@
 use std::collections::HashMap;
 
 use nia_backend_ir::{
-    BackendFunctionInstance, BackendProgram, BackendStructInstanceKey, BackendTraitObjectVtable,
+    BackendEnum, BackendEnumVariant, BackendFunctionInstance, BackendProgram,
+    BackendStructInstanceKey, BackendTraitObjectVtable,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::{StructLayout, TypeLayout};
@@ -17,6 +18,7 @@ pub(super) struct ProgramIndex<'a> {
         HashMap<(GlobalDefId, Vec<InternedTyId>), &'a nia_backend_ir::BackendUnionInstance>,
     pub(super) enums: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnum>,
     pub(super) enum_variants: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnumVariant>,
+    pub(super) enum_variant_infos: HashMap<GlobalDefId, EnumVariantInfo<'a>>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
     pub(super) function_instances:
@@ -41,6 +43,12 @@ pub(super) struct BackendLayoutInstance<'a> {
     pub(super) layout: &'a StructLayout,
 }
 
+pub(super) struct EnumVariantInfo<'a> {
+    pub(super) owner: &'a BackendEnum,
+    pub(super) variant: &'a BackendEnumVariant,
+    pub(super) index: usize,
+}
+
 impl<'a> ProgramIndex<'a> {
     pub(super) fn new(program: &'a BackendProgram) -> Self {
         let mut index = Self {
@@ -51,6 +59,7 @@ impl<'a> ProgramIndex<'a> {
             union_instances: HashMap::new(),
             enums: HashMap::new(),
             enum_variants: HashMap::new(),
+            enum_variant_infos: HashMap::new(),
             globals: HashMap::new(),
             functions: HashMap::new(),
             function_instances: HashMap::new(),
@@ -125,8 +134,16 @@ impl<'a> ProgramIndex<'a> {
             }
             for item in &module.enums {
                 index.enums.insert(item.def_id, item);
-                for variant in &item.variants {
+                for (variant_index, variant) in item.variants.iter().enumerate() {
                     index.enum_variants.insert(variant.def_id, variant);
+                    index.enum_variant_infos.insert(
+                        variant.def_id,
+                        EnumVariantInfo {
+                            owner: item,
+                            variant,
+                            index: variant_index,
+                        },
+                    );
                 }
             }
             for item in &module.globals {

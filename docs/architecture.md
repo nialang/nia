@@ -133,8 +133,9 @@ Current Nia-owned optimization consumers:
   emission. This is compiler-throughput infrastructure rather than a generated
   code optimization: repeated module, item, function-instance, vtable, and
   layout lookups should use the index instead of rescanning backend modules on
-  each query. Exact instance-layout keys are indexed as a fast path, with
-  structural type-argument matching retained as a fallback for cross-interner
+  each query. Exact instance-layout keys are indexed as a fast path, enum
+  variants are indexed with their owning enum and ordinal for emission, and
+  structural type-argument matching is retained as a fallback for cross-interner
   cases.
 
 Future Nia-owned optimization consumers should follow the same boundary:
