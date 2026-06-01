@@ -711,6 +711,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
+        if let Some(ty) = self.struct_instances.get(&(def_id, args.to_vec())).copied() {
+            return Some(ty);
+        }
         self.struct_instances_by_def
             .get(&def_id)
             .into_iter()
@@ -739,6 +742,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
+        if let Some(ty) = self.union_instances.get(&(def_id, args.to_vec())).copied() {
+            return Some(ty);
+        }
         self.union_instances_by_def
             .get(&def_id)
             .into_iter()
@@ -789,6 +795,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<FunctionValue<'ctx>> {
+        if let Some(value) = self
+            .function_instances
+            .get(&(def_id, self.source.id, args.to_vec()))
+            .copied()
+        {
+            return Some(value);
+        }
         self.function_instances_by_def
             .get(&def_id)
             .into_iter()
