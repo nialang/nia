@@ -186,6 +186,12 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                         nia_ast_walk::walk_expr(self, expr);
                     }
                     if let Some(ty) = &arg.ty {
+                        // A bracket suffix in expression position is ambiguous
+                        // until local/value resolution decides whether it is an
+                        // index or generic call. Do resolve nested type args so
+                        // real names get recorded, but suppress "unknown type"
+                        // here to avoid false errors for index expressions like
+                        // `xs[i32]` where `i32` is a local.
                         self.with_suppressed_unknown_type_errors(|resolver| {
                             resolver.visit_type(ty);
                         });
@@ -281,7 +287,7 @@ impl<'a> TypeResolver<'a> {
         let Some((last, prefix)) = segments.split_last() else {
             return TypeNameResolution::Error;
         };
-        let Some(namespace) = self.resolve_namespace_path(prefix) else {
+        let Some(namespace) = self.resolve_namespace_path(span, prefix) else {
             return TypeNameResolution::Error;
         };
         match namespace {
@@ -301,17 +307,22 @@ impl<'a> TypeResolver<'a> {
 
     fn resolve_namespace_path(
         &mut self,
+        path_span: Span,
         segments: &[TypePathSegment],
     ) -> Option<ResolvedNamespace> {
         let first = segments.first()?;
-        let mut namespace = self.resolve_root_namespace(first)?;
+        let mut namespace = self.resolve_root_namespace(path_span, first)?;
         for segment in &segments[1..] {
-            namespace = self.resolve_child_namespace(namespace, segment)?;
+            namespace = self.resolve_child_namespace(path_span, namespace, segment)?;
         }
         Some(namespace)
     }
 
-    fn resolve_root_namespace(&mut self, segment: &TypePathSegment) -> Option<ResolvedNamespace> {
+    fn resolve_root_namespace(
+        &mut self,
+        path_span: Span,
+        segment: &TypePathSegment,
+    ) -> Option<ResolvedNamespace> {
         if let Some(imports) = self.imports
             && let Some(import) = imports.get(self.defs.module_id, &segment.name)
         {
@@ -337,7 +348,7 @@ impl<'a> TypeResolver<'a> {
             }));
         }
         self.diagnostics.push(Diagnostic::error(
-            segment_span(segment),
+            path_span,
             format!("unknown namespace `{}`", segment.name),
         ));
         None
@@ -345,6 +356,7 @@ impl<'a> TypeResolver<'a> {
 
     fn resolve_child_namespace(
         &mut self,
+        path_span: Span,
         namespace: ResolvedNamespace,
         segment: &TypePathSegment,
     ) -> Option<ResolvedNamespace> {
@@ -368,7 +380,7 @@ impl<'a> TypeResolver<'a> {
                 let def = target_defs.defs.get(def_id)?;
                 if module_id != self.defs.module_id && def.visibility != Visibility::Public {
                     self.diagnostics.push(Diagnostic::error(
-                        segment_span(segment),
+                        path_span,
                         format!("type `{}` is private", segment.name),
                     ));
                     return None;
@@ -516,10 +528,6 @@ impl<'a> TypeResolver<'a> {
     }
 }
 
-fn segment_span(_segment: &TypePathSegment) -> Span {
-    Span::default()
-}
-
 fn type_path_text(segments: &[TypePathSegment]) -> String {
     segments
         .iter()
@@ -622,5 +630,26 @@ fn main() Missing {
                 .message
                 .contains("unknown type `Missing`")
         );
+    }
+
+    #[test]
+    fn reports_qualified_namespace_errors_on_type_path_span() {
+        let (module, errors) = parse_module(
+            r#"
+fn main() Missing::Type {
+    0
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert_eq!(resolved.diagnostics.len(), 1);
+        assert!(
+            resolved.diagnostics[0]
+                .message
+                .contains("unknown namespace `Missing`")
+        );
+        assert_ne!(resolved.diagnostics[0].span, Span::default());
     }
 }

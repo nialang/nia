@@ -16,7 +16,12 @@ use nia_value_resolve::{ValueNameResolution, ValueResolution};
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalResolution {
     pub locals: LocalMap,
+    /// Span-keyed facts are the compatibility path used by older lowering and
+    /// checking passes that receive AST spans directly.
     pub local_defs: HashMap<Span, LocalId>,
+    /// Node-keyed facts are the incremental path. When syntax origins are
+    /// available they prefer red child paths over raw spans so duplicated
+    /// spans and partial reparses do not silently alias unrelated nodes.
     pub node_local_defs: HashMap<NodeKey, LocalId>,
     pub uses: HashMap<Span, LocalUse>,
     pub node_uses: HashMap<NodeKey, LocalUse>,
@@ -704,6 +709,9 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn node_key(&self, kind: SyntaxKind, span: Span) -> Option<NodeKey> {
+        // Origin keys are tied to the parsed red-node path. The span fallback
+        // keeps non-incremental callers useful, but it is less precise when two
+        // recovered AST nodes share a span.
         self.origins.get(kind, span).cloned().or_else(|| {
             self.source_version
                 .map(|version| NodeKey::span(version, kind, span))

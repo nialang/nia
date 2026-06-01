@@ -239,6 +239,10 @@ impl<'a> ValueResolver<'a> {
         &mut self,
         segments: &[PathSegment<'_>],
     ) -> Option<ResolvedNamespace> {
+        // Expression-qualified paths are also how enum variants and associated
+        // functions surface. Resolve every prefix as either a module namespace
+        // or a type namespace, then let downstream phases use
+        // `qualified_type_prefixes` to avoid reinterpreting the same spans.
         let first = *segments.first()?;
         let mut namespace = self.resolve_root_namespace(first)?;
         for segment in &segments[1..] {
