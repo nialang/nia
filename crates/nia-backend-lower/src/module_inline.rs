@@ -9,7 +9,7 @@ use nia_function_ir::{
     FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
-use nia_opt::InlineThreshold;
+use nia_opt::{InlineThreshold, SpecializationPolicy};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FunctionInstanceKey {
@@ -22,11 +22,13 @@ enum InlineCandidate {
     Function {
         function: GlobalDefId,
         body: LeafInlineBody,
+        threshold: InlineThreshold,
     },
     Instance {
         function: GlobalDefId,
         type_arg_count: usize,
         body: LeafInlineBody,
+        threshold: InlineThreshold,
     },
 }
 
@@ -34,6 +36,12 @@ impl InlineCandidate {
     fn body(&self) -> &LeafInlineBody {
         match self {
             Self::Function { body, .. } | Self::Instance { body, .. } => body,
+        }
+    }
+
+    fn threshold(&self) -> InlineThreshold {
+        match self {
+            Self::Function { threshold, .. } | Self::Instance { threshold, .. } => *threshold,
         }
     }
 
@@ -72,6 +80,10 @@ impl<'a> ModuleLowerer<'a> {
         }
 
         let inline_threshold = self.optimization.inline_threshold;
+        let instance_inline_threshold = generic_instance_inline_threshold(
+            self.optimization.inline_threshold,
+            self.optimization.specialize_generics,
+        );
         let function_candidates = functions
             .iter()
             .filter_map(|function| {
@@ -81,6 +93,7 @@ impl<'a> ModuleLowerer<'a> {
                         InlineCandidate::Function {
                             function: function.def_id,
                             body,
+                            threshold: inline_threshold,
                         },
                     )
                 })
@@ -89,7 +102,7 @@ impl<'a> ModuleLowerer<'a> {
         let instance_candidates = function_instances
             .iter()
             .filter_map(|instance| {
-                leaf_inline_return(&instance.function_body, inline_threshold).map(|body| {
+                leaf_inline_return(&instance.function_body, instance_inline_threshold).map(|body| {
                     (
                         FunctionInstanceKey {
                             def_id: instance.def_id,
@@ -99,6 +112,7 @@ impl<'a> ModuleLowerer<'a> {
                             function: instance.def_id,
                             type_arg_count: instance.args.len(),
                             body,
+                            threshold: instance_inline_threshold,
                         },
                     )
                 })
@@ -239,8 +253,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 if let Some(candidate) =
                     inline_candidate_for_callee(callee, function_candidates, instance_candidates)
-                    && let Some(value) =
-                        inline_candidate_value(candidate, args, self.optimization.inline_threshold)
+                    && let Some(value) = inline_candidate_value(candidate, args)
                 {
                     self.record_inline(candidate);
                     *expr = value;
@@ -435,9 +448,9 @@ fn inline_candidate_for_callee<'a>(
 fn inline_candidate_value(
     candidate: &InlineCandidate,
     args: &[FunctionExpr],
-    threshold: InlineThreshold,
 ) -> Option<FunctionExpr> {
     let body = candidate.body();
+    let threshold = candidate.threshold();
     if body.params.len() != args.len() {
         return None;
     }
@@ -468,6 +481,17 @@ fn inline_candidate_value(
     let mut value = body.value.clone();
     substitute_inline_params(&mut value, &substitutions)?;
     small_pure_arg_inline_expr_cost(&value, budget).map(|_| value)
+}
+
+fn generic_instance_inline_threshold(
+    inline_threshold: InlineThreshold,
+    specialization: SpecializationPolicy,
+) -> InlineThreshold {
+    match specialization {
+        SpecializationPolicy::Aggressive | SpecializationPolicy::Normal => inline_threshold,
+        SpecializationPolicy::SizeAware => InlineThreshold::Size,
+        SpecializationPolicy::RequiredOnly => InlineThreshold::Minimal,
+    }
 }
 
 fn leaf_inline_return(
