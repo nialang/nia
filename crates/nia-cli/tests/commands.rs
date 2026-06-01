@@ -479,6 +479,43 @@ fn main() i32 {
 }
 
 #[test]
+fn emit_obj_accepts_each_optimization_level() {
+    let root = temp_dir("emit_obj_accepts_each_optimization_level");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-O"] {
+        let object = root.join(format!("main_{}.o", level.trim_start_matches('-')));
+        let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+            .arg(level)
+            .arg("emit")
+            .arg("obj")
+            .arg(&main)
+            .arg("-o")
+            .arg(&object)
+            .output()
+            .unwrap_or_else(|error| panic!("run niac {level} emit obj: {error}"));
+
+        assert!(
+            output.status.success(),
+            "{level} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let metadata = std::fs::metadata(&object)
+            .unwrap_or_else(|error| panic!("object metadata for {level}: {error}"));
+        assert!(metadata.len() > 0, "{level} produced an empty object");
+    }
+}
+
+#[test]
 fn emit_exe_links_hosted_executable() {
     let root = temp_dir("emit_exe_links_hosted_executable");
     let main = root.join("main.nia");
