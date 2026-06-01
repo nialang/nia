@@ -65,10 +65,11 @@ impl<'a> ModuleLowerer<'a> {
             return;
         }
 
+        let inline_threshold = self.optimization.inline_threshold;
         let function_candidates = functions
             .iter()
             .filter_map(|function| {
-                constant_leaf_return(&function.function_body).map(|value| {
+                leaf_inline_return(&function.function_body, inline_threshold).map(|value| {
                     (
                         function.def_id,
                         InlineCandidate::Function {
@@ -82,7 +83,7 @@ impl<'a> ModuleLowerer<'a> {
         let instance_candidates = function_instances
             .iter()
             .filter_map(|instance| {
-                constant_leaf_return(&instance.function_body).map(|value| {
+                leaf_inline_return(&instance.function_body, inline_threshold).map(|value| {
                     (
                         FunctionInstanceKey {
                             def_id: instance.def_id,
@@ -498,7 +499,10 @@ fn inline_candidate_for_callee<'a>(
     }
 }
 
-fn constant_leaf_return(body: &Option<FunctionBody>) -> Option<FunctionExpr> {
+fn leaf_inline_return(
+    body: &Option<FunctionBody>,
+    threshold: InlineThreshold,
+) -> Option<FunctionExpr> {
     let body = body.as_ref()?;
     let [block] = body.blocks.as_slice() else {
         return None;
@@ -515,7 +519,18 @@ fn constant_leaf_return(body: &Option<FunctionBody>) -> Option<FunctionExpr> {
         } => value,
         _ => return None,
     };
-    is_constant_inline_expr(value).then(|| value.clone())
+    inline_expr_allowed(value, threshold).then(|| value.clone())
+}
+
+fn inline_expr_allowed(expr: &FunctionExpr, threshold: InlineThreshold) -> bool {
+    match threshold {
+        InlineThreshold::Never => false,
+        InlineThreshold::Minimal | InlineThreshold::Size | InlineThreshold::Small => {
+            is_constant_inline_expr(expr)
+        }
+        InlineThreshold::Normal => small_pure_inline_expr_cost(expr, 4).is_some(),
+        InlineThreshold::Aggressive => small_pure_inline_expr_cost(expr, 8).is_some(),
+    }
 }
 
 fn is_constant_inline_expr(expr: &FunctionExpr) -> bool {
@@ -530,4 +545,76 @@ fn is_constant_inline_expr(expr: &FunctionExpr) -> bool {
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::BuiltinValue(_)
     )
+}
+
+fn small_pure_inline_expr_cost(expr: &FunctionExpr, budget: usize) -> Option<usize> {
+    let cost = match &expr.kind {
+        FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => 1,
+        FunctionExprKind::Range(range) => {
+            1 + optional_inline_expr_cost(range.start.as_deref(), budget)?
+                + optional_inline_expr_cost(range.end.as_deref(), budget)?
+        }
+        FunctionExprKind::ArrayLiteral { elems } => match elems {
+            FunctionArrayElements::List(elems) => {
+                1 + elems
+                    .iter()
+                    .map(|elem| small_pure_inline_expr_cost(elem, budget))
+                    .sum::<Option<usize>>()?
+            }
+            FunctionArrayElements::Repeat { value, .. } => {
+                1 + small_pure_inline_expr_cost(value, budget)?
+            }
+        },
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            1 + fields
+                .iter()
+                .map(|field| small_pure_inline_expr_cost(&field.value, budget))
+                .sum::<Option<usize>>()?
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            1 + small_pure_inline_expr_cost(&field.value, budget)?
+        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. } => 1 + small_pure_inline_expr_cost(expr, budget)?,
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            1 + small_pure_inline_expr_cost(lhs, budget)?
+                + small_pure_inline_expr_cost(rhs, budget)?
+        }
+        FunctionExprKind::Field { lhs, .. } => 1 + small_pure_inline_expr_cost(lhs, budget)?,
+        FunctionExprKind::Index { lhs, index } => {
+            1 + small_pure_inline_expr_cost(lhs, budget)?
+                + small_pure_inline_expr_cost(index, budget)?
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            1 + small_pure_inline_expr_cost(lhs, budget)?
+                + optional_inline_expr_cost(range.start.as_deref(), budget)?
+                + optional_inline_expr_cost(range.end.as_deref(), budget)?
+        }
+        FunctionExprKind::Error
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::InlineAsm(_)
+        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::AddrOf(_)
+        | FunctionExprKind::Assign { .. }
+        | FunctionExprKind::TraitObjectUpcast { .. }
+        | FunctionExprKind::TraitObjectCoercion { .. }
+        | FunctionExprKind::Call { .. } => return None,
+    };
+    (cost <= budget).then_some(cost)
+}
+
+fn optional_inline_expr_cost(expr: Option<&FunctionExpr>, budget: usize) -> Option<usize> {
+    expr.map_or(Some(0), |expr| small_pure_inline_expr_cost(expr, budget))
 }
