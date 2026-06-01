@@ -83,12 +83,15 @@ impl ModuleGraph {
         id
     }
 
-    fn add_import(&mut self, from: ModuleId, import: ImportEdge) {
-        let module = self
-            .modules
-            .get_mut(from.0 as usize)
-            .unwrap_or_else(|| panic!("unknown source module id {from:?}"));
+    fn add_import(&mut self, from: ModuleId, import: ImportEdge) -> Result<(), Diagnostic> {
+        let Some(module) = self.modules.get_mut(from.0 as usize) else {
+            return Err(Diagnostic::error(
+                Span::default(),
+                format!("internal error: unknown source module id {from:?}"),
+            ));
+        };
         module.imports.push(import);
+        Ok(())
     }
 }
 
@@ -215,7 +218,7 @@ pub fn collect_module_imports(
 
     for import in resolve_module_imports(diagnostics, module_path, module, module_map) {
         let target = graph.intern_path(import.path.clone());
-        graph.add_import(
+        if let Err(diagnostic) = graph.add_import(
             module_id,
             ImportEdge {
                 alias: import.alias,
@@ -223,7 +226,10 @@ pub fn collect_module_imports(
                 target,
                 span: import.span,
             },
-        );
+        ) {
+            diagnostics.push(diagnostic);
+            return;
+        }
     }
 }
 
@@ -298,7 +304,7 @@ pub fn add_resolved_imports(
                 target,
                 span: import.span,
             },
-        );
+        )?;
     }
     Ok(())
 }

@@ -67,25 +67,27 @@ impl<'a> BodyChecker<'a> {
             .locals
             .iter()
             .filter(|(id, local)| {
-                local.kind != LocalKind::ComptimeBinding
-                    && (self.current_param_locals.contains(id)
-                        || (body_span.start <= local.span.start && local.span.end <= body_span.end))
+                self.current_param_locals.contains(id)
+                    || (body_span.start <= local.span.start && local.span.end <= body_span.end)
             })
-            .map(|(id, local)| TypedLocal {
-                id,
-                name: local.name.clone(),
-                kind: match local.kind {
+            .filter_map(|(id, local)| {
+                let kind = match local.kind {
                     LocalKind::Param => TypedLocalKind::Param,
                     LocalKind::Binding => TypedLocalKind::Binding,
                     LocalKind::ConstBinding => TypedLocalKind::ConstBinding,
-                    LocalKind::ComptimeBinding => unreachable!("comptime locals are not lowered"),
-                },
-                ty: self
-                    .local_types
-                    .get(&id)
-                    .copied()
-                    .unwrap_or_else(|| self.error()),
-                span: local.span,
+                    LocalKind::ComptimeBinding => return None,
+                };
+                Some(TypedLocal {
+                    id,
+                    name: local.name.clone(),
+                    kind,
+                    ty: self
+                        .local_types
+                        .get(&id)
+                        .copied()
+                        .unwrap_or_else(|| self.error()),
+                    span: local.span,
+                })
             })
             .collect()
     }
