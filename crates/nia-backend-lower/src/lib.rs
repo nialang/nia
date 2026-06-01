@@ -312,26 +312,16 @@ impl<'a> ModuleLowerer<'a> {
             self.input.comptime,
             self.input.layouts.target,
         );
-        for (key, layout) in computed.struct_instances {
-            let key = BackendStructInstanceKey::from_module_key(self.input.module_id, &key);
-            if !layouts
-                .struct_instances
-                .iter()
-                .any(|(candidate, _)| *candidate == key)
-            {
-                layouts.struct_instances.push((key, layout));
-            }
-        }
-        for (key, layout) in computed.union_instances {
-            let key = BackendStructInstanceKey::from_module_key(self.input.module_id, &key);
-            if !layouts
-                .union_instances
-                .iter()
-                .any(|(candidate, _)| *candidate == key)
-            {
-                layouts.union_instances.push((key, layout));
-            }
-        }
+        append_missing_layout_instances(
+            self.input.module_id,
+            &mut layouts.struct_instances,
+            computed.struct_instances,
+        );
+        append_missing_layout_instances(
+            self.input.module_id,
+            &mut layouts.union_instances,
+            computed.union_instances,
+        );
     }
 
     fn extend_target_has_generics(&self, extend: &nia_ast::ExtendItem) -> bool {
@@ -450,6 +440,23 @@ fn index_layout_instances_by_def<'a>(
             .push(key.clone());
     }
     instances_by_def
+}
+
+fn append_missing_layout_instances(
+    module_id: ModuleId,
+    output: &mut Vec<(BackendStructInstanceKey, nia_layout::StructLayout)>,
+    computed: HashMap<StructLayoutKey, nia_layout::StructLayout>,
+) {
+    let mut existing = output
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<HashSet<_>>();
+    for (key, layout) in computed {
+        let key = BackendStructInstanceKey::from_module_key(module_id, &key);
+        if existing.insert(key.clone()) {
+            output.push((key, layout));
+        }
+    }
 }
 #[cfg(test)]
 mod tests;
