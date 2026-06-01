@@ -345,7 +345,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     })
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
             },
-            |_| 0,
+            |_| Some(0),
         )
     }
 

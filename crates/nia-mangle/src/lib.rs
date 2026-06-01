@@ -38,7 +38,7 @@ pub fn mangle_instance_symbol<F, G>(
 ) -> String
 where
     F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> u64,
+    G: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     let mut nominal_name = nominal_name;
     let mut array_len = array_len;
@@ -67,7 +67,7 @@ pub fn mangle_type_with<F, G>(
 ) -> String
 where
     F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> u64,
+    G: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     let mut nominal_name = nominal_name;
     let mut array_len = array_len;
@@ -82,7 +82,7 @@ fn mangle_type_inner<F, G>(
 ) -> String
 where
     F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> u64,
+    G: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     match interner.get(ty) {
         Some(TyKind::Primitive(primitive)) => mangle_primitive(*primitive),
@@ -247,12 +247,22 @@ fn mangle_array_len<F, G>(
 ) -> String
 where
     F: FnMut(GlobalDefId) -> String,
-    G: FnMut(GlobalConstExprId) -> u64,
+    G: FnMut(GlobalConstExprId) -> Option<u64>,
 {
     match len {
         ArrayLenTy::Infer => "infer".to_string(),
         ArrayLenTy::ConstValue(value) => format!("len__{value}"),
-        ArrayLenTy::ConstExpr(id) => format!("len__{}", array_len(*id)),
+        ArrayLenTy::ConstExpr(id) => array_len(*id)
+            .map(|value| format!("len__{value}"))
+            // Keep mangling total so later phases can keep reporting errors.
+            // The unresolved marker is stable and cannot collide with a valid
+            // evaluated length.
+            .unwrap_or_else(|| {
+                format!(
+                    "len_unresolved__m{}__c{}",
+                    id.module_id.0, id.const_expr_id.0
+                )
+            }),
         ArrayLenTy::Builtin { builtin, ty } => format!(
             "builtin__{}__{}",
             sanitize_symbol_part(builtin.name()),

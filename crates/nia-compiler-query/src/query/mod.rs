@@ -108,6 +108,10 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
             }
             Diagnostic::error(Span::default(), message)
         }
+        QueryError::InvalidInput { query, message } => Diagnostic::error(
+            Span::default(),
+            format!("invalid query input for {}: {message}", query.description),
+        ),
     }
 }
 
@@ -182,6 +186,35 @@ mod tests {
         );
 
         assert!(checked.modules.is_empty());
+    }
+
+    #[test]
+    fn missing_loaded_module_id_becomes_query_diagnostic() {
+        fn unknown_parse_ok_module(_: &QueryDb<DriverContext>) -> Vec<ModuleId> {
+            vec![ModuleId(99)]
+        }
+
+        let providers = CompilerQueryProviders {
+            parse_ok_module_ids: unknown_parse_ok_module,
+            ..CompilerQueryProviders::default()
+        };
+        let checked = check_loaded_program_with_providers(
+            loaded_program_with_modules(vec![loaded_module(
+                ModuleId(0),
+                "main.nia",
+                "fn main() i32 { 0 }",
+            )]),
+            providers,
+        );
+
+        assert!(checked.modules.is_empty());
+        assert_eq!(checked.diagnostics.len(), 1);
+        assert!(
+            checked.diagnostics[0]
+                .diagnostic
+                .message
+                .contains("missing loaded module ModuleId(99)")
+        );
     }
 
     #[test]

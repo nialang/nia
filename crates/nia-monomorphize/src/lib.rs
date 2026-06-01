@@ -52,6 +52,7 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         instances: Vec::new(),
         seen: HashSet::new(),
         expanded: HashSet::new(),
+        missing_array_len_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
     };
     for input in inputs {
@@ -72,6 +73,7 @@ struct MonoCollector<'a> {
     instances: Vec<MonoInstance>,
     seen: HashSet<MonoInstanceKey>,
     expanded: HashSet<MonoInstanceKey>,
+    missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -223,11 +225,12 @@ impl MonoCollector<'_> {
 
     fn add_instance(&mut self, key: MonoInstanceKey) {
         if self.seen.insert(key.clone()) {
+            let symbol = self.instance_symbol(&key);
             self.instances.push(MonoInstance {
                 def_id: key.def_id,
                 arg_module_id: key.arg_module_id,
                 args: key.args.clone(),
-                symbol: self.instance_symbol(&key),
+                symbol,
             });
         }
     }
@@ -323,7 +326,7 @@ impl MonoCollector<'_> {
         }
     }
 
-    fn instance_symbol(&self, key: &MonoInstanceKey) -> String {
+    fn instance_symbol(&mut self, key: &MonoInstanceKey) -> String {
         let name = self.def_name(key.def_id);
         let args = key
             .args
@@ -338,7 +341,7 @@ impl MonoCollector<'_> {
         }
     }
 
-    fn instance_name(&self, key: &MonoInstanceKey) -> String {
+    fn instance_name(&mut self, key: &MonoInstanceKey) -> String {
         let args = key
             .args
             .iter()
@@ -349,34 +352,48 @@ impl MonoCollector<'_> {
     }
 
     fn def_name(&self, def_id: GlobalDefId) -> String {
-        self.defs_by_module
-            .get(&def_id.module_id)
-            .and_then(|defs| defs.defs.get(def_id.def_id))
-            .map(|def| sanitize_symbol_part(&def.name))
-            .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+        def_name(&self.defs_by_module, def_id)
     }
 
-    fn type_symbol(&self, module_id: ModuleId, ty: InternedTyId) -> String {
+    fn type_symbol(&mut self, module_id: ModuleId, ty: InternedTyId) -> String {
         let Some(interner) = self.interners_by_module.get(&module_id) else {
             return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         };
         if interner.get(ty).is_none() {
             return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         }
+        let defs_by_module = self.defs_by_module.clone();
         mangle_type_with(
             interner,
             ty,
-            |def_id| self.def_name(def_id),
+            move |def_id| def_name(&defs_by_module, def_id),
             |id| self.array_len(id),
         )
     }
 
-    fn array_len(&self, id: GlobalConstExprId) -> u64 {
-        self.comptime_by_module
+    fn array_len(&mut self, id: GlobalConstExprId) -> Option<u64> {
+        let value = self
+            .comptime_by_module
             .get(&id.module_id)
-            .and_then(|comptime| comptime.array_lengths.get(&id).copied())
-            .expect("array length used in monomorphization symbol must be evaluated")
+            .and_then(|comptime| comptime.array_lengths.get(&id).copied());
+        if value.is_none() && self.missing_array_len_diagnostics.insert(id) {
+            self.diagnostics.push(Diagnostic::error(
+                Span::default(),
+                format!(
+                    "array length {id:?} was not evaluated before monomorphization symbol generation"
+                ),
+            ));
+        }
+        value
     }
+}
+
+fn def_name(defs_by_module: &HashMap<ModuleId, &DefCollection>, def_id: GlobalDefId) -> String {
+    defs_by_module
+        .get(&def_id.module_id)
+        .and_then(|defs| defs.defs.get(def_id.def_id))
+        .map(|def| sanitize_symbol_part(&def.name))
+        .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
 }
 
 fn collect_instantiations_by_source(
@@ -418,9 +435,10 @@ mod tests {
     use super::*;
     use nia_body_ir::GenericInstantiation;
     use nia_defs::{ModuleId, collect_module_defs};
+    use nia_ids::ConstExprId;
     use nia_parser::parse_module;
     use nia_span::Span;
-    use nia_ty::PrimitiveTy;
+    use nia_ty::{ArrayLenTy, PrimitiveTy};
 
     #[test]
     fn deduplicates_generic_instances() {
@@ -529,6 +547,55 @@ fn main() i32 { outer(1) }
                 .instances
                 .iter()
                 .any(|instance| instance.def_id == inner_id && instance.args == vec![generic_t])
+        );
+    }
+
+    #[test]
+    fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
+        let (module, errors) = parse_module("fn take[T](value: T) T { value }");
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let take_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("take").expect("take def"),
+        };
+        let mut interner = TyInterner::new(ModuleId(0));
+        let len_id = GlobalConstExprId {
+            module_id: ModuleId(0),
+            const_expr_id: ConstExprId(0),
+        };
+        let elem = interner.primitive(PrimitiveTy::I32);
+        let array_ty = interner.intern(TyKind::Array {
+            len: ArrayLenTy::ConstExpr(len_id),
+            elem,
+        });
+        let instantiations = vec![GenericInstantiation {
+            def_id: take_id,
+            args: vec![array_ty],
+            generics: vec!["T".to_string()],
+            span: Span::new(1, 2),
+            source_def_id: None,
+        }];
+
+        let mono = collect_monomorphizations(&[MonomorphizeModuleInput {
+            module_id: ModuleId(0),
+            defs: &defs,
+            interner: &interner,
+            comptime: &ComptimeCheck::default(),
+            instantiations: &instantiations,
+        }]);
+
+        assert_eq!(mono.instances.len(), 1);
+        assert!(
+            mono.instances[0].symbol.contains("len_unresolved__m0__c0"),
+            "{}",
+            mono.instances[0].symbol
+        );
+        assert_eq!(mono.diagnostics.len(), 1);
+        assert!(
+            mono.diagnostics[0]
+                .message
+                .contains("was not evaluated before monomorphization")
         );
     }
 }
