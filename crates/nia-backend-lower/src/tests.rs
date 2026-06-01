@@ -1279,6 +1279,85 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_inlines_tiny_pure_leaf_function_calls() {
+    let source = r#"
+fn pair() [2]i32 {
+    [1, 2]
+}
+
+fn main() [2]i32 {
+    pair()
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::ArrayLiteral { .. }));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-constant-functions",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o1_preserves_tiny_pure_leaf_function_calls() {
+    let source = r#"
+fn pair() [2]i32 {
+    [1, 2]
+}
+
+fn main() [2]i32 {
+    pair()
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::Call { .. }));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-constant-functions",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o1_removes_noop_backend_local_stores() {
     let source = r#"
 fn main() i32 {
