@@ -134,6 +134,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             usage: &["niac emit <target> <file.nia> [options]"],
             commands: &[
                 HelpRow {
+                    left: "backend <file.nia>",
+                    right: "write optimized backend IR to stdout",
+                },
+                HelpRow {
                     left: "llvm <file.nia>",
                     right: "write LLVM IR to stdout",
                 },
@@ -148,11 +152,41 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             options: GLOBAL_OPTIONS,
             examples: &[
+                "niac emit backend src/main.nia",
                 "niac emit llvm src/main.nia",
                 "niac emit obj src/main.nia --out-dir build/obj",
                 "niac emit exe src/main.nia -o build/main",
             ],
             notes: &["Use `niac help emit <target>` for target-specific options."],
+        },
+        HelpTopic::EmitBackend => HelpDoc {
+            title: "niac emit backend",
+            about: "Run checking and write optimized backend IR to stdout.",
+            usage: &["niac emit backend <file.nia> [--emit-opt-report] [options]"],
+            commands: &[],
+            options: &[
+                HelpRow {
+                    left: "--emit-opt-report",
+                    right: "print backend optimization passes to stderr",
+                },
+                HelpRow {
+                    left: OPTIMIZATION_OPTION_HELP,
+                    right: "set optimization level; -O means -O2",
+                },
+                HelpRow {
+                    left: "-M, --module <name=path>",
+                    right: "map an import root; may appear anywhere",
+                },
+                HelpRow {
+                    left: "-h, --help",
+                    right: "show this help text",
+                },
+            ],
+            examples: &[
+                "niac emit backend src/main.nia",
+                "niac -O2 emit backend src/main.nia --emit-opt-report",
+            ],
+            notes: &["The optimization report is written to stderr so stdout remains backend IR."],
         },
         HelpTopic::EmitLlvm => HelpDoc {
             title: "niac emit llvm",

@@ -670,6 +670,7 @@ The CLI supports:
 niac lex <file.nia>
 niac parse <file.nia>
 niac check <file.nia>
+niac emit backend <file.nia>
 niac emit llvm <file.nia>
 niac emit obj <file.nia> [-o file.o | --out-dir dir]
 niac emit exe <file.nia> [-o executable]
@@ -695,9 +696,11 @@ Global optimization options are listed explicitly in CLI help:
 ```
 
 `niac check --emit-opt-report` prints the active optimization policy and backend
-optimization changes to stdout. `niac emit llvm --emit-opt-report` prints the
-same report to stderr while leaving stdout as LLVM IR, which is useful when
-reviewing pass behavior next to emitted code.
+optimization changes to stdout. `niac emit backend` prints the optimized
+backend IR to stdout for pass review. `niac emit backend --emit-opt-report` and
+`niac emit llvm --emit-opt-report` print the report to stderr while leaving
+stdout as backend IR or LLVM IR, which is useful when reviewing pass behavior
+next to emitted code.
 
 `emit obj` may produce multiple object files because backend lowering can produce
 multiple codegen units. `-o` is only valid for single-unit output; `--out-dir` is

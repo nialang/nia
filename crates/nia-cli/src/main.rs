@@ -73,6 +73,7 @@ enum CliCommand {
     Lex { path: String },
     Parse { path: String },
     Check { path: String, emit_opt_report: bool },
+    EmitBackend { path: String, emit_opt_report: bool },
     EmitLlvm { path: String, emit_opt_report: bool },
     EmitObj { path: String, args: Vec<String> },
     EmitExe { path: String, args: Vec<String> },
@@ -91,6 +92,7 @@ enum HelpTopic {
     Parse,
     Check,
     Emit,
+    EmitBackend,
     EmitLlvm,
     EmitObj,
     EmitExe,
@@ -150,6 +152,15 @@ fn run_cli(cli: Cli) -> ExitCode {
             cli.optimization,
             emit_opt_report,
         ),
+        CliCommand::EmitBackend {
+            emit_opt_report, ..
+        } => run_emit_backend(
+            &path,
+            &source,
+            cli.module_map,
+            cli.optimization,
+            emit_opt_report,
+        ),
         CliCommand::EmitObj { args, .. } => {
             run_emit_obj(&path, &source, args, cli.module_map, cli.optimization)
         }
@@ -164,6 +175,7 @@ fn read_source_for_command(command: &CliCommand) -> Result<(String, String), Str
         CliCommand::Lex { path }
         | CliCommand::Parse { path }
         | CliCommand::Check { path, .. }
+        | CliCommand::EmitBackend { path, .. }
         | CliCommand::EmitLlvm { path, .. }
         | CliCommand::EmitObj { path, .. }
         | CliCommand::EmitExe { path, .. } => path,
@@ -324,6 +336,7 @@ fn help_topic_from_args(args: &[String]) -> HelpTopic {
         [command] if command == "parse" => HelpTopic::Parse,
         [command] if command == "check" => HelpTopic::Check,
         [command] if command == "emit" => HelpTopic::Emit,
+        [command, target] if command == "emit" && target == "backend" => HelpTopic::EmitBackend,
         [command, target] if command == "emit" && target == "llvm" => HelpTopic::EmitLlvm,
         [command, target] if command == "emit" && target == "obj" => HelpTopic::EmitObj,
         [command, target] if command == "emit" && target == "exe" => HelpTopic::EmitExe,
@@ -400,6 +413,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     let rest = args.collect::<Vec<_>>();
     if has_help_flag(&rest) {
         return Err(CliError::help(match target.as_str() {
+            "backend" => HelpTopic::EmitBackend,
             "llvm" => HelpTopic::EmitLlvm,
             "obj" => HelpTopic::EmitObj,
             "exe" => HelpTopic::EmitExe,
@@ -407,6 +421,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         }));
     }
     match target.as_str() {
+        "backend" => parse_emit_backend_command(rest),
         "llvm" => parse_emit_llvm_command(rest),
         "obj" => parse_emit_with_options("emit obj", rest, HelpTopic::EmitObj, |path, args| {
             CliCommand::EmitObj { path, args }
@@ -419,6 +434,36 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             HelpTopic::Emit,
         )),
     }
+}
+
+fn parse_emit_backend_command(args: Vec<String>) -> Result<CliCommand, CliError> {
+    if has_help_flag(&args) {
+        return Err(CliError::help(HelpTopic::EmitBackend));
+    }
+    let mut path = None;
+    let mut emit_opt_report = false;
+    for arg in args {
+        match arg.as_str() {
+            "--emit-opt-report" => emit_opt_report = true,
+            _ if path.is_none() => path = Some(arg),
+            _ => {
+                return Err(CliError::new(
+                    format!("unexpected argument `{arg}` for `niac emit backend`"),
+                    HelpTopic::EmitBackend,
+                ));
+            }
+        }
+    }
+    let Some(path) = path else {
+        return Err(CliError::new(
+            "missing source file for `niac emit backend`",
+            HelpTopic::EmitBackend,
+        ));
+    };
+    Ok(CliCommand::EmitBackend {
+        path,
+        emit_opt_report,
+    })
 }
 
 fn parse_emit_llvm_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -522,6 +567,25 @@ fn run_check(
     if emit_opt_report {
         print_optimization_report(&program);
     }
+    ExitCode::SUCCESS
+}
+
+fn run_emit_backend(
+    path: &str,
+    source: &str,
+    module_map: ModuleMap,
+    optimization: NiaOptimizationLevel,
+    emit_opt_report: bool,
+) -> ExitCode {
+    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    if !program.diagnostics.is_empty() {
+        print_program_diagnostics(path, source, &program);
+        return ExitCode::FAILURE;
+    }
+    if emit_opt_report {
+        print_optimization_report_to_stderr(&program);
+    }
+    println!("{:#?}", program.backend_lowering.program);
     ExitCode::SUCCESS
 }
 
