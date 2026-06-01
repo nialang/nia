@@ -718,6 +718,78 @@ fn main() i32 {
 }
 
 #[test]
+fn o1_removes_pure_backend_expr_ops() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let span = body.blocks[0].span;
+            let ty = body.ty;
+            body.blocks[0]
+                .ops
+                .push(FunctionOp::Expr(nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Discard(Box::new(nia_function_ir::FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    })),
+                }));
+        },
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.blocks.iter().all(|block| block.ops.is_empty()));
+}
+
+#[test]
+fn o0_preserves_pure_backend_expr_ops() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let span = body.blocks[0].span;
+            let ty = body.ty;
+            body.blocks[0]
+                .ops
+                .push(FunctionOp::Expr(nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Discard(Box::new(nia_function_ir::FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    })),
+                }));
+        },
+        nia_opt::OptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.blocks.iter().any(|block| !block.ops.is_empty()));
+}
+
+#[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
 comptime N: usize = 3;
