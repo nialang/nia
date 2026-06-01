@@ -67,14 +67,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         &self,
         object_ty: InternedTyId,
     ) -> Option<&BackendTraitObjectVtable> {
+        let object_trait = match self.ty_kind(object_ty) {
+            Some(TyKind::TraitObject { trait_id, .. }) => Some(*trait_id),
+            _ => None,
+        };
         self.program
             .trait_object_vtables_for_object_ty(object_ty)
             .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
             .or_else(|| {
                 self.program
-                    .modules
-                    .values()
-                    .flat_map(|module| module.trait_object_vtables.iter())
+                    .trait_object_vtables_for_trait(object_trait?)
                     .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
             })
     }
