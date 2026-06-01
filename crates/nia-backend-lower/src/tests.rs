@@ -852,6 +852,69 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_propagates_backend_local_copies() {
+    let source = r#"
+fn main() i32 {
+    var source = 1;
+    var copy = source;
+    copy
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::OptimizationLevel::O2.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+    let source_id = body
+        .locals
+        .iter()
+        .find(|local| local.name == "source")
+        .expect("source local")
+        .id;
+    let value = first_terminal_value(body);
+    assert!(matches!(value.kind, FunctionExprKind::Local(id) if id == source_id));
+    assert!(body.locals.iter().all(|local| local.name != "copy"));
+}
+
+#[test]
+fn o1_preserves_backend_local_copies() {
+    let source = r#"
+fn main() i32 {
+    var source = 1;
+    var copy = source;
+    copy
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+    let copy_id = body
+        .locals
+        .iter()
+        .find(|local| local.name == "copy")
+        .expect("copy local")
+        .id;
+    let value = first_terminal_value(body);
+
+    assert!(matches!(value.kind, FunctionExprKind::Local(id) if id == copy_id));
+    assert!(body.locals.iter().any(|local| local.name == "copy"));
+}
+
+#[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
 comptime N: usize = 3;
