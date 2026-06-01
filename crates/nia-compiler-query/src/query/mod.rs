@@ -112,6 +112,7 @@ fn checked_program_from_query_error(
                 modules: Vec::new(),
             },
             optimization,
+            optimization_report: nia_backend_lower::BackendOptimizationReport::default(),
             diagnostics: Vec::new(),
         },
         diagnostics: vec![ProgramDiagnostic {

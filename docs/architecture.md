@@ -122,6 +122,11 @@ Current Nia-owned optimization consumers:
   propagation enables local copy propagation. Full dead-code elimination enables
   overwritten-store cleanup, never-read local store cleanup, and unused local
   binding cleanup.
+- `nia-backend-lower` records a lightweight optimization report alongside the
+  lowered backend program. Each entry names the changed pass and function
+  context, including whether the body was a monomorphized instance. This is the
+  stable observability hook for reviewing pass behavior without embedding full
+  before/after IR snapshots in normal compiler output.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,

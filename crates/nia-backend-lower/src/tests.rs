@@ -681,6 +681,17 @@ fn main() i32 {
     let body = main.function_body.as_ref().expect("main function body");
 
     assert!(body.blocks.iter().all(|block| block.ops.is_empty()));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| {
+                change.pass == "remove-noop-local-stores"
+                    && !change.is_instance
+                    && change.type_arg_count == 0
+            })
+    );
 }
 
 #[test]
@@ -715,6 +726,7 @@ fn main() i32 {
     let body = main.function_body.as_ref().expect("main function body");
 
     assert!(body.blocks.iter().any(|block| !block.ops.is_empty()));
+    assert!(lowering.optimization_report.changed_passes.is_empty());
 }
 
 #[test]

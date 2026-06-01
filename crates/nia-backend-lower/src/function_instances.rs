@@ -126,10 +126,9 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             };
             let substitutions = self.effective_generic_substitutions(base.def_id, &args);
-            let function_body = base
-                .function_body
-                .clone()
-                .map(|body| self.instantiate_function_body(body, &substitutions));
+            let function_body = base.function_body.clone().map(|body| {
+                self.instantiate_function_body(def_id, args.len(), body, &substitutions)
+            });
             if let Some(body) = &function_body {
                 self.enqueue_function_instances_from_body(body, seen, queue);
             }
