@@ -103,6 +103,7 @@ dependencies = [
  "nia-backend-ir",
  "nia-body-check",
  "nia-comptime-check",
+ "nia-comptime-engine",
  "nia-defs",
  "nia-diagnostic",
  "nia-flow-check",
