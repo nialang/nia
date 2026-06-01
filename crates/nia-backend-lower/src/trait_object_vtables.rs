@@ -280,7 +280,7 @@ impl<'a> ModuleLowerer<'a> {
         span: nia_span::Span,
     ) -> Option<BackendTraitObjectVtable> {
         if let Some(vtable) = self.trait_object_vtables.get(&key) {
-            return Some(vtable);
+            return vtable;
         }
         let vtable = self.build_trait_object_vtable(key.clone(), span);
         self.trait_object_vtables.insert(key, vtable.clone());
@@ -384,8 +384,8 @@ pub(crate) struct TraitObjectVtableCache {
 }
 
 impl TraitObjectVtableCache {
-    fn get(&self, key: &BackendTraitObjectVtableKey) -> Option<BackendTraitObjectVtable> {
-        self.vtables.get(key).cloned().flatten()
+    fn get(&self, key: &BackendTraitObjectVtableKey) -> Option<Option<BackendTraitObjectVtable>> {
+        self.vtables.get(key).cloned()
     }
 
     fn insert(
@@ -420,7 +420,7 @@ mod tests {
 
         cache.insert(key.clone(), Some(vtable.clone()));
 
-        assert_eq!(cache.get(&key), Some(vtable));
+        assert_eq!(cache.get(&key), Some(Some(vtable)));
     }
 
     #[test]
@@ -430,8 +430,8 @@ mod tests {
 
         cache.insert(key.clone(), None);
 
-        assert!(cache.vtables.contains_key(&key));
-        assert_eq!(cache.get(&key), None);
+        assert_eq!(cache.get(&key), Some(None));
+        assert_eq!(cache.get(&test_key(2)), None);
     }
 
     fn test_key(index: u32) -> BackendTraitObjectVtableKey {
