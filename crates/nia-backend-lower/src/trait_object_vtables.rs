@@ -353,7 +353,8 @@ impl<'a> ModuleLowerer<'a> {
                 function,
             });
         }
-        let substitutions = self.generic_substitutions(&trait_signature.generics, &trait_args);
+        let substitutions =
+            ModuleLowerer::generic_substitutions(&trait_signature.generics, &trait_args);
         for supertrait in &trait_signature.supertraits {
             let supertrait =
                 nia_ty::import_type_into(&mut self.interner, &program_trait.interner, *supertrait);

@@ -40,7 +40,8 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>();
         keys.into_iter()
             .map(|key| {
-                let substitutions = self.generic_substitutions(&signature.generics, &key.args);
+                let substitutions =
+                    ModuleLowerer::generic_substitutions(&signature.generics, &key.args);
                 BackendStructInstance {
                     def_id: self.global_def_id(def_id),
                     name: item.name.clone(),
@@ -90,7 +91,8 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>();
         keys.into_iter()
             .map(|key| {
-                let substitutions = self.generic_substitutions(&signature.generics, &key.args);
+                let substitutions =
+                    ModuleLowerer::generic_substitutions(&signature.generics, &key.args);
                 BackendUnionInstance {
                     def_id: self.global_def_id(def_id),
                     name: item.name.clone(),
@@ -535,7 +537,7 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let def = self.input.defs.defs.get(def_id)?;
-        let substitutions = self.generic_substitutions(&signature.generics, &args);
+        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
         Some(BackendStructInstance {
             def_id: self.global_def_id(def_id),
             name: def.name.clone(),
@@ -933,7 +935,7 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let def = self.input.defs.defs.get(def_id)?;
-        let substitutions = self.generic_substitutions(&signature.generics, &args);
+        let substitutions = ModuleLowerer::generic_substitutions(&signature.generics, &args);
         Some(BackendUnionInstance {
             def_id: self.global_def_id(def_id),
             name: def.name.clone(),

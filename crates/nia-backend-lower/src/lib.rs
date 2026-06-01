@@ -124,6 +124,7 @@ pub(crate) struct ModuleLowerer<'a> {
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
+    effective_generics: HashMap<GlobalDefId, Vec<String>>,
     def_names: HashMap<GlobalDefId, String>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
 }
@@ -175,6 +176,7 @@ impl<'a> ModuleLowerer<'a> {
             ),
             builtin_trait_resolutions: HashMap::new(),
             type_instantiations: HashMap::new(),
+            effective_generics: HashMap::new(),
             def_names: HashMap::new(),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
         }
