@@ -1547,3 +1547,180 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
         output.diagnostics
     );
 }
+
+#[test]
+fn validates_backend_ir_unresolved_trait_method_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let trait_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(10),
+    };
+    let method_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(11),
+    };
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: DefId(0),
+        },
+        name: "main".to_string(),
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::TraitMethod {
+                                trait_id,
+                                method_id,
+                                method_name: "value".to_string(),
+                                self_ty: i32_ty,
+                                trait_args: Vec::new(),
+                                args: Vec::new(),
+                                receiver: Box::new(FunctionExpr {
+                                    span,
+                                    ty: i32_ty,
+                                    kind: FunctionExprKind::Integer("1".to_string()),
+                                }),
+                            },
+                            args: Vec::new(),
+                        },
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        interner,
+        BackendLayouts {
+            types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unresolved trait method")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: DefId(0),
+        },
+        name: "main".to_string(),
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::BuiltinPlaceMethod {
+                                trait_id: BuiltinTrait::Slice,
+                                method: BuiltinTraitMethod::Slice,
+                                self_ty: i32_ty,
+                                trait_args: Vec::new(),
+                                receiver: Box::new(FunctionExpr {
+                                    span,
+                                    ty: i32_ty,
+                                    kind: FunctionExprKind::Integer("1".to_string()),
+                                }),
+                            },
+                            args: Vec::new(),
+                        },
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        interner,
+        BackendLayouts {
+            types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("unresolved builtin place method")),
+        "{:?}",
+        output.diagnostics
+    );
+}

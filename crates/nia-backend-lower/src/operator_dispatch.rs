@@ -538,14 +538,11 @@ impl<'a> ModuleLowerer<'a> {
         if let Some((def_id, method_args)) =
             self.resolve_builtin_operator_impl_method(operator, receiver.ty, &[])
         {
-            let [receiver] = <[FunctionExpr; 1]>::try_from(args).expect(
-                "builtin unary operator call arity was checked before dispatching to method call",
-            );
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
                     args: method_args,
-                    receiver: Box::new(receiver),
+                    receiver: Box::new(receiver.clone()),
                 },
                 args: Vec::new(),
             };
@@ -579,16 +576,13 @@ impl<'a> ModuleLowerer<'a> {
         if let Some((def_id, method_args)) =
             self.resolve_builtin_operator_impl_method(operator, lhs.ty, &[rhs.ty])
         {
-            let [lhs, rhs] = <[FunctionExpr; 2]>::try_from(args).expect(
-                "builtin binary operator call arity was checked before dispatching to method call",
-            );
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
                     args: method_args,
-                    receiver: Box::new(lhs),
+                    receiver: Box::new(lhs.clone()),
                 },
-                args: vec![rhs],
+                args: vec![rhs.clone()],
             };
         }
         FunctionExprKind::Call {
