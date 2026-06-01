@@ -522,6 +522,11 @@ Diagnostics should carry spans whenever source text is involved.
 Implementation bugs may panic in tests, but normal invalid Nia programs should
 flow through diagnostic reporting.
 
+Backend IR is validated before LLVM emission. If lowering or stale query state
+leaves unresolved array lengths, missing owner modules, or missing ABI layouts in
+runtime positions, LLVM codegen reports diagnostics at that boundary instead of
+letting backend-specific lowering fail later.
+
 Diagnostics should describe current language rules. The compiler should not keep
 special migration diagnostics for syntax that only existed during earlier
 experimental development.

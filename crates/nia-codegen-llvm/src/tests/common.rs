@@ -3,17 +3,19 @@ pub(super) use crate::{
     LlvmCodegenOptions, catch_llvm_codegen_ice, emit_llvm_ir, emit_llvm_ir_with_options,
 };
 pub(super) use nia_backend_ir::{
-    BackendField, BackendFunction, BackendLayouts, BackendModule, BackendProgram, BackendStruct,
+    BackendField, BackendFunction, BackendGlobal, BackendLayouts, BackendModule, BackendParam,
+    BackendProgram, BackendStruct,
 };
 pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
+pub(super) use nia_comptime_check::ComptimeCheck;
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionExpr, FunctionExprKind, FunctionScope,
     FunctionScopeId, FunctionTerminator,
 };
-pub(super) use nia_ids::{DefId, GlobalDefId, LocalId, ModuleId};
+pub(super) use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId};
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 pub(super) use nia_span::Span;
-pub(super) use nia_ty::{PrimitiveTy, TyKind};
+pub(super) use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 
 pub(super) struct EmitSmokeCase {
     pub(super) name: &'static str,

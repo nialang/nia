@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod backend_validate;
 mod function_codegen;
 mod literals;
 mod module_codegen;
 mod output;
 mod program_index;
 
+use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::BackendProgram;
 use nia_llvm::{Context, target::TargetMachine};
@@ -30,6 +32,13 @@ fn emit_llvm_ir_with_options_inner(
     options: LlvmCodegenOptions,
 ) -> LlvmCodegenOutput {
     let index = ProgramIndex::new(program);
+    let validation_diagnostics = validate_backend_program(program, &index);
+    if !validation_diagnostics.is_empty() {
+        return LlvmCodegenOutput {
+            modules: Vec::new(),
+            diagnostics: validation_diagnostics,
+        };
+    }
     let mut outputs = Vec::new();
     let mut diagnostics = Vec::new();
     for module in &program.modules {
@@ -76,6 +85,13 @@ fn emit_native_objects_inner(
         }
     };
     let index = ProgramIndex::new(program);
+    let validation_diagnostics = validate_backend_program(program, &index);
+    if !validation_diagnostics.is_empty() {
+        return LlvmObjectOutput {
+            modules: Vec::new(),
+            diagnostics: validation_diagnostics,
+        };
+    }
     let mut outputs = Vec::new();
     let mut diagnostics = Vec::new();
     for module in &program.modules {
