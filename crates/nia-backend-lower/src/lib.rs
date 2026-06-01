@@ -267,7 +267,7 @@ impl<'a> ModuleLowerer<'a> {
             &functions,
             &function_instances,
         );
-        self.inline_constant_functions(&mut functions, &mut function_instances);
+        self.inline_leaf_functions(&mut functions, &mut function_instances);
         self.remove_unused_private_functions(
             &mut functions,
             &mut function_instances,

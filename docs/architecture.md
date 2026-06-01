@@ -138,6 +138,12 @@ Current Nia-owned optimization consumers:
   enables overwritten-store cleanup, never-read local store cleanup, and unused
   user local binding cleanup. Full constant folding or size-oriented policy also
   simplifies all-zero static initializers to the canonical `Zero` initializer.
+  Module-level leaf inlining is gated by `inline_threshold`: `O0` disables it,
+  `O1`, `Os`, and `Oz` inline only no-argument leaf functions that return a
+  backend constant, and `O2`/`O3` additionally inline small pure no-argument leaf
+  expressions under a fixed expression-cost budget. The pass does not rewrite
+  parameters, locals, calls, inline assembly, address-taking, assignments, or
+  trait-object conversions.
 - `nia-backend-lower` records a lightweight optimization report alongside the
   lowered backend program. Each entry names the changed pass and the affected
   function or global context, including whether a function body was a
