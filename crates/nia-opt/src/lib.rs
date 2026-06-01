@@ -151,6 +151,100 @@ mod tests {
     use super::*;
 
     #[test]
+    fn optimization_levels_expand_to_expected_policy_matrix() {
+        let expected = [
+            (
+                NiaOptimizationLevel::O0,
+                OptimizationPolicy {
+                    level: NiaOptimizationLevel::O0,
+                    simplify_cfg: OptimizationDepth::Required,
+                    const_fold: OptimizationDepth::Required,
+                    dead_code_elim: OptimizationDepth::Disabled,
+                    local_copy_prop: OptimizationDepth::Disabled,
+                    inline_threshold: InlineThreshold::Never,
+                    specialize_generics: SpecializationPolicy::RequiredOnly,
+                    dedup_monomorphized_instances: false,
+                    prefer_size: false,
+                },
+            ),
+            (
+                NiaOptimizationLevel::O1,
+                OptimizationPolicy {
+                    level: NiaOptimizationLevel::O1,
+                    simplify_cfg: OptimizationDepth::Cheap,
+                    const_fold: OptimizationDepth::Cheap,
+                    dead_code_elim: OptimizationDepth::Cheap,
+                    local_copy_prop: OptimizationDepth::Cheap,
+                    inline_threshold: InlineThreshold::Small,
+                    specialize_generics: SpecializationPolicy::RequiredOnly,
+                    dedup_monomorphized_instances: true,
+                    prefer_size: false,
+                },
+            ),
+            (
+                NiaOptimizationLevel::O2,
+                OptimizationPolicy {
+                    level: NiaOptimizationLevel::O2,
+                    simplify_cfg: OptimizationDepth::Full,
+                    const_fold: OptimizationDepth::Full,
+                    dead_code_elim: OptimizationDepth::Full,
+                    local_copy_prop: OptimizationDepth::Full,
+                    inline_threshold: InlineThreshold::Normal,
+                    specialize_generics: SpecializationPolicy::Normal,
+                    dedup_monomorphized_instances: true,
+                    prefer_size: false,
+                },
+            ),
+            (
+                NiaOptimizationLevel::O3,
+                OptimizationPolicy {
+                    level: NiaOptimizationLevel::O3,
+                    simplify_cfg: OptimizationDepth::Aggressive,
+                    const_fold: OptimizationDepth::Aggressive,
+                    dead_code_elim: OptimizationDepth::Aggressive,
+                    local_copy_prop: OptimizationDepth::Aggressive,
+                    inline_threshold: InlineThreshold::Aggressive,
+                    specialize_generics: SpecializationPolicy::Aggressive,
+                    dedup_monomorphized_instances: true,
+                    prefer_size: false,
+                },
+            ),
+            (
+                NiaOptimizationLevel::Os,
+                OptimizationPolicy {
+                    level: NiaOptimizationLevel::Os,
+                    simplify_cfg: OptimizationDepth::Full,
+                    const_fold: OptimizationDepth::Full,
+                    dead_code_elim: OptimizationDepth::Full,
+                    local_copy_prop: OptimizationDepth::Full,
+                    inline_threshold: InlineThreshold::Size,
+                    specialize_generics: SpecializationPolicy::SizeAware,
+                    dedup_monomorphized_instances: true,
+                    prefer_size: true,
+                },
+            ),
+            (
+                NiaOptimizationLevel::Oz,
+                OptimizationPolicy {
+                    level: NiaOptimizationLevel::Oz,
+                    simplify_cfg: OptimizationDepth::Full,
+                    const_fold: OptimizationDepth::Full,
+                    dead_code_elim: OptimizationDepth::Full,
+                    local_copy_prop: OptimizationDepth::Cheap,
+                    inline_threshold: InlineThreshold::Minimal,
+                    specialize_generics: SpecializationPolicy::RequiredOnly,
+                    dedup_monomorphized_instances: true,
+                    prefer_size: true,
+                },
+            ),
+        ];
+
+        for (level, policy) in expected {
+            assert_eq!(level.policy(), policy, "{level:?}");
+        }
+    }
+
+    #[test]
     fn size_levels_prefer_size_without_aggressive_inlining() {
         let os = NiaOptimizationLevel::Os.policy();
         let oz = NiaOptimizationLevel::Oz.policy();
