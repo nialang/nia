@@ -446,6 +446,33 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<nia_llvm::values::PointerValue<'ctx>, Diagnostic> {
         match &arg.kind {
             FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
+            FunctionExprKind::ArrayLiteral { elems } => {
+                let ty = self.module.llvm_basic_type(arg.ty, span)?;
+                let ptr = self
+                    .builder
+                    .build_alloca(ty, "arg.copy")
+                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
+                self.emit_array_literal_into(arg, elems, ptr)?;
+                Ok(ptr)
+            }
+            FunctionExprKind::StructLiteral { fields, .. } => {
+                let ty = self.module.llvm_basic_type(arg.ty, span)?;
+                let ptr = self
+                    .builder
+                    .build_alloca(ty, "arg.copy")
+                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
+                self.emit_struct_literal_into(arg, fields, ptr)?;
+                Ok(ptr)
+            }
+            FunctionExprKind::UnionLiteral { field, .. } => {
+                let ty = self.module.llvm_basic_type(arg.ty, span)?;
+                let ptr = self
+                    .builder
+                    .build_alloca(ty, "arg.copy")
+                    .map_err(|_| self.error(span, "failed to allocate indirect argument"))?;
+                self.emit_union_literal_into(arg, field, ptr)?;
+                Ok(ptr)
+            }
             _ => {
                 let ty = self.module.llvm_basic_type(arg.ty, span)?;
                 let ptr = self
