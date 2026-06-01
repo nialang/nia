@@ -377,6 +377,10 @@ impl MonoCollector<'_> {
             .get(&id.module_id)
             .and_then(|comptime| comptime.array_lengths.get(&id).copied());
         if value.is_none() && self.missing_array_len_diagnostics.insert(id) {
+            // Monomorphization only receives evaluated comptime facts, not the
+            // source const-expression table from type lowering. Keep this as a
+            // phase-boundary diagnostic rather than assuming the array length
+            // was computed before symbol generation.
             self.diagnostics.push(Diagnostic::error(
                 Span::default(),
                 format!(

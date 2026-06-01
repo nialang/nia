@@ -300,8 +300,15 @@ impl<'a> ModuleLowerer<'a> {
     fn resolved_array_len(&mut self, id: GlobalConstExprId) -> Option<u64> {
         let value = self.input.comptime.array_lengths.get(&id).copied();
         if value.is_none() && self.missing_array_len_diagnostics.insert(id) {
+            let span = self
+                .input
+                .type_lowering
+                .const_exprs
+                .get(&id)
+                .map(|expr| expr.span)
+                .unwrap_or_default();
             self.diagnostics.push(Diagnostic::error(
-                Span::default(),
+                span,
                 format!("array length {id:?} was not evaluated before backend symbol generation"),
             ));
         }
