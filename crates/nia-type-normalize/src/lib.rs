@@ -61,7 +61,7 @@ impl<'a> TypeNormalizer<'a> {
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                let len = normalize_array_len(len);
+                let len = self.normalize_array_len(len, stack);
                 self.interner.intern(TyKind::Array { len, elem })
             }
             Some(TyKind::Range { kind, bound }) => {
@@ -207,7 +207,7 @@ impl<'a> TypeNormalizer<'a> {
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                let len = normalize_array_len(len);
+                let len = self.normalize_array_len_with_substitutions(len, substitutions, stack);
                 self.interner.intern(TyKind::Array { len, elem })
             }
             Some(TyKind::Range { kind, bound }) => {
@@ -316,14 +316,33 @@ impl<'a> TypeNormalizer<'a> {
             format!("recursive type alias detected: {}", cycle.join(" -> ")),
         ));
     }
-}
 
-fn normalize_array_len(len: ArrayLenTy) -> ArrayLenTy {
-    match len {
-        ArrayLenTy::Infer
-        | ArrayLenTy::ConstValue(_)
-        | ArrayLenTy::ConstExpr(_)
-        | ArrayLenTy::Builtin { .. } => len,
+    fn normalize_array_len(&mut self, len: ArrayLenTy, stack: &mut Vec<DefId>) -> ArrayLenTy {
+        match len {
+            ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+                builtin,
+                // Layout-builtin array lengths are semantically type-level expressions; keep the
+                // operand normalized so alias-expanded types compare the same inside and outside
+                // array length positions.
+                ty: self.normalize_ty(ty, stack),
+            },
+            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
+        }
+    }
+
+    fn normalize_array_len_with_substitutions(
+        &mut self,
+        len: ArrayLenTy,
+        substitutions: &HashMap<String, InternedTyId>,
+        stack: &mut Vec<DefId>,
+    ) -> ArrayLenTy {
+        match len {
+            ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+                builtin,
+                ty: self.normalize_ty_with_substitutions(ty, substitutions, stack),
+            },
+            ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
+        }
     }
 }
 
@@ -339,7 +358,7 @@ mod tests {
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
     use nia_parser::parse_module;
-    use nia_ty::{PrimitiveTy, TyKind};
+    use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TyKind};
     use nia_type_lower::lower_module_types_with_id;
     use nia_type_resolve::resolve_module_types;
 
@@ -399,6 +418,84 @@ fn id(p: Ptr[u8]) &u8 { p }
                             normalization.interner.get(*elem),
                             Some(TyKind::Primitive(PrimitiveTy::U8))
                         )
+                )
+        }));
+    }
+
+    #[test]
+    fn normalizes_layout_builtin_array_length_operand() {
+        let (module, errors) = parse_module(
+            r#"
+type Byte = u8;
+fn id(x: [@size[Byte]()]u8) [@size[u8]()]u8 { x }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        assert!(
+            normalization.diagnostics.is_empty(),
+            "{:?}",
+            normalization.diagnostics
+        );
+        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+            matches!(
+                ty,
+                TyKind::Array {
+                    len: ArrayLenTy::Builtin {
+                        builtin: LayoutBuiltin::Size,
+                        ..
+                    },
+                    ..
+                }
+            ) && matches!(
+                normalization.interner.get(normalization.normalize(ty_id)),
+                Some(TyKind::Array {
+                    len: ArrayLenTy::Builtin {
+                        builtin: LayoutBuiltin::Size,
+                        ty,
+                    },
+                    ..
+                }) if normalization.interner.get(*ty)
+                    == Some(&TyKind::Primitive(PrimitiveTy::U8))
+            )
+        }));
+    }
+
+    #[test]
+    fn substitutes_layout_builtin_array_length_operand_in_generic_alias() {
+        let (module, errors) = parse_module(
+            r#"
+type SizedBytes[T] = [@size[T]()]u8;
+fn id(x: SizedBytes[u16]) [@size[u16]()]u8 { x }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let normalization = normalize_module_types(ModuleId(0), &lowered.interner, &signatures);
+        assert!(
+            normalization.diagnostics.is_empty(),
+            "{:?}",
+            normalization.diagnostics
+        );
+        assert!(lowered.interner.iter().any(|(ty_id, ty)| {
+            matches!(ty, TyKind::Nominal { .. })
+                && matches!(
+                    normalization.interner.get(normalization.normalize(ty_id)),
+                    Some(TyKind::Array {
+                        len: ArrayLenTy::Builtin {
+                            builtin: LayoutBuiltin::Size,
+                            ty,
+                        },
+                        ..
+                    }) if normalization.interner.get(*ty)
+                        == Some(&TyKind::Primitive(PrimitiveTy::U16))
                 )
         }));
     }
