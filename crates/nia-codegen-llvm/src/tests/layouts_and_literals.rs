@@ -182,6 +182,102 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_aggregate_literal_returns_without_extra_literal_temps() {
+    let root = temp_dir("emits_aggregate_literal_returns_without_extra_literal_temps");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn make_pair() Pair {
+    { a: 10, b: 20 }
+}
+
+fn make_array() [2]i32 {
+    [30, 40]
+}
+
+fn sum_pair(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn sum_array(values: [2]i32) i32 {
+    values[0] + values[1]
+}
+
+fn main() i32 {
+    sum_pair(make_pair()) + sum_array(make_array())
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("return.copy"), "{ir}");
+    assert!(!ir.contains("structtmp"), "{ir}");
+    assert!(!ir.contains("arraytmp"), "{ir}");
+}
+
+#[test]
+fn aggregate_literal_return_preserves_initializer_and_defer_order() {
+    let root = temp_dir("aggregate_literal_return_preserves_initializer_and_defer_order");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(value: i32) i32;
+
+struct Pair {
+    a: i32,
+    b: i32,
+}
+
+fn cleanup(value: i32) void {
+    _ = log(value);
+}
+
+fn make_pair() Pair {
+    defer cleanup(2);
+    { a: log(1), b: 3 }
+}
+
+fn sum_pair(pair: Pair) i32 {
+    pair.a + pair.b
+}
+
+fn main() i32 {
+    sum_pair(make_pair())
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert_substrings_in_order(
+        ir,
+        &[
+            "call i32 @log(i32 1)",
+            "cleanup(i32 2)",
+            "store %nia__m0__d1__Pair %return.value",
+        ],
+    );
+}
+
+#[test]
 fn emits_unary_cast_float_and_enum_values() {
     let root = temp_dir("emits_unary_cast_float_and_enum_values");
     let main = root.join("main.nia");
