@@ -103,7 +103,7 @@ fn main() i32 {
                 .ir
                 .function_bodies
                 .values()
-                .any(|body| body_contains_dynamic_trait_callee(body))
+                .any(body_contains_dynamic_trait_callee)
     }));
 }
 

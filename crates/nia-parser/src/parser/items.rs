@@ -347,12 +347,9 @@ impl Parser {
         if self.eat(TokenKind::Colon).is_none() {
             return supertraits;
         }
-        loop {
-            let Some(supertrait) =
-                self.parse_type_until(&[TokenKind::Plus, TokenKind::Where, TokenKind::LBrace])
-            else {
-                break;
-            };
+        while let Some(supertrait) =
+            self.parse_type_until(&[TokenKind::Plus, TokenKind::Where, TokenKind::LBrace])
+        {
             supertraits.push(supertrait);
             if self.eat(TokenKind::Plus).is_none() {
                 break;

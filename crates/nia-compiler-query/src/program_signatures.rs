@@ -513,17 +513,17 @@ fn validate_trait_impl(
         let Some(actual) = module.signatures.functions.get(&method_id) else {
             continue;
         };
-        let required_signature = import_trait_method_signature(
-            &mut comparison_interner,
+        let required_signature = import_trait_method_signature(TraitMethodImport {
+            target_interner: &mut comparison_interner,
             module,
-            trait_signature.interner,
-            &required.signature,
-            &trait_signature.signature.generics,
-            &trait_args,
-            target_ty,
+            source_interner: trait_signature.interner,
+            signature: &required.signature,
+            trait_generics: &trait_signature.signature.generics,
+            trait_args: &trait_args,
+            self_ty: target_ty,
             trait_id,
             extend,
-        );
+        });
         if !trait_method_signature_matches(&required_signature, actual) {
             diagnostics.push(Diagnostic::error(
                 method.function.span,
@@ -1105,24 +1105,15 @@ fn trait_name(module: &ExtensionModuleInput<'_>, trait_id: GlobalDefId) -> Strin
         .unwrap_or_else(|| format!("trait#{}.{}", trait_id.module_id.0, trait_id.def_id.0))
 }
 
-fn import_trait_method_signature(
-    target_interner: &mut TyInterner,
-    module: &ExtensionModuleInput<'_>,
-    source_interner: &TyInterner,
-    signature: &FunctionSignature,
-    trait_generics: &[String],
-    trait_args: &[nia_ids::InternedTyId],
-    self_ty: nia_ids::InternedTyId,
-    trait_id: GlobalDefId,
-    extend: &nia_ast::ExtendItem,
-) -> FunctionSignature {
-    let mut substitutions = trait_generics
+fn import_trait_method_signature(import: TraitMethodImport<'_>) -> FunctionSignature {
+    let mut substitutions = import
+        .trait_generics
         .iter()
-        .zip(trait_args)
+        .zip(import.trait_args)
         .map(|(generic, arg)| (generic.clone(), *arg))
         .collect::<HashMap<_, _>>();
-    substitutions.insert("Self".to_string(), self_ty);
-    let mut signature = signature.clone();
+    substitutions.insert("Self".to_string(), import.self_ty);
+    let mut signature = import.signature.clone();
     signature.params = signature
         .params
         .iter()
@@ -1130,35 +1121,50 @@ fn import_trait_method_signature(
             name: param.name.clone(),
             receiver: param.receiver,
             ty: substitute_imported_type(
-                target_interner,
-                module,
-                source_interner,
+                import.target_interner,
+                import.module,
+                import.source_interner,
                 param.ty,
                 &substitutions,
                 Some(ProjectionImplContext {
-                    trait_id,
-                    trait_args,
-                    self_ty,
-                    extend,
+                    trait_id: import.trait_id,
+                    trait_args: import.trait_args,
+                    self_ty: import.self_ty,
+                    extend: import.extend,
                 }),
             ),
             span: param.span,
         })
         .collect();
     signature.return_type = substitute_imported_type(
-        target_interner,
-        module,
-        source_interner,
+        import.target_interner,
+        import.module,
+        import.source_interner,
         signature.return_type,
         &substitutions,
         Some(ProjectionImplContext {
-            trait_id,
-            trait_args,
-            self_ty,
-            extend,
+            trait_id: import.trait_id,
+            trait_args: import.trait_args,
+            self_ty: import.self_ty,
+            extend: import.extend,
         }),
     );
     signature
+}
+
+struct TraitMethodImport<'a> {
+    target_interner: &'a mut TyInterner,
+    module: &'a ExtensionModuleInput<'a>,
+    source_interner: &'a TyInterner,
+    signature: &'a FunctionSignature,
+    // Required trait methods are authored in the trait module/interner but are
+    // checked against an impl in the current module/interner. These fields keep
+    // the substitution environment and projection-impl context in one place.
+    trait_generics: &'a [String],
+    trait_args: &'a [nia_ids::InternedTyId],
+    self_ty: nia_ids::InternedTyId,
+    trait_id: GlobalDefId,
+    extend: &'a nia_ast::ExtendItem,
 }
 
 #[derive(Clone, Copy)]

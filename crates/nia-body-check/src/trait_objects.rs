@@ -8,6 +8,16 @@ use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{TraitId, TyKind};
 
+struct ObjectSafetyCheck<'a> {
+    span: Span,
+    // A synthetic `Self` marker lets object-safety checks detect uses of
+    // receiver Self in parameter and return positions after generic
+    // substitution, without coupling the check to source spelling.
+    self_ty: InternedTyId,
+    visiting: &'a mut Vec<nia_ids::GlobalDefId>,
+    ok: &'a mut bool,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(crate) fn coerce_trait_object_to_supertrait(
         &mut self,
@@ -174,14 +184,17 @@ impl<'a> BodyChecker<'a> {
         let self_ty = self
             .interner
             .intern(TyKind::GenericParam("Self".to_string()));
+        let mut visiting = Vec::new();
         self.check_object_safe_trait_signature(
-            span,
+            &mut ObjectSafetyCheck {
+                span,
+                self_ty,
+                visiting: &mut visiting,
+                ok: &mut ok,
+            },
             source_trait_id,
             &trait_signature,
             trait_args,
-            self_ty,
-            &mut Vec::new(),
-            &mut ok,
         );
         ok
     }
@@ -243,18 +256,15 @@ impl<'a> BodyChecker<'a> {
 
     fn check_object_safe_trait_signature(
         &mut self,
-        span: Span,
+        check: &mut ObjectSafetyCheck<'_>,
         trait_id: nia_ids::GlobalDefId,
         trait_signature: &nia_item_signatures::TraitSignature,
         trait_args: &[InternedTyId],
-        self_ty: InternedTyId,
-        visiting: &mut Vec<nia_ids::GlobalDefId>,
-        ok: &mut bool,
     ) {
-        if visiting.contains(&trait_id) {
+        if check.visiting.contains(&trait_id) {
             return;
         }
-        visiting.push(trait_id);
+        check.visiting.push(trait_id);
         for method in &trait_signature.methods {
             if method
                 .signature
@@ -263,25 +273,25 @@ impl<'a> BodyChecker<'a> {
                 .is_none_or(|param| param.receiver.is_none())
             {
                 self.diagnostics.push(Diagnostic::error(
-                    span,
+                    check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has no receiver",
                         self.nominal_ty_name(trait_id, trait_args),
                         method.name
                     ),
                 ));
-                *ok = false;
+                *check.ok = false;
             }
             if !method.signature.generics.is_empty() {
                 self.diagnostics.push(Diagnostic::error(
-                    span,
+                    check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` has method generics",
                         self.nominal_ty_name(trait_id, trait_args),
                         method.name
                     ),
                 ));
-                *ok = false;
+                *check.ok = false;
             }
             if method
                 .signature
@@ -290,42 +300,42 @@ impl<'a> BodyChecker<'a> {
                 .is_some_and(|param| param.receiver == Some(nia_ast::ReceiverKind::Value))
             {
                 self.diagnostics.push(Diagnostic::error(
-                    span,
+                    check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` takes `self` by value",
                         self.nominal_ty_name(trait_id, trait_args),
                         method.name
                     ),
                 ));
-                *ok = false;
+                *check.ok = false;
             }
             let substitutions = self.generic_substitutions(&trait_signature.generics, trait_args);
             for param in method.signature.params.iter().skip(1) {
                 let ty = self.substitute_generics(param.ty, &substitutions);
-                if self.type_mentions_self(ty, self_ty) {
+                if self.type_mentions_self(ty, check.self_ty) {
                     self.diagnostics.push(Diagnostic::error(
-                        span,
+                        check.span,
                         format!(
                             "trait `{}` is not object safe because method `{}` mentions `Self` outside the receiver",
                             self.nominal_ty_name(trait_id, trait_args),
                             method.name
                         ),
                     ));
-                    *ok = false;
+                    *check.ok = false;
                 }
             }
             let return_type =
                 self.substitute_generics(method.signature.return_type, &substitutions);
-            if self.type_mentions_self(return_type, self_ty) {
+            if self.type_mentions_self(return_type, check.self_ty) {
                 self.diagnostics.push(Diagnostic::error(
-                    span,
+                    check.span,
                     format!(
                         "trait `{}` is not object safe because method `{}` returns `Self`",
                         self.nominal_ty_name(trait_id, trait_args),
                         method.name
                     ),
                 ));
-                *ok = false;
+                *check.ok = false;
             }
         }
         let substitutions = self.generic_substitutions(&trait_signature.generics, trait_args);
@@ -345,16 +355,13 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
             self.check_object_safe_trait_signature(
-                span,
+                check,
                 supertrait_id,
                 &supertrait_signature,
                 &supertrait_args,
-                self_ty,
-                visiting,
-                ok,
             );
         }
-        visiting.pop();
+        check.visiting.pop();
     }
 
     fn type_mentions_self(&mut self, ty: InternedTyId, self_ty: InternedTyId) -> bool {

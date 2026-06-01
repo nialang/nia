@@ -376,15 +376,12 @@ impl Parser {
                 break;
             }
             let mut bounds = Vec::new();
-            loop {
-                let Some(bound) = self.parse_type_until(&[
-                    TokenKind::Comma,
-                    TokenKind::Plus,
-                    TokenKind::LBrace,
-                    TokenKind::Semicolon,
-                ]) else {
-                    break;
-                };
+            while let Some(bound) = self.parse_type_until(&[
+                TokenKind::Comma,
+                TokenKind::Plus,
+                TokenKind::LBrace,
+                TokenKind::Semicolon,
+            ]) {
                 let end = bound.span.end;
                 bounds.push(bound);
                 if self.eat(TokenKind::Plus).is_some() {

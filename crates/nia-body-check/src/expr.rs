@@ -11,6 +11,16 @@ use nia_span::Span;
 use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
+struct BuiltinOperatorFinish<'a> {
+    span: Span,
+    trait_id: BuiltinTrait,
+    lhs: &'a Expr,
+    lhs_actual: InternedTyId,
+    rhs: &'a Expr,
+    rhs_actual: InternedTyId,
+    expected: Option<InternedTyId>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(crate) fn check_expr(&mut self, expr: &Expr) -> InternedTyId {
         self.check_expr_with_expected(expr, None)
@@ -511,9 +521,15 @@ impl<'a> BodyChecker<'a> {
                 .unwrap_or(rhs_actual);
             let lhs_actual = self.check_expr_with_expected(lhs, Some(rhs_ty));
             self.expect_expr_type(lhs, rhs_ty, lhs_actual, "binary operator");
-            return self.finish_builtin_operator_expr(
-                span, trait_id, lhs, lhs_actual, rhs, rhs_actual, expected,
-            );
+            return self.finish_builtin_operator_expr(BuiltinOperatorFinish {
+                span,
+                trait_id,
+                lhs,
+                lhs_actual,
+                rhs,
+                rhs_actual,
+                expected,
+            });
         }
 
         let lhs_expected = (!output_is_bool).then_some(()).and_then(|_| {
@@ -541,61 +557,58 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = rhs_expected {
             self.expect_expr_type(rhs, expected, rhs_actual, "binary operator");
         }
-        self.finish_builtin_operator_expr(
-            span, trait_id, lhs, lhs_actual, rhs, rhs_actual, expected,
-        )
+        self.finish_builtin_operator_expr(BuiltinOperatorFinish {
+            span,
+            trait_id,
+            lhs,
+            lhs_actual,
+            rhs,
+            rhs_actual,
+            expected,
+        })
     }
 
-    fn finish_builtin_operator_expr(
-        &mut self,
-        span: Span,
-        trait_id: BuiltinTrait,
-        lhs: &Expr,
-        lhs_actual: InternedTyId,
-        rhs: &Expr,
-        rhs_actual: InternedTyId,
-        expected: Option<InternedTyId>,
-    ) -> InternedTyId {
+    fn finish_builtin_operator_expr(&mut self, finish: BuiltinOperatorFinish<'_>) -> InternedTyId {
         let lhs_ty = self
             .expr_types
-            .get(&lhs.span)
+            .get(&finish.lhs.span)
             .copied()
-            .unwrap_or(lhs_actual);
+            .unwrap_or(finish.lhs_actual);
         let rhs_ty = self
             .expr_types
-            .get(&rhs.span)
+            .get(&finish.rhs.span)
             .copied()
-            .unwrap_or(rhs_actual);
+            .unwrap_or(finish.rhs_actual);
 
         let trait_args = vec![rhs_ty];
         if !self.current_context_proves_trait_obligation(
             lhs_ty,
-            TraitId::Builtin(trait_id),
+            TraitId::Builtin(finish.trait_id),
             trait_args.clone(),
         ) {
             self.diagnostics.push(Diagnostic::error(
-                span,
+                finish.span,
                 format!(
                     "trait bound not satisfied: {}: {}",
                     self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(trait_id, &trait_args)
+                    self.builtin_trait_ty_name(finish.trait_id, &trait_args)
                 ),
             ));
         }
 
-        let output = if builtin_trait_output_is_bool(trait_id) {
+        let output = if builtin_trait_output_is_bool(finish.trait_id) {
             self.bool()
         } else {
             let output = self.interner.intern(TyKind::Projection {
                 self_ty: lhs_ty,
-                trait_id: TraitId::Builtin(trait_id),
+                trait_id: TraitId::Builtin(finish.trait_id),
                 trait_args,
                 name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
             });
             self.normalize_projection(output)
         };
-        if let Some(expected) = expected {
-            self.expect_type(span, expected, output, "binary operator");
+        if let Some(expected) = finish.expected {
+            self.expect_type(finish.span, expected, output, "binary operator");
         }
         output
     }

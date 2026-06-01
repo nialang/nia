@@ -55,7 +55,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.builtin_place_impl_method_for_target(
                     target,
                     trait_id,
-                    &trait_args,
+                    trait_args,
                     method.name(),
                     self_ty,
                 )
