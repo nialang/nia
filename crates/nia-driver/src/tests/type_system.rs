@@ -406,17 +406,61 @@ fn main() i32 {
 "#,
     );
 
-    let program = check_program_with_options(
-        root.join("main.nia").to_string_lossy().into_owned(),
-        NiaOptimizationLevel::O3,
+    let path = root.join("main.nia").to_string_lossy().into_owned();
+    let default_program = check_program(path.clone());
+    assert!(
+        default_program.diagnostics.is_empty(),
+        "{:?}",
+        default_program.diagnostics
+    );
+    assert_eq!(
+        default_program.optimization,
+        NiaOptimizationLevel::default().policy()
+    );
+    assert_eq!(
+        default_program.backend_lowering.optimization,
+        NiaOptimizationLevel::default().policy()
     );
 
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert_eq!(program.optimization, NiaOptimizationLevel::O3.policy());
-    assert_eq!(
-        program.backend_lowering.optimization,
-        NiaOptimizationLevel::O3.policy()
-    );
+    for level in [
+        NiaOptimizationLevel::O0,
+        NiaOptimizationLevel::O1,
+        NiaOptimizationLevel::O2,
+        NiaOptimizationLevel::O3,
+        NiaOptimizationLevel::Os,
+        NiaOptimizationLevel::Oz,
+    ] {
+        let program = check_program_with_options(path.clone(), level);
+
+        assert!(
+            program.diagnostics.is_empty(),
+            "{level:?}: {:?}",
+            program.diagnostics
+        );
+        assert_eq!(program.optimization, level.policy(), "{level:?}");
+        assert_eq!(
+            program.backend_lowering.optimization,
+            level.policy(),
+            "{level:?}"
+        );
+        assert_eq!(
+            program
+                .backend_lowering
+                .optimization_report
+                .enabled_global_passes,
+            if level.policy().prefer_size
+                || level
+                    .policy()
+                    .const_fold
+                    .at_least(nia_opt::OptimizationDepth::Full)
+            {
+                vec!["simplify-static-init"]
+            } else {
+                Vec::new()
+            },
+            "{level:?}"
+        );
+    }
 }
 
 #[test]
