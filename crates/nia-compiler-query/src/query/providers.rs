@@ -593,6 +593,7 @@ pub(super) fn provide_monomorphization(
                 defs: &module.defs,
                 interner: &module.body_check.ir.interner,
                 comptime: &module.comptime,
+                const_exprs: &module.type_lowering.const_exprs,
                 instantiations: &module.body_check.ir.generic_instantiations,
             })
             .collect::<Vec<_>>(),

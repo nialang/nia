@@ -457,6 +457,7 @@ dependencies = [
 name = "nia-monomorphize"
 version = "0.3.0"
 dependencies = [
+ "nia-ast",
  "nia-body-ir",
  "nia-comptime-check",
  "nia-defs",
