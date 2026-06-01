@@ -589,6 +589,66 @@ fn main() i32 {
 }
 
 #[test]
+fn o1_removes_same_type_backend_casts() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let value = first_terminal_value_mut(body);
+            let original = value.clone();
+            value.kind = FunctionExprKind::Cast {
+                expr: Box::new(original),
+                ty: value.ty,
+            };
+        },
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+    let value = first_terminal_value(body);
+
+    assert!(!matches!(value.kind, FunctionExprKind::Cast { .. }));
+}
+
+#[test]
+fn o0_preserves_same_type_backend_casts() {
+    let source = r#"
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let value = first_terminal_value_mut(body);
+            let original = value.clone();
+            value.kind = FunctionExprKind::Cast {
+                expr: Box::new(original),
+                ty: value.ty,
+            };
+        },
+        nia_opt::OptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+    let value = first_terminal_value(body);
+
+    assert!(matches!(value.kind, FunctionExprKind::Cast { .. }));
+}
+
+#[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
 comptime N: usize = 3;
@@ -779,4 +839,36 @@ fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
         trait_impls: &[],
     };
     lower_backend_program(&[input], &monomorphization, optimization)
+}
+
+fn first_terminal_value(body: &nia_function_ir::FunctionBody) -> &nia_function_ir::FunctionExpr {
+    body.blocks
+        .iter()
+        .find_map(|block| match &block.terminator {
+            FunctionTerminator::Return {
+                value: Some(value), ..
+            }
+            | FunctionTerminator::Tail {
+                value: Some(value), ..
+            } => Some(value),
+            _ => None,
+        })
+        .expect("terminal value")
+}
+
+fn first_terminal_value_mut(
+    body: &mut nia_function_ir::FunctionBody,
+) -> &mut nia_function_ir::FunctionExpr {
+    body.blocks
+        .iter_mut()
+        .find_map(|block| match &mut block.terminator {
+            FunctionTerminator::Return {
+                value: Some(value), ..
+            }
+            | FunctionTerminator::Tail {
+                value: Some(value), ..
+            } => Some(value),
+            _ => None,
+        })
+        .expect("terminal value")
 }
