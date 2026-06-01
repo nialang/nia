@@ -45,6 +45,7 @@ enum BackendOptPass {
     RemoveNeverReadLocalStores,
     RemoveUnusedLocalBindings,
     FoldConstantBoolBranches,
+    FoldConstantSwitches,
     SimplifyTrivialBranches,
     SimplifySameTargetSwitches,
     MergeEmptyJumpBlocks,
@@ -63,6 +64,7 @@ impl BackendOptPass {
             Self::RemoveNeverReadLocalStores => "remove-never-read-local-stores",
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
             Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
+            Self::FoldConstantSwitches => "fold-constant-switches",
             Self::SimplifyTrivialBranches => "simplify-trivial-branches",
             Self::SimplifySameTargetSwitches => "simplify-same-target-switches",
             Self::MergeEmptyJumpBlocks => "merge-empty-jump-blocks",
@@ -81,6 +83,7 @@ impl BackendOptPass {
             Self::RemoveNeverReadLocalStores => remove_never_read_local_stores(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
             Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
+            Self::FoldConstantSwitches => fold_constant_switches(&mut body.blocks),
             Self::SimplifyTrivialBranches => simplify_trivial_branches(&mut body.blocks),
             Self::SimplifySameTargetSwitches => simplify_same_target_switches(&mut body.blocks),
             Self::MergeEmptyJumpBlocks => merge_empty_jump_blocks(body),
@@ -105,6 +108,10 @@ impl BackendOptPass {
                 at_least(policy.dead_code_elim, OptimizationDepth::Full)
             }
             Self::FoldConstantBoolBranches => at_least(policy.const_fold, OptimizationDepth::Cheap),
+            Self::FoldConstantSwitches => {
+                at_least(policy.const_fold, OptimizationDepth::Full)
+                    && at_least(policy.simplify_cfg, OptimizationDepth::Full)
+            }
             Self::SimplifyTrivialBranches
             | Self::MergeEmptyJumpBlocks
             | Self::RemoveUnreachableBlocks
@@ -152,6 +159,7 @@ const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::FoldConstantSwitches,
     BackendOptPass::SimplifyTrivialBranches,
     BackendOptPass::SimplifySameTargetSwitches,
     BackendOptPass::MergeEmptyJumpBlocks,
@@ -195,6 +203,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNeverReadLocalStores,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::FoldConstantSwitches,
     BackendOptPass::SimplifyTrivialBranches,
     BackendOptPass::SimplifySameTargetSwitches,
     BackendOptPass::MergeEmptyJumpBlocks,
@@ -1699,6 +1708,127 @@ fn fold_constant_bool_branches(blocks: &mut [FunctionBlock]) -> bool {
     changed
 }
 
+fn fold_constant_switches(blocks: &mut [FunctionBlock]) -> bool {
+    let mut changed = false;
+    for block in blocks {
+        for op in &mut block.ops {
+            if let FunctionOp::Defer(body) = op {
+                changed |= fold_constant_switches(&mut body.blocks);
+            }
+        }
+        if let FunctionTerminator::Switch {
+            target,
+            arms,
+            default,
+            fallback,
+            span,
+        } = &block.terminator
+            && let Some(target_value) = switch_constant_value(target)
+            && let Some(selected) = constant_switch_target(&target_value, arms, *default, *fallback)
+        {
+            block.terminator = FunctionTerminator::Branch {
+                target: selected,
+                span: *span,
+            };
+            changed = true;
+        }
+    }
+    changed
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SwitchConstantValue {
+    Integer(i128),
+    Bool(bool),
+    Char(u32),
+    Byte(u8),
+    EnumVariant(nia_ids::GlobalDefId),
+}
+
+fn constant_switch_target(
+    target: &SwitchConstantValue,
+    arms: &[nia_function_ir::FunctionSwitchArm],
+    default: Option<FunctionBlockId>,
+    fallback: FunctionBlockId,
+) -> Option<FunctionBlockId> {
+    let patterns = arms
+        .iter()
+        .map(|arm| switch_constant_value(&arm.pattern))
+        .collect::<Option<Vec<_>>>()?;
+    for (arm, pattern) in arms.iter().zip(patterns) {
+        if pattern == *target {
+            return Some(arm.target);
+        }
+    }
+    Some(default.unwrap_or(fallback))
+}
+
+fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
+    match &expr.kind {
+        FunctionExprKind::Integer(text) => nia_comptime_engine::eval_int_literal(text)
+            .ok()
+            .map(SwitchConstantValue::Integer),
+        FunctionExprKind::Bool(value) => Some(SwitchConstantValue::Bool(*value)),
+        FunctionExprKind::Char(value) => Some(SwitchConstantValue::Char(*value)),
+        FunctionExprKind::ByteChar(text) => {
+            decode_byte_char_literal(text).map(SwitchConstantValue::Byte)
+        }
+        FunctionExprKind::EnumVariant(def_id) => Some(SwitchConstantValue::EnumVariant(*def_id)),
+        FunctionExprKind::Error
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::BuiltinValue(_)
+        | FunctionExprKind::Discard(_)
+        | FunctionExprKind::Range(_)
+        | FunctionExprKind::ArrayLiteral { .. }
+        | FunctionExprKind::StructLiteral { .. }
+        | FunctionExprKind::UnionLiteral { .. }
+        | FunctionExprKind::Unary { .. }
+        | FunctionExprKind::Binary { .. }
+        | FunctionExprKind::Cast { .. }
+        | FunctionExprKind::InlineAsm(_)
+        | FunctionExprKind::CStringPointer { .. }
+        | FunctionExprKind::AddrOf(_)
+        | FunctionExprKind::Assign { .. }
+        | FunctionExprKind::TraitObjectUpcast { .. }
+        | FunctionExprKind::TraitObjectCoercion { .. }
+        | FunctionExprKind::Call { .. }
+        | FunctionExprKind::Field { .. }
+        | FunctionExprKind::Index { .. }
+        | FunctionExprKind::Slice { .. } => None,
+    }
+}
+
+fn decode_byte_char_literal(text: &str) -> Option<u8> {
+    let inner = text.strip_prefix("b'")?.strip_suffix('\'')?;
+    let mut chars = inner.chars();
+    let ch = match chars.next()? {
+        '\\' => match chars.next()? {
+            'n' => b'\n',
+            'r' => b'\r',
+            't' => b'\t',
+            '\\' => b'\\',
+            '\'' => b'\'',
+            '"' => b'"',
+            '0' => b'\0',
+            'x' => {
+                let hi = chars.next()?.to_digit(16)?;
+                let lo = chars.next()?.to_digit(16)?;
+                ((hi << 4) | lo) as u8
+            }
+            _ => return None,
+        },
+        ch if ch.is_ascii() => ch as u8,
+        _ => return None,
+    };
+    chars.next().is_none().then_some(ch)
+}
+
 fn simplify_trivial_branches(blocks: &mut [FunctionBlock]) -> bool {
     let mut changed = false;
     for block in blocks {
@@ -2127,6 +2257,54 @@ mod tests {
             pipeline
                 .passes
                 .contains(&BackendOptPass::SimplifySameTargetSwitches)
+        );
+    }
+
+    #[test]
+    fn constant_switch_folding_requires_full_const_and_cfg_policy() {
+        let policy = nia_opt::OptimizationPolicy {
+            level: NiaOptimizationLevel::O2,
+            simplify_cfg: OptimizationDepth::Full,
+            const_fold: OptimizationDepth::Cheap,
+            dead_code_elim: OptimizationDepth::Disabled,
+            local_copy_prop: OptimizationDepth::Disabled,
+            inline_threshold: nia_opt::InlineThreshold::Never,
+            specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+            dedup_monomorphized_instances: false,
+            prefer_size: false,
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            !pipeline
+                .passes
+                .contains(&BackendOptPass::FoldConstantSwitches)
+        );
+
+        let policy = nia_opt::OptimizationPolicy {
+            const_fold: OptimizationDepth::Full,
+            simplify_cfg: OptimizationDepth::Cheap,
+            ..policy
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            !pipeline
+                .passes
+                .contains(&BackendOptPass::FoldConstantSwitches)
+        );
+
+        let policy = nia_opt::OptimizationPolicy {
+            const_fold: OptimizationDepth::Full,
+            simplify_cfg: OptimizationDepth::Full,
+            ..policy
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert!(
+            pipeline
+                .passes
+                .contains(&BackendOptPass::FoldConstantSwitches)
         );
     }
 
@@ -3206,6 +3384,276 @@ mod tests {
             }
         ));
         validate_function_body(&body).expect("same-target switch body should remain valid");
+    }
+
+    #[test]
+    fn folds_constant_switch_to_matching_arm() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Switch {
+                    target: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("0x2".to_string()),
+                    },
+                    arms: vec![
+                        nia_function_ir::FunctionSwitchArm {
+                            pattern: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Integer("1".to_string()),
+                            },
+                            target: FunctionBlockId(1),
+                        },
+                        nia_function_ir::FunctionSwitchArm {
+                            pattern: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Integer("2".to_string()),
+                            },
+                            target: FunctionBlockId(2),
+                        },
+                    ],
+                    default: Some(FunctionBlockId(3)),
+                    fallback: FunctionBlockId(4),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(2),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(3),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(4),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        assert!(fold_constant_switches(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(2),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("constant switch body should remain valid");
+    }
+
+    #[test]
+    fn folds_constant_switch_to_default_or_fallback() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut with_default = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Switch {
+                    target: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Bool(false),
+                    },
+                    arms: vec![nia_function_ir::FunctionSwitchArm {
+                        pattern: FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Bool(true),
+                        },
+                        target: FunctionBlockId(1),
+                    }],
+                    default: Some(FunctionBlockId(2)),
+                    fallback: FunctionBlockId(3),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(2),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(3),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        assert!(fold_constant_switches(&mut with_default.blocks));
+        assert!(matches!(
+            with_default.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(2),
+                ..
+            }
+        ));
+
+        let mut without_default = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Switch {
+                    target: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Char('b' as u32),
+                    },
+                    arms: vec![nia_function_ir::FunctionSwitchArm {
+                        pattern: FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Char('a' as u32),
+                        },
+                        target: FunctionBlockId(1),
+                    }],
+                    default: None,
+                    fallback: FunctionBlockId(2),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(2),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        assert!(fold_constant_switches(&mut without_default.blocks));
+        assert!(matches!(
+            without_default.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(2),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn preserves_constant_switch_when_any_pattern_is_not_constant() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Switch {
+                    target: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Integer("2".to_string()),
+                    },
+                    arms: vec![
+                        nia_function_ir::FunctionSwitchArm {
+                            pattern: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Integer("1".to_string()),
+                            },
+                            target: FunctionBlockId(1),
+                        },
+                        nia_function_ir::FunctionSwitchArm {
+                            pattern: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Call {
+                                    callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                                        module_id: nia_ids::ModuleId(0),
+                                        def_id: nia_ids::DefId(0),
+                                    }),
+                                    args: Vec::new(),
+                                },
+                            },
+                            target: FunctionBlockId(2),
+                        },
+                    ],
+                    default: Some(FunctionBlockId(3)),
+                    fallback: FunctionBlockId(3),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(2),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(3),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+
+        assert!(!fold_constant_switches(&mut body.blocks));
+
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::Switch { .. }
+        ));
+        validate_function_body(&body).expect("unfolded switch body should remain valid");
     }
 
     #[test]
