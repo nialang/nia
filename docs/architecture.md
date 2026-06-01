@@ -152,7 +152,8 @@ Current Nia-owned optimization consumers:
   monomorphized instance. This is the stable observability hook for reviewing
   pass behavior without embedding full before/after IR snapshots in normal
   compiler output. `niac check --emit-opt-report` prints this report for direct
-  CLI inspection.
+  CLI inspection, and `niac emit llvm --emit-opt-report` writes the same report
+  to stderr so stdout remains machine-readable LLVM IR.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,
@@ -680,6 +681,11 @@ Global optimization options are listed explicitly in CLI help:
 -Os
 -Oz
 ```
+
+`niac check --emit-opt-report` prints backend optimization changes to stdout.
+`niac emit llvm --emit-opt-report` prints the same report to stderr while leaving
+stdout as LLVM IR, which is useful when reviewing pass behavior next to emitted
+code.
 
 `emit obj` may produce multiple object files because backend lowering can produce
 multiple codegen units. `-o` is only valid for single-unit output; `--out-dir` is

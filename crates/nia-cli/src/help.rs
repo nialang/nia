@@ -157,11 +157,31 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::EmitLlvm => HelpDoc {
             title: "niac emit llvm",
             about: "Run checking and write LLVM IR for all codegen units to stdout.",
-            usage: &["niac emit llvm <file.nia> [options]"],
+            usage: &["niac emit llvm <file.nia> [--emit-opt-report] [options]"],
             commands: &[],
-            options: GLOBAL_OPTIONS,
-            examples: &["niac emit llvm src/main.nia"],
-            notes: &[],
+            options: &[
+                HelpRow {
+                    left: "--emit-opt-report",
+                    right: "print backend optimization passes to stderr",
+                },
+                HelpRow {
+                    left: OPTIMIZATION_OPTION_HELP,
+                    right: "set optimization level; -O means -O2",
+                },
+                HelpRow {
+                    left: "-M, --module <name=path>",
+                    right: "map an import root; may appear anywhere",
+                },
+                HelpRow {
+                    left: "-h, --help",
+                    right: "show this help text",
+                },
+            ],
+            examples: &[
+                "niac emit llvm src/main.nia",
+                "niac -O2 emit llvm src/main.nia --emit-opt-report",
+            ],
+            notes: &["The optimization report is written to stderr so stdout remains LLVM IR."],
         },
         HelpTopic::EmitObj => HelpDoc {
             title: "niac emit obj",

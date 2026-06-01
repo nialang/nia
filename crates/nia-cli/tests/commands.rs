@@ -235,6 +235,47 @@ fn main() i32 {
 }
 
 #[test]
+fn emit_llvm_can_emit_backend_optimization_report_to_stderr() {
+    let root = temp_dir("emit_llvm_can_emit_backend_optimization_report_to_stderr");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn answer() i32 {
+    42
+}
+
+fn main() i32 {
+    answer()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O1")
+        .arg("emit")
+        .arg("llvm")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac emit llvm --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stdout.contains("define i32 @"), "{stdout}");
+    assert!(!stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
+}
+
+#[test]
 fn emit_obj_writes_native_object() {
     let root = temp_dir("emit_obj_writes_native_object");
     let main = root.join("main.nia");
