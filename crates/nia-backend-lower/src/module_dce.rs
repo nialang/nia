@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{BackendOptimizationChange, ModuleLowerer};
 use nia_ast::Visibility;
@@ -176,29 +176,70 @@ fn collect_transitive_refs(
     instances: &[BackendFunctionInstance],
     refs: &mut FunctionRefs,
 ) {
+    let functions_by_id = functions
+        .iter()
+        .map(|function| (function.def_id, function))
+        .collect::<HashMap<_, _>>();
+    let instances_by_ref = instances
+        .iter()
+        .map(|instance| (FunctionInstanceRef::from(instance), instance))
+        .collect::<HashMap<_, _>>();
     let mut visited_functions = HashSet::new();
     let mut visited_instances = HashSet::new();
-    loop {
-        let mut changed = false;
-        for function in functions {
-            if !refs.functions.contains(&function.def_id)
-                || !visited_functions.insert(function.def_id)
-            {
+    let mut pending_functions = refs.functions.iter().copied().collect::<VecDeque<_>>();
+    let mut pending_instances = refs.instances.iter().cloned().collect::<VecDeque<_>>();
+
+    while !pending_functions.is_empty() || !pending_instances.is_empty() {
+        while let Some(function_id) = pending_functions.pop_front() {
+            if !visited_functions.insert(function_id) {
                 continue;
             }
-            collect_function_refs_from_optional_body(&function.function_body, refs);
-            changed = true;
+            let Some(function) = functions_by_id.get(&function_id) else {
+                continue;
+            };
+            let mut discovered = FunctionRefs::default();
+            collect_function_refs_from_optional_body(&function.function_body, &mut discovered);
+            enqueue_new_refs(
+                refs,
+                discovered,
+                &mut pending_functions,
+                &mut pending_instances,
+            );
         }
-        for instance in instances {
-            let key = FunctionInstanceRef::from(instance);
-            if !refs.instances.contains(&key) || !visited_instances.insert(key) {
+
+        while let Some(instance_ref) = pending_instances.pop_front() {
+            if !visited_instances.insert(instance_ref.clone()) {
                 continue;
             }
-            collect_function_refs_from_optional_body(&instance.function_body, refs);
-            changed = true;
+            let Some(instance) = instances_by_ref.get(&instance_ref) else {
+                continue;
+            };
+            let mut discovered = FunctionRefs::default();
+            collect_function_refs_from_optional_body(&instance.function_body, &mut discovered);
+            enqueue_new_refs(
+                refs,
+                discovered,
+                &mut pending_functions,
+                &mut pending_instances,
+            );
         }
-        if !changed {
-            break;
+    }
+}
+
+fn enqueue_new_refs(
+    refs: &mut FunctionRefs,
+    discovered: FunctionRefs,
+    pending_functions: &mut VecDeque<GlobalDefId>,
+    pending_instances: &mut VecDeque<FunctionInstanceRef>,
+) {
+    for function in discovered.functions {
+        if refs.functions.insert(function) {
+            pending_functions.push_back(function);
+        }
+    }
+    for instance in discovered.instances {
+        if refs.instances.insert(instance.clone()) {
+            pending_instances.push_back(instance);
         }
     }
 }
