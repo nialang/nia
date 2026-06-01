@@ -15,11 +15,13 @@ pub(super) use nia_function_ir::{
     FunctionFieldInit, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionScope,
     FunctionScopeId, FunctionTerminator,
 };
-pub(super) use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId};
+pub(super) use nia_ids::{
+    BuiltinTraitMethod, ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId,
+};
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
-pub(super) use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyKind};
+pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
 
 pub(super) struct EmitSmokeCase {
     pub(super) name: &'static str,

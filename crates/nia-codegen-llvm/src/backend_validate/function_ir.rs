@@ -6,7 +6,7 @@ use nia_function_ir::{
     FunctionTerminator, validate_function_body,
 };
 use nia_span::Span;
-use nia_ty::TyKind;
+use nia_ty::{BuiltinTrait, TyKind};
 
 use super::BackendValidator;
 
@@ -277,31 +277,53 @@ impl BackendValidator<'_> {
                 self.validate_expr(receiver);
             }
             FunctionCallee::BuiltinPlaceMethod {
+                trait_id,
+                method,
                 self_ty,
                 trait_args,
                 receiver,
-                ..
             } => {
                 self.validate_type(*self_ty, span);
                 for arg in trait_args {
                     self.validate_type(*arg, span);
                 }
                 self.validate_expr(receiver);
+                if !matches!(
+                    trait_id,
+                    BuiltinTrait::Len | BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr
+                ) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        format!(
+                            "backend IR call contains unresolved builtin place method {trait_id:?}::{method:?}"
+                        ),
+                    ));
+                }
             }
             FunctionCallee::TraitMethod {
+                trait_id,
+                method_id,
+                method_name,
                 self_ty,
                 trait_args,
                 args,
                 receiver,
-                ..
             } => {
                 self.validate_type(*self_ty, span);
                 for arg in trait_args.iter().chain(args) {
                     self.validate_type(*arg, span);
                 }
                 self.validate_expr(receiver);
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!(
+                        "backend IR call contains unresolved trait method `{method_name}` {method_id:?} on trait {trait_id:?}"
+                    ),
+                ));
             }
             FunctionCallee::FunctionPointer(expr) => self.validate_expr(expr),
+            // Intrinsic value operators are intentionally selected in LLVM codegen; backend
+            // lowering only rewrites them when a source-level extension method wins dispatch.
             FunctionCallee::BuiltinOperator(_) => {}
         }
     }
