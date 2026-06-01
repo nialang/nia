@@ -915,6 +915,120 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_removes_overwritten_backend_local_stores() {
+    let source = r#"
+fn main() i32 {
+    var target = 0;
+    target
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let target_id = body
+                .locals
+                .iter()
+                .find(|local| local.name == "target")
+                .expect("target local")
+                .id;
+            let span = body.blocks[0].span;
+            let ty = body.ty;
+            body.blocks[0].ops.push(FunctionOp::StoreLocal {
+                local_id: target_id,
+                value: nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("1".to_string()),
+                },
+                span,
+            });
+            body.blocks[0].ops.push(FunctionOp::StoreLocal {
+                local_id: target_id,
+                value: nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("2".to_string()),
+                },
+                span,
+            });
+        },
+        nia_opt::OptimizationLevel::O2.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert_eq!(
+        body.blocks
+            .iter()
+            .flat_map(|block| &block.ops)
+            .filter(|op| matches!(op, FunctionOp::StoreLocal { .. }))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn o1_preserves_overwritten_backend_local_stores() {
+    let source = r#"
+fn main() i32 {
+    var target = 0;
+    target
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |body| {
+            let target_id = body
+                .locals
+                .iter()
+                .find(|local| local.name == "target")
+                .expect("target local")
+                .id;
+            let span = body.blocks[0].span;
+            let ty = body.ty;
+            body.blocks[0].ops.push(FunctionOp::StoreLocal {
+                local_id: target_id,
+                value: nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("1".to_string()),
+                },
+                span,
+            });
+            body.blocks[0].ops.push(FunctionOp::StoreLocal {
+                local_id: target_id,
+                value: nia_function_ir::FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Integer("2".to_string()),
+                },
+                span,
+            });
+        },
+        nia_opt::OptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert_eq!(
+        body.blocks
+            .iter()
+            .flat_map(|block| &block.ops)
+            .filter(|op| matches!(op, FunctionOp::StoreLocal { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn o2_removes_never_read_backend_local_stores() {
     let source = r#"
 fn main() i32 {
