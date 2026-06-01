@@ -3,9 +3,9 @@ pub(super) use crate::{
     LlvmCodegenOptions, catch_llvm_codegen_ice, emit_llvm_ir, emit_llvm_ir_with_options,
 };
 pub(super) use nia_backend_ir::{
-    BackendField, BackendFunction, BackendGlobal, BackendLayouts, BackendModule, BackendParam,
-    BackendProgram, BackendStruct, BackendTraitObjectVtable, BackendTraitObjectVtableEntry,
-    BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
+    BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendGlobal, BackendLayouts,
+    BackendModule, BackendParam, BackendProgram, BackendStruct, BackendTraitObjectVtable,
+    BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
 };
 pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
 pub(super) use nia_comptime_check::ComptimeCheck;
@@ -16,6 +16,7 @@ pub(super) use nia_function_ir::{
 pub(super) use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId};
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 pub(super) use nia_span::Span;
+pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
 pub(super) use nia_ty::{ArrayLenTy, PrimitiveTy, TraitId, TyKind};
 
 pub(super) struct EmitSmokeCase {
