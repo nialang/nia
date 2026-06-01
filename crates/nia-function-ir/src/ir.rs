@@ -462,12 +462,12 @@ impl FunctionBody {
     ) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         let to = self.block(to)?.scope;
-        self.exited_scopes_between(from, Some(to))
+        exited_scopes_between(&self.scopes, from, Some(to))
     }
 
     pub fn return_exited_scopes(&self, from: FunctionBlockId) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
-        self.exited_scopes_between(from, None)
+        exited_scopes_between(&self.scopes, from, None)
     }
 
     pub fn exited_scopes_between(
@@ -475,31 +475,7 @@ impl FunctionBody {
         from: FunctionScopeId,
         to: Option<FunctionScopeId>,
     ) -> Option<Vec<FunctionScopeId>> {
-        let from_chain = self.scope_chain_to_root(from)?;
-        let to_chain = match to {
-            Some(scope) => self.scope_chain_to_root(scope)?,
-            None => Vec::new(),
-        };
-        let lca = from_chain
-            .iter()
-            .find(|scope| to_chain.contains(scope))
-            .copied();
-        Some(
-            from_chain
-                .into_iter()
-                .take_while(|scope| Some(*scope) != lca)
-                .collect(),
-        )
-    }
-
-    fn scope_chain_to_root(&self, scope: FunctionScopeId) -> Option<Vec<FunctionScopeId>> {
-        let mut chain = Vec::new();
-        let mut current = Some(scope);
-        while let Some(scope) = current {
-            chain.push(scope);
-            current = self.scope(scope)?.parent;
-        }
-        Some(chain)
+        exited_scopes_between(&self.scopes, from, to)
     }
 }
 
@@ -519,12 +495,12 @@ impl FunctionDeferBody {
     ) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
         let to = self.block(to)?.scope;
-        self.exited_scopes_between(from, Some(to))
+        exited_scopes_between(&self.scopes, from, Some(to))
     }
 
     pub fn return_exited_scopes(&self, from: FunctionBlockId) -> Option<Vec<FunctionScopeId>> {
         let from = self.block(from)?.scope;
-        self.exited_scopes_between(from, None)
+        exited_scopes_between(&self.scopes, from, None)
     }
 
     pub fn exited_scopes_between(
@@ -532,30 +508,46 @@ impl FunctionDeferBody {
         from: FunctionScopeId,
         to: Option<FunctionScopeId>,
     ) -> Option<Vec<FunctionScopeId>> {
-        let from_chain = self.scope_chain_to_root(from)?;
-        let to_chain = match to {
-            Some(scope) => self.scope_chain_to_root(scope)?,
-            None => Vec::new(),
-        };
-        let lca = from_chain
-            .iter()
-            .find(|scope| to_chain.contains(scope))
-            .copied();
-        Some(
-            from_chain
-                .into_iter()
-                .take_while(|scope| Some(*scope) != lca)
-                .collect(),
-        )
+        exited_scopes_between(&self.scopes, from, to)
     }
+}
 
-    fn scope_chain_to_root(&self, scope: FunctionScopeId) -> Option<Vec<FunctionScopeId>> {
-        let mut chain = Vec::new();
-        let mut current = Some(scope);
-        while let Some(scope) = current {
-            chain.push(scope);
-            current = self.scope(scope)?.parent;
-        }
-        Some(chain)
+fn exited_scopes_between(
+    scopes: &[FunctionScope],
+    from: FunctionScopeId,
+    to: Option<FunctionScopeId>,
+) -> Option<Vec<FunctionScopeId>> {
+    let from_chain = scope_chain_to_root(scopes, from)?;
+    let to_chain = match to {
+        Some(scope) => scope_chain_to_root(scopes, scope)?,
+        None => Vec::new(),
+    };
+    let lca = from_chain
+        .iter()
+        .find(|scope| to_chain.contains(scope))
+        .copied();
+    // Defer emission treats scope exit as stack unwinding: leave the source scope first,
+    // then its parents, stopping before the lowest common ancestor shared with the target.
+    Some(
+        from_chain
+            .into_iter()
+            .take_while(|scope| Some(*scope) != lca)
+            .collect(),
+    )
+}
+
+fn scope_chain_to_root(
+    scopes: &[FunctionScope],
+    scope: FunctionScopeId,
+) -> Option<Vec<FunctionScopeId>> {
+    let mut chain = Vec::new();
+    let mut current = Some(scope);
+    while let Some(scope) = current {
+        chain.push(scope);
+        current = scopes
+            .iter()
+            .find(|candidate| candidate.id == scope)?
+            .parent;
     }
+    Some(chain)
 }
