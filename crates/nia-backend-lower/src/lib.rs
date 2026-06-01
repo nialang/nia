@@ -322,11 +322,7 @@ impl<'a> ModuleLowerer<'a> {
         if def_id.module_id != self.input.module_id {
             return None;
         }
-        if args.is_empty() {
-            self.input.layouts.nominal_type_layout(*def_id, args)
-        } else {
-            self.input.layouts.nominal_type_layout(*def_id, args)
-        }
+        self.input.layouts.nominal_type_layout(*def_id, args)
     }
 
     fn error_ty(&self) -> InternedTyId {

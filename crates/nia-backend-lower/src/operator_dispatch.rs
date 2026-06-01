@@ -538,7 +538,7 @@ impl<'a> ModuleLowerer<'a> {
         if let Some((def_id, method_args)) =
             self.resolve_builtin_operator_impl_method(operator, receiver.ty, &[])
         {
-            let [receiver] = <[FunctionExpr; 1]>::try_from(args).ok().expect(
+            let [receiver] = <[FunctionExpr; 1]>::try_from(args).expect(
                 "builtin unary operator call arity was checked before dispatching to method call",
             );
             return FunctionExprKind::Call {
@@ -579,7 +579,7 @@ impl<'a> ModuleLowerer<'a> {
         if let Some((def_id, method_args)) =
             self.resolve_builtin_operator_impl_method(operator, lhs.ty, &[rhs.ty])
         {
-            let [lhs, rhs] = <[FunctionExpr; 2]>::try_from(args).ok().expect(
+            let [lhs, rhs] = <[FunctionExpr; 2]>::try_from(args).expect(
                 "builtin binary operator call arity was checked before dispatching to method call",
             );
             return FunctionExprKind::Call {

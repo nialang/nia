@@ -632,7 +632,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.trait_impl_method_for_target(
                     target,
                     trait_id,
-                    &trait_args,
+                    trait_args,
                     &trait_method_name,
                     self_ty,
                 )

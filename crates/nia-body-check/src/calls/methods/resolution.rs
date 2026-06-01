@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+struct DynamicTraitMethodSearch<'a> {
+    candidates: &'a mut Vec<DynamicTraitMethodCandidate>,
+    object_ty: InternedTyId,
+    name: &'a str,
+    // Vtable slots are assigned by walking the object trait and its
+    // supertraits in declaration order. This counter must be shared across the
+    // recursive walk so codegen indexes the same slot order that type checking
+    // recorded.
+    next_slot: &'a mut usize,
+    visiting: &'a mut Vec<TraitId>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(in crate::calls) fn method_candidates_for_struct(
         &mut self,
@@ -92,22 +104,22 @@ impl<'a> BodyChecker<'a> {
         else {
             return candidates;
         };
-        if let Some(trait_id) = self.current_trait_method_parent(current_def_id) {
-            if let Some(trait_signature) = self.resolved_trait_signature(trait_id) {
-                let trait_args = trait_signature
-                    .generics
-                    .iter()
-                    .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
-                    .collect::<Vec<_>>();
-                self.push_trait_method_candidates(
-                    &mut candidates,
-                    trait_id,
-                    trait_args,
-                    self_ty,
-                    name,
-                    &trait_signature,
-                );
-            }
+        if let Some(trait_id) = self.current_trait_method_parent(current_def_id)
+            && let Some(trait_signature) = self.resolved_trait_signature(trait_id)
+        {
+            let trait_args = trait_signature
+                .generics
+                .iter()
+                .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
+                .collect::<Vec<_>>();
+            self.push_trait_method_candidates(
+                &mut candidates,
+                trait_id,
+                trait_args,
+                self_ty,
+                name,
+                &trait_signature,
+            );
         }
         for predicate in &signature.where_predicates {
             if !self.types_match(predicate.ty, self_ty) {
@@ -158,48 +170,48 @@ impl<'a> BodyChecker<'a> {
             return Vec::new();
         }
         let mut candidates = Vec::new();
+        let mut next_slot = 0;
+        let mut visiting = Vec::new();
         self.push_dynamic_trait_method_candidates(
-            &mut candidates,
-            receiver_ty,
+            &mut DynamicTraitMethodSearch {
+                candidates: &mut candidates,
+                object_ty: receiver_ty,
+                name,
+                next_slot: &mut next_slot,
+                visiting: &mut visiting,
+            },
             trait_id,
             trait_args,
-            name,
-            &mut 0,
-            &mut Vec::new(),
         );
         candidates
     }
 
     fn push_dynamic_trait_method_candidates(
         &mut self,
-        candidates: &mut Vec<DynamicTraitMethodCandidate>,
-        object_ty: InternedTyId,
+        search: &mut DynamicTraitMethodSearch<'_>,
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
-        name: &str,
-        next_slot: &mut usize,
-        visiting: &mut Vec<TraitId>,
     ) {
-        if visiting.contains(&trait_id) {
+        if search.visiting.contains(&trait_id) {
             return;
         }
-        visiting.push(trait_id);
+        search.visiting.push(trait_id);
         let TraitId::Source(source_trait_id) = trait_id else {
-            visiting.pop();
+            search.visiting.pop();
             return;
         };
         let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
-            visiting.pop();
+            search.visiting.pop();
             return;
         };
         for method in &trait_signature.methods {
-            let slot = *next_slot;
-            *next_slot += 1;
-            if method.name != name {
+            let slot = *search.next_slot;
+            *search.next_slot += 1;
+            if method.name != search.name {
                 continue;
             }
-            candidates.push(DynamicTraitMethodCandidate {
-                object_ty,
+            search.candidates.push(DynamicTraitMethodCandidate {
+                object_ty: search.object_ty,
                 trait_id,
                 method_id: GlobalDefId {
                     module_id: source_trait_id.module_id,
@@ -225,16 +237,12 @@ impl<'a> BodyChecker<'a> {
                 continue;
             };
             self.push_dynamic_trait_method_candidates(
-                candidates,
-                object_ty,
+                search,
                 TraitId::Source(supertrait_id),
                 supertrait_args,
-                name,
-                next_slot,
-                visiting,
             );
         }
-        visiting.pop();
+        search.visiting.pop();
     }
 
     pub(in crate::calls::methods) fn trait_object_self_ty(

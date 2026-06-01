@@ -95,6 +95,15 @@ enum TypeContext {
     TraitBound,
 }
 
+#[derive(Debug, Clone, Default)]
+struct TraitObjectArgs {
+    // Trait object syntax accepts both positional trait arguments and
+    // `Assoc = Ty` bindings in the same bracket list. Keeping them separated
+    // here prevents later phases from depending on parser ordering details.
+    trait_args: Vec<InternedTyId>,
+    associated_type_bindings: Vec<(String, InternedTyId)>,
+}
+
 impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
     fn visit_item(&mut self, item: &'ast Item) {
         match &item.kind {
@@ -525,14 +534,13 @@ impl<'a> TypeLowerer<'a> {
         if !self.is_trait_def(def_id) {
             return None;
         }
-        let (trait_args, associated_type_bindings) =
-            self.lower_trait_object_args(span, segment, TraitId::Source(def_id))?;
-        self.check_type_arg_count(span, def_id, trait_args.len());
+        let object_args = self.lower_trait_object_args(span, segment, TraitId::Source(def_id))?;
+        self.check_type_arg_count(span, def_id, object_args.trait_args.len());
         Some(self.interner.intern(TyKind::TraitObject {
             is_const,
             trait_id: TraitId::Source(def_id),
-            trait_args,
-            associated_type_bindings,
+            trait_args: object_args.trait_args,
+            associated_type_bindings: object_args.associated_type_bindings,
         }))
     }
 
@@ -543,15 +551,15 @@ impl<'a> TypeLowerer<'a> {
         segment: &TypePathSegment,
         trait_id: BuiltinTrait,
     ) -> InternedTyId {
-        let (trait_args, associated_type_bindings) = self
+        let object_args = self
             .lower_trait_object_args(span, segment, TraitId::Builtin(trait_id))
             .unwrap_or_default();
-        self.check_builtin_trait_arg_count(span, trait_id, trait_args.len());
+        self.check_builtin_trait_arg_count(span, trait_id, object_args.trait_args.len());
         self.interner.intern(TyKind::TraitObject {
             is_const,
             trait_id: TraitId::Builtin(trait_id),
-            trait_args,
-            associated_type_bindings,
+            trait_args: object_args.trait_args,
+            associated_type_bindings: object_args.associated_type_bindings,
         })
     }
 
@@ -560,9 +568,8 @@ impl<'a> TypeLowerer<'a> {
         _span: Span,
         segment: &TypePathSegment,
         trait_id: TraitId,
-    ) -> Option<(Vec<InternedTyId>, Vec<(String, InternedTyId)>)> {
-        let mut args = Vec::new();
-        let mut associated_type_bindings = Vec::new();
+    ) -> Option<TraitObjectArgs> {
+        let mut object_args = TraitObjectArgs::default();
         let mut seen_assoc_bindings = HashSet::new();
         let mut seen_assoc_binding = false;
         for arg in &segment.args {
@@ -574,7 +581,9 @@ impl<'a> TypeLowerer<'a> {
                             "positional type arguments must precede associated type bindings",
                         ));
                     }
-                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                    object_args
+                        .trait_args
+                        .push(self.lower_type_in_context(arg_ty, TypeContext::Value));
                 }
                 TypeArg::Const(expr) => {
                     self.diagnostics.push(Diagnostic::error(
@@ -601,11 +610,13 @@ impl<'a> TypeLowerer<'a> {
                             format!("trait does not define associated type `{name}`"),
                         ));
                     }
-                    associated_type_bindings.push((name.clone(), binding_ty));
+                    object_args
+                        .associated_type_bindings
+                        .push((name.clone(), binding_ty));
                 }
             }
         }
-        Some((args, associated_type_bindings))
+        Some(object_args)
     }
 
     fn lower_builtin_trait_type(

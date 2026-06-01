@@ -378,7 +378,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_insert_value(result, metadata, 1, "traitobj.vtable")
             .map_err(|_| self.error(span, "failed to build trait object"))?;
-        Ok(result.into())
+        Ok(result)
     }
 
     fn emit_trait_object_upcast(
@@ -435,7 +435,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .builder
             .build_insert_value(result, metadata, 1, "traitobj.upcast.metadata")
             .map_err(|_| self.error(span, "failed to build trait object upcast"))?;
-        Ok(result.into())
+        Ok(result)
     }
 
     fn emit_range(

@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+struct BuiltinAssociatedPlaceMethodCall<'a> {
+    span: Span,
+    target_ty: InternedTyId,
+    name: &'a str,
+    method: BuiltinTraitMethod,
+    args: &'a [Expr],
+    expected: Option<InternedTyId>,
+}
+
 impl<'a> BodyChecker<'a> {
     pub(in crate::calls::methods) fn check_builtin_trait_method_call_with_receiver_ty(
         &mut self,
@@ -24,9 +33,7 @@ impl<'a> BodyChecker<'a> {
                 method,
             );
         }
-        let Some(op) = BuiltinOperatorOp::from_method(method) else {
-            return None;
-        };
+        let op = BuiltinOperatorOp::from_method(method)?;
         let trait_id = method.trait_id();
         let Some(trait_args) = self.check_builtin_trait_method_value_args(
             call.span,
@@ -74,18 +81,17 @@ impl<'a> BodyChecker<'a> {
         }
         if method.is_place_method() {
             return self.check_builtin_trait_associated_place_method_call(
-                span,
-                target_ty,
-                name,
-                method.trait_id(),
-                method,
-                args,
-                expected,
+                BuiltinAssociatedPlaceMethodCall {
+                    span,
+                    target_ty,
+                    name,
+                    method,
+                    args,
+                    expected,
+                },
             );
         }
-        let Some(op) = BuiltinOperatorOp::from_method(method) else {
-            return None;
-        };
+        let op = BuiltinOperatorOp::from_method(method)?;
         let trait_id = method.trait_id();
         let Some((receiver, value_args)) = args.split_first() else {
             self.diagnostics.push(Diagnostic::error(
@@ -163,56 +169,57 @@ impl<'a> BodyChecker<'a> {
 
     fn check_builtin_trait_associated_place_method_call(
         &mut self,
-        span: Span,
-        target_ty: InternedTyId,
-        name: &str,
-        trait_id: BuiltinTrait,
-        method: BuiltinTraitMethod,
-        args: &[Expr],
-        expected: Option<InternedTyId>,
+        call: BuiltinAssociatedPlaceMethodCall<'_>,
     ) -> Option<InternedTyId> {
-        let Some((receiver, value_args)) = args.split_first() else {
+        let trait_id = call.method.trait_id();
+        let Some((receiver, value_args)) = call.args.split_first() else {
             self.diagnostics.push(Diagnostic::error(
-                span,
-                format!("receiver method `{name}` requires a receiver argument"),
+                call.span,
+                format!(
+                    "receiver method `{}` requires a receiver argument",
+                    call.name
+                ),
             ));
             return Some(self.error());
         };
-        let Some(trait_args) =
-            self.check_builtin_trait_place_method_value_args(span, trait_id, method, value_args)
-        else {
+        let Some(trait_args) = self.check_builtin_trait_place_method_value_args(
+            call.span,
+            trait_id,
+            call.method,
+            value_args,
+        ) else {
             return Some(self.error());
         };
-        let receiver_ty = self.check_expr_with_expected(receiver, Some(target_ty));
-        self.expect_expr_type(receiver, target_ty, receiver_ty, "receiver argument");
-        if matches!(method.receiver_kind(), BuiltinReceiverKind::Ref) {
-            self.check_receiver_match(receiver, target_ty, ReceiverKind::Ref);
+        let receiver_ty = self.check_expr_with_expected(receiver, Some(call.target_ty));
+        self.expect_expr_type(receiver, call.target_ty, receiver_ty, "receiver argument");
+        if matches!(call.method.receiver_kind(), BuiltinReceiverKind::Ref) {
+            self.check_receiver_match(receiver, call.target_ty, ReceiverKind::Ref);
         }
         if !self.current_context_proves_trait_obligation(
-            target_ty,
+            call.target_ty,
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
             self.diagnostics.push(Diagnostic::error(
-                span,
+                call.span,
                 format!(
                     "trait bound not satisfied: {}: {}",
-                    self.ty_name(target_ty),
+                    self.ty_name(call.target_ty),
                     self.builtin_trait_ty_name(trait_id, &trait_args)
                 ),
             ));
         }
         let output =
-            self.builtin_trait_place_method_output(target_ty, trait_id, trait_args.clone());
-        if let Some(expected) = expected {
-            self.expect_type(span, expected, output, "builtin trait method call");
+            self.builtin_trait_place_method_output(call.target_ty, trait_id, trait_args.clone());
+        if let Some(expected) = call.expected {
+            self.expect_type(call.span, expected, output, "builtin trait method call");
         }
         self.record_resolved_call(
-            span,
+            call.span,
             ResolvedCall::BuiltinPlaceMethod {
                 trait_id,
-                method,
-                self_ty: target_ty,
+                method: call.method,
+                self_ty: call.target_ty,
                 trait_args,
             },
         );
