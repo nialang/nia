@@ -116,10 +116,11 @@ Current Nia-owned optimization consumers:
   from the user-facing level. Cheap dead-code elimination enables same-type cast
   removal, no-op local store removal, and pure discarded expression removal.
   Cheap CFG simplification enables constant boolean branch folding, empty jump
-  block merging, unreachable block removal, and the same cleanup inside defer
-  bodies. Full local-copy propagation enables local copy propagation. Full
-  dead-code elimination enables overwritten-store cleanup, never-read local
-  store cleanup, and unused local binding cleanup.
+  block merging, same-target branch simplification when the condition is pure,
+  unreachable block removal, and the same cleanup inside defer bodies. Full
+  local-copy propagation enables local copy propagation. Full dead-code
+  elimination enables overwritten-store cleanup, never-read local store cleanup,
+  and unused local binding cleanup.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,
