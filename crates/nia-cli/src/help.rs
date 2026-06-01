@@ -74,6 +74,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             options: GLOBAL_OPTIONS,
             examples: &[
                 "niac check src/main.nia",
+                "niac -O2 emit obj src/main.nia --out-dir build/obj",
                 "niac emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
                 "niac emit exe src/main.nia -o build/main -M share=share/share.nia",
             ],
@@ -159,6 +160,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "write one object per codegen unit",
                 },
                 HelpRow {
+                    left: "-O, -O0..-O3, -Os, -Oz",
+                    right: "set optimization level; -O means -O2",
+                },
+                HelpRow {
                     left: "-M, --module <name=path>",
                     right: "map an import root; may appear anywhere",
                 },
@@ -187,6 +192,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                     right: "write executable to this path",
                 },
                 HelpRow {
+                    left: "-O, -O0..-O3, -Os, -Oz",
+                    right: "set optimization level; -O means -O2",
+                },
+                HelpRow {
                     left: "-M, --module <name=path>",
                     right: "map an import root; may appear anywhere",
                 },
@@ -205,6 +214,10 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
 }
 
 const GLOBAL_OPTIONS: &[HelpRow] = &[
+    HelpRow {
+        left: "-O, -O0..-O3, -Os, -Oz",
+        right: "set optimization level; -O means -O2",
+    },
     HelpRow {
         left: "-M, --module <name=path>",
         right: "map an import root; may appear anywhere",

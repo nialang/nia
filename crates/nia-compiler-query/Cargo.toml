@@ -24,6 +24,7 @@ nia-layout.workspace = true
 nia-local-resolve.workspace = true
 nia-monomorphize.workspace = true
 nia-node-id.workspace = true
+nia-opt.workspace = true
 nia-parser.workspace = true
 nia-query.workspace = true
 nia-source.workspace = true

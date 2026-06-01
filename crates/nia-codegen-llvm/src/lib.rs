@@ -9,7 +9,8 @@ mod program_index;
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;
 use nia_backend_ir::BackendProgram;
-use nia_llvm::{Context, target::TargetMachine};
+use nia_llvm::{Context, OptimizationLevel as LlvmOptimizationLevel, target::TargetMachine};
+use nia_opt::OptimizationLevel;
 pub use output::{
     LlvmCodegenOptions, LlvmCodegenOutput, LlvmModuleOutput, LlvmObjectModuleOutput,
     LlvmObjectOutput,
@@ -75,7 +76,9 @@ fn emit_native_objects_inner(
     program: &BackendProgram,
     options: LlvmCodegenOptions,
 ) -> LlvmObjectOutput {
-    let target = match TargetMachine::native() {
+    let target = match TargetMachine::native_with_opt_level(llvm_optimization_level(
+        options.optimization.level,
+    )) {
         Ok(target) => target,
         Err(error) => {
             return LlvmObjectOutput {
@@ -138,6 +141,16 @@ fn catch_llvm_object_ice(f: impl FnOnce() -> LlvmObjectOutput) -> LlvmObjectOutp
             modules: Vec::new(),
             diagnostics: vec![ice.diagnostic()],
         },
+    }
+}
+
+fn llvm_optimization_level(level: OptimizationLevel) -> LlvmOptimizationLevel {
+    match level {
+        OptimizationLevel::O0 => LlvmOptimizationLevel::None,
+        OptimizationLevel::O1 => LlvmOptimizationLevel::Less,
+        OptimizationLevel::O2 | OptimizationLevel::Os => LlvmOptimizationLevel::Default,
+        OptimizationLevel::O3 => LlvmOptimizationLevel::Aggressive,
+        OptimizationLevel::Oz => LlvmOptimizationLevel::Less,
     }
 }
 

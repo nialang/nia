@@ -18,6 +18,7 @@ nia-ids.workspace = true
 nia-layout.workspace = true
 nia-mangle.workspace = true
 nia-llvm.workspace = true
+nia-opt.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-ty.workspace = true

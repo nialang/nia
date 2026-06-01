@@ -21,6 +21,7 @@ use nia_item_signatures::{
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
+use nia_opt::OptimizationPolicy;
 use nia_span::Span;
 use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
@@ -30,6 +31,7 @@ use nia_value_resolve::ValueResolution;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendLowering {
     pub program: BackendProgram,
+    pub optimization: OptimizationPolicy,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -58,6 +60,7 @@ pub struct BackendLowerModuleInput<'a> {
 pub fn lower_backend_program(
     modules: &[BackendLowerModuleInput<'_>],
     monomorphization: &Monomorphization,
+    optimization: OptimizationPolicy,
 ) -> BackendLowering {
     let mut diagnostics = Vec::new();
     let lowered_modules = modules
@@ -73,6 +76,7 @@ pub fn lower_backend_program(
         program: BackendProgram {
             modules: lowered_modules,
         },
+        optimization,
         diagnostics,
     }
 }

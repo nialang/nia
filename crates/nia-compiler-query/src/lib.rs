@@ -18,6 +18,7 @@ use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
 use nia_node_id::NodeOriginTable;
+use nia_opt::OptimizationPolicy;
 use nia_parser::ParseError;
 use nia_source::{SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
@@ -27,6 +28,7 @@ use nia_type_resolve::TypeResolution;
 use nia_value_resolve::ValueResolution;
 
 pub use query::check_loaded_program;
+pub use query::check_loaded_program_with_options;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedProgram {
@@ -51,6 +53,7 @@ pub struct LoadedModule {
 pub struct CheckedProgram {
     pub graph: ModuleGraph,
     pub imports: ImportAliasMap,
+    pub optimization: OptimizationPolicy,
     pub modules: Vec<CheckedModule>,
     pub monomorphization: Monomorphization,
     pub backend_lowering: BackendLowering,

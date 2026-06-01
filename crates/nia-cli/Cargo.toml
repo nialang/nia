@@ -13,6 +13,7 @@ nia-ice.workspace = true
 nia-ids.workspace = true
 nia-imports.workspace = true
 nia-lexer.workspace = true
+nia-opt.workspace = true
 nia-parser.workspace = true
 nia-source.workspace = true
 

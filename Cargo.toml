@@ -43,6 +43,7 @@ members = [
     "crates/nia-layout",
     "crates/nia-abi-check",
     "crates/nia-flow-check",
+    "crates/nia-opt",
     "crates/nia-cli",
 ]
 
@@ -95,4 +96,5 @@ nia-codegen-llvm = { path = "crates/nia-codegen-llvm" }
 nia-layout = { path = "crates/nia-layout" }
 nia-abi-check = { path = "crates/nia-abi-check" }
 nia-flow-check = { path = "crates/nia-flow-check" }
+nia-opt = { path = "crates/nia-opt" }
 llvm-sys = "221.0.1"

@@ -51,6 +51,7 @@ fn main(argc: i32, argv: &const &const u8) i32 {
         LlvmCodegenOptions {
             root_module: Some(ModuleId(0)),
             hosted_entry: true,
+            optimization: checked.optimization,
         },
     );
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
@@ -74,6 +75,7 @@ fn main(flag: bool) i32 {
         LlvmCodegenOptions {
             root_module: Some(ModuleId(0)),
             hosted_entry: true,
+            optimization: checked.optimization,
         },
     );
     assert!(

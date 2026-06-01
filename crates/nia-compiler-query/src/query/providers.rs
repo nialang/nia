@@ -81,6 +81,7 @@ pub(super) fn provide_checked_program(db: &QueryDb<DriverContext>) -> CheckedPro
     CheckedProgram {
         graph: db.query(ModuleGraphQuery),
         imports: db.query(ImportAliasMapQuery),
+        optimization: db.context().optimization,
         modules: db.query(CheckedModulesQuery),
         monomorphization: db.query(MonomorphizationQuery),
         backend_lowering: db.query(BackendLoweringQuery),
@@ -648,7 +649,7 @@ pub(super) fn provide_backend_lowering(
             },
         )
         .collect::<Vec<_>>();
-    nia_backend_lower::lower_backend_program(&inputs, &monomorphization)
+    nia_backend_lower::lower_backend_program(&inputs, &monomorphization, db.context().optimization)
 }
 
 pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<ProgramDiagnostic> {

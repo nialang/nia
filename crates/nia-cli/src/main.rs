@@ -8,6 +8,7 @@ use std::{
 use nia_diagnostic::{Diagnostic, render_diagnostic};
 use nia_ids::ModuleId;
 use nia_imports::ModuleMap;
+use nia_opt::{OptimizationLevel, OptimizationPolicy};
 use nia_parser::ParseError;
 use nia_source::SourcePath;
 
@@ -60,6 +61,7 @@ fn run_main() -> ExitCode {
 #[derive(Debug)]
 struct Cli {
     module_map: ModuleMap,
+    optimization: OptimizationLevel,
     command: CliCommand,
 }
 
@@ -127,10 +129,16 @@ fn run_cli(cli: Cli) -> ExitCode {
     match cli.command {
         CliCommand::Lex { .. } => run_lex(&source),
         CliCommand::Parse { .. } => run_parse(&path, &source),
-        CliCommand::Check { .. } => run_check(&path, &source, cli.module_map),
-        CliCommand::EmitLlvm { .. } => run_emit_llvm(&path, &source, cli.module_map),
-        CliCommand::EmitObj { args, .. } => run_emit_obj(&path, &source, args, cli.module_map),
-        CliCommand::EmitExe { args, .. } => run_emit_exe(&path, &source, args, cli.module_map),
+        CliCommand::Check { .. } => run_check(&path, &source, cli.module_map, cli.optimization),
+        CliCommand::EmitLlvm { .. } => {
+            run_emit_llvm(&path, &source, cli.module_map, cli.optimization)
+        }
+        CliCommand::EmitObj { args, .. } => {
+            run_emit_obj(&path, &source, args, cli.module_map, cli.optimization)
+        }
+        CliCommand::EmitExe { args, .. } => {
+            run_emit_exe(&path, &source, args, cli.module_map, cli.optimization)
+        }
     }
 }
 
@@ -157,7 +165,7 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
         return Ok(CliAction::Help(HelpTopic::Main));
     }
 
-    let (remaining, map) = extract_global_options(args, HelpTopic::Main)?;
+    let (remaining, global_options) = extract_global_options(args, HelpTopic::Main)?;
     if remaining.is_empty() {
         return Ok(CliAction::Help(HelpTopic::Main));
     }
@@ -171,17 +179,24 @@ fn parse_cli(args: Vec<String>) -> Result<CliAction, CliError> {
     match parse_command(remaining)? {
         ParsedCommand::Help(topic) => Ok(CliAction::Help(topic)),
         ParsedCommand::Run(command) => Ok(CliAction::Run(Cli {
-            module_map: map,
+            module_map: global_options.module_map,
+            optimization: global_options.optimization,
             command,
         })),
     }
 }
 
+struct GlobalOptions {
+    module_map: ModuleMap,
+    optimization: OptimizationLevel,
+}
+
 fn extract_global_options(
     args: Vec<String>,
     help: HelpTopic,
-) -> Result<(Vec<String>, ModuleMap), CliError> {
+) -> Result<(Vec<String>, GlobalOptions), CliError> {
     let mut map = ModuleMap::new();
+    let mut optimization = OptimizationLevel::default();
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
@@ -209,9 +224,19 @@ fn extract_global_options(
                 .map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if let Some(level) = parse_optimization_flag(&arg) {
+            optimization = level.map_err(|message| CliError::new(message, help))?;
+            continue;
+        }
         remaining.push(arg);
     }
-    Ok((remaining, map))
+    Ok((
+        remaining,
+        GlobalOptions {
+            module_map: map,
+            optimization,
+        },
+    ))
 }
 
 fn module_payload_from_short(arg: &str) -> Option<Option<String>> {
@@ -226,6 +251,25 @@ fn module_payload_from_short(arg: &str) -> Option<Option<String>> {
         return Some(Some(rest.to_string()));
     }
     Some(Some(payload.to_string()))
+}
+
+fn parse_optimization_flag(arg: &str) -> Option<Result<OptimizationLevel, String>> {
+    let level = match arg {
+        "-O" => OptimizationLevel::O2,
+        "-O0" => OptimizationLevel::O0,
+        "-O1" => OptimizationLevel::O1,
+        "-O2" => OptimizationLevel::O2,
+        "-O3" => OptimizationLevel::O3,
+        "-Os" => OptimizationLevel::Os,
+        "-Oz" => OptimizationLevel::Oz,
+        _ if arg.starts_with("-O") => {
+            return Some(Err(format!(
+                "unknown optimization level `{arg}`; expected -O0, -O1, -O2, -O3, -Os, or -Oz"
+            )));
+        }
+        _ => return None,
+    };
+    Some(Ok(level))
 }
 
 enum ParsedCommand {
@@ -391,8 +435,13 @@ fn run_parse(path: &str, source: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_check(path: &str, source: &str, module_map: ModuleMap) -> ExitCode {
-    let program = nia_driver::check_program_with_map(path, module_map);
+fn run_check(
+    path: &str,
+    source: &str,
+    module_map: ModuleMap,
+    optimization: OptimizationLevel,
+) -> ExitCode {
+    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if program.diagnostics.is_empty() {
         return ExitCode::SUCCESS;
     }
@@ -400,13 +449,21 @@ fn run_check(path: &str, source: &str, module_map: ModuleMap) -> ExitCode {
     ExitCode::FAILURE
 }
 
-fn run_emit_llvm(path: &str, source: &str, module_map: ModuleMap) -> ExitCode {
-    let program = nia_driver::check_program_with_map(path, module_map);
+fn run_emit_llvm(
+    path: &str,
+    source: &str,
+    module_map: ModuleMap,
+    optimization: OptimizationLevel,
+) -> ExitCode {
+    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
-    let output = nia_codegen_llvm::emit_llvm_ir(&program.backend_lowering.program);
+    let output = nia_codegen_llvm::emit_llvm_ir_with_options(
+        &program.backend_lowering.program,
+        codegen_options(program.graph.root(), false, program.optimization),
+    );
     if !output.diagnostics.is_empty() {
         eprintln!("codegen diagnostics:");
         for diagnostic in &output.diagnostics {
@@ -420,7 +477,13 @@ fn run_emit_llvm(path: &str, source: &str, module_map: ModuleMap) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn run_emit_obj(path: &str, source: &str, args: Vec<String>, module_map: ModuleMap) -> ExitCode {
+fn run_emit_obj(
+    path: &str,
+    source: &str,
+    args: Vec<String>,
+    module_map: ModuleMap,
+    optimization: OptimizationLevel,
+) -> ExitCode {
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
         Err(message) => {
@@ -428,14 +491,14 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, module_map: ModuleM
             return ExitCode::FAILURE;
         }
     };
-    let program = nia_driver::check_program_with_map(path, module_map);
+    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
     let output = nia_codegen_llvm::emit_native_objects(
         &program.backend_lowering.program,
-        hosted_codegen_options(program.graph.root()),
+        hosted_codegen_options(program.graph.root(), program.optimization),
     );
     if !output.diagnostics.is_empty() {
         print_codegen_diagnostics(path, source, &output.diagnostics);
@@ -472,7 +535,13 @@ fn run_emit_obj(path: &str, source: &str, args: Vec<String>, module_map: ModuleM
     ExitCode::SUCCESS
 }
 
-fn run_emit_exe(path: &str, source: &str, args: Vec<String>, module_map: ModuleMap) -> ExitCode {
+fn run_emit_exe(
+    path: &str,
+    source: &str,
+    args: Vec<String>,
+    module_map: ModuleMap,
+    optimization: OptimizationLevel,
+) -> ExitCode {
     let output_path = match parse_emit_exe_options(path, args) {
         Ok(path) => path,
         Err(message) => {
@@ -480,14 +549,14 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, module_map: ModuleM
             return ExitCode::FAILURE;
         }
     };
-    let program = nia_driver::check_program_with_map(path, module_map);
+    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
     let output = nia_codegen_llvm::emit_native_objects(
         &program.backend_lowering.program,
-        hosted_codegen_options(program.graph.root()),
+        hosted_codegen_options(program.graph.root(), program.optimization),
     );
     if !output.diagnostics.is_empty() {
         print_codegen_diagnostics(path, source, &output.diagnostics);
@@ -535,10 +604,22 @@ fn run_emit_exe(path: &str, source: &str, args: Vec<String>, module_map: ModuleM
     }
 }
 
-fn hosted_codegen_options(root_module: ModuleId) -> nia_codegen_llvm::LlvmCodegenOptions {
+fn hosted_codegen_options(
+    root_module: ModuleId,
+    optimization: OptimizationPolicy,
+) -> nia_codegen_llvm::LlvmCodegenOptions {
+    codegen_options(root_module, true, optimization)
+}
+
+fn codegen_options(
+    root_module: ModuleId,
+    hosted_entry: bool,
+    optimization: OptimizationPolicy,
+) -> nia_codegen_llvm::LlvmCodegenOptions {
     nia_codegen_llvm::LlvmCodegenOptions {
         root_module: Some(root_module),
-        hosted_entry: true,
+        hosted_entry,
+        optimization,
     }
 }
 

@@ -595,6 +595,12 @@ Disallowed optimizations include:
 Every optimization that affects binary representation is part of the Nia ABI and
 must be reflected in layout, lowering, codegen, tests, and documentation.
 
+Nia optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`, with
+`-O` meaning `-O2`. These levels select an internal optimization policy rather
+than directly exposing LLVM's codegen levels. Backend-only instruction selection
+optimizations may vary by target backend, but ABI-visible optimizations must
+still satisfy this section regardless of optimization level.
+
 ## 20. Inline Assembly Boundary
 
 Inline assembly observes backend-level values and machine registers.

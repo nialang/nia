@@ -23,6 +23,7 @@ use nia_item_signatures::{
 };
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
+use nia_opt::{OptimizationLevel, OptimizationPolicy};
 use nia_query::{QueryDb, QueryError, QueryKey};
 use nia_source::SourcePath;
 use nia_span::Span;
@@ -50,23 +51,39 @@ use resolve::*;
 use types::*;
 
 pub fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
-    check_loaded_program_with_providers(loaded, CompilerQueryProviders::default())
+    check_loaded_program_with_options(loaded, OptimizationLevel::default())
+}
+
+pub fn check_loaded_program_with_options(
+    loaded: LoadedProgram,
+    optimization: OptimizationLevel,
+) -> CheckedProgram {
+    check_loaded_program_with_providers(
+        loaded,
+        optimization.policy(),
+        CompilerQueryProviders::default(),
+    )
 }
 
 fn check_loaded_program_with_providers(
     loaded: LoadedProgram,
+    optimization: OptimizationPolicy,
     providers: CompilerQueryProviders,
 ) -> CheckedProgram {
     let graph = loaded.graph.clone();
     let imports = loaded.imports.clone();
-    let db = QueryDb::new(DriverContext { loaded, providers });
+    let db = QueryDb::new(DriverContext {
+        loaded,
+        optimization,
+        providers,
+    });
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         db.try_query(CheckedProgramQuery)
     })) {
         Ok(Ok(checked)) => checked,
-        Ok(Err(err)) => checked_program_from_query_error(graph, imports, err),
+        Ok(Err(err)) => checked_program_from_query_error(graph, imports, optimization, err),
         Err(payload) => match payload.downcast::<QueryError>() {
-            Ok(err) => checked_program_from_query_error(graph, imports, *err),
+            Ok(err) => checked_program_from_query_error(graph, imports, optimization, *err),
             Err(payload) => std::panic::resume_unwind(payload),
         },
     }
@@ -75,11 +92,13 @@ fn check_loaded_program_with_providers(
 fn checked_program_from_query_error(
     graph: ModuleGraph,
     imports: ImportAliasMap,
+    optimization: OptimizationPolicy,
     err: QueryError,
 ) -> CheckedProgram {
     CheckedProgram {
         graph,
         imports,
+        optimization,
         modules: Vec::new(),
         monomorphization: nia_monomorphize::Monomorphization {
             instances: Vec::new(),
@@ -89,6 +108,7 @@ fn checked_program_from_query_error(
             program: nia_backend_ir::BackendProgram {
                 modules: Vec::new(),
             },
+            optimization,
             diagnostics: Vec::new(),
         },
         diagnostics: vec![ProgramDiagnostic {
@@ -117,6 +137,7 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
 
 struct DriverContext {
     loaded: LoadedProgram,
+    optimization: OptimizationPolicy,
     providers: CompilerQueryProviders,
 }
 
@@ -182,6 +203,7 @@ mod tests {
                 "main.nia",
                 "fn main() i32 { 0 }",
             )]),
+            OptimizationPolicy::default(),
             providers,
         );
 
@@ -204,6 +226,7 @@ mod tests {
                 "main.nia",
                 "fn main() i32 { 0 }",
             )]),
+            OptimizationPolicy::default(),
             providers,
         );
 
@@ -226,6 +249,7 @@ mod tests {
         )]);
         let db = QueryDb::new(DriverContext {
             loaded,
+            optimization: OptimizationPolicy::default(),
             providers: CompilerQueryProviders::default(),
         });
 
@@ -249,6 +273,7 @@ mod tests {
         )]);
         let db = QueryDb::new(DriverContext {
             loaded,
+            optimization: OptimizationPolicy::default(),
             providers: CompilerQueryProviders::default(),
         });
 
@@ -272,6 +297,7 @@ mod tests {
         )]);
         let db = QueryDb::new(DriverContext {
             loaded,
+            optimization: OptimizationPolicy::default(),
             providers: CompilerQueryProviders::default(),
         });
 
@@ -299,6 +325,7 @@ mod tests {
         )]);
         let db = QueryDb::new(DriverContext {
             loaded,
+            optimization: OptimizationPolicy::default(),
             providers: CompilerQueryProviders::default(),
         });
 
@@ -322,6 +349,7 @@ mod tests {
         )]);
         let db = QueryDb::new(DriverContext {
             loaded,
+            optimization: OptimizationPolicy::default(),
             providers: CompilerQueryProviders::default(),
         });
 

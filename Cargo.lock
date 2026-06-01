@@ -115,6 +115,7 @@ dependencies = [
  "nia-mangle",
  "nia-monomorphize",
  "nia-node-id",
+ "nia-opt",
  "nia-parser",
  "nia-span",
  "nia-trait-solve",
@@ -176,6 +177,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-lexer",
+ "nia-opt",
  "nia-parser",
  "nia-source",
 ]
@@ -198,6 +200,7 @@ dependencies = [
  "nia-layout",
  "nia-llvm",
  "nia-mangle",
+ "nia-opt",
  "nia-span",
  "nia-static-ir",
  "nia-ty",
@@ -225,6 +228,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-monomorphize",
  "nia-node-id",
+ "nia-opt",
  "nia-parser",
  "nia-query",
  "nia-source",
@@ -297,6 +301,7 @@ dependencies = [
  "nia-imports",
  "nia-layout",
  "nia-loader-query",
+ "nia-opt",
  "nia-ty",
 ]
 
@@ -476,6 +481,10 @@ dependencies = [
  "nia-source",
  "nia-span",
 ]
+
+[[package]]
+name = "nia-opt"
+version = "0.3.0"
 
 [[package]]
 name = "nia-parser"

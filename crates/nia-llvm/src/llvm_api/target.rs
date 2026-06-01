@@ -28,12 +28,16 @@ pub struct TargetMachine {
 
 impl TargetMachine {
     pub fn native() -> LlvmResult<Self> {
+        Self::native_with_opt_level(OptimizationLevel::Default)
+    }
+
+    pub fn native_with_opt_level(opt_level: OptimizationLevel) -> LlvmResult<Self> {
         initialize_native_target()?;
 
         let triple = llvm_owned_string(unsafe { LLVMGetDefaultTargetTriple() })?;
         let cpu = llvm_owned_string(unsafe { LLVMGetHostCPUName() })?;
         let features = llvm_owned_string(unsafe { LLVMGetHostCPUFeatures() })?;
-        Self::for_triple(&triple, &cpu, &features, OptimizationLevel::Default)
+        Self::for_triple(&triple, &cpu, &features, opt_level)
     }
 
     pub fn for_triple(
