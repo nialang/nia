@@ -383,23 +383,41 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => true,
         FunctionExprKind::Discard(expr) => is_pure_discardable_expr(expr),
-        FunctionExprKind::Range(_)
-        | FunctionExprKind::ArrayLiteral { .. }
-        | FunctionExprKind::StructLiteral { .. }
-        | FunctionExprKind::UnionLiteral { .. }
-        | FunctionExprKind::Unary { .. }
-        | FunctionExprKind::Binary { .. }
-        | FunctionExprKind::Cast { .. }
-        | FunctionExprKind::InlineAsm(_)
+        FunctionExprKind::Range(range) => {
+            range.start.as_deref().is_none_or(is_pure_discardable_expr)
+                && range.end.as_deref().is_none_or(is_pure_discardable_expr)
+        }
+        FunctionExprKind::ArrayLiteral { elems } => is_pure_discardable_array_elements(elems),
+        FunctionExprKind::StructLiteral { fields, .. } => fields
+            .iter()
+            .all(|field| is_pure_discardable_expr(&field.value)),
+        FunctionExprKind::UnionLiteral { field, .. } => is_pure_discardable_expr(&field.value),
+        FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
+            is_pure_discardable_expr(expr)
+        }
+        FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
+            is_pure_discardable_expr(lhs) && is_pure_discardable_expr(rhs)
+        }
+        FunctionExprKind::Field { lhs, .. } => is_pure_discardable_expr(lhs),
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            is_pure_discardable_expr(lhs)
+                && range.start.as_deref().is_none_or(is_pure_discardable_expr)
+                && range.end.as_deref().is_none_or(is_pure_discardable_expr)
+        }
+        FunctionExprKind::InlineAsm(_)
         | FunctionExprKind::CStringPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
-        | FunctionExprKind::Call { .. }
-        | FunctionExprKind::Field { .. }
-        | FunctionExprKind::Index { .. }
-        | FunctionExprKind::Slice { .. } => false,
+        | FunctionExprKind::Call { .. } => false,
+    }
+}
+
+fn is_pure_discardable_array_elements(elems: &FunctionArrayElements) -> bool {
+    match elems {
+        FunctionArrayElements::List(elems) => elems.iter().all(is_pure_discardable_expr),
+        FunctionArrayElements::Repeat { value, .. } => is_pure_discardable_expr(value),
     }
 }
 
@@ -4826,6 +4844,99 @@ mod tests {
             body.blocks[0].ops[0],
             FunctionOp::Expr(FunctionExpr {
                 kind: FunctionExprKind::Call { .. },
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn removes_pure_wrapper_expr_ops() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Local(LocalId(0)),
+                        }),
+                        op: nia_ast::BinaryOp::Add,
+                        rhs: Box::new(FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Integer("1".to_string()),
+                        }),
+                    },
+                }),
+                FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::ArrayLiteral {
+                        elems: FunctionArrayElements::List(vec![FunctionExpr {
+                            span,
+                            ty,
+                            kind: FunctionExprKind::Cast {
+                                expr: Box::new(FunctionExpr {
+                                    span,
+                                    ty,
+                                    kind: FunctionExprKind::Bool(false),
+                                }),
+                                ty,
+                            },
+                        }]),
+                    },
+                }),
+            ],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+
+        remove_pure_expr_ops(&mut body.blocks);
+
+        assert!(body.blocks[0].ops.is_empty());
+    }
+
+    #[test]
+    fn preserves_aggregate_expr_ops_with_effectful_elements() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Expr(FunctionExpr {
+                span,
+                ty,
+                kind: FunctionExprKind::ArrayLiteral {
+                    elems: FunctionArrayElements::List(vec![FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Call {
+                            callee: FunctionCallee::Function(nia_ids::GlobalDefId {
+                                module_id: nia_ids::ModuleId(0),
+                                def_id: nia_ids::DefId(0),
+                            }),
+                            args: Vec::new(),
+                        },
+                    }]),
+                },
+            })],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+
+        remove_pure_expr_ops(&mut body.blocks);
+
+        assert_eq!(body.blocks[0].ops.len(), 1);
+        assert!(matches!(
+            body.blocks[0].ops[0],
+            FunctionOp::Expr(FunctionExpr {
+                kind: FunctionExprKind::ArrayLiteral { .. },
                 ..
             })
         ));
