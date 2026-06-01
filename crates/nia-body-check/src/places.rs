@@ -349,6 +349,9 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: InternedTyId,
         is_const: bool,
     ) -> InternedTyId {
+        // Used after the caller has already emitted the source-level error for
+        // a non-borrowed range index. Pass a default span so trait probing does
+        // not add a second, less helpful diagnostic.
         let range_ty = self.interner.intern(TyKind::Range {
             kind: RangeTyKind::Full,
             bound: None,
