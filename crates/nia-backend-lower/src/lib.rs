@@ -18,7 +18,7 @@ use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature, ProgramTraitSignature,
 };
-use nia_layout::Layouts;
+use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
 use nia_opt::OptimizationPolicy;
@@ -88,6 +88,8 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) diagnostics: Vec<Diagnostic>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
+    struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
+    union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -99,6 +101,12 @@ impl<'a> ModuleLowerer<'a> {
             diagnostics: Vec::new(),
             missing_array_len_diagnostics: HashSet::new(),
             extension_targets_by_method: index_extension_targets_by_method(input.extensions),
+            struct_layout_instances_by_def: index_layout_instances_by_def(
+                input.layouts.struct_instances.keys(),
+            ),
+            union_layout_instances_by_def: index_layout_instances_by_def(
+                input.layouts.union_instances.keys(),
+            ),
         }
     }
 
@@ -362,6 +370,19 @@ fn index_extension_targets_by_method(
         }
     }
     targets_by_method
+}
+
+fn index_layout_instances_by_def<'a>(
+    keys: impl IntoIterator<Item = &'a StructLayoutKey>,
+) -> HashMap<DefId, Vec<StructLayoutKey>> {
+    let mut instances_by_def = HashMap::new();
+    for key in keys {
+        instances_by_def
+            .entry(key.def_id)
+            .or_insert_with(Vec::new)
+            .push(key.clone());
+    }
+    instances_by_def
 }
 #[cfg(test)]
 mod tests;

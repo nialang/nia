@@ -40,12 +40,15 @@ impl<'a> ModuleLowerer<'a> {
         }
         let interner = self.interner.clone();
         let defs = &self.input.defs.defs;
-        self.input
-            .layouts
-            .struct_instances
-            .iter()
-            .filter(|(key, _)| key.def_id == def_id)
-            .map(|(key, _)| {
+        let keys = self
+            .struct_layout_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        keys.into_iter()
+            .map(|key| {
                 let substitutions = self.generic_substitutions(&signature.generics, &key.args);
                 BackendStructInstance {
                     def_id: self.global_def_id(def_id),
@@ -92,12 +95,15 @@ impl<'a> ModuleLowerer<'a> {
         }
         let interner = self.interner.clone();
         let defs = &self.input.defs.defs;
-        self.input
-            .layouts
-            .union_instances
-            .iter()
-            .filter(|(key, _)| key.def_id == def_id)
-            .map(|(key, _)| {
+        let keys = self
+            .union_layout_instances_by_def
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        keys.into_iter()
+            .map(|key| {
                 let substitutions = self.generic_substitutions(&signature.generics, &key.args);
                 BackendUnionInstance {
                     def_id: self.global_def_id(def_id),
