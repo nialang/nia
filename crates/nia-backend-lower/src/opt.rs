@@ -65,36 +65,69 @@ impl BackendOptPass {
             Self::OptimizeDeferBodies => optimize_defer_bodies(&mut body.blocks),
         }
     }
+
+    fn enabled_by(self, policy: &OptimizationPolicy) -> bool {
+        match self {
+            Self::SimplifySameTypeCasts | Self::RemoveNoopLocalStores | Self::RemovePureExprOps => {
+                at_least(policy.dead_code_elim, OptimizationDepth::Cheap)
+            }
+            Self::PropagateLocalCopies => {
+                at_least(policy.local_copy_prop, OptimizationDepth::Full)
+                    || (policy.prefer_size
+                        && at_least(policy.local_copy_prop, OptimizationDepth::Cheap))
+            }
+            Self::RemoveOverwrittenLocalStores
+            | Self::RemoveNeverReadLocalStores
+            | Self::RemoveUnusedLocalBindings => {
+                at_least(policy.dead_code_elim, OptimizationDepth::Full)
+            }
+            Self::FoldConstantBoolBranches
+            | Self::MergeEmptyJumpBlocks
+            | Self::RemoveUnreachableBlocks
+            | Self::OptimizeDeferBodies => at_least(policy.simplify_cfg, OptimizationDepth::Cheap),
+        }
+    }
 }
 
 struct BackendOptPipeline {
-    passes: &'static [BackendOptPass],
+    passes: Vec<BackendOptPass>,
 }
 
 impl BackendOptPipeline {
     fn for_policy(policy: &OptimizationPolicy) -> Self {
-        if matches!(
-            policy.simplify_cfg,
-            OptimizationDepth::Full | OptimizationDepth::Aggressive
-        ) {
-            Self { passes: O2_PASSES }
-        } else if matches!(policy.simplify_cfg, OptimizationDepth::Cheap) {
-            Self { passes: O1_PASSES }
-        } else {
-            Self { passes: &[] }
-        }
+        let passes = ORDERED_BACKEND_PASSES
+            .iter()
+            .copied()
+            .filter(|pass| pass.enabled_by(policy))
+            .collect();
+        Self { passes }
     }
 
     fn run(&self, body: &mut FunctionBody) -> bool {
         let mut changed = false;
-        for pass in self.passes {
+        for pass in &self.passes {
             debug_assert!(!pass.name().is_empty());
-            changed |= pass.run(body);
+            changed |= (*pass).run(body);
         }
         changed
     }
 }
 
+const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
+    BackendOptPass::SimplifySameTypeCasts,
+    BackendOptPass::RemoveNoopLocalStores,
+    BackendOptPass::RemovePureExprOps,
+    BackendOptPass::PropagateLocalCopies,
+    BackendOptPass::RemoveOverwrittenLocalStores,
+    BackendOptPass::RemoveNeverReadLocalStores,
+    BackendOptPass::RemoveUnusedLocalBindings,
+    BackendOptPass::FoldConstantBoolBranches,
+    BackendOptPass::MergeEmptyJumpBlocks,
+    BackendOptPass::RemoveUnreachableBlocks,
+    BackendOptPass::OptimizeDeferBodies,
+];
+
+#[cfg(test)]
 const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
@@ -105,6 +138,21 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::OptimizeDeferBodies,
 ];
 
+fn at_least(depth: OptimizationDepth, minimum: OptimizationDepth) -> bool {
+    optimization_depth_rank(depth) >= optimization_depth_rank(minimum)
+}
+
+fn optimization_depth_rank(depth: OptimizationDepth) -> u8 {
+    match depth {
+        OptimizationDepth::Disabled => 0,
+        OptimizationDepth::Required => 1,
+        OptimizationDepth::Cheap => 2,
+        OptimizationDepth::Full => 3,
+        OptimizationDepth::Aggressive => 4,
+    }
+}
+
+#[cfg(test)]
 const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifySameTypeCasts,
     BackendOptPass::RemoveNoopLocalStores,
@@ -1843,7 +1891,7 @@ mod tests {
     fn o1_pipeline_keeps_canonical_pass_order() {
         let pipeline = BackendOptPipeline::for_policy(&OptimizationLevel::O1.policy());
 
-        assert_eq!(pipeline.passes, O1_PASSES);
+        assert_eq!(pipeline.passes.as_slice(), O1_PASSES);
     }
 
     #[test]
@@ -1856,7 +1904,7 @@ mod tests {
         ] {
             let pipeline = BackendOptPipeline::for_policy(&level.policy());
 
-            assert_eq!(pipeline.passes, O2_PASSES);
+            assert_eq!(pipeline.passes.as_slice(), O2_PASSES);
             for pass in O1_PASSES {
                 assert!(pipeline.passes.contains(pass), "{level:?} missing {pass:?}");
             }
@@ -1871,6 +1919,34 @@ mod tests {
                     .contains(&BackendOptPass::RemoveUnusedLocalBindings)
             );
         }
+    }
+
+    #[test]
+    fn backend_pipeline_is_selected_from_policy_capabilities() {
+        let policy = nia_opt::OptimizationPolicy {
+            level: OptimizationLevel::O2,
+            simplify_cfg: OptimizationDepth::Required,
+            const_fold: OptimizationDepth::Required,
+            dead_code_elim: OptimizationDepth::Full,
+            local_copy_prop: OptimizationDepth::Disabled,
+            inline_threshold: nia_opt::InlineThreshold::Never,
+            specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+            dedup_monomorphized_instances: false,
+            prefer_size: false,
+        };
+        let pipeline = BackendOptPipeline::for_policy(&policy);
+
+        assert_eq!(
+            pipeline.passes,
+            vec![
+                BackendOptPass::SimplifySameTypeCasts,
+                BackendOptPass::RemoveNoopLocalStores,
+                BackendOptPass::RemovePureExprOps,
+                BackendOptPass::RemoveOverwrittenLocalStores,
+                BackendOptPass::RemoveNeverReadLocalStores,
+                BackendOptPass::RemoveUnusedLocalBindings,
+            ]
+        );
     }
 
     #[test]

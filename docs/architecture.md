@@ -108,10 +108,14 @@ LLVM cannot undo duplicated Nia-level work.
 Current Nia-owned optimization consumers:
 
 - `nia-backend-lower` consumes the policy while lowering function bodies into
-  backend IR. At `O1` it runs cheap Function IR cleanup: same-type cast removal,
-  no-op local store removal, pure discarded expression removal, constant boolean
-  branch folding, empty jump block merging, unreachable block removal, and the
-  same cleanup inside defer bodies.
+  backend IR. Backend passes are selected from policy capabilities, not directly
+  from the user-facing level. Cheap dead-code elimination enables same-type cast
+  removal, no-op local store removal, and pure discarded expression removal.
+  Cheap CFG simplification enables constant boolean branch folding, empty jump
+  block merging, unreachable block removal, and the same cleanup inside defer
+  bodies. Full local-copy propagation enables local copy propagation. Full
+  dead-code elimination enables overwritten-store cleanup, never-read local
+  store cleanup, and unused local binding cleanup.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.
