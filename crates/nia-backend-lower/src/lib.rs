@@ -3,6 +3,7 @@ mod function_instances;
 mod instantiate;
 mod items;
 mod module_dce;
+mod module_inline;
 mod operator_dispatch;
 mod opt;
 mod struct_instances;
@@ -266,6 +267,7 @@ impl<'a> ModuleLowerer<'a> {
             &functions,
             &function_instances,
         );
+        self.inline_constant_functions(&mut functions, &mut function_instances);
         self.remove_unused_private_functions(
             &mut functions,
             &mut function_instances,
