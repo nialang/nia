@@ -3,8 +3,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ModuleLowerer;
 use nia_function_ir::{
-    FunctionBlock, FunctionBlockId, FunctionBody, FunctionDeferBody, FunctionExprKind, FunctionOp,
-    FunctionTerminator,
+    FunctionArrayElements, FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee,
+    FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
+    FunctionInlineAsm, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
+    FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_opt::OptimizationDepth;
 
@@ -14,12 +16,208 @@ impl<'a> ModuleLowerer<'a> {
             self.optimization.simplify_cfg,
             OptimizationDepth::Cheap | OptimizationDepth::Full | OptimizationDepth::Aggressive
         ) {
+            simplify_same_type_casts_in_blocks(&mut body.blocks);
             fold_constant_bool_branches(&mut body.blocks);
             merge_empty_jump_blocks(&mut body);
             remove_unreachable_blocks(&mut body);
             optimize_defer_bodies(&mut body.blocks);
         }
         body
+    }
+}
+
+fn simplify_same_type_casts_in_blocks(blocks: &mut [FunctionBlock]) {
+    for block in blocks {
+        for op in &mut block.ops {
+            simplify_same_type_casts_in_op(op);
+        }
+        simplify_same_type_casts_in_terminator(&mut block.terminator);
+    }
+}
+
+fn simplify_same_type_casts_in_op(op: &mut FunctionOp) {
+    match op {
+        FunctionOp::Binding(binding) => {
+            if let Some(value) = &mut binding.value {
+                simplify_same_type_casts_in_expr(value);
+            }
+        }
+        FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+            simplify_same_type_casts_in_expr(value);
+        }
+        FunctionOp::Defer(body) => {
+            simplify_same_type_casts_in_blocks(&mut body.blocks);
+        }
+    }
+}
+
+fn simplify_same_type_casts_in_terminator(terminator: &mut FunctionTerminator) {
+    match terminator {
+        FunctionTerminator::If { cond, .. } => simplify_same_type_casts_in_expr(cond),
+        FunctionTerminator::Switch { target, arms, .. } => {
+            simplify_same_type_casts_in_expr(target);
+            for arm in arms {
+                simplify_same_type_casts_in_expr(&mut arm.pattern);
+            }
+        }
+        FunctionTerminator::Loop { header, .. } => match header {
+            FunctionForHeader::Condition(cond) => simplify_same_type_casts_in_expr(cond),
+            FunctionForHeader::CStyle { cond } => {
+                if let Some(cond) = cond {
+                    simplify_same_type_casts_in_expr(cond);
+                }
+            }
+            FunctionForHeader::Infinite => {}
+        },
+        FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+            if let Some(value) = value {
+                simplify_same_type_casts_in_expr(value);
+            }
+        }
+        FunctionTerminator::Error { .. }
+        | FunctionTerminator::Branch { .. }
+        | FunctionTerminator::Next { .. } => {}
+    }
+}
+
+fn simplify_same_type_casts_in_expr(expr: &mut FunctionExpr) {
+    simplify_same_type_casts_in_expr_children(expr);
+    if let FunctionExprKind::Cast { expr: inner, ty } = &mut expr.kind
+        && inner.ty == *ty
+    {
+        let mut inner = (**inner).clone();
+        inner.span = expr.span;
+        *expr = inner;
+    }
+}
+
+fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) {
+    match &mut expr.kind {
+        FunctionExprKind::Error
+        | FunctionExprKind::Integer(_)
+        | FunctionExprKind::Float(_)
+        | FunctionExprKind::String(_)
+        | FunctionExprKind::ByteString(_)
+        | FunctionExprKind::Char(_)
+        | FunctionExprKind::ByteChar(_)
+        | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Local(_)
+        | FunctionExprKind::Global(_)
+        | FunctionExprKind::Function(_)
+        | FunctionExprKind::FunctionInstance { .. }
+        | FunctionExprKind::EnumVariant(_)
+        | FunctionExprKind::BuiltinValue(_) => {}
+        FunctionExprKind::Range(range) => simplify_same_type_casts_in_range(range),
+        FunctionExprKind::InlineAsm(asm) => simplify_same_type_casts_in_inline_asm(asm),
+        FunctionExprKind::CStringPointer { array, .. } => simplify_same_type_casts_in_expr(array),
+        FunctionExprKind::ArrayLiteral { elems } => {
+            simplify_same_type_casts_in_array_elements(elems)
+        }
+        FunctionExprKind::StructLiteral { fields, .. } => {
+            for field in fields {
+                simplify_same_type_casts_in_field_init(field);
+            }
+        }
+        FunctionExprKind::UnionLiteral { field, .. } => {
+            simplify_same_type_casts_in_field_init(field)
+        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Discard(expr)
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::TraitObjectUpcast { expr, .. }
+        | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+            simplify_same_type_casts_in_expr(expr);
+        }
+        FunctionExprKind::AddrOf(place) => simplify_same_type_casts_in_place(place),
+        FunctionExprKind::Binary { lhs, rhs, .. } => {
+            simplify_same_type_casts_in_expr(lhs);
+            simplify_same_type_casts_in_expr(rhs);
+        }
+        FunctionExprKind::Assign { place, rhs, .. } => {
+            simplify_same_type_casts_in_place(place);
+            simplify_same_type_casts_in_expr(rhs);
+        }
+        FunctionExprKind::Call { callee, args } => {
+            simplify_same_type_casts_in_callee(callee);
+            for arg in args {
+                simplify_same_type_casts_in_expr(arg);
+            }
+        }
+        FunctionExprKind::Field { lhs, .. } => simplify_same_type_casts_in_expr(lhs),
+        FunctionExprKind::Index { lhs, index } => {
+            simplify_same_type_casts_in_expr(lhs);
+            simplify_same_type_casts_in_expr(index);
+        }
+        FunctionExprKind::Slice { lhs, range, .. } => {
+            simplify_same_type_casts_in_expr(lhs);
+            simplify_same_type_casts_in_slice_range(range);
+        }
+    }
+}
+
+fn simplify_same_type_casts_in_inline_asm(asm: &mut FunctionInlineAsm) {
+    for input in &mut asm.inputs {
+        simplify_same_type_casts_in_expr(&mut input.value);
+    }
+    for output in &mut asm.outputs {
+        simplify_same_type_casts_in_place(&mut output.place);
+    }
+}
+
+fn simplify_same_type_casts_in_array_elements(elems: &mut FunctionArrayElements) {
+    match elems {
+        FunctionArrayElements::List(elems) => {
+            for elem in elems {
+                simplify_same_type_casts_in_expr(elem);
+            }
+        }
+        FunctionArrayElements::Repeat { value, .. } => simplify_same_type_casts_in_expr(value),
+    }
+}
+
+fn simplify_same_type_casts_in_field_init(field: &mut FunctionFieldInit) {
+    simplify_same_type_casts_in_expr(&mut field.value);
+}
+
+fn simplify_same_type_casts_in_callee(callee: &mut FunctionCallee) {
+    match callee {
+        FunctionCallee::Method { receiver, .. }
+        | FunctionCallee::TraitMethod { receiver, .. }
+        | FunctionCallee::DynamicTraitMethod { receiver, .. }
+        | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::FunctionPointer(receiver) => simplify_same_type_casts_in_expr(receiver),
+        FunctionCallee::Function(_)
+        | FunctionCallee::FunctionInstance { .. }
+        | FunctionCallee::BuiltinOperator(_) => {}
+    }
+}
+
+fn simplify_same_type_casts_in_place(place: &mut FunctionPlace) {
+    if let FunctionPlaceBase::Deref(expr) = &mut place.base {
+        simplify_same_type_casts_in_expr(expr);
+    }
+    for elem in &mut place.elems {
+        if let FunctionPlaceElem::Index(expr) = elem {
+            simplify_same_type_casts_in_expr(expr);
+        }
+    }
+}
+
+fn simplify_same_type_casts_in_slice_range(range: &mut FunctionSliceRange) {
+    if let Some(start) = &mut range.start {
+        simplify_same_type_casts_in_expr(start);
+    }
+    if let Some(end) = &mut range.end {
+        simplify_same_type_casts_in_expr(end);
+    }
+}
+
+fn simplify_same_type_casts_in_range(range: &mut FunctionRange) {
+    if let Some(start) = &mut range.start {
+        simplify_same_type_casts_in_expr(start);
+    }
+    if let Some(end) = &mut range.end {
+        simplify_same_type_casts_in_expr(end);
     }
 }
 
@@ -272,6 +470,7 @@ mod tests {
     use nia_function_ir::{
         FunctionBlock, FunctionScope, FunctionScopeId, FunctionTerminator, validate_function_body,
     };
+    use nia_ids::LocalId;
     use nia_span::Span;
 
     #[test]
@@ -476,6 +675,61 @@ mod tests {
             vec![FunctionBlockId(2)]
         );
         validate_function_body(&body).expect("folded function body should remain valid");
+    }
+
+    #[test]
+    fn removes_same_type_cast_wrappers_recursively() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut expr = FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::Discard(Box::new(FunctionExpr {
+                span,
+                ty,
+                kind: FunctionExprKind::Cast {
+                    expr: Box::new(FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(0)),
+                    }),
+                    ty,
+                },
+            })),
+        };
+
+        simplify_same_type_casts_in_expr(&mut expr);
+
+        let FunctionExprKind::Discard(inner) = expr.kind else {
+            panic!("expected discard wrapper");
+        };
+        assert!(matches!(inner.kind, FunctionExprKind::Local(LocalId(0))));
+    }
+
+    #[test]
+    fn preserves_casts_that_change_type() {
+        let span = Span::default();
+        let source_ty = test_ty();
+        let target_ty = nia_ids::InternedTyId::new(
+            nia_ids::ModuleId(0),
+            nia_ids::TyInternerIndex::from_interner_index(1),
+        );
+        let mut expr = FunctionExpr {
+            span,
+            ty: target_ty,
+            kind: FunctionExprKind::Cast {
+                expr: Box::new(FunctionExpr {
+                    span,
+                    ty: source_ty,
+                    kind: FunctionExprKind::Local(LocalId(0)),
+                }),
+                ty: target_ty,
+            },
+        };
+
+        simplify_same_type_casts_in_expr(&mut expr);
+
+        assert!(matches!(expr.kind, FunctionExprKind::Cast { .. }));
     }
 
     #[test]
