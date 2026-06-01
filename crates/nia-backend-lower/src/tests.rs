@@ -1364,6 +1364,52 @@ fn main() [2]i32 {
 }
 
 #[test]
+fn size_levels_preserve_non_constant_pure_leaf_function_calls() {
+    let source = r#"
+fn pair() [2]i32 {
+    [1, 2]
+}
+
+fn main() [2]i32 {
+    pair()
+}
+"#;
+
+    for level in [
+        nia_opt::NiaOptimizationLevel::Os,
+        nia_opt::NiaOptimizationLevel::Oz,
+    ] {
+        let lowering =
+            lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
+        let main = lowering.program.modules[0]
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .expect("main function");
+        let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+        assert!(
+            matches!(value.kind, FunctionExprKind::Call { .. }),
+            "{level:?}"
+        );
+        assert!(
+            lowering
+                .optimization_report
+                .changed_passes
+                .iter()
+                .all(|change| !matches!(
+                    change,
+                    BackendOptimizationChange::Function {
+                        pass: "inline-leaf-functions",
+                        ..
+                    }
+                )),
+            "{level:?}"
+        );
+    }
+}
+
+#[test]
 fn o2_inlines_tiny_pure_leaf_function_calls_with_params() {
     let source = r#"
 fn identity(value: i32) i32 {
