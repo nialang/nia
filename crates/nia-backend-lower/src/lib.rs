@@ -44,12 +44,19 @@ pub struct BackendOptimizationReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackendOptimizationChange {
-    pub module_id: ModuleId,
-    pub function: GlobalDefId,
-    pub pass: &'static str,
-    pub is_instance: bool,
-    pub type_arg_count: usize,
+pub enum BackendOptimizationChange {
+    Function {
+        module_id: ModuleId,
+        function: GlobalDefId,
+        pass: &'static str,
+        is_instance: bool,
+        type_arg_count: usize,
+    },
+    Global {
+        module_id: ModuleId,
+        global: GlobalDefId,
+        pass: &'static str,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

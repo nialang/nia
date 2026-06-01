@@ -112,6 +112,22 @@ pub enum OptimizationDepth {
     Aggressive,
 }
 
+impl OptimizationDepth {
+    pub fn at_least(self, minimum: Self) -> bool {
+        self.rank() >= minimum.rank()
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            Self::Disabled => 0,
+            Self::Required => 1,
+            Self::Cheap => 2,
+            Self::Full => 3,
+            Self::Aggressive => 4,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InlineThreshold {
     Never,

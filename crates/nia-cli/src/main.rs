@@ -814,15 +814,27 @@ fn print_optimization_report(program: &nia_driver::CheckedProgram) {
     }
     println!("backend optimization report:");
     for change in &report.changed_passes {
-        let instance = if change.is_instance { " instance" } else { "" };
-        println!(
-            "  m{}::d{}{} {} type_args={}",
-            change.function.module_id.0,
-            change.function.def_id.0,
-            instance,
-            change.pass,
-            change.type_arg_count
-        );
+        match change {
+            nia_driver::BackendOptimizationChange::Function {
+                function,
+                pass,
+                is_instance,
+                type_arg_count,
+                ..
+            } => {
+                let instance = if *is_instance { " instance" } else { "" };
+                println!(
+                    "  m{}::d{}{} {} type_args={}",
+                    function.module_id.0, function.def_id.0, instance, pass, type_arg_count
+                );
+            }
+            nia_driver::BackendOptimizationChange::Global { global, pass, .. } => {
+                println!(
+                    "  m{}::d{} global {}",
+                    global.module_id.0, global.def_id.0, pass
+                );
+            }
+        }
     }
 }
 

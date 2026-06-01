@@ -119,6 +119,7 @@ dependencies = [
  "nia-opt",
  "nia-parser",
  "nia-span",
+ "nia-static-ir",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",

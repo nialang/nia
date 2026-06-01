@@ -13,6 +13,7 @@ use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
+use nia_static_ir::StaticInit;
 use nia_type_lower::{TypeLowering, lower_module_types_with_id};
 use nia_type_normalize::normalize_module_types;
 use nia_type_resolve::resolve_module_types;
@@ -650,6 +651,82 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_simplifies_zero_static_initializers() {
+    let source = r#"
+const zeroes: [4]i32 = [0; 4];
+
+fn main() i32 {
+    zeroes[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let zeroes = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "zeroes")
+        .expect("zeroes global");
+
+    assert!(matches!(zeroes.init, Some(StaticInit::Zero)));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    global,
+                    pass: "simplify-static-init",
+                    ..
+                } if *global == zeroes.def_id
+            ))
+    );
+}
+
+#[test]
+fn o1_preserves_zero_static_initializers() {
+    let source = r#"
+const zeroes: [4]i32 = [0; 4];
+
+fn main() i32 {
+    zeroes[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let zeroes = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "zeroes")
+        .expect("zeroes global");
+
+    assert!(matches!(
+        zeroes.init,
+        Some(StaticInit::Repeat { .. } | StaticInit::Array(_))
+    ));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    pass: "simplify-static-init",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o1_removes_noop_backend_local_stores() {
     let source = r#"
 fn main() i32 {
@@ -686,11 +763,15 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .any(|change| {
-                change.pass == "remove-noop-local-stores"
-                    && !change.is_instance
-                    && change.type_arg_count == 0
-            })
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "remove-noop-local-stores",
+                    is_instance: false,
+                    type_arg_count: 0,
+                    ..
+                }
+            ))
     );
 }
 
@@ -957,7 +1038,13 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .any(|change| change.pass == "propagate-local-constants")
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "propagate-local-constants",
+                    ..
+                }
+            ))
     );
 }
 
@@ -994,7 +1081,13 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .all(|change| change.pass != "propagate-local-constants")
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "propagate-local-constants",
+                    ..
+                }
+            ))
     );
 }
 
@@ -1031,7 +1124,13 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .any(|change| change.pass == "fold-constant-switches")
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "fold-constant-switches",
+                    ..
+                }
+            ))
     );
 }
 
@@ -1068,7 +1167,13 @@ fn main() i32 {
             .optimization_report
             .changed_passes
             .iter()
-            .all(|change| change.pass != "fold-constant-switches")
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "fold-constant-switches",
+                    ..
+                }
+            ))
     );
 }
 
