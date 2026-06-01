@@ -538,6 +538,10 @@ impl<'a> BodyChecker<'a> {
                     elem: actual_elem,
                 }),
             ) if self.types_match_normalized(expected_elem, actual_elem) => {
+                // Type equality is used as a predicate by many callers. Array
+                // length conversion failures should make the predicate false;
+                // the context that produced the malformed length owns the
+                // user-facing diagnostic.
                 let Ok(expected_len) = self.array_len_value(Span::default(), &expected_len) else {
                     return false;
                 };

@@ -855,6 +855,8 @@ impl<'a> BodyChecker<'a> {
         if expected == actual {
             return true;
         }
+        // Method matching only needs a yes/no answer here. Invalid symbolic
+        // lengths are diagnosed where the array type is constructed or checked.
         let expected = self.array_len_value(Span::default(), expected).ok();
         let actual = self.array_len_value(Span::default(), actual).ok();
         expected.is_some() && expected == actual
