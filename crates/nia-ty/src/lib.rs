@@ -37,6 +37,12 @@ pub enum TyKind {
         trait_id: BuiltinTrait,
         args: Vec<InternedTyId>,
     },
+    TraitObject {
+        is_const: bool,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        associated_type_bindings: Vec<(String, InternedTyId)>,
+    },
     Projection {
         self_ty: InternedTyId,
         trait_id: TraitId,
@@ -249,6 +255,27 @@ pub fn import_type_into(
             target.intern(TyKind::BuiltinTrait {
                 trait_id: *trait_id,
                 args,
+            })
+        }
+        Some(TyKind::TraitObject {
+            is_const,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            let associated_type_bindings = associated_type_bindings
+                .iter()
+                .map(|(name, ty)| (name.clone(), import_type_into(target, source, *ty)))
+                .collect();
+            target.intern(TyKind::TraitObject {
+                is_const: *is_const,
+                trait_id: *trait_id,
+                trait_args,
+                associated_type_bindings,
             })
         }
         Some(TyKind::Projection {

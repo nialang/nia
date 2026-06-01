@@ -251,7 +251,7 @@ impl<'a> LayoutComputer<'a> {
                 size: self.target.pointer_size,
                 align: self.target.pointer_align,
             }),
-            Some(TyKind::Slice { .. }) => Some(TypeLayout {
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. }) => Some(TypeLayout {
                 size: self.target.pointer_size * 2,
                 align: self.target.pointer_align,
             }),

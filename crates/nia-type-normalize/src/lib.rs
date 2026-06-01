@@ -107,6 +107,27 @@ impl<'a> TypeNormalizer<'a> {
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|(name, ty)| (name, self.normalize_ty(ty, stack)))
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -233,6 +254,32 @@ impl<'a> TypeNormalizer<'a> {
                     .collect();
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|(name, ty)| {
+                        (
+                            name,
+                            self.normalize_ty_with_substitutions(ty, substitutions, stack),
+                        )
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
             }
             Some(TyKind::Projection {
                 self_ty,

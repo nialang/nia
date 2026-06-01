@@ -165,6 +165,10 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context} cannot use nia slice directly"),
             )),
+            Some(TyKind::TraitObject { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use nia trait object directly"),
+            )),
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,

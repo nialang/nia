@@ -1430,6 +1430,43 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::TraitObject {
+                is_const: general_const,
+                trait_id: general_trait,
+                trait_args: general_args,
+                associated_type_bindings: general_bindings,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::TraitObject {
+                    is_const: specific_const,
+                    trait_id: specific_trait,
+                    trait_args: specific_args,
+                    associated_type_bindings: specific_bindings,
+                }) if general_const == specific_const
+                    && general_trait == specific_trait
+                    && general_args.len() == specific_args.len()
+                    && general_bindings.len() == specific_bindings.len() =>
+                {
+                    general_args
+                        .iter()
+                        .zip(specific_args)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                        && general_bindings.iter().all(|(general_name, general_ty)| {
+                            specific_bindings
+                                .iter()
+                                .find(|(specific_name, _)| specific_name == general_name)
+                                .is_some_and(|(_, specific_ty)| {
+                                    self.pattern_subsumes_inner(
+                                        *general_ty,
+                                        *specific_ty,
+                                        substitutions,
+                                    )
+                                })
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::Projection {
                 self_ty: general_self,
                 trait_id: general_trait,
@@ -1665,6 +1702,39 @@ impl<'a> BodyChecker<'a> {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
                         self.match_type_pattern(*pattern, *actual, substitutions)
                     })
+                }
+                _ => false,
+            },
+            Some(TyKind::TraitObject {
+                is_const: pattern_const,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                associated_type_bindings: pattern_bindings,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }) if is_const == pattern_const
+                    && trait_id == pattern_trait
+                    && pattern_args.len() == trait_args.len()
+                    && pattern_bindings.len() == associated_type_bindings.len() =>
+                {
+                    pattern_args
+                        .iter()
+                        .zip(trait_args)
+                        .all(|(pattern, actual)| {
+                            self.match_type_pattern(*pattern, *actual, substitutions)
+                        })
+                        && pattern_bindings.iter().all(|(pattern_name, pattern_ty)| {
+                            associated_type_bindings
+                                .iter()
+                                .find(|(name, _)| name == pattern_name)
+                                .is_some_and(|(_, actual_ty)| {
+                                    self.match_type_pattern(*pattern_ty, *actual_ty, substitutions)
+                                })
+                        })
                 }
                 _ => false,
             },

@@ -416,6 +416,18 @@ impl<'a> BodyChecker<'a> {
                     self.check_type_projection_obligations(span, arg, obligations);
                 }
             }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.check_type_projection_obligations(span, arg, obligations);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.check_type_projection_obligations(span, ty, obligations);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,

@@ -121,7 +121,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                         .intern(TyKind::GenericParam("Self".to_string()));
                     lowerer.with_self_type(self_ty, |lowerer| {
                         for supertrait in &item_trait.supertraits {
-                            lowerer.lower_type_in_context(supertrait, TypeContext::Value);
+                            lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
                         }
                         lowerer.lower_where_clause(&item_trait.where_clause);
                         for method in &item_trait.methods {
@@ -134,7 +134,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                 self.with_generics(&extend.generics, |lowerer| {
                     let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
                     if let Some(trait_ref) = &extend.trait_ref {
-                        lowerer.lower_type_in_context(trait_ref, TypeContext::Value);
+                        lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
                     }
                     lowerer.with_self_type(self_ty, |lowerer| {
                         lowerer.lower_where_clause(&extend.where_clause);
@@ -223,10 +223,12 @@ impl<'a> TypeLowerer<'a> {
     fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         let lowered = self.lower_type(ty, context);
         self.type_uses.insert(ty.span, lowered);
-        if context == TypeContext::Value && self.is_invalid_value_type(lowered) {
+        if context == TypeContext::Value
+            && let Some(message) = self.invalid_value_type_message(lowered)
+        {
             self.diagnostics.push(Diagnostic::error(
                 ty.span,
-                "`!` is not valid as a value, field, parameter, or array element type",
+                message,
             ));
         }
         lowered
@@ -252,11 +254,15 @@ impl<'a> TypeLowerer<'a> {
                 self.interner.error()
             }),
             TypeKind::Pointer { is_const, elem } => {
-                let elem = self.lower_type_in_context(elem, TypeContext::Value);
-                self.interner.intern(TyKind::Pointer {
-                    is_const: *is_const,
-                    elem,
-                })
+                if let Some(trait_object) = self.lower_trait_object_type(*is_const, elem) {
+                    trait_object
+                } else {
+                    let elem = self.lower_type_in_context(elem, TypeContext::Value);
+                    self.interner.intern(TyKind::Pointer {
+                        is_const: *is_const,
+                        elem,
+                    })
+                }
             }
             TypeKind::Slice { is_const, elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
@@ -337,7 +343,7 @@ impl<'a> TypeLowerer<'a> {
                 name,
             } => {
                 let self_ty = self.lower_type_in_context(ty, TypeContext::Value);
-                let trait_ty = self.lower_type_in_context(trait_ref, TypeContext::Value);
+                let trait_ty = self.lower_type_in_context(trait_ref, TypeContext::TraitBound);
                 let trait_ty = self.normalize_if_known(trait_ty);
                 let Some((trait_id, args)) = self.projection_trait_id(trait_ty) else {
                     self.diagnostics.push(Diagnostic::error(
@@ -482,6 +488,130 @@ impl<'a> TypeLowerer<'a> {
         }
         self.check_type_arg_count(span, def_id, args.len());
         self.interner.intern(TyKind::Nominal { def_id, args })
+    }
+
+    fn lower_trait_object_type(&mut self, is_const: bool, ty: &TypeRef) -> Option<InternedTyId> {
+        let TypeKind::Path { segments } = &ty.kind else {
+            return None;
+        };
+        let type_segment = type_name_segment(segments)?;
+        match self.resolved.type_names.get(&ty.span).copied() {
+            Some(TypeNameResolution::BuiltinTrait(trait_id)) => Some(self.lower_builtin_trait_object(
+                ty.span,
+                is_const,
+                type_segment,
+                trait_id,
+            )),
+            Some(TypeNameResolution::Def(def_id)) => {
+                let def_id =
+                    self.resolved
+                        .qualified_type_names
+                        .get(&ty.span)
+                        .copied()
+                        .unwrap_or(GlobalDefId {
+                            module_id: self.module_id,
+                            def_id,
+                        });
+                self.lower_source_trait_object(ty.span, is_const, type_segment, def_id)
+            }
+            Some(TypeNameResolution::External(def_id)) => {
+                self.lower_source_trait_object(ty.span, is_const, type_segment, def_id)
+            }
+            _ => None,
+        }
+    }
+
+    fn lower_source_trait_object(
+        &mut self,
+        span: Span,
+        is_const: bool,
+        segment: &TypePathSegment,
+        def_id: GlobalDefId,
+    ) -> Option<InternedTyId> {
+        if !self.is_trait_def(def_id) {
+            return None;
+        }
+        let (trait_args, associated_type_bindings) =
+            self.lower_trait_object_args(span, segment, TraitId::Source(def_id))?;
+        self.check_type_arg_count(span, def_id, trait_args.len());
+        Some(self.interner.intern(TyKind::TraitObject {
+            is_const,
+            trait_id: TraitId::Source(def_id),
+            trait_args,
+            associated_type_bindings,
+        }))
+    }
+
+    fn lower_builtin_trait_object(
+        &mut self,
+        span: Span,
+        is_const: bool,
+        segment: &TypePathSegment,
+        trait_id: BuiltinTrait,
+    ) -> InternedTyId {
+        let (trait_args, associated_type_bindings) = self
+            .lower_trait_object_args(span, segment, TraitId::Builtin(trait_id))
+            .unwrap_or_default();
+        self.check_builtin_trait_arg_count(span, trait_id, trait_args.len());
+        self.interner.intern(TyKind::TraitObject {
+            is_const,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args,
+            associated_type_bindings,
+        })
+    }
+
+    fn lower_trait_object_args(
+        &mut self,
+        _span: Span,
+        segment: &TypePathSegment,
+        trait_id: TraitId,
+    ) -> Option<(Vec<InternedTyId>, Vec<(String, InternedTyId)>)> {
+        let mut args = Vec::new();
+        let mut associated_type_bindings = Vec::new();
+        let mut seen_assoc_bindings = HashSet::new();
+        let mut seen_assoc_binding = false;
+        for arg in &segment.args {
+            match arg {
+                TypeArg::Type(arg_ty) => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::error(
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                }
+                TypeArg::Const(expr) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "const generic type arguments are not supported",
+                    ));
+                }
+                TypeArg::AssocBinding {
+                    name,
+                    span,
+                    ty: binding_ty,
+                } => {
+                    seen_assoc_binding = true;
+                    let binding_ty = self.lower_type_in_context(binding_ty, TypeContext::Value);
+                    if !seen_assoc_bindings.insert(name.as_str()) {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            format!("duplicate associated type binding `{name}`"),
+                        ));
+                    }
+                    if !self.trait_id_has_associated_type(trait_id, name) {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            format!("trait does not define associated type `{name}`"),
+                        ));
+                    }
+                    associated_type_bindings.push((name.clone(), binding_ty));
+                }
+            }
+        }
+        Some((args, associated_type_bindings))
     }
 
     fn lower_builtin_trait_type(
@@ -719,11 +849,19 @@ impl<'a> TypeLowerer<'a> {
         left == right || self.interner.get(left) == self.interner.get(right)
     }
 
-    fn is_invalid_value_type(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.interner.get(ty),
-            Some(TyKind::Primitive(PrimitiveTy::Never))
-        )
+    fn invalid_value_type_message(&self, ty: InternedTyId) -> Option<&'static str> {
+        match self.interner.get(ty) {
+            Some(TyKind::Primitive(PrimitiveTy::Never)) => {
+                Some("`!` is not valid as a value, field, parameter, or array element type")
+            }
+            Some(TyKind::BuiltinTrait { .. }) => Some(
+                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&const Trait[...]` for a trait object",
+            ),
+            Some(TyKind::Nominal { def_id, .. }) if self.is_trait_def(*def_id) => Some(
+                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&const Trait[...]` for a trait object",
+            ),
+            _ => None,
+        }
     }
 
     fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
@@ -764,6 +902,7 @@ mod tests {
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_parser::parse_module;
     use nia_type_resolve::resolve_module_types;
+    use std::collections::HashMap;
 
     #[test]
     fn lowers_primitive_pointer_array_function_and_nominal_types() {
@@ -929,6 +1068,140 @@ var global_void: void;
                 .filter(|diagnostic| diagnostic.message.contains("`!` is not valid"))
                 .count(),
             2,
+            "{:?}",
+            lowered.diagnostics
+        );
+    }
+
+    #[test]
+    fn lowers_trait_object_pointer_types() {
+        let (module, errors) = parse_module(
+            r#"
+trait Source[T] {
+    type Item;
+}
+
+fn read(source: &const Source[i32, Item = i32]) void {}
+fn write(source: &Source[i32, Item = i32]) void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let lowered = lower_module_types_with_defs(
+            ModuleId(0),
+            &module,
+            &resolved,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        );
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let trait_objects = lowered
+            .type_uses
+            .values()
+            .filter_map(|ty| match lowered.interner.get(*ty) {
+                Some(TyKind::TraitObject {
+                    is_const,
+                    trait_args,
+                    associated_type_bindings,
+                    ..
+                }) => Some((*is_const, trait_args.len(), associated_type_bindings.len())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            trait_objects.contains(&(true, 1, 1)),
+            "{trait_objects:?}"
+        );
+        assert!(
+            trait_objects.contains(&(false, 1, 1)),
+            "{trait_objects:?}"
+        );
+    }
+
+    #[test]
+    fn validates_trait_object_associated_type_bindings() {
+        let (module, errors) = parse_module(
+            r#"
+trait Source {
+    type Item;
+}
+
+fn unknown(source: &const Source[Missing = i32]) void {}
+fn duplicate(source: &const Source[Item = i32, Item = bool]) void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let lowered = lower_module_types_with_defs(
+            ModuleId(0),
+            &module,
+            &resolved,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        );
+        assert!(
+            lowered.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("trait does not define associated type `Missing`")),
+            "{:?}",
+            lowered.diagnostics
+        );
+        assert!(
+            lowered.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("duplicate associated type binding `Item`")),
+            "{:?}",
+            lowered.diagnostics
+        );
+    }
+
+    #[test]
+    fn rejects_bare_trait_as_value_type() {
+        let (module, errors) = parse_module(
+            r#"
+trait Show {}
+
+fn bad(value: Show) void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let lowered = lower_module_types_with_defs(
+            ModuleId(0),
+            &module,
+            &resolved,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        );
+        assert!(
+            lowered
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("trait types are not valid")),
             "{:?}",
             lowered.diagnostics
         );

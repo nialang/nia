@@ -1301,6 +1301,48 @@ fn substitute_imported_type(
                 args,
             })
         }
+        Some(TyKind::TraitObject {
+            is_const,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_type(
+                        target_interner,
+                        module,
+                        source_interner,
+                        *arg,
+                        substitutions,
+                        projection_context,
+                    )
+                })
+                .collect();
+            let associated_type_bindings = associated_type_bindings
+                .iter()
+                .map(|(name, ty)| {
+                    (
+                        name.clone(),
+                        substitute_imported_type(
+                            target_interner,
+                            module,
+                            source_interner,
+                            *ty,
+                            substitutions,
+                            projection_context,
+                        ),
+                    )
+                })
+                .collect();
+            target_interner.intern(TyKind::TraitObject {
+                is_const: *is_const,
+                trait_id: *trait_id,
+                trait_args,
+                associated_type_bindings,
+            })
+        }
         Some(TyKind::Projection {
             self_ty,
             trait_id,
@@ -1388,6 +1430,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::FunctionPointer { .. }
             | TyKind::Nominal { .. }
             | TyKind::BuiltinTrait { .. }
+            | TyKind::TraitObject { .. }
             | TyKind::Projection { .. }
             | TyKind::Range { .. }
             | TyKind::GenericParam(_),

@@ -169,6 +169,46 @@ where
                 format!("builtin_trait__{base}__argc{}__{}", args.len(), args)
             }
         }
+        Some(TyKind::TraitObject {
+            is_const,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let prefix = if *is_const {
+                "trait_obj_const"
+            } else {
+                "trait_obj"
+            };
+            let trait_name = match trait_id {
+                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
+            };
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                .collect::<Vec<_>>()
+                .join("__");
+            let assoc_bindings = associated_type_bindings
+                .iter()
+                .map(|(name, ty)| {
+                    format!(
+                        "{}__{}",
+                        sanitize_symbol_part(name),
+                        mangle_type_inner(interner, *ty, nominal_name, array_len)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            format!(
+                "{prefix}__{}__argc{}__{}__assoc{}__{}",
+                trait_name,
+                trait_args.len(),
+                trait_args,
+                associated_type_bindings.len(),
+                assoc_bindings
+            )
+        }
         Some(TyKind::Projection {
             self_ty,
             trait_id,

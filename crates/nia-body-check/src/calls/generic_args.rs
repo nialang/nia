@@ -134,6 +134,18 @@ impl<'a> BodyChecker<'a> {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_generic_params_in_ty(*arg, generics);
+                }
+                for (_, ty) in associated_type_bindings {
+                    self.collect_generic_params_in_ty(*ty, generics);
+                }
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_args,
