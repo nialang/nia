@@ -23,7 +23,7 @@ use nia_item_signatures::{
 };
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
-use nia_opt::{OptimizationLevel, OptimizationPolicy};
+use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_query::{QueryDb, QueryError, QueryKey};
 use nia_source::SourcePath;
 use nia_span::Span;
@@ -52,12 +52,12 @@ use resolve::*;
 use types::*;
 
 pub fn check_loaded_program(loaded: LoadedProgram) -> CheckedProgram {
-    check_loaded_program_with_options(loaded, OptimizationLevel::default())
+    check_loaded_program_with_options(loaded, NiaOptimizationLevel::default())
 }
 
 pub fn check_loaded_program_with_options(
     loaded: LoadedProgram,
-    optimization: OptimizationLevel,
+    optimization: NiaOptimizationLevel,
 ) -> CheckedProgram {
     check_loaded_program_with_providers(
         loaded,

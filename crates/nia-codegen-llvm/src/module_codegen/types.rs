@@ -680,10 +680,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.program.union_layout(def_id)
         } else {
             self.program
-                .union_instance_layouts(def_id)
-                .find_map(|item| {
-                    self.same_type_args(&item.key.args, args)
-                        .then_some(item.layout)
+                .union_instance_layout(def_id, args)
+                .or_else(|| {
+                    self.program
+                        .union_instance_layouts(def_id)
+                        .find_map(|item| {
+                            self.same_type_args(&item.key.args, args)
+                                .then_some(item.layout)
+                        })
                 })
         }
     }
@@ -698,10 +702,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.program.struct_layout(def_id)
         } else {
             self.program
-                .struct_instance_layouts(def_id)
-                .find_map(|item| {
-                    self.same_type_args(&item.key.args, args)
-                        .then_some(item.layout)
+                .struct_instance_layout(def_id, args)
+                .or_else(|| {
+                    self.program
+                        .struct_instance_layouts(def_id)
+                        .find_map(|item| {
+                            self.same_type_args(&item.key.args, args)
+                                .then_some(item.layout)
+                        })
                 })
         }
     }
@@ -1004,5 +1012,6 @@ fn layout_of_in_layouts(
     layouts
         .types
         .iter()
-        .find_map(|(candidate, layout)| (*candidate == ty).then_some(layout.clone()))
+        .find(|(candidate, _)| *candidate == ty)
+        .map(|(_, layout)| layout.clone())
 }

@@ -26,6 +26,8 @@ pub(super) struct ProgramIndex<'a> {
     type_layouts: HashMap<InternedTyId, &'a TypeLayout>,
     struct_layouts: HashMap<GlobalDefId, &'a StructLayout>,
     union_layouts: HashMap<GlobalDefId, &'a StructLayout>,
+    struct_instance_layouts: HashMap<(GlobalDefId, Vec<InternedTyId>), &'a StructLayout>,
+    union_instance_layouts: HashMap<(GlobalDefId, Vec<InternedTyId>), &'a StructLayout>,
     struct_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     union_instance_layouts_by_def: HashMap<GlobalDefId, Vec<BackendLayoutInstance<'a>>>,
     pub(super) struct_instances_by_def:
@@ -57,6 +59,8 @@ impl<'a> ProgramIndex<'a> {
             type_layouts: HashMap::new(),
             struct_layouts: HashMap::new(),
             union_layouts: HashMap::new(),
+            struct_instance_layouts: HashMap::new(),
+            union_instance_layouts: HashMap::new(),
             struct_instance_layouts_by_def: HashMap::new(),
             union_instance_layouts_by_def: HashMap::new(),
             struct_instances_by_def: HashMap::new(),
@@ -75,12 +79,18 @@ impl<'a> ProgramIndex<'a> {
             }
             for (key, layout) in &module.layouts.struct_instances {
                 index
+                    .struct_instance_layouts
+                    .insert((key.def_id, key.args.clone()), layout);
+                index
                     .struct_instance_layouts_by_def
                     .entry(key.def_id)
                     .or_default()
                     .push(BackendLayoutInstance { key, layout });
             }
             for (key, layout) in &module.layouts.union_instances {
+                index
+                    .union_instance_layouts
+                    .insert((key.def_id, key.args.clone()), layout);
                 index
                     .union_instance_layouts_by_def
                     .entry(key.def_id)
@@ -160,6 +170,26 @@ impl<'a> ProgramIndex<'a> {
 
     pub(super) fn union_layout(&self, def_id: GlobalDefId) -> Option<&'a StructLayout> {
         self.union_layouts.get(&def_id).copied()
+    }
+
+    pub(super) fn struct_instance_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<&'a StructLayout> {
+        self.struct_instance_layouts
+            .get(&(def_id, args.to_vec()))
+            .copied()
+    }
+
+    pub(super) fn union_instance_layout(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<&'a StructLayout> {
+        self.union_instance_layouts
+            .get(&(def_id, args.to_vec()))
+            .copied()
     }
 
     pub(super) fn struct_instance_layouts(

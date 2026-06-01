@@ -19,6 +19,8 @@ fn help_and_version_use_niac_command_name() {
         "{help_stdout}"
     );
     assert!(help_stdout.contains("-O0..-O3"), "{help_stdout}");
+    assert!(help_stdout.contains("-Os"), "{help_stdout}");
+    assert!(help_stdout.contains("-Oz"), "{help_stdout}");
 
     let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("help")
@@ -239,6 +241,62 @@ fn main() i32 {
 
     let status = Command::new(&exe).status().expect("run emitted executable");
     assert_eq!(status.code(), Some(7));
+}
+
+#[test]
+fn emitted_executables_preserve_semantics_across_optimization_levels() {
+    let root = temp_dir("emitted_executables_preserve_semantics_across_optimization_levels");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn pick(flag: bool, a: i32, b: i32) i32 {
+    if flag {
+        a
+    } else {
+        b
+    }
+}
+
+fn main() i32 {
+    var x = 39;
+    var y = x;
+    y = y + 1;
+    var unused = 99;
+    pick(true, y + 2, unused)
+}
+"#,
+    )
+    .expect("write test source");
+
+    for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-O"] {
+        let exe_name = format!(
+            "main_{}{}",
+            level.trim_start_matches('-'),
+            std::env::consts::EXE_SUFFIX
+        );
+        let exe = root.join(exe_name);
+        let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+            .arg(level)
+            .arg("emit")
+            .arg("exe")
+            .arg(&main)
+            .arg("-o")
+            .arg(&exe)
+            .output()
+            .unwrap_or_else(|error| panic!("run niac {level} emit exe: {error}"));
+
+        assert!(
+            output.status.success(),
+            "{level} stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let status = Command::new(&exe)
+            .status()
+            .unwrap_or_else(|error| panic!("run emitted executable for {level}: {error}"));
+        assert_eq!(status.code(), Some(42), "{level}");
+    }
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {

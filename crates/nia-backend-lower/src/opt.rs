@@ -1877,19 +1877,19 @@ mod tests {
         FunctionBlock, FunctionScope, FunctionScopeId, FunctionTerminator, validate_function_body,
     };
     use nia_ids::LocalId;
-    use nia_opt::OptimizationLevel;
+    use nia_opt::NiaOptimizationLevel;
     use nia_span::Span;
 
     #[test]
     fn o0_pipeline_has_no_optional_backend_passes() {
-        let pipeline = BackendOptPipeline::for_policy(&OptimizationLevel::O0.policy());
+        let pipeline = BackendOptPipeline::for_policy(&NiaOptimizationLevel::O0.policy());
 
         assert!(pipeline.passes.is_empty());
     }
 
     #[test]
     fn o1_pipeline_keeps_canonical_pass_order() {
-        let pipeline = BackendOptPipeline::for_policy(&OptimizationLevel::O1.policy());
+        let pipeline = BackendOptPipeline::for_policy(&NiaOptimizationLevel::O1.policy());
 
         assert_eq!(pipeline.passes.as_slice(), O1_PASSES);
     }
@@ -1897,10 +1897,10 @@ mod tests {
     #[test]
     fn o2_family_pipeline_starts_from_o1_cleanup_passes() {
         for level in [
-            OptimizationLevel::O2,
-            OptimizationLevel::O3,
-            OptimizationLevel::Os,
-            OptimizationLevel::Oz,
+            NiaOptimizationLevel::O2,
+            NiaOptimizationLevel::O3,
+            NiaOptimizationLevel::Os,
+            NiaOptimizationLevel::Oz,
         ] {
             let pipeline = BackendOptPipeline::for_policy(&level.policy());
 
@@ -1924,7 +1924,7 @@ mod tests {
     #[test]
     fn backend_pipeline_is_selected_from_policy_capabilities() {
         let policy = nia_opt::OptimizationPolicy {
-            level: OptimizationLevel::O2,
+            level: NiaOptimizationLevel::O2,
             simplify_cfg: OptimizationDepth::Required,
             const_fold: OptimizationDepth::Required,
             dead_code_elim: OptimizationDepth::Full,
