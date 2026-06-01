@@ -381,6 +381,9 @@ than rediscovering control-flow or place semantics from typed AST-shaped nodes.
 validator checks IR invariants such as unique ids, valid block/scope/local
 references, valid terminator successors, and recursively valid defer bodies.
 This catches broken lowerers before backend codegen starts emitting LLVM.
+The LLVM backend also runs this structural validator at the Backend IR boundary
+so invalid Function IR is reported before LLVM blocks or instructions are
+created.
 
 Function IR is deliberately separate from static/global initialization. Static
 initializers describe compile-time data for storage; function IR describes
@@ -430,6 +433,11 @@ container around specialized IRs:
 
 Backend IR should be explicit enough for LLVM codegen without forcing codegen to
 re-run semantic analysis.
+
+Before LLVM emission, `nia-codegen-llvm` validates Backend IR for Function IR
+structure, cross-module function/global references, static initializer address
+paths, aggregate field/variant references, evaluated array lengths, and ABI
+layouts needed by runtime values.
 
 ### 11.2 `nia-backend-lower`
 
@@ -523,7 +531,8 @@ Implementation bugs may panic in tests, but normal invalid Nia programs should
 flow through diagnostic reporting.
 
 Backend IR is validated before LLVM emission. If lowering or stale query state
-leaves unresolved array lengths, missing owner modules, or missing ABI layouts in
+leaves invalid Function IR, unresolved array lengths, missing owner modules,
+missing references, invalid static initializer paths, or missing ABI layouts in
 runtime positions, LLVM codegen reports diagnostics at that boundary instead of
 letting backend-specific lowering fail later.
 

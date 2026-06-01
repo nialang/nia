@@ -6,12 +6,14 @@ pub(super) use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendGlobal, BackendLayouts,
     BackendModule, BackendParam, BackendProgram, BackendStruct, BackendTraitObjectVtable,
     BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
+    BackendUnion,
 };
 pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
 pub(super) use nia_comptime_check::ComptimeCheck;
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind,
-    FunctionScope, FunctionScopeId, FunctionTerminator,
+    FunctionFieldInit, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionScope,
+    FunctionScopeId, FunctionTerminator,
 };
 pub(super) use nia_ids::{ConstExprId, DefId, GlobalConstExprId, GlobalDefId, LocalId, ModuleId};
 pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};

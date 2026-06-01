@@ -1,6 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
+fn single_module_program(
+    interner: nia_ty::TyInterner,
+    layouts: BackendLayouts,
+    structs: Vec<BackendStruct>,
+    unions: Vec<BackendUnion>,
+    globals: Vec<BackendGlobal>,
+    functions: Vec<BackendFunction>,
+) -> BackendProgram {
+    BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts,
+            structs,
+            struct_instances: Vec::new(),
+            unions,
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals,
+            functions,
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    }
+}
+
 #[test]
 fn checks_hosted_main_signatures() {
     let root = temp_dir("checks_hosted_main_signatures");
@@ -1034,6 +1063,486 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
         output.diagnostics.iter().any(|diagnostic| diagnostic
             .message
             .contains("expression references missing enum variant")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_function_ir_missing_entry_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: Vec::new(),
+                    entry: FunctionBlockId(99),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("backend IR contains invalid function IR")),
+        "{:?}",
+        output.diagnostics
+    );
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("function entry block")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_function_ir_missing_successor_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let program = BackendProgram {
+        modules: vec![BackendModule {
+            id: ModuleId(0),
+            name: "main".to_string(),
+            interner,
+            comptime: ComptimeCheck::default(),
+            layouts: BackendLayouts {
+                types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: Vec::new(),
+                union_instances: Vec::new(),
+            },
+            structs: Vec::new(),
+            struct_instances: Vec::new(),
+            unions: Vec::new(),
+            union_instances: Vec::new(),
+            enums: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![BackendFunction {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(0),
+                },
+                name: "main".to_string(),
+                generics: Vec::new(),
+                params: Vec::new(),
+                return_type: i32_ty,
+                is_extern: false,
+                is_variadic: false,
+                function_body: Some(FunctionBody {
+                    span,
+                    locals: Vec::new(),
+                    scopes: vec![FunctionScope {
+                        id: FunctionScopeId(0),
+                        parent: None,
+                        span,
+                    }],
+                    blocks: vec![FunctionBlock {
+                        id: FunctionBlockId(0),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Branch {
+                            target: FunctionBlockId(1),
+                            span,
+                        },
+                    }],
+                    entry: FunctionBlockId(0),
+                    ty: i32_ty,
+                }),
+                span,
+            }],
+            function_instances: Vec::new(),
+            trait_object_vtables: Vec::new(),
+            generic_instantiations: Vec::new(),
+        }],
+    };
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("terminator successor references missing block")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_static_function_address_refs_before_llvm() {
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let fn_ptr_ty = interner.intern(TyKind::FunctionPointer {
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_variadic: false,
+    });
+    let span = Span::default();
+    let missing_function = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(9),
+    };
+    let program = single_module_program(
+        interner,
+        BackendLayouts {
+            types: vec![
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (fn_ptr_ty, TypeLayout { size: 8, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![BackendGlobal {
+            def_id: GlobalDefId {
+                module_id: ModuleId(0),
+                def_id: DefId(0),
+            },
+            name: "ptr".to_string(),
+            ty: fn_ptr_ty,
+            is_const: true,
+            is_extern: false,
+            init: Some(StaticInit::AddrOfFunction {
+                function: missing_function,
+                args: Vec::new(),
+            }),
+            span,
+        }],
+        Vec::new(),
+    );
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("static initializer references missing function")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_static_address_path_shape_before_llvm() {
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let ptr_ty = interner.intern(TyKind::Pointer {
+        is_const: true,
+        elem: i32_ty,
+    });
+    let span = Span::default();
+    let source_global = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(0),
+    };
+    let program = single_module_program(
+        interner,
+        BackendLayouts {
+            types: vec![
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (ptr_ty, TypeLayout { size: 8, align: 8 }),
+            ],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        vec![
+            BackendGlobal {
+                def_id: source_global,
+                name: "value".to_string(),
+                ty: i32_ty,
+                is_const: false,
+                is_extern: false,
+                init: Some(StaticInit::Int(0)),
+                span,
+            },
+            BackendGlobal {
+                def_id: GlobalDefId {
+                    module_id: ModuleId(0),
+                    def_id: DefId(1),
+                },
+                name: "ptr".to_string(),
+                ty: ptr_ty,
+                is_const: true,
+                is_extern: false,
+                init: Some(StaticInit::AddrOfGlobal {
+                    global: source_global,
+                    path: vec![nia_static_ir::StaticAddressElem::Index(0)],
+                }),
+                span,
+            },
+        ],
+        Vec::new(),
+    );
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("indexes non-array type")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
+    let mut interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let struct_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(0),
+    };
+    let field_id = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(1),
+    };
+    let missing_field = GlobalDefId {
+        module_id: ModuleId(0),
+        def_id: DefId(9),
+    };
+    let struct_ty = interner.intern(TyKind::Nominal {
+        def_id: struct_id,
+        args: Vec::new(),
+    });
+    let span = Span::default();
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: DefId(2),
+        },
+        name: "main".to_string(),
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: struct_ty,
+        is_extern: false,
+        is_variadic: false,
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: struct_ty,
+                        kind: FunctionExprKind::StructLiteral {
+                            def_id: struct_id,
+                            fields: vec![FunctionFieldInit {
+                                field: Some(missing_field),
+                                name: "missing".to_string(),
+                                value: FunctionExpr {
+                                    span,
+                                    ty: i32_ty,
+                                    kind: FunctionExprKind::Integer("1".to_string()),
+                                },
+                                span,
+                            }],
+                        },
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: struct_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        interner,
+        BackendLayouts {
+            types: vec![
+                (i32_ty, TypeLayout { size: 4, align: 4 }),
+                (struct_ty, TypeLayout { size: 4, align: 4 }),
+            ],
+            structs: vec![(
+                struct_id,
+                StructLayout {
+                    layout: TypeLayout { size: 4, align: 4 },
+                    fields: vec![FieldLayout {
+                        def_id: field_id.def_id,
+                        offset: 0,
+                        layout: TypeLayout { size: 4, align: 4 },
+                    }],
+                },
+            )],
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        vec![BackendStruct {
+            def_id: struct_id,
+            name: "Box".to_string(),
+            generics: Vec::new(),
+            fields: vec![BackendField {
+                def_id: field_id,
+                name: "value".to_string(),
+                ty: i32_ty,
+                span,
+            }],
+            is_extern: false,
+            span,
+        }],
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("aggregate literal references missing field")),
+        "{:?}",
+        output.diagnostics
+    );
+}
+
+#[test]
+fn validates_backend_ir_missing_local_place_before_llvm() {
+    let interner = nia_ty::TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let span = Span::default();
+    let function = BackendFunction {
+        def_id: GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: DefId(0),
+        },
+        name: "main".to_string(),
+        generics: Vec::new(),
+        params: Vec::new(),
+        return_type: i32_ty,
+        is_extern: false,
+        is_variadic: false,
+        function_body: Some(FunctionBody {
+            span,
+            locals: Vec::new(),
+            scopes: vec![FunctionScope {
+                id: FunctionScopeId(0),
+                parent: None,
+                span,
+            }],
+            blocks: vec![FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![FunctionOp::Expr(FunctionExpr {
+                    span,
+                    ty: i32_ty,
+                    kind: FunctionExprKind::AddrOf(FunctionPlace {
+                        span,
+                        ty: i32_ty,
+                        base: FunctionPlaceBase::Local(LocalId(99)),
+                        elems: Vec::new(),
+                    }),
+                })],
+                terminator: FunctionTerminator::Tail {
+                    value: Some(FunctionExpr {
+                        span,
+                        ty: i32_ty,
+                        kind: FunctionExprKind::Integer("0".to_string()),
+                    }),
+                    span,
+                },
+            }],
+            entry: FunctionBlockId(0),
+            ty: i32_ty,
+        }),
+        span,
+    };
+    let program = single_module_program(
+        interner,
+        BackendLayouts {
+            types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
+            structs: Vec::new(),
+            unions: Vec::new(),
+            struct_instances: Vec::new(),
+            union_instances: Vec::new(),
+        },
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![function],
+    );
+
+    let output = emit_llvm_ir(&program);
+
+    assert!(output.modules.is_empty());
+    assert!(
+        output.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("place local references missing local")),
         "{:?}",
         output.diagnostics
     );
