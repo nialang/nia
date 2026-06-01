@@ -20,6 +20,7 @@ Nia provides:
 - simple type generics for functions, structs, and methods, implemented by
   monomorphization;
 - methods declared in `extend` blocks;
+- traits implemented by `extend Type : Trait` blocks;
 - expression-oriented blocks and `if`;
 - C-style enums with namespaces and `switch` without fallthrough;
 - compile-time value bindings with `comptime`;
@@ -132,11 +133,13 @@ pub
 return
 struct
 switch
+trait
 true
 type
 using
 var
 void
+where
 ```
 
 Primitive type names such as `i32`, `u8`, `usize`, `bool`, `char`, and `void`
@@ -406,6 +409,25 @@ Identifiers, field access, array indexing, slice indexing, and pointer
 dereference may be places. Field access and indexing inherit place-ness from
 their left-hand side.
 
+When the pointee type is a trait name, `&Trait[...]` and `&const Trait[...]`
+denote trait object pointers, not thin object pointers. A trait object is a Nia
+fat pointer carrying an object pointer plus implementation metadata. Bare
+`Trait[...]` remains a trait type for bounds and projections; it is not a valid
+value, field, parameter, or array element type.
+
+```nia
+trait Source {
+    type Item;
+}
+
+fn consume(source: &const Source[Item = i32]) void {}
+```
+
+Trait object syntax uses the same bracket list as trait bounds: positional trait
+arguments come first, followed by associated type bindings. Binding names must
+be associated types declared by the trait, and a single object type may not bind
+the same associated type more than once.
+
 Literals, ordinary call results, arithmetic results, and struct rvalues are not
 places and cannot be addressed directly. Bind them to a local or global object
 when a stable address is needed:
@@ -563,9 +585,29 @@ start..
 ..
 ```
 
-Range bounds must be integer expressions. Nia does not provide built-in runtime
-bounds checks. The programmer is responsible for ensuring that the selected
-memory range is valid.
+Range forms also exist as structural types:
+
+```nia
+usize..usize
+usize..=usize
+usize..
+..usize
+..=usize
+..
+```
+
+There is no nominal built-in `Range` type. A range type is identified by its
+shape and, for bounded forms, by one integer bound type. `T..U` and `T..=U`
+require `T` and `U` to be the same integer type.
+
+Range expressions are runtime values with these structural range types. Built-in
+slice construction requires every explicit range bound to have type `usize`;
+unsuffixed integer literals in slice bounds are inferred as `usize`. Omitted
+slice bounds are interpreted by the slice operation, not by rewriting the range
+value to `0` or `usize::MAX`.
+
+Nia does not provide built-in runtime bounds checks. The programmer is
+responsible for ensuring that the selected memory range is valid.
 
 The base of a slice construction may be an array, another slice, or a
 single-element pointer:
@@ -1167,6 +1209,7 @@ Unary operators:
 ```text
 -       numeric negation
 !       boolean not
+~       bitwise not
 &       writable address
 &const  read-only address
 .*      pointer dereference
@@ -1208,6 +1251,52 @@ while calls, indexing, and field access are higher than unary operators.
 
 Nia has no built-in pointer arithmetic. Convert to an integer type explicitly,
 perform the arithmetic, and convert back explicitly when needed.
+
+Arithmetic, bitwise, shift, comparison, and selected unary operators are type
+checked through core language operator traits. These traits are always available
+by name and are not provided by a source module:
+
+```nia
+Add[Rhs]
+Sub[Rhs]
+Mul[Rhs]
+Div[Rhs]
+Rem[Rhs]
+BitAnd[Rhs]
+BitOr[Rhs]
+BitXor[Rhs]
+Shl[Rhs]
+Shr[Rhs]
+Neg
+Not
+BitNot
+Eq[Rhs]
+Ord[Rhs]
+```
+
+Arithmetic, bitwise, shift, `Neg`, and `BitNot` have an `Output` associated
+type. For example, `a + b` requires the bound `Lhs: Add[Rhs]` and has type
+`[Lhs as Add[Rhs]]::Output`. `Not`, `Eq`, and `Ord` return `bool`.
+Generic code that uses an operator must state the needed capability explicitly:
+
+```nia
+fn add_same[T](a: T, b: T) T
+where T: Add[T, Output = T] {
+    a + b
+}
+
+fn same[T](a: T, b: T) bool
+where T: Eq[T] {
+    a == b
+}
+```
+
+Primitive numeric, integer, boolean, pointer, and enum implementations are
+compiler-known only for the operations they support. Lowering represents these
+operators as builtin operator calls; backend lowering either keeps a primitive
+builtin operator call or dispatches to the visible trait implementation method.
+LLVM code generation emits the corresponding primitive operation after generic
+instantiation.
 
 ### 8.6 Calls, Indexing, Fields, And Methods
 
@@ -1268,8 +1357,9 @@ Nia provides a small builtin surface:
 ```nia
 @size[T]()
 @align[T]()
-@len(value)
-@ptr(slice)
+value.len()
+slice.get_ptr_const()
+slice.get_ptr()
 @asm({...})
 ```
 
@@ -1277,14 +1367,34 @@ Nia provides a small builtin surface:
 
 `@align[T]()` returns the ABI alignment of `T` in bytes as `usize`.
 
-`@size[T]()` and `@align[T]()` are compile-time known values and may appear in
-array lengths, static initializers, and ordinary expressions.
+`@size[T]()` and `@align[T]()` require `T: Sized`. For concrete layout-known
+types this predicate is compiler-proven. In generic code it must be written in
+the `where` clause:
 
-`@len(value)` returns array or slice length as `usize`. For `[N]T`, it returns
-`N`. For `&[T]` and `&const [T]`, it returns the runtime slice length.
+```nia
+fn bytes[T]() usize
+where T: Sized {
+    @size[T]() + @align[T]()
+}
+```
 
-`@ptr(slice)` returns the slice element pointer. `@ptr(&[T])` has type `&T`.
-`@ptr(&const [T])` has type `&const T`.
+When their type argument is concrete, `@size[T]()` and `@align[T]()` are
+compile-time known values and may appear in array lengths, static initializers,
+and ordinary expressions. In generic code they remain layout values until the
+generic function is instantiated.
+
+`value.len()` calls the built-in `Len` trait method. Arrays and slices have
+compiler-proven `Len` implementations: for `[N]T`, it returns `N`; for `&[T]`
+and `&const [T]`, it returns the runtime slice length. User types may implement
+`Len`, but an implementation may not overlap a compiler-proven implementation.
+
+`slice.get_ptr_const()` and `slice.get_ptr()` call the built-in `GetPtrConst`
+and `GetPtr` trait methods. `&[T]` and `&const [T]` have compiler-proven
+`GetPtrConst` implementations. Mutable slices also have compiler-proven
+`GetPtr` implementations, whose `get_ptr()` method returns `&T`. Arrays
+intentionally do not implement `GetPtrConst` or `GetPtr`; form a slice first
+with `&array[..]`. User types may implement these traits for custom contiguous
+storage abstractions, but may not overlap compiler-proven slice implementations.
 
 `@asm({...})` is the inline assembly escape hatch for syscalls, special
 registers, port I/O, CPU instructions, and freestanding runtime glue. Its
@@ -1374,10 +1484,24 @@ xs[1..3]    // range index
 id[i32](x) // explicit generic function call
 ```
 
+Generic declarations may use a `where` clause after the parameter list, target
+type, or generic parameter list:
+
+```nia
+fn eq[T](a: &const T, b: &const T) bool
+where T: Eq[T] {
+    a == b
+}
+
+struct Box[T] where T: Eq[T] {
+    value: T,
+}
+```
+
 Generics are implemented by monomorphization. Type parameters have no runtime
 representation. The current generic surface is explicit type parameters on
-functions, structs, unions, and methods. User-declared const generics are
-reserved for future design; array length is part of array type syntax.
+functions, structs, unions, traits, and methods. User-declared const generics
+are reserved for future design; array length is part of array type syntax.
 
 ## 10. Methods
 
@@ -1527,12 +1651,352 @@ var f: &const fn(&u8) bool = &const [&u8]::null;
 `[type]::name` is only an associated target path. It does not introduce a
 short name for the method, and it does not capture a receiver.
 
-## 11. Modules
+## 11. Traits
+
+Traits define required method signatures and associated type outputs for static
+dispatch:
+
+```nia
+trait Show {
+    fn show(&const self) i32;
+}
+```
+
+`Self` names the implementing type inside a trait declaration and inside an
+`extend` block. It is not a general type name outside those contexts.
+
+A type implements a trait with an `extend Type : Trait` block:
+
+```nia
+struct Point {
+    x: i32,
+}
+
+extend Point : Eq {
+    fn eq(&const self, other: &const Point) bool {
+        self.x == other.x
+    }
+
+    fn ne(&const self, other: &const Point) bool {
+        self.x != other.x
+    }
+}
+```
+
+Some trait names are builtin capability traits. They are still implemented with
+ordinary trait implementation syntax, but their names and required members are
+defined by the language. Operator expressions are checked through these traits:
+
+| Operator | Required trait | Result |
+| --- | --- | --- |
+| `a + b` | `Add[Rhs]` | `Output` |
+| `a - b` | `Sub[Rhs]` | `Output` |
+| `a * b` | `Mul[Rhs]` | `Output` |
+| `a / b` | `Div[Rhs]` | `Output` |
+| `a % b` | `Rem[Rhs]` | `Output` |
+| `-a` | `Neg` | `Output` |
+| `!a` | `Not` | `bool` |
+| `~a` | `BitNot` | `Output` |
+| `a & b` | `BitAnd[Rhs]` | `Output` |
+| `a | b` | `BitOr[Rhs]` | `Output` |
+| `a ^ b` | `BitXor[Rhs]` | `Output` |
+| `a << b` | `Shl[Rhs]` | `Output` |
+| `a >> b` | `Shr[Rhs]` | `Output` |
+| `a == b`, `a != b` | `Eq[Rhs]` | `bool` |
+| `a < b`, `a <= b`, `a > b`, `a >= b` | `Ord[Rhs]` | `bool` |
+
+`!` is boolean logical not. `~` is bitwise not. Primitive implementations are
+compiler-proven for the primitive types that support the operation. Non-primitive
+operator support comes from visible `extend Type : Trait[...]` implementations.
+
+Builtin operator traits have fixed method names. Binary arithmetic and bitwise
+traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
+`shl`, and `shr`. Unary traits use `neg`, `not`, and `bit_not`. `Eq` requires
+both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
+
+`Sized`, `DerefConst`, `Deref`, `IndexConst`, `Index`, `SliceConst`, `Slice`,
+`Len`, `GetPtrConst`, and `GetPtr` are also builtin capability traits. Their
+names and required members are fixed by the language:
+
+```nia
+trait Sized {}
+
+trait DerefConst {
+    type Target;
+    fn deref_const(&const self) &const [Self as DerefConst]::Target;
+}
+
+trait Deref : DerefConst {
+    type Target;
+    fn deref(&self) &[Self as Deref]::Target;
+}
+
+trait IndexConst[I] {
+    type Output;
+    fn index_const(&const self, index: I) &const [Self as IndexConst[I]]::Output;
+}
+
+trait Index[I] : IndexConst[I] {
+    type Output;
+    fn index(&self, index: I) &[Self as Index[I]]::Output;
+}
+
+trait SliceConst[R] {
+    type Output;
+    fn slice_const(&const self, range: R) [Self as SliceConst[R]]::Output;
+}
+
+trait Slice[R] : SliceConst[R] {
+    type Output;
+    fn slice(&self, range: R) [Self as Slice[R]]::Output;
+}
+
+trait Len {
+    fn len(&const self) usize;
+}
+
+trait GetPtrConst {
+    type Target;
+    fn get_ptr_const(&const self) &const [Self as GetPtrConst]::Target;
+}
+
+trait GetPtr : GetPtrConst {
+    type Target;
+    fn get_ptr(&self) &[Self as GetPtr]::Target;
+}
+```
+
+The compiler proves builtin implementations for primitive operations,
+layout-known types, pointers, arrays, and slices where the operation is native
+to the language. User implementations of builtin traits are allowed when they
+do not overlap a compiler-proven implementation. For example, a custom
+container may implement `Len` or `SliceConst[..]`, but `[N]T` may not provide a
+manual `Len` implementation because array length is already compiler-proven.
+
+Index expressions lower through `IndexConst` or `Index`; slice expressions
+lower through `SliceConst` or `Slice`. Native array, pointer, and slice
+implementations require integer indices or range types whose bounds are
+`usize`.
+
+A trait implementation block is only for implementing the named trait. It must
+not contain methods that are not members of that trait. Inherent methods still
+use ordinary `extend Type { ... }` blocks.
+
+Trait method declarations may include bodies. A body is a default method body.
+If an implementation omits a method that has a default body, calls to that
+method instantiate the default body with `Self` set to the implementing type:
+
+```nia
+trait Comparable {
+    fn same(&const self, other: &const Self) bool;
+
+    fn different(&const self, other: &const Self) bool {
+        !self.same(other)
+    }
+}
+```
+
+Traits may declare supertraits after `:`. Multiple supertraits are joined with
+`+`:
+
+```nia
+trait Ordered : Comparable {
+    fn lt(&const self, other: &const Self) bool;
+}
+
+trait IndexedSource[I] : Source + Index[I] {
+    fn valid_index(&const self, index: I) bool;
+}
+```
+
+If `Child : Parent`, then a `where T: Child` bound also makes `Parent` methods
+available on `T`, and default methods in `Child` may call `Parent` methods.
+Implementing `Child` does not implicitly implement `Parent`; the parent trait
+implementation must be written explicitly:
+
+```nia
+extend Point : Eq {
+    fn eq(&const self, other: &const Point) bool {
+        self.x == other.x
+    }
+
+    fn ne(&const self, other: &const Point) bool {
+        self.x != other.x
+    }
+}
+
+extend Point : Ord {
+    fn lt(&const self, other: &const Point) bool {
+        self.x < other.x
+    }
+
+    fn le(&const self, other: &const Point) bool {
+        self.x <= other.x
+    }
+
+    fn gt(&const self, other: &const Point) bool {
+        self.x > other.x
+    }
+
+    fn ge(&const self, other: &const Point) bool {
+        self.x >= other.x
+    }
+}
+```
+
+Traits may declare associated types. An associated type is a named type output
+selected by the implementing `Self` type and the trait's explicit generic
+arguments:
+
+```nia
+trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+
+trait Mapper[A, B] {
+    type C;
+    type D;
+
+    fn map(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
+}
+```
+
+Every trait implementation must define every associated type required by the
+trait, and it may not define associated types that the trait does not declare:
+
+```nia
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    type Item = i32;
+
+    fn get(&const self) i32 {
+        self.value
+    }
+}
+```
+
+Associated type definitions are only valid in trait implementation blocks.
+Ordinary inherent `extend Type { ... }` blocks cannot contain `type` members.
+
+Associated type projections are written explicitly:
+
+```nia
+[T as Source]::Item
+[Self as Mapper[A, B]]::C
+```
+
+Nia does not support shorthand projection syntax such as `T::Item` or
+`Self::Item`. Path syntax with `::` remains ordinary type or associated function
+path syntax; it does not infer an associated type projection. Associated types
+also do not take their own generic parameters in this version. Generic
+associated type families are reserved for future design.
+
+Trait bounds may bind associated types in the same bracketed trait argument
+list. Positional trait arguments come first, followed by named associated type
+bindings:
+
+```nia
+fn add_same[T](a: &const T, b: T) T
+where T: Add[T, Output = T] {
+    a.add(b)
+}
+
+fn mapped[T](value: &const T) i32
+where T: Mapper[i32, bool, C = i32, D = bool] {
+    value.map_c(1, true)
+}
+```
+
+`T: Add[T, Output = T]` selects the `Add[T]` implementation for `T` and binds
+that selected implementation's `Output` associated type to `T`. The binding is
+part of the trait bound; it is not a separate global type equality predicate.
+Binding names must be associated types declared by the trait, and a single
+bound may not bind the same associated type more than once.
+
+Trait bounds are written in `where` clauses:
+
+```nia
+fn same[T](a: &const T, b: &const T) bool
+where T: Eq[T] {
+    a == b
+}
+```
+
+Within a single predicate, multiple trait bounds are joined with `+`; commas
+separate predicates:
+
+```nia
+fn ordered_show[T, U](value: &const T, other: &const U) bool
+where T: Ord[U] + Show, U: Eq[U] {
+    value.show() == 0
+}
+```
+
+The current compiler parses and lowers trait bounds, validates trait
+implementation blocks, and supports receiver-method calls through generic
+`where` bounds. A call such as `a.same(b)` in
+`fn same[T](...) where T: Comparable` is
+kept as a trait-method obligation in the generic body and resolved to the
+visible concrete implementation when the generic function is instantiated.
+Default methods may call other methods from the same trait; those calls are
+resolved through the visible concrete implementation when available, or through
+another default body. Associated type projections are normalized through the
+current function's associated type bound bindings or through the visible
+concrete trait implementation during checking and monomorphization. Supertrait
+method obligations are resolved through the same visible concrete implementation
+lookup.
+
+Trait object pointer types are represented as fat pointers carrying an erased
+object pointer and implementation metadata. A concrete pointer may be coerced to
+a trait object pointer when the pointed-to type satisfies the selected trait and
+associated type bindings:
+
+```nia
+trait Source {
+    fn get(&const self) i32;
+}
+
+fn read(source: &const Source) i32 {
+    source.get()
+}
+```
+
+`source.get()` is a dynamic trait method call through the object's vtable.
+Object-safe trait object methods must be receiver methods and may not have
+method-level type parameters. By-value trait object receiver calls are rejected.
+Builtin trait objects are not supported in this version.
+
+A trait object pointer may be coerced to a supertrait object pointer when the
+target trait is a declared supertrait of the source trait and the object
+constness matches:
+
+```nia
+trait Parent {}
+trait Child : Parent {}
+
+fn accept(parent: &const Parent) void {}
+
+fn use_child(child: &const Child) void {
+    accept(child)
+}
+```
+
+The compiler records this as a trait-object upcast, not as a plain bitcast, and
+remaps metadata to the target supertrait's vtable region. This version only
+supports supertrait object upcasts without associated type bindings on either
+object type.
+
+## 12. Modules
 
 Each `.nia` file is a module. Import resolution always produces one concrete
 source file path; directories and packages are not modules by themselves.
 
-### 11.1 Import
+### 12.1 Import
 
 `import` makes another `.nia` file available to the current file. The
 dot-separated import path is a portable spelling of a source file path. It has
@@ -1616,7 +2080,7 @@ diagnosed by the relevant compiler phase.
 `pub` cannot be applied to `import`. Import aliases are local to the current
 file. Re-export imported items with `pub using`.
 
-### 11.2 Using
+### 12.2 Using
 
 `using` shortens already visible namespaces in the current scope. It does not
 load files or organize modules; `import` remains the only operation that loads a
@@ -1675,7 +2139,7 @@ globals enter the value namespace; structs, enums, and type aliases enter the
 type namespace; enum variants enter the value namespace while preserving their
 enum identity.
 
-### 11.3 Pub Using
+### 12.3 Pub Using
 
 `pub using` re-exports selected items as part of the current module's public
 surface:
@@ -1719,7 +2183,7 @@ name re-exported items through the re-exporting module path, such as
 Wildcard `pub using mod::*` has the same expansion rule as `using mod::*`.
 Wildcard `pub using Enum::*` re-exports every enum variant.
 
-### 11.4 Visibility
+### 12.4 Visibility
 
 Modules are private by default. Only top-level declarations marked `pub` can be
 accessed by other modules through qualified paths or `using`:
@@ -1740,7 +2204,7 @@ declarations, and `using`. It may not be applied to `import`.
 Nia has no `mod` or `use` syntax. Package management is outside the language
 specification.
 
-## 12. ABI, Runtime, And Symbols
+## 13. ABI, Runtime, And Symbols
 
 Nia does not require a garbage collector, exception runtime, async runtime, or
 hidden allocator.
@@ -1763,7 +2227,7 @@ string literals may also be passed directly when `&u8` or `&const u8` is
 expected; this produces a pointer to a block-scoped temporary. If a stable C
 string address is required, bind the C string to top-level `const` storage.
 
-### 12.1 Internal Symbol Names
+### 13.1 Internal Symbol Names
 
 Nia uses deterministic, readable internal symbol names. The format is not meant
 to be compatible with C++ or Rust. It is meant to make debugging, linking, and
@@ -1799,6 +2263,8 @@ Type encoding rules:
 - primitive types use their names, such as `i32`, `u8`, `bool`, `void`;
 - `&T` encodes as `ptr__<T>`;
 - `&const T` encodes as `ptr_const__<T>`;
+- trait object pointers encode as `trait_obj__<trait>...` or
+  `trait_obj_const__<trait>...`;
 - `[N]T` encodes as `arr__<len>__<elem>`;
 - function pointers encode as `fnptr__pc<N>__<p1>__...__ret__<ret>`, with
   `__variadic` appended for variadic function pointers;
@@ -1815,7 +2281,7 @@ Array length encodings include:
 
 The rules should stay readable, deterministic, and structurally explicit.
 
-## 13. Required Compiler Surface
+## 14. Required Compiler Surface
 
 A conforming Nia compiler supports:
 
@@ -1829,13 +2295,14 @@ A conforming Nia compiler supports:
 - the three `for` forms;
 - `defer`;
 - `switch` and enum exhaustiveness checks;
-- `@size[T]()`, `@align[T]()`, `@len(value)`, `@ptr(slice)`, and `@asm({...})`;
+- `@size[T]()`, `@align[T]()`, `value.len()`, `slice.get_ptr_const()`, and `@asm({...})`;
 - relative file imports and module-map bare imports;
 - global static storage from top-level `var` and `const`;
 - top-level `pub` visibility;
 - `extern` C declarations, definitions, and calls;
 - generic functions and structs via monomorphization;
 - methods declared through `extend`;
+- trait declarations, associated types, and direct trait implementation checks;
 - lowering to a typed backend IR;
 - LLVM IR or object emission;
 - hosted executable emission when host linking is available.
@@ -1865,14 +2332,13 @@ temporary objects and invokes the host C linker.
 `build` is reserved for an external build system. The current CLI does not
 provide `run`; use `emit exe` and execute the result.
 
-## 14. Reserved Future Design Areas
+## 15. Reserved Future Design Areas
 
 The following areas are intentionally outside the current language surface.
 They are reserved for future design and should not be treated as specified by
 this document:
 
-- trait/protocol-style constraints, associated type families, and constrained
-  extension syntax;
+- associated type families and full trait obligation solving;
 - payload-carrying algebraic data types beyond current enums;
 - pattern matching beyond current switch expressions;
 - closures;
@@ -1886,7 +2352,7 @@ this document:
 - macros;
 - general compile-time execution beyond the current `comptime` value subset.
 
-## 15. Example
+## 16. Example
 
 ```nia
 extern fn printf(fmt: &const u8, ...);

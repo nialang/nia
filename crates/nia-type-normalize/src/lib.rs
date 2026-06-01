@@ -64,6 +64,10 @@ impl<'a> TypeNormalizer<'a> {
                 let len = normalize_array_len(len);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.normalize_ty(bound, stack));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -94,6 +98,53 @@ impl<'a> TypeNormalizer<'a> {
                 } else {
                     self.interner.intern(TyKind::Nominal { def_id, args })
                 }
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|(name, ty)| (name, self.normalize_ty(ty, stack)))
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_ty(self_ty, stack);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
             }
             Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty_id,
         };
@@ -159,6 +210,11 @@ impl<'a> TypeNormalizer<'a> {
                 let len = normalize_array_len(len);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound
+                    .map(|bound| self.normalize_ty_with_substitutions(bound, substitutions, stack));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -190,6 +246,58 @@ impl<'a> TypeNormalizer<'a> {
                 } else {
                     self.interner.intern(TyKind::Nominal { def_id, args })
                 }
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|(name, ty)| {
+                        (
+                            name,
+                            self.normalize_ty_with_substitutions(ty, substitutions, stack),
+                        )
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_ty_with_substitutions(self_ty, substitutions, stack);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
             }
             Some(TyKind::Error | TyKind::Primitive(_)) | None => self.normalize_ty(ty_id, stack),
         }

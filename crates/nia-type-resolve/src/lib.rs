@@ -12,6 +12,7 @@ pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ImportAliasMap;
 use nia_span::Span;
+use nia_ty::BuiltinTrait;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeResolution {
@@ -23,6 +24,7 @@ pub struct TypeResolution {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeNameResolution {
     Primitive(PrimitiveType),
+    BuiltinTrait(BuiltinTrait),
     Def(DefId),
     External(GlobalDefId),
     GenericParam,
@@ -111,6 +113,7 @@ fn resolve_module_types_inner(
         qualified_type_names: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
+        self_type_stack: Vec::new(),
         suppress_unknown_type_errors: false,
     };
     walk_module(&mut resolver, module);
@@ -131,6 +134,7 @@ struct TypeResolver<'a> {
     qualified_type_names: HashMap<Span, GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
+    self_type_stack: Vec<Span>,
     suppress_unknown_type_errors: bool,
 }
 
@@ -149,8 +153,16 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
             ItemKind::Union(item_union) => {
                 self.with_generics(&item_union.generics, |resolver| walk_item(resolver, item));
             }
+            ItemKind::Trait(item_trait) => {
+                self.with_generics(&item_trait.generics, |resolver| {
+                    resolver.with_self_type(item.span, |resolver| walk_item(resolver, item));
+                });
+            }
             ItemKind::Extend(extend) => {
-                self.with_generics(&extend.generics, |resolver| walk_item(resolver, item));
+                self.with_generics(&extend.generics, |resolver| {
+                    resolver
+                        .with_self_type(extend.target.span, |resolver| walk_item(resolver, item));
+                });
             }
             ItemKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |resolver| walk_item(resolver, item));
@@ -187,6 +199,18 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
     fn visit_type(&mut self, ty: &'ast TypeRef) {
         match &ty.kind {
             TypeKind::Error | TypeKind::Infer | TypeKind::Void | TypeKind::Never => {}
+            TypeKind::Projection { ty, trait_ref, .. } => {
+                self.visit_type(ty);
+                self.visit_type(trait_ref);
+            }
+            TypeKind::SelfType => {
+                if self.self_type_stack.is_empty() {
+                    self.diagnostics.push(Diagnostic::error(
+                        ty.span,
+                        "`Self` is only valid in traits and extend blocks",
+                    ));
+                }
+            }
             TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
                 self.visit_type(elem);
             }
@@ -195,6 +219,14 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                     nia_ast_walk::walk_expr(self, expr);
                 }
                 self.visit_type(elem);
+            }
+            TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.visit_type(start);
+                }
+                if let Some(end) = end {
+                    self.visit_type(end);
+                }
             }
             TypeKind::FunctionPointer {
                 params,
@@ -221,21 +253,21 @@ impl<'a> TypeResolver<'a> {
         if segments.len() > 1 {
             let resolution = self.resolve_qualified_type_path(span, segments);
             self.type_names.insert(span, resolution);
-            for segment in segments {
-                for arg in &segment.args {
-                    if let TypeArg::Type(ty) = arg {
-                        self.visit_type(ty);
-                    }
-                }
-            }
+            self.visit_type_path_args(segments);
             return;
         }
         let resolution = self.resolve_type_name(first, span);
         self.type_names.insert(span, resolution);
+        self.visit_type_path_args(segments);
+    }
+
+    fn visit_type_path_args(&mut self, segments: &[TypePathSegment]) {
         for segment in segments {
             for arg in &segment.args {
-                if let TypeArg::Type(ty) = arg {
-                    self.visit_type(ty);
+                match arg {
+                    TypeArg::Type(ty) => self.visit_type(ty),
+                    TypeArg::AssocBinding { ty, .. } => self.visit_type(ty),
+                    TypeArg::Const(_) => {}
                 }
             }
         }
@@ -384,7 +416,7 @@ impl<'a> TypeResolver<'a> {
         };
         if !matches!(
             def.kind,
-            DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
+            DefKind::Struct | DefKind::Union | DefKind::Trait | DefKind::Enum | DefKind::TypeAlias
         ) {
             return TypeNameResolution::Error;
         }
@@ -408,6 +440,9 @@ impl<'a> TypeResolver<'a> {
         if let Some(primitive) = primitive_type(&segment.name) {
             return TypeNameResolution::Primitive(primitive);
         }
+        if let Some(trait_id) = BuiltinTrait::from_name(&segment.name) {
+            return TypeNameResolution::BuiltinTrait(trait_id);
+        }
         if self.is_generic_param(&segment.name) {
             return TypeNameResolution::GenericParam;
         }
@@ -417,7 +452,11 @@ impl<'a> TypeResolver<'a> {
             };
             if matches!(
                 def.kind,
-                DefKind::Struct | DefKind::Union | DefKind::Enum | DefKind::TypeAlias
+                DefKind::Struct
+                    | DefKind::Union
+                    | DefKind::Trait
+                    | DefKind::Enum
+                    | DefKind::TypeAlias
             ) {
                 return TypeNameResolution::Def(def_id);
             }
@@ -453,6 +492,12 @@ impl<'a> TypeResolver<'a> {
         self.generic_stack.push(generics.to_vec());
         f(self);
         self.generic_stack.pop();
+    }
+
+    fn with_self_type(&mut self, span: Span, f: impl FnOnce(&mut Self)) {
+        self.self_type_stack.push(span);
+        f(self);
+        self.self_type_stack.pop();
     }
 
     fn is_generic_param(&self, name: &str) -> bool {

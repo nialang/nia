@@ -32,10 +32,11 @@ pub enum StaticInit {
 pub enum StaticAddressElem {
     Field(GlobalDefId),
     Index(u64),
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticFieldInit {
-    pub field: GlobalDefId,
+    pub field: Option<GlobalDefId>,
     pub value: StaticInit,
 }

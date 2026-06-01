@@ -8,16 +8,16 @@ enum BracketSuffix {
 
 impl Parser {
     pub(super) fn parse_expr(&mut self) -> Option<Expr> {
-        self.parse_assignment()
+        self.parse_assignment_until(&[])
     }
 
-    fn parse_assignment(&mut self) -> Option<Expr> {
-        let lhs = self.parse_binary_until(0, &[])?;
+    fn parse_assignment_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        let lhs = self.parse_range_until(stops)?;
         let Some(op) = self.assignment_op() else {
             return Some(lhs);
         };
         self.bump();
-        let rhs = self.parse_assignment()?;
+        let rhs = self.parse_assignment_until(stops)?;
         let span = Span::new(lhs.span.start, rhs.span.end);
         Some(self.make_expr(
             span,
@@ -27,6 +27,95 @@ impl Parser {
                 rhs: Box::new(rhs),
             },
         ))
+    }
+
+    fn parse_range_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        if self.at(TokenKind::DotDot) || self.at(TokenKind::DotDotEq) {
+            let start = self.peek().span.start;
+            let inclusive = self.eat(TokenKind::DotDotEq).is_some();
+            if !inclusive {
+                self.expect(TokenKind::DotDot, "expected `..` in range expression")?;
+            }
+            let end = if stops.iter().any(|kind| self.at(kind.clone()))
+                || self.at(TokenKind::Comma)
+                || self.at(TokenKind::RParen)
+                || self.at(TokenKind::RBracket)
+                || self.at(TokenKind::RBrace)
+                || self.at(TokenKind::Semicolon)
+                || self.at(TokenKind::Eof)
+            {
+                None
+            } else {
+                Some(Box::new(self.parse_binary_until(0, stops)?))
+            };
+            let span = Span::new(
+                start,
+                end.as_ref().map_or(self.previous_end(), |end| end.span.end),
+            );
+            return Some(self.make_expr(
+                span,
+                ExprKind::Range(nia_ast::SliceRange {
+                    start: None,
+                    end,
+                    inclusive,
+                }),
+            ));
+        }
+
+        let start_expr = self.parse_binary_until(
+            0,
+            &[
+                TokenKind::DotDot,
+                TokenKind::DotDotEq,
+                TokenKind::Comma,
+                TokenKind::RParen,
+                TokenKind::RBracket,
+                TokenKind::RBrace,
+                TokenKind::Semicolon,
+            ],
+        )?;
+        if stops.iter().any(|kind| self.at(kind.clone())) {
+            return Some(start_expr);
+        }
+        if self.eat(TokenKind::DotDot).is_some() {
+            let end = if stops.iter().any(|kind| self.at(kind.clone()))
+                || self.at(TokenKind::Comma)
+                || self.at(TokenKind::RParen)
+                || self.at(TokenKind::RBracket)
+                || self.at(TokenKind::RBrace)
+                || self.at(TokenKind::Semicolon)
+                || self.at(TokenKind::Eof)
+            {
+                None
+            } else {
+                Some(Box::new(self.parse_binary_until(0, stops)?))
+            };
+            let span = Span::new(
+                start_expr.span.start,
+                end.as_ref().map_or(self.previous_end(), |end| end.span.end),
+            );
+            return Some(self.make_expr(
+                span,
+                ExprKind::Range(nia_ast::SliceRange {
+                    start: Some(Box::new(start_expr)),
+                    end,
+                    inclusive: false,
+                }),
+            ));
+        }
+        if self.eat(TokenKind::DotDotEq).is_some() {
+            let end = Some(Box::new(self.parse_binary_until(0, stops)?));
+            let span = Span::new(start_expr.span.start, end.as_ref().unwrap().span.end);
+            return Some(self.make_expr(
+                span,
+                ExprKind::Range(nia_ast::SliceRange {
+                    start: Some(Box::new(start_expr)),
+                    end,
+                    inclusive: true,
+                }),
+            ));
+        }
+        Some(start_expr)
     }
 
     fn parse_binary_until(&mut self, min_prec: u8, stops: &[TokenKind]) -> Option<Expr> {
@@ -74,6 +163,8 @@ impl Parser {
             Some(UnaryOp::Neg)
         } else if self.eat(TokenKind::Bang).is_some() {
             Some(UnaryOp::Not)
+        } else if self.eat(TokenKind::Tilde).is_some() {
+            Some(UnaryOp::BitNot)
         } else if self.eat(TokenKind::Amp).is_some() {
             if self.eat(TokenKind::Const).is_some() {
                 Some(UnaryOp::RefConst)
@@ -191,7 +282,7 @@ impl Parser {
     pub(super) fn parse_expr_until_tokens(&mut self, stops: &[TokenKind]) -> Option<Expr> {
         let checkpoint = self.tokens.checkpoint();
         let errors_len = self.errors.len();
-        let expr = self.parse_expr()?;
+        let expr = self.parse_assignment_until(stops)?;
         if stops.iter().any(|kind| self.at(kind.clone())) {
             return Some(expr);
         }

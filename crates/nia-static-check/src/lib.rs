@@ -95,7 +95,9 @@ impl StaticChecker<'_> {
             ExprKind::Unary { op, expr: inner } => match op {
                 UnaryOp::Neg => self.int_const_expr_reject_reason(expr),
                 UnaryOp::Ref | UnaryOp::RefConst => self.static_address_path_reject_reason(inner),
-                UnaryOp::Not | UnaryOp::Deref => Some("unsupported unary operator"),
+                UnaryOp::Not | UnaryOp::BitNot | UnaryOp::Deref => {
+                    Some("unsupported unary operator")
+                }
             },
             ExprKind::Binary { .. } => self.int_const_expr_reject_reason(expr),
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),
@@ -124,6 +126,7 @@ impl StaticChecker<'_> {
             ExprKind::BracketSuffix { args, .. } if Self::bracket_index_arg(args).is_some() => {
                 self.static_address_path_reject_reason(expr)
             }
+            ExprKind::Range(_) => Some("range expression is not static data"),
             ExprKind::Block(_) => Some("block expressions require comptime execution"),
             ExprKind::If { .. } => Some("if expressions require comptime execution"),
             ExprKind::Switch(_) => Some("switch expressions require comptime execution"),

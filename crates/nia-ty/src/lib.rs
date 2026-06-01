@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
+pub use nia_ids::{BuiltinTrait, LayoutBuiltin, TraitId};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInternerIndex};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -19,6 +20,10 @@ pub enum TyKind {
         len: ArrayLenTy,
         elem: InternedTyId,
     },
+    Range {
+        kind: RangeTyKind,
+        bound: Option<InternedTyId>,
+    },
     FunctionPointer {
         params: Vec<InternedTyId>,
         return_type: InternedTyId,
@@ -28,7 +33,33 @@ pub enum TyKind {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
     },
+    BuiltinTrait {
+        trait_id: BuiltinTrait,
+        args: Vec<InternedTyId>,
+    },
+    TraitObject {
+        is_const: bool,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        associated_type_bindings: Vec<(String, InternedTyId)>,
+    },
+    Projection {
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        name: String,
+    },
     GenericParam(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RangeTyKind {
+    Exclusive,
+    Inclusive,
+    From,
+    To,
+    ToInclusive,
+    Full,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,7 +89,10 @@ pub enum ArrayLenTy {
     Infer,
     ConstValue(u64),
     ConstExpr(GlobalConstExprId),
-    Builtin { name: String, ty: InternedTyId },
+    Builtin {
+        builtin: LayoutBuiltin,
+        ty: InternedTyId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -152,6 +186,116 @@ impl TyInterner {
 
     pub fn is_empty(&self) -> bool {
         self.tys.is_empty()
+    }
+}
+
+pub fn import_type_into(
+    target: &mut TyInterner,
+    source: &TyInterner,
+    ty: InternedTyId,
+) -> InternedTyId {
+    match source.get(ty) {
+        Some(TyKind::Error) | None => target.error(),
+        Some(TyKind::Primitive(primitive)) => target.primitive(*primitive),
+        Some(TyKind::GenericParam(name)) => target.intern(TyKind::GenericParam(name.clone())),
+        Some(TyKind::Pointer { is_const, elem }) => {
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Pointer {
+                is_const: *is_const,
+                elem,
+            })
+        }
+        Some(TyKind::Slice { is_const, elem }) => {
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Slice {
+                is_const: *is_const,
+                elem,
+            })
+        }
+        Some(TyKind::Array { len, elem }) => {
+            let len = len.clone();
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Array { len, elem })
+        }
+        Some(TyKind::Range { kind, bound }) => {
+            let bound = bound.map(|bound| import_type_into(target, source, bound));
+            target.intern(TyKind::Range { kind: *kind, bound })
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        }) => {
+            let params = params
+                .iter()
+                .map(|param| import_type_into(target, source, *param))
+                .collect();
+            let return_type = import_type_into(target, source, *return_type);
+            target.intern(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic: *is_variadic,
+            })
+        }
+        Some(TyKind::Nominal { def_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::Nominal {
+                def_id: *def_id,
+                args,
+            })
+        }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let args = args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::BuiltinTrait {
+                trait_id: *trait_id,
+                args,
+            })
+        }
+        Some(TyKind::TraitObject {
+            is_const,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            let associated_type_bindings = associated_type_bindings
+                .iter()
+                .map(|(name, ty)| (name.clone(), import_type_into(target, source, *ty)))
+                .collect();
+            target.intern(TyKind::TraitObject {
+                is_const: *is_const,
+                trait_id: *trait_id,
+                trait_args,
+                associated_type_bindings,
+            })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = import_type_into(target, source, *self_ty);
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            target.intern(TyKind::Projection {
+                self_ty,
+                trait_id: *trait_id,
+                trait_args,
+                name: name.clone(),
+            })
+        }
     }
 }
 

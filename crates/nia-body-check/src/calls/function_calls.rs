@@ -75,6 +75,7 @@ impl<'a> BodyChecker<'a> {
             })
             .collect();
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        let return_type = self.normalize_projection(return_type);
         Some(self.interner.intern(TyKind::FunctionPointer {
             params,
             return_type,
@@ -356,7 +357,8 @@ impl<'a> BodyChecker<'a> {
             .map(|param| self.substitute_generics(param.ty, &substitutions))
             .collect();
         self.check_direct_call_args(span, args, &params, signature.is_variadic);
-        self.substitute_generics(signature.return_type, &substitutions)
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        self.normalize_projection(return_type)
     }
 
     fn check_inferred_generic_function_call(
@@ -435,7 +437,8 @@ impl<'a> BodyChecker<'a> {
                 self.expect_expr_type(arg, expected, actual, "call argument");
             }
         }
-        self.substitute_generics(signature.return_type, &substitutions)
+        let return_type = self.substitute_generics(signature.return_type, &substitutions);
+        self.normalize_projection(return_type)
     }
 
     pub(crate) fn infer_generics_from_type(
@@ -500,6 +503,20 @@ impl<'a> BodyChecker<'a> {
                     self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
                 }
             }
+            Some(TyKind::Range {
+                kind: pattern_kind,
+                bound: pattern_bound,
+            }) => {
+                if let Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_kind == actual_kind
+                    && let (Some(pattern_bound), Some(actual_bound)) = (pattern_bound, actual_bound)
+                {
+                    self.infer_generics_from_type(pattern_bound, actual_bound, substitutions, span);
+                }
+            }
             Some(TyKind::FunctionPointer {
                 params: pattern_params,
                 return_type: pattern_return,
@@ -535,6 +552,79 @@ impl<'a> BodyChecker<'a> {
                     && pattern_def == actual_def
                     && pattern_args.len() == actual_args.len()
                 {
+                    for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                }
+            }
+            Some(TyKind::BuiltinTrait {
+                trait_id: pattern_trait,
+                args: pattern_args,
+            }) => {
+                if let Some(TyKind::BuiltinTrait {
+                    trait_id: actual_trait,
+                    args: actual_args,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                {
+                    for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                }
+            }
+            Some(TyKind::TraitObject {
+                is_const: pattern_const,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                associated_type_bindings: pattern_bindings,
+            }) => {
+                if let Some(TyKind::TraitObject {
+                    is_const: actual_const,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    associated_type_bindings: actual_bindings,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_const == actual_const
+                    && pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                    && pattern_bindings.len() == actual_bindings.len()
+                {
+                    for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                    for (pattern_name, pattern_ty) in pattern_bindings {
+                        if let Some((_, actual_ty)) = actual_bindings
+                            .iter()
+                            .find(|(actual_name, _)| actual_name == &pattern_name)
+                        {
+                            self.infer_generics_from_type(
+                                pattern_ty,
+                                *actual_ty,
+                                substitutions,
+                                span,
+                            );
+                        }
+                    }
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty: pattern_self,
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                name: pattern_name,
+            }) => {
+                if let Some(TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    name: actual_name,
+                }) = self.interner.get(actual).cloned()
+                    && pattern_trait == actual_trait
+                    && pattern_name == actual_name
+                    && pattern_args.len() == actual_args.len()
+                {
+                    self.infer_generics_from_type(pattern_self, actual_self, substitutions, span);
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);
                     }

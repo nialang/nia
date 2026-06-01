@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_span::Span;
 
-use crate::{Block, Expr, TypeRef};
+use crate::{Block, Expr, TypeRef, WhereClause};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
@@ -28,6 +28,7 @@ pub enum ItemKind {
     Using(UsingItem),
     Struct(StructItem),
     Union(UnionItem),
+    Trait(TraitItem),
     Extend(ExtendItem),
     Enum(EnumItem),
     TypeAlias(TypeAliasItem),
@@ -94,6 +95,7 @@ pub struct UsingName {
 pub struct StructItem {
     pub name: String,
     pub generics: Vec<String>,
+    pub where_clause: WhereClause,
     pub fields: Vec<Field>,
     pub is_extern: bool,
 }
@@ -102,15 +104,47 @@ pub struct StructItem {
 pub struct UnionItem {
     pub name: String,
     pub generics: Vec<String>,
+    pub where_clause: WhereClause,
     pub fields: Vec<Field>,
     pub is_extern: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitItem {
+    pub name: String,
+    pub generics: Vec<String>,
+    pub supertraits: Vec<TypeRef>,
+    pub where_clause: WhereClause,
+    pub associated_types: Vec<TraitAssociatedType>,
+    pub methods: Vec<TraitMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitAssociatedType {
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethod {
+    pub function: FunctionItem,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtendItem {
     pub generics: Vec<String>,
     pub target: TypeRef,
+    pub trait_ref: Option<TypeRef>,
+    pub where_clause: WhereClause,
+    pub associated_types: Vec<ExtendAssociatedType>,
     pub methods: Vec<ExtendMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtendAssociatedType {
+    pub name: String,
+    pub ty: TypeRef,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,6 +179,7 @@ pub struct EnumVariant {
 pub struct TypeAliasItem {
     pub name: String,
     pub generics: Vec<String>,
+    pub where_clause: WhereClause,
     pub ty: TypeRef,
 }
 
@@ -152,6 +187,7 @@ pub struct TypeAliasItem {
 pub struct FunctionItem {
     pub name: String,
     pub generics: Vec<String>,
+    pub where_clause: WhereClause,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
     pub body: Option<Block>,

@@ -5,8 +5,8 @@ mod extensions;
 mod public_surface;
 
 use nia_ast::{
-    EnumItem, ExtendItem, FunctionItem, ImportPath, Item, ItemKind, Module, StructItem,
-    TypeAliasItem, UnionItem, UsingItem, Visibility,
+    EnumItem, ExtendAssociatedType, ExtendItem, FunctionItem, ImportPath, Item, ItemKind, Module,
+    StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem, Visibility,
 };
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::{DefId, ModuleId};
@@ -97,6 +97,9 @@ pub enum DefKind {
     StructField,
     Union,
     UnionField,
+    Trait,
+    TraitAssociatedType,
+    TraitMethod,
     Method,
     Enum,
     EnumVariant,
@@ -249,6 +252,7 @@ impl Collector {
             }
             ItemKind::Struct(item_struct) => self.collect_struct(item, item_struct),
             ItemKind::Union(item_union) => self.collect_union(item, item_union),
+            ItemKind::Trait(item_trait) => self.collect_trait(item, item_trait),
             ItemKind::Extend(extend) => self.collect_extend(item, extend),
             ItemKind::Enum(item_enum) => self.collect_enum(item, item_enum),
             ItemKind::TypeAlias(alias) => self.collect_type_alias(item, alias),
@@ -354,9 +358,109 @@ impl Collector {
     fn collect_extend(&mut self, _item: &Item, extend: &ExtendItem) {
         self.check_duplicate_generics(&extend.generics, extend.target.span);
         let mut members = MemberScope::default();
+        for associated_type in &extend.associated_types {
+            self.collect_extend_associated_type(None, &mut members, associated_type);
+        }
         for method in &extend.methods {
             self.collect_method(None, &mut members, &method.function, method.vis);
         }
+    }
+
+    fn collect_trait(&mut self, item: &Item, item_trait: &nia_ast::TraitItem) {
+        self.check_duplicate_generics(&item_trait.generics, item.span);
+        let trait_id = self.add_type_def(
+            item_trait.name.clone(),
+            DefKind::Trait,
+            item.vis,
+            item.span,
+            item_trait.generics.clone(),
+        );
+        let mut members = MemberScope::default();
+        for associated_type in &item_trait.associated_types {
+            self.collect_trait_associated_type(Some(trait_id), &mut members, associated_type);
+        }
+        for method in &item_trait.methods {
+            self.collect_trait_method(Some(trait_id), &mut members, &method.function);
+        }
+        self.struct_members.insert(trait_id, members);
+    }
+
+    fn collect_trait_associated_type(
+        &mut self,
+        parent: Option<DefId>,
+        members: &mut MemberScope,
+        associated_type: &TraitAssociatedType,
+    ) {
+        let associated_type_id = self.push_def(Def {
+            name: associated_type.name.clone(),
+            kind: DefKind::TraitAssociatedType,
+            module_id: self.module_id,
+            parent,
+            generics: Vec::new(),
+            visibility: Visibility::Public,
+            span: associated_type.span,
+        });
+        self.def_spans
+            .insert(associated_type.span, associated_type_id);
+        self.insert_member(
+            &mut members.fields,
+            associated_type.name.clone(),
+            associated_type_id,
+            associated_type.span,
+            "duplicate trait associated type",
+        );
+    }
+
+    fn collect_extend_associated_type(
+        &mut self,
+        parent: Option<DefId>,
+        members: &mut MemberScope,
+        associated_type: &ExtendAssociatedType,
+    ) {
+        let associated_type_id = self.push_def(Def {
+            name: associated_type.name.clone(),
+            kind: DefKind::TraitAssociatedType,
+            module_id: self.module_id,
+            parent,
+            generics: Vec::new(),
+            visibility: Visibility::Private,
+            span: associated_type.span,
+        });
+        self.def_spans
+            .insert(associated_type.span, associated_type_id);
+        self.insert_member(
+            &mut members.fields,
+            associated_type.name.clone(),
+            associated_type_id,
+            associated_type.span,
+            "duplicate associated type definition",
+        );
+    }
+
+    fn collect_trait_method(
+        &mut self,
+        parent: Option<DefId>,
+        members: &mut MemberScope,
+        method: &FunctionItem,
+    ) {
+        self.check_duplicate_generics(&method.generics, method.span);
+        let method_id = self.push_def(Def {
+            name: method.name.clone(),
+            kind: DefKind::TraitMethod,
+            module_id: self.module_id,
+            parent,
+            generics: method.generics.clone(),
+            visibility: Visibility::Public,
+            span: method.span,
+        });
+        self.def_spans.insert(method.span, method_id);
+        self.insert_member(
+            &mut members.methods,
+            method.name.clone(),
+            method_id,
+            method.span,
+            "duplicate trait method",
+        );
     }
 
     fn collect_method(

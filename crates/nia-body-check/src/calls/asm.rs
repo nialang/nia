@@ -107,10 +107,16 @@ impl<'a> BodyChecker<'a> {
                     format!("{context} cannot have void or never type"),
                 ));
             }
-            Some(TyKind::Array { .. } | TyKind::Slice { .. }) => {
+            Some(TyKind::Array { .. } | TyKind::Slice { .. } | TyKind::TraitObject { .. }) => {
                 self.diagnostics.push(Diagnostic::error(
                     span,
                     format!("{context} cannot use aggregate type directly"),
+                ));
+            }
+            Some(TyKind::Range { .. }) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!("{context} cannot use range type directly"),
                 ));
             }
             Some(TyKind::Nominal { def_id, .. }) if !self.is_enum_def(*def_id) => {
@@ -123,9 +129,10 @@ impl<'a> BodyChecker<'a> {
                 TyKind::Primitive(_)
                 | TyKind::Pointer { .. }
                 | TyKind::FunctionPointer { .. }
+                | TyKind::BuiltinTrait { .. }
                 | TyKind::Nominal { .. },
             ) => {}
-            Some(TyKind::GenericParam(_) | TyKind::Error) | None => {}
+            Some(TyKind::GenericParam(_) | TyKind::Projection { .. } | TyKind::Error) | None => {}
         }
     }
 

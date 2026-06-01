@@ -165,6 +165,10 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context} cannot use nia slice directly"),
             )),
+            Some(TyKind::TraitObject { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use nia trait object directly"),
+            )),
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -186,6 +190,10 @@ impl AbiChecker<'_> {
             Some(TyKind::Array { .. }) => self.diagnostics.push(Diagnostic::error(
                 span,
                 format!("{context} cannot use array by value"),
+            )),
+            Some(TyKind::Range { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use range by value"),
             )),
             Some(TyKind::Nominal { def_id, .. }) => {
                 if self.is_enum_def(*def_id) {
@@ -215,9 +223,17 @@ impl AbiChecker<'_> {
                     }
                 }
             }
+            Some(TyKind::BuiltinTrait { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use trait type directly"),
+            )),
             Some(TyKind::GenericParam(_)) => self.diagnostics.push(Diagnostic::error(
                 span,
                 format!("{context} cannot use generic parameter"),
+            )),
+            Some(TyKind::Projection { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use unresolved associated type projection"),
             )),
             Some(TyKind::Error) | None => {}
         }

@@ -3,11 +3,11 @@ use std::collections::HashMap;
 
 use nia_ast::{
     BindingItem, EnumItem, ExtendItem, FunctionItem, ItemKind, Module, Param, ReceiverKind,
-    StructItem, TypeAliasItem, UnionItem,
+    StructItem, TraitItem, TypeAliasItem, UnionItem, WhereClause,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::InternedTyId;
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_span::Span;
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
@@ -17,6 +17,8 @@ pub struct ItemSignatures {
     pub functions: HashMap<DefId, FunctionSignature>,
     pub structs: HashMap<DefId, StructSignature>,
     pub unions: HashMap<DefId, UnionSignature>,
+    pub traits: HashMap<DefId, TraitSignature>,
+    pub trait_impls: Vec<TraitImplSignature>,
     pub enums: HashMap<DefId, EnumSignature>,
     pub type_aliases: HashMap<DefId, TypeAliasSignature>,
     pub globals: HashMap<DefId, GlobalSignature>,
@@ -25,13 +27,98 @@ pub struct ItemSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ProgramFunctionSignature {
+    pub signature: FunctionSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramGlobalSignature {
+    pub signature: GlobalSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramComptimeSignature {
+    pub signature: ComptimeSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramStructSignature {
+    pub signature: StructSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramUnionSignature {
+    pub signature: UnionSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramEnumSignature {
+    pub signature: EnumSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramTraitSignature {
+    pub signature: TraitSignature,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProgramTraitImplSignature {
+    pub target_ty: InternedTyId,
+    pub trait_id: nia_ty::TraitId,
+    pub trait_args: Vec<InternedTyId>,
+    pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    pub interner: nia_ty::TyInterner,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramSignatureMaps<'a> {
+    pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
+    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
+    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
+    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
+    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
+    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionSignature {
     pub generics: Vec<String>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub params: Vec<ParamSignature>,
     pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
     pub has_body: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WherePredicateSignature {
+    pub ty: InternedTyId,
+    pub bounds: Vec<WhereBoundSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhereBoundSignature {
+    pub trait_ty: InternedTyId,
+    pub associated_type_bindings: Vec<AssociatedTypeBindingSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssociatedTypeBindingSignature {
+    pub name: String,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -56,6 +143,46 @@ pub struct UnionSignature {
     pub generics: Vec<String>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitSignature {
+    pub generics: Vec<String>,
+    pub supertraits: Vec<InternedTyId>,
+    pub associated_types: Vec<TraitAssociatedTypeSignature>,
+    pub methods: Vec<TraitMethodSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitAssociatedTypeSignature {
+    pub def_id: DefId,
+    pub name: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitMethodSignature {
+    pub def_id: DefId,
+    pub name: String,
+    pub signature: FunctionSignature,
+    pub has_default: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitImplSignature {
+    pub target_ty: InternedTyId,
+    pub trait_ty: Option<InternedTyId>,
+    pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitImplAssociatedTypeSignature {
+    pub name: String,
+    pub ty: InternedTyId,
     pub span: Span,
 }
 
@@ -128,6 +255,8 @@ pub fn collect_item_signatures(
         functions: HashMap::new(),
         structs: HashMap::new(),
         unions: HashMap::new(),
+        traits: HashMap::new(),
+        trait_impls: Vec::new(),
         enums: HashMap::new(),
         type_aliases: HashMap::new(),
         globals: HashMap::new(),
@@ -156,6 +285,9 @@ impl<'a> SignatureCollector<'a> {
             }
             ItemKind::Union(item_union) => {
                 self.collect_union(signatures, item.span, item_union);
+            }
+            ItemKind::Trait(item_trait) => {
+                self.collect_trait(signatures, item.span, item_trait);
             }
             ItemKind::Extend(extend) => {
                 self.collect_extend(signatures, extend);
@@ -244,9 +376,80 @@ impl<'a> SignatureCollector<'a> {
     }
 
     fn collect_extend(&mut self, signatures: &mut ItemSignatures, extend: &ExtendItem) {
+        signatures.trait_impls.push(TraitImplSignature {
+            target_ty: self.ty_for_span(extend.target.span),
+            trait_ty: extend
+                .trait_ref
+                .as_ref()
+                .map(|trait_ref| self.ty_for_span(trait_ref.span)),
+            associated_types: extend
+                .associated_types
+                .iter()
+                .map(|associated_type| TraitImplAssociatedTypeSignature {
+                    name: associated_type.name.clone(),
+                    ty: self.ty_for_span(associated_type.ty.span),
+                    span: associated_type.span,
+                })
+                .collect(),
+            span: extend.target.span,
+        });
         for method in &extend.methods {
             self.collect_method(signatures, &method.function);
         }
+    }
+
+    fn collect_trait(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        item_span: Span,
+        item_trait: &TraitItem,
+    ) {
+        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Trait) else {
+            return;
+        };
+        let mut associated_types = Vec::new();
+        for associated_type in &item_trait.associated_types {
+            let Some(associated_type_id) =
+                self.def_id_for_span(associated_type.span, DefKind::TraitAssociatedType)
+            else {
+                continue;
+            };
+            associated_types.push(TraitAssociatedTypeSignature {
+                def_id: associated_type_id,
+                name: associated_type.name.clone(),
+                span: associated_type.span,
+            });
+        }
+        let mut methods = Vec::new();
+        for method in &item_trait.methods {
+            let Some(method_id) = self.def_id_for_span(method.function.span, DefKind::TraitMethod)
+            else {
+                continue;
+            };
+            let signature = self.function_signature(&method.function);
+            methods.push(TraitMethodSignature {
+                def_id: method_id,
+                name: method.function.name.clone(),
+                signature: signature.clone(),
+                has_default: method.function.body.is_some(),
+                span: method.function.span,
+            });
+            signatures.functions.insert(method_id, signature);
+        }
+        signatures.traits.insert(
+            def_id,
+            TraitSignature {
+                generics: item_trait.generics.clone(),
+                supertraits: item_trait
+                    .supertraits
+                    .iter()
+                    .map(|supertrait| self.ty_for_span(supertrait.span))
+                    .collect(),
+                associated_types,
+                methods,
+                span: item_span,
+            },
+        );
     }
 
     fn collect_method(&mut self, signatures: &mut ItemSignatures, method: &FunctionItem) {
@@ -376,6 +579,7 @@ impl<'a> SignatureCollector<'a> {
         };
         FunctionSignature {
             generics: function.generics.clone(),
+            where_predicates: self.where_predicate_signatures(&function.where_clause),
             params,
             return_type,
             is_extern: function.is_extern,
@@ -403,6 +607,52 @@ impl<'a> SignatureCollector<'a> {
             ty,
             span: param.span,
         }
+    }
+
+    fn where_predicate_signatures(&mut self, clause: &WhereClause) -> Vec<WherePredicateSignature> {
+        clause
+            .predicates
+            .iter()
+            .map(|predicate| WherePredicateSignature {
+                ty: self.ty_for_span(predicate.ty.span),
+                bounds: predicate
+                    .bounds
+                    .iter()
+                    .map(|bound| WhereBoundSignature {
+                        trait_ty: self.ty_for_span(bound.span),
+                        associated_type_bindings: self.associated_type_binding_signatures(bound),
+                        span: bound.span,
+                    })
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect()
+    }
+
+    fn associated_type_binding_signatures(
+        &mut self,
+        bound: &nia_ast::TypeRef,
+    ) -> Vec<AssociatedTypeBindingSignature> {
+        let nia_ast::TypeKind::Path { segments } = &bound.kind else {
+            return Vec::new();
+        };
+        let Some(segment) = segments.last() else {
+            return Vec::new();
+        };
+        segment
+            .args
+            .iter()
+            .filter_map(|arg| match arg {
+                nia_ast::TypeArg::AssocBinding { name, ty, span } => {
+                    Some(AssociatedTypeBindingSignature {
+                        name: name.clone(),
+                        ty: self.ty_for_span(ty.span),
+                        span: *span,
+                    })
+                }
+                nia_ast::TypeArg::Type(_) | nia_ast::TypeArg::Const(_) => None,
+            })
+            .collect()
     }
 
     fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {

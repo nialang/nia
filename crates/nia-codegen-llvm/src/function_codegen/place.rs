@@ -5,7 +5,7 @@ use nia_function_ir::{
     FunctionExpr, FunctionExprKind, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
     FunctionSliceRange,
 };
-use nia_ids::{InternedTyId, LocalId};
+use nia_ids::InternedTyId;
 use nia_llvm::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
@@ -304,7 +304,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(Span::default(), "failed to insert slice length"))
     }
 
-    fn extract_slice_ptr(
+    pub(super) fn extract_slice_ptr(
         &self,
         span: Span,
         slice: StructValue<'ctx>,
@@ -316,7 +316,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(value.into_pointer_value()?)
     }
 
-    fn extract_slice_len(
+    pub(super) fn extract_slice_len(
         &self,
         span: Span,
         slice: StructValue<'ctx>,
@@ -328,33 +328,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(value.into_int_value()?)
     }
 
-    pub(super) fn emit_len(
-        &mut self,
-        span: Span,
-        inner: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        match self.module.ty_kind(inner.ty) {
-            Some(TyKind::Array { len, .. }) => {
-                let len = self.module.array_len(len, span)?;
-                Ok(self.module.context.i64_type().const_int(len, false).into())
-            }
-            Some(TyKind::Slice { .. }) => {
-                let slice = self.emit_expr(inner)?.into_struct_value()?;
-                self.extract_slice_len(span, slice).map(Into::into)
-            }
-            _ => Err(self.error(span, "`@len` requires an array or slice")),
-        }
-    }
-
-    pub(super) fn emit_ptr(
-        &mut self,
-        span: Span,
-        inner: &FunctionExpr,
-    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        let slice = self.emit_expr(inner)?.into_struct_value()?;
-        self.extract_slice_ptr(span, slice).map(Into::into)
-    }
-
     pub(super) fn emit_assign(
         &mut self,
         span: Span,
@@ -362,27 +335,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         op: AssignOp,
         value: BasicValueEnum<'ctx>,
     ) -> Result<(), Diagnostic> {
-        let FunctionPlaceBase::Local(LocalId(id)) = place.base else {
-            let ptr = self.emit_typed_place_addr(place)?;
-            let stored = if op == AssignOp::Assign {
-                value
-            } else {
-                let current = self
-                    .builder
-                    .build_load(
-                        self.module.llvm_basic_type(place.ty, place.span)?,
-                        ptr,
-                        "loadtmp",
-                    )
-                    .map_err(|_| self.error(span, "failed to load assignment target"))?;
-                self.emit_compound_assignment(span, place.ty, current, op, value)?
-            };
-            self.builder
-                .build_store(ptr, stored)
-                .map_err(|_| self.error(span, "failed to store assignment"))?;
-            return Ok(());
-        };
-        if id == u32::MAX {
+        if matches!(place.base, FunctionPlaceBase::Error) {
             return Ok(());
         }
         let ptr = self.emit_typed_place_addr(place)?;
@@ -422,6 +375,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(place.span, "missing global value"))?,
             FunctionPlaceBase::Deref(expr) => self.emit_expr(expr)?.into_pointer_value()?,
+            FunctionPlaceBase::Error => return Err(self.error(place.span, "invalid place")),
         };
         let mut current_ty = self.place_base_ty(place);
         for elem in &place.elems {
@@ -452,6 +406,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     ptr = self.emit_index_addr(place.span, current_ty, ptr, index)?;
                     current_ty = self.array_elem_ty(current_ty, place.span)?;
                 }
+                FunctionPlaceElem::Error => return Err(self.error(place.span, "invalid place")),
             }
         }
         Ok(ptr)
@@ -491,6 +446,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Some(TyKind::Pointer { elem, .. }) => *elem,
                 _ => place.ty,
             },
+            FunctionPlaceBase::Error => place.ty,
         }
     }
 

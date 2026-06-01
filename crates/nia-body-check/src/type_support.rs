@@ -11,9 +11,198 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+use nia_trait_solve::TraitSolverContext;
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
+use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
+        let ty = self.normalization.normalize(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Pointer { is_const, elem }) => {
+                let elem = self.normalize_projection(elem);
+                self.interner.intern(TyKind::Pointer { is_const, elem })
+            }
+            Some(TyKind::Slice { is_const, elem }) => {
+                let elem = self.normalize_projection(elem);
+                self.interner.intern(TyKind::Slice { is_const, elem })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let elem = self.normalize_projection(elem);
+                self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.normalize_projection(bound));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_projection(param))
+                    .collect();
+                let return_type = self.normalize_projection(return_type);
+                self.interner.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect();
+                self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|(name, ty)| (name, self.normalize_projection(ty)))
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_projection(self_ty);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection(arg))
+                    .collect::<Vec<_>>();
+                self.resolve_associated_type_projection_from_current_bounds(
+                    self_ty,
+                    trait_id,
+                    &trait_args,
+                    &name,
+                )
+                .or_else(|| {
+                    self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                })
+                .unwrap_or_else(|| {
+                    self.interner.intern(TyKind::Projection {
+                        self_ty,
+                        trait_id,
+                        trait_args,
+                        name,
+                    })
+                })
+            }
+            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+        }
+    }
+
+    fn resolve_associated_type_projection_from_current_bounds(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let current_def_id = self.current_def_id?;
+        let signature = self.current_function_signature_in_active_interner(current_def_id)?;
+        let mut matches = Vec::new();
+        for predicate in signature.where_predicates {
+            if !self.types_equivalent_without_projection_resolution(predicate.ty, self_ty) {
+                continue;
+            }
+            for bound in predicate.bounds {
+                let Some((bound_trait_id, bound_trait_args)) =
+                    self.trait_id_and_args(bound.trait_ty)
+                else {
+                    continue;
+                };
+                if bound_trait_id != trait_id
+                    || bound_trait_args.len() != trait_args.len()
+                    || !bound_trait_args
+                        .iter()
+                        .zip(trait_args)
+                        .all(|(bound, required)| {
+                            self.types_equivalent_without_projection_resolution(*bound, *required)
+                        })
+                {
+                    continue;
+                }
+                matches.extend(
+                    bound
+                        .associated_type_bindings
+                        .iter()
+                        .filter(|binding| binding.name == name)
+                        .map(|binding| binding.ty),
+                );
+            }
+        }
+        match matches.as_slice() {
+            [ty] => Some(*ty),
+            _ => None,
+        }
+    }
+
+    fn current_function_signature_in_active_interner(
+        &mut self,
+        current_def_id: nia_ids::GlobalDefId,
+    ) -> Option<nia_item_signatures::FunctionSignature> {
+        if current_def_id.module_id == self.defs.module_id {
+            let signature = self
+                .signatures
+                .functions
+                .get(&current_def_id.def_id)?
+                .clone();
+            let source = self.normalization.interner.clone();
+            Some(self.import_function_signature_from(&source, &signature))
+        } else {
+            Some(self.resolved_function_signature(current_def_id)?.signature)
+        }
+    }
+
+    pub(crate) fn resolve_associated_type_projection(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let assumptions = self.current_trait_goals();
+        let context = TraitSolverContext {
+            normalization: self.normalization,
+            trait_impls: self.program_trait_impls,
+            layouts: Some(self.layouts),
+            local_module_id: self.defs.module_id,
+            local_enums: &self.signatures.enums,
+            program_enums: Some(self.program_enums),
+        };
+        let mut solver = context.solver(&mut self.interner, &assumptions);
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
+    }
+
     pub(crate) fn expect_type(
         &mut self,
         span: Span,
@@ -47,6 +236,14 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         if let Some(coerced) = self.coerce_array_to_slice(expr, expected, actual) {
+            self.record_expr_type(expr.span, coerced);
+            return;
+        }
+        if let Some(coerced) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
+            self.record_expr_type(expr.span, coerced);
+            return;
+        }
+        if let Some(coerced) = self.coerce_pointer_to_trait_object(expr, expected, actual) {
             self.record_expr_type(expr.span, coerced);
             return;
         }
@@ -166,7 +363,7 @@ impl<'a> BodyChecker<'a> {
         Some(expected)
     }
 
-    fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
+    pub(crate) fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
         self.record_expr_type(expr.span, ty);
         if let ExprKind::Unary {
             op: UnaryOp::Neg,
@@ -305,15 +502,23 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn types_match(&self, expected: InternedTyId, actual: InternedTyId) -> bool {
-        let expected = self.normalization.normalize(expected);
-        let actual = self.normalization.normalize(actual);
+        let mut checker = self.clone_for_type_compare();
+        checker.types_match_normalized(expected, actual)
+    }
+
+    fn types_match_normalized(&mut self, expected: InternedTyId, actual: InternedTyId) -> bool {
+        let expected = self.normalize_projection(expected);
+        let actual = self.normalize_projection(actual);
         if self.is_never(actual) {
             return true;
         }
         if expected == actual {
             return true;
         }
-        match (self.interner.get(expected), self.interner.get(actual)) {
+        match (
+            self.interner.get(expected).cloned(),
+            self.interner.get(actual).cloned(),
+        ) {
             (
                 Some(TyKind::Array {
                     len: ArrayLenTy::Infer,
@@ -322,7 +527,7 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Array {
                     elem: actual_elem, ..
                 }),
-            ) if self.types_match(*expected_elem, *actual_elem) => true,
+            ) if self.types_match_normalized(expected_elem, actual_elem) => true,
             (
                 Some(TyKind::Array {
                     len: expected_len,
@@ -332,16 +537,144 @@ impl<'a> BodyChecker<'a> {
                     len: actual_len,
                     elem: actual_elem,
                 }),
-            ) if self.types_match(*expected_elem, *actual_elem) => {
-                let Ok(expected_len) = self.array_len_value(Span::default(), expected_len) else {
+            ) if self.types_match_normalized(expected_elem, actual_elem) => {
+                let Ok(expected_len) = self.array_len_value(Span::default(), &expected_len) else {
                     return false;
                 };
-                let Ok(actual_len) = self.array_len_value(Span::default(), actual_len) else {
+                let Ok(actual_len) = self.array_len_value(Span::default(), &actual_len) else {
                     return false;
                 };
                 expected_len == actual_len
             }
+            (
+                Some(TyKind::Range {
+                    kind: expected_kind,
+                    bound: expected_bound,
+                }),
+                Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }),
+            ) if expected_kind == actual_kind => match (expected_bound, actual_bound) {
+                (Some(expected_bound), Some(actual_bound)) => {
+                    self.types_match_normalized(expected_bound, actual_bound)
+                }
+                (None, None) => true,
+                _ => false,
+            },
+            (
+                Some(TyKind::Projection {
+                    self_ty: expected_self,
+                    trait_id: expected_trait,
+                    trait_args: expected_args,
+                    name: expected_name,
+                }),
+                Some(TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    name: actual_name,
+                }),
+            ) => {
+                expected_trait == actual_trait
+                    && expected_name == actual_name
+                    && expected_args.len() == actual_args.len()
+                    && self.types_match_normalized(expected_self, actual_self)
+                    && expected_args
+                        .iter()
+                        .zip(actual_args.iter())
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+            }
+            (
+                Some(TyKind::TraitObject {
+                    is_const: expected_const,
+                    trait_id: expected_trait,
+                    trait_args: expected_args,
+                    associated_type_bindings: expected_bindings,
+                }),
+                Some(TyKind::TraitObject {
+                    is_const: actual_const,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    associated_type_bindings: actual_bindings,
+                }),
+            ) => {
+                expected_const == actual_const
+                    && expected_trait == actual_trait
+                    && expected_args.len() == actual_args.len()
+                    && expected_bindings.len() == actual_bindings.len()
+                    && expected_args
+                        .iter()
+                        .zip(actual_args.iter())
+                        .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
+                    && expected_bindings
+                        .iter()
+                        .all(|(expected_name, expected_ty)| {
+                            actual_bindings
+                                .iter()
+                                .find(|(actual_name, _)| actual_name == expected_name)
+                                .is_some_and(|(_, actual_ty)| {
+                                    self.types_match_normalized(*expected_ty, *actual_ty)
+                                })
+                        })
+            }
             _ => false,
+        }
+    }
+
+    fn clone_for_type_compare(&self) -> BodyChecker<'a> {
+        BodyChecker {
+            source_version: self.source_version,
+            origins: self.origins,
+            module: self.module,
+            defs: self.defs,
+            program: self.program,
+            values: self.values,
+            locals: self.locals,
+            interner: self.interner.clone(),
+            type_uses: self.type_uses,
+            signatures: self.signatures,
+            normalization: self.normalization,
+            comptime: self.comptime,
+            layouts: self.layouts,
+            extensions: self.extensions,
+            program_functions: self.program_functions,
+            program_globals: self.program_globals,
+            program_comptimes: self.program_comptimes,
+            program_structs: self.program_structs,
+            program_unions: self.program_unions,
+            program_enums: self.program_enums,
+            program_traits: self.program_traits,
+            program_trait_impls: self.program_trait_impls,
+            program_comptime: self.program_comptime,
+            expr_types: HashMap::new(),
+            bracket_suffix_resolutions: HashMap::new(),
+            array_to_slice_coercions: HashMap::new(),
+            c_string_pointer_coercions: HashMap::new(),
+            trait_object_coercions: HashMap::new(),
+            trait_object_upcasts: HashMap::new(),
+            builtin_values: HashMap::new(),
+            resolved_calls: HashMap::new(),
+            function_references: HashMap::new(),
+            node_expr_types: HashMap::new(),
+            node_bracket_suffix_resolutions: HashMap::new(),
+            node_array_to_slice_coercions: HashMap::new(),
+            node_c_string_pointer_coercions: HashMap::new(),
+            node_trait_object_coercions: HashMap::new(),
+            node_trait_object_upcasts: HashMap::new(),
+            node_builtin_values: HashMap::new(),
+            node_resolved_calls: HashMap::new(),
+            node_function_references: HashMap::new(),
+            generic_instantiations: Vec::new(),
+            function_bodies: HashMap::new(),
+            global_inits: HashMap::new(),
+            local_types: HashMap::new(),
+            global_types: HashMap::new(),
+            comptime_types: HashMap::new(),
+            diagnostics: Vec::new(),
+            current_return: self.current_return,
+            current_def_id: self.current_def_id,
+            current_param_locals: self.current_param_locals.clone(),
         }
     }
 
@@ -392,16 +725,16 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(*id)
                 .ok_or_else(|| "array length was not evaluated by comptime".to_string()),
-            ArrayLenTy::Builtin { name, ty } => {
+            ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_of(*ty) else {
                     return Err(format!(
-                        "cannot compute layout for array length builtin `@{name}`"
+                        "cannot compute layout for array length builtin `@{}`",
+                        builtin.name()
                     ));
                 };
-                match name.as_str() {
-                    "size" => Ok(layout.size),
-                    "align" => Ok(layout.align),
-                    _ => Err(format!("unsupported array length builtin `@{name}`")),
+                match builtin {
+                    LayoutBuiltin::Size => Ok(layout.size),
+                    LayoutBuiltin::Align => Ok(layout.align),
                 }
             }
             ArrayLenTy::Infer => Err(format!("array length at {span:?} is not concrete")),
@@ -422,6 +755,7 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Array { len, elem }) => {
                 format!("[{}]{}", self.array_len_name(len), self.ty_name(*elem))
             }
+            Some(TyKind::Range { kind, bound }) => self.range_ty_name(*kind, *bound),
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -442,9 +776,51 @@ impl<'a> BodyChecker<'a> {
                 format!("&const fn({}){return_part}", params.join(", "))
             }
             Some(TyKind::Nominal { def_id, args }) => self.nominal_ty_name(*def_id, args),
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                self.builtin_trait_ty_name(*trait_id, args)
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => self.trait_object_ty_name(
+                *is_const,
+                *trait_id,
+                trait_args,
+                associated_type_bindings,
+            ),
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.ty_name(*self_ty);
+                let trait_name = self.trait_ty_name(*trait_id, trait_args);
+                format!("[{self_ty} as {trait_name}]::{name}")
+            }
             Some(TyKind::GenericParam(name)) => name.clone(),
             Some(TyKind::Error) => "<error type>".to_string(),
             None => "<unknown type>".to_string(),
+        }
+    }
+
+    fn range_ty_name(&self, kind: nia_ty::RangeTyKind, bound: Option<InternedTyId>) -> String {
+        match (kind, bound) {
+            (nia_ty::RangeTyKind::Exclusive, Some(bound)) => {
+                format!("{}..{}", self.ty_name(bound), self.ty_name(bound))
+            }
+            (nia_ty::RangeTyKind::Inclusive, Some(bound)) => {
+                format!("{}..={}", self.ty_name(bound), self.ty_name(bound))
+            }
+            (nia_ty::RangeTyKind::From, Some(bound)) => format!("{}..", self.ty_name(bound)),
+            (nia_ty::RangeTyKind::To, Some(bound)) => format!("..{}", self.ty_name(bound)),
+            (nia_ty::RangeTyKind::ToInclusive, Some(bound)) => {
+                format!("..={}", self.ty_name(bound))
+            }
+            (nia_ty::RangeTyKind::Full, None) => "..".to_string(),
+            _ => "<invalid range type>".to_string(),
         }
     }
 
@@ -456,7 +832,9 @@ impl<'a> BodyChecker<'a> {
                 .array_len_const_expr_value(*id)
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "<unevaluated const>".to_string()),
-            ArrayLenTy::Builtin { name, ty } => format!("@{name}[{}]()", self.ty_name(*ty)),
+            ArrayLenTy::Builtin { builtin, ty } => {
+                format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
+            }
         }
     }
 
@@ -469,7 +847,11 @@ impl<'a> BodyChecker<'a> {
             .and_then(|comptime| comptime.array_lengths.get(&id).copied())
     }
 
-    fn nominal_ty_name(&self, def_id: nia_ids::GlobalDefId, args: &[InternedTyId]) -> String {
+    pub(crate) fn nominal_ty_name(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+        args: &[InternedTyId],
+    ) -> String {
         let base = self
             .defs_for_module(def_id.module_id)
             .and_then(|defs| defs.defs.get(def_id.def_id))
@@ -484,6 +866,78 @@ impl<'a> BodyChecker<'a> {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("{base}[{args}]")
+        }
+    }
+
+    pub(crate) fn trait_ty_name(&self, trait_id: TraitId, args: &[InternedTyId]) -> String {
+        match trait_id {
+            TraitId::Source(def_id) => self.nominal_ty_name(def_id, args),
+            TraitId::Builtin(trait_id) => self.builtin_trait_ty_name(trait_id, args),
+        }
+    }
+
+    fn trait_object_ty_name(
+        &self,
+        is_const: bool,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        associated_type_bindings: &[(String, InternedTyId)],
+    ) -> String {
+        let const_part = if is_const { "const " } else { "" };
+        let base = match trait_id {
+            TraitId::Source(def_id) => self
+                .defs_for_module(def_id.module_id)
+                .and_then(|defs| defs.defs.get(def_id.def_id))
+                .map(|def| def.name.clone())
+                .unwrap_or_else(|| "<unknown trait>".to_string()),
+            TraitId::Builtin(trait_id) => trait_id.name().to_string(),
+        };
+        let mut args = trait_args
+            .iter()
+            .map(|arg| self.ty_name(*arg))
+            .collect::<Vec<_>>();
+        args.extend(
+            associated_type_bindings
+                .iter()
+                .map(|(name, ty)| format!("{name} = {}", self.ty_name(*ty))),
+        );
+        if args.is_empty() {
+            format!("&{const_part}{base}")
+        } else {
+            format!("&{const_part}{base}[{}]", args.join(", "))
+        }
+    }
+
+    pub(crate) fn builtin_trait_ty_name(
+        &self,
+        trait_id: nia_ty::BuiltinTrait,
+        args: &[InternedTyId],
+    ) -> String {
+        let base = trait_id.name();
+        if args.is_empty() {
+            base.to_string()
+        } else {
+            let args = args
+                .iter()
+                .map(|arg| self.ty_name(*arg))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{base}[{args}]")
+        }
+    }
+
+    pub(crate) fn trait_id_and_args(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def_id(*def_id) => {
+                Some((TraitId::Source(*def_id), args.clone()))
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                Some((TraitId::Builtin(*trait_id), args.clone()))
+            }
+            _ => None,
         }
     }
 

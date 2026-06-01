@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nia_ast::{
     ArrayLen, Expr, ExprKind, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
-    TypePathSegment, TypeRef,
+    TypePathSegment, TypeRef, WhereClause,
 };
 use nia_ast_walk::{Visitor, walk_module};
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{
+    ArrayLenTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind,
+};
 use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +61,7 @@ pub fn lower_module_types_with_defs(
         const_exprs: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
+        self_type_stack: Vec::new(),
         next_const_expr_id: 0,
     };
     walk_module(&mut lowerer, module);
@@ -79,6 +82,7 @@ struct TypeLowerer<'a> {
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
+    self_type_stack: Vec<InternedTyId>,
     next_const_expr_id: u32,
 }
 
@@ -88,6 +92,7 @@ enum TypeContext {
     Return,
     Alias,
     SizeQuery,
+    TraitBound,
 }
 
 impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
@@ -95,6 +100,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
         match &item.kind {
             ItemKind::Struct(item_struct) => {
                 self.with_generics(&item_struct.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_struct.where_clause);
                     for field in &item_struct.fields {
                         lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
                     }
@@ -102,17 +108,43 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             }
             ItemKind::Union(item_union) => {
                 self.with_generics(&item_union.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_union.where_clause);
                     for field in &item_union.fields {
                         lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
                     }
                 });
             }
+            ItemKind::Trait(item_trait) => {
+                self.with_generics(&item_trait.generics, |lowerer| {
+                    let self_ty = lowerer
+                        .interner
+                        .intern(TyKind::GenericParam("Self".to_string()));
+                    lowerer.with_self_type(self_ty, |lowerer| {
+                        for supertrait in &item_trait.supertraits {
+                            lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
+                        }
+                        lowerer.lower_where_clause(&item_trait.where_clause);
+                        for method in &item_trait.methods {
+                            lowerer.visit_function(&method.function);
+                        }
+                    });
+                });
+            }
             ItemKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |lowerer| {
-                    lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
-                    for method in &extend.methods {
-                        lowerer.visit_function(&method.function);
+                    let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
+                    if let Some(trait_ref) = &extend.trait_ref {
+                        lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
                     }
+                    lowerer.with_self_type(self_ty, |lowerer| {
+                        lowerer.lower_where_clause(&extend.where_clause);
+                        for associated_type in &extend.associated_types {
+                            lowerer.lower_type_in_context(&associated_type.ty, TypeContext::Value);
+                        }
+                        for method in &extend.methods {
+                            lowerer.visit_function(&method.function);
+                        }
+                    });
                 });
             }
             ItemKind::Enum(item_enum) => {
@@ -128,6 +160,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             }
             ItemKind::TypeAlias(alias) => {
                 self.with_generics(&alias.generics, |lowerer| {
+                    lowerer.lower_where_clause(&alias.where_clause);
                     lowerer.lower_type_in_context(&alias.ty, TypeContext::Alias);
                 });
             }
@@ -146,6 +179,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
 
     fn visit_function(&mut self, function: &'ast FunctionItem) {
         self.with_generics(&function.generics, |lowerer| {
+            lowerer.lower_where_clause(&function.where_clause);
             for param in &function.params {
                 if let Some(ty) = &param.ty {
                     lowerer.lower_type_in_context(ty, TypeContext::Value);
@@ -189,16 +223,15 @@ impl<'a> TypeLowerer<'a> {
     fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         let lowered = self.lower_type(ty, context);
         self.type_uses.insert(ty.span, lowered);
-        if context == TypeContext::Value && self.is_invalid_value_type(lowered) {
-            self.diagnostics.push(Diagnostic::error(
-                ty.span,
-                "`!` is not valid as a value, field, parameter, or array element type",
-            ));
+        if context == TypeContext::Value
+            && let Some(message) = self.invalid_value_type_message(lowered)
+        {
+            self.diagnostics.push(Diagnostic::error(ty.span, message));
         }
         lowered
     }
 
-    fn lower_type(&mut self, ty: &TypeRef, _context: TypeContext) -> InternedTyId {
+    fn lower_type(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         match &ty.kind {
             TypeKind::Error => self.interner.error(),
             TypeKind::Infer => {
@@ -210,12 +243,23 @@ impl<'a> TypeLowerer<'a> {
             }
             TypeKind::Void => self.interner.primitive(PrimitiveTy::Void),
             TypeKind::Never => self.interner.primitive(PrimitiveTy::Never),
+            TypeKind::SelfType => self.self_type_stack.last().copied().unwrap_or_else(|| {
+                self.diagnostics.push(Diagnostic::error(
+                    ty.span,
+                    "`Self` is only valid in traits and extend blocks",
+                ));
+                self.interner.error()
+            }),
             TypeKind::Pointer { is_const, elem } => {
-                let elem = self.lower_type_in_context(elem, TypeContext::Value);
-                self.interner.intern(TyKind::Pointer {
-                    is_const: *is_const,
-                    elem,
-                })
+                if let Some(trait_object) = self.lower_trait_object_type(*is_const, elem) {
+                    trait_object
+                } else {
+                    let elem = self.lower_type_in_context(elem, TypeContext::Value);
+                    self.interner.intern(TyKind::Pointer {
+                        is_const: *is_const,
+                        elem,
+                    })
+                }
             }
             TypeKind::Slice { is_const, elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
@@ -229,6 +273,11 @@ impl<'a> TypeLowerer<'a> {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
                 self.interner.intern(TyKind::Array { len, elem })
             }
+            TypeKind::Range {
+                start,
+                end,
+                inclusive,
+            } => self.lower_range_type(ty.span, start.as_deref(), end.as_deref(), *inclusive),
             TypeKind::FunctionPointer {
                 params,
                 return_type,
@@ -261,6 +310,9 @@ impl<'a> TypeLowerer<'a> {
                     Some(TypeNameResolution::Primitive(primitive)) => {
                         self.interner.primitive(lower_primitive(primitive))
                     }
+                    Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
+                        self.lower_builtin_trait_type(ty.span, type_segment, trait_id, context)
+                    }
                     Some(TypeNameResolution::GenericParam) => self
                         .interner
                         .intern(TyKind::GenericParam(first.name.clone())),
@@ -274,45 +326,385 @@ impl<'a> TypeLowerer<'a> {
                                 module_id: self.module_id,
                                 def_id,
                             });
-                        let mut args = Vec::new();
-                        for arg in &type_segment.args {
-                            match arg {
-                                TypeArg::Type(arg_ty) => args
-                                    .push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
-                                TypeArg::Const(expr) => {
-                                    self.diagnostics.push(Diagnostic::error(
-                                        expr.span,
-                                        "const generic type arguments are not supported",
-                                    ));
-                                }
-                            }
-                        }
-                        self.check_type_arg_count(ty.span, def_id, args.len());
-                        self.interner.intern(TyKind::Nominal { def_id, args })
+                        self.lower_path_type(ty.span, type_segment, def_id, context)
                     }
                     Some(TypeNameResolution::External(global_id)) => {
-                        let mut args = Vec::new();
-                        for arg in &type_segment.args {
-                            match arg {
-                                TypeArg::Type(arg_ty) => args
-                                    .push(self.lower_type_in_context(arg_ty, TypeContext::Value)),
-                                TypeArg::Const(expr) => {
-                                    self.diagnostics.push(Diagnostic::error(
-                                        expr.span,
-                                        "const generic type arguments are not supported",
-                                    ));
-                                }
-                            }
-                        }
-                        self.check_type_arg_count(ty.span, global_id, args.len());
-                        self.interner.intern(TyKind::Nominal {
-                            def_id: global_id,
-                            args,
-                        })
+                        self.lower_path_type(ty.span, type_segment, global_id, context)
                     }
                     Some(TypeNameResolution::Error) | None => self.interner.error(),
                 }
             }
+            TypeKind::Projection {
+                ty,
+                trait_ref,
+                name,
+            } => {
+                let self_ty = self.lower_type_in_context(ty, TypeContext::Value);
+                let trait_ty = self.lower_type_in_context(trait_ref, TypeContext::TraitBound);
+                let trait_ty = self.normalize_if_known(trait_ty);
+                let Some((trait_id, args)) = self.projection_trait_id(trait_ty) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        trait_ref.span,
+                        "projection trait must resolve to a trait",
+                    ));
+                    return self.interner.error();
+                };
+                if !self.trait_id_has_associated_type(trait_id, name) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ty.span,
+                        format!("trait does not define associated type `{name}`"),
+                    ));
+                    return self.interner.error();
+                }
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args: args,
+                    name: name.clone(),
+                })
+            }
+        }
+    }
+
+    fn lower_range_type(
+        &mut self,
+        span: Span,
+        start: Option<&TypeRef>,
+        end: Option<&TypeRef>,
+        inclusive: bool,
+    ) -> InternedTyId {
+        let start_ty = start.map(|ty| self.lower_type_in_context(ty, TypeContext::Value));
+        let end_ty = end.map(|ty| self.lower_type_in_context(ty, TypeContext::Value));
+        let kind = match (start_ty, end_ty, inclusive) {
+            (Some(_), Some(_), false) => RangeTyKind::Exclusive,
+            (Some(_), Some(_), true) => RangeTyKind::Inclusive,
+            (Some(_), None, false) => RangeTyKind::From,
+            (None, Some(_), false) => RangeTyKind::To,
+            (None, Some(_), true) => RangeTyKind::ToInclusive,
+            (None, None, false) => RangeTyKind::Full,
+            (Some(_), None, true) | (None, None, true) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    "inclusive range type requires an end bound",
+                ));
+                return self.interner.error();
+            }
+        };
+        let bound = match (start_ty, end_ty) {
+            (Some(start_ty), Some(end_ty)) => {
+                if !self.types_equivalent(start_ty, end_ty) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "range type bounds must have the same type",
+                    ));
+                    return self.interner.error();
+                }
+                Some(start_ty)
+            }
+            (Some(bound), None) | (None, Some(bound)) => Some(bound),
+            (None, None) => None,
+        };
+        if let Some(bound) = bound
+            && !self.is_integer(bound)
+        {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "range bound type must be an integer type",
+            ));
+            return self.interner.error();
+        }
+        self.interner.intern(TyKind::Range { kind, bound })
+    }
+
+    fn normalize_if_known(&self, ty: InternedTyId) -> InternedTyId {
+        ty
+    }
+
+    fn lower_path_type(
+        &mut self,
+        span: Span,
+        segment: &TypePathSegment,
+        def_id: GlobalDefId,
+        context: TypeContext,
+    ) -> InternedTyId {
+        let mut args = Vec::new();
+        let mut seen_assoc_bindings = HashSet::new();
+        let mut seen_assoc_binding = false;
+        for arg in &segment.args {
+            match arg {
+                TypeArg::Type(arg_ty) => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::error(
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                }
+                TypeArg::Const(expr) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "const generic type arguments are not supported",
+                    ));
+                }
+                TypeArg::AssocBinding {
+                    name,
+                    span,
+                    ty: binding_ty,
+                } => {
+                    seen_assoc_binding = true;
+                    if context == TypeContext::TraitBound {
+                        self.lower_type_in_context(binding_ty, TypeContext::Value);
+                        if !self.is_trait_def(def_id) {
+                            self.diagnostics.push(Diagnostic::error(
+                                *span,
+                                "associated type bindings require a trait bound",
+                            ));
+                        } else {
+                            if !seen_assoc_bindings.insert(name.as_str()) {
+                                self.diagnostics.push(Diagnostic::error(
+                                    *span,
+                                    format!("duplicate associated type binding `{name}`"),
+                                ));
+                            }
+                            if !self.trait_has_associated_type(def_id, name) {
+                                self.diagnostics.push(Diagnostic::error(
+                                    *span,
+                                    format!("trait does not define associated type `{name}`"),
+                                ));
+                            }
+                        }
+                    } else {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            "associated type bindings are only valid in trait bounds",
+                        ));
+                    }
+                }
+            }
+        }
+        self.check_type_arg_count(span, def_id, args.len());
+        self.interner.intern(TyKind::Nominal { def_id, args })
+    }
+
+    fn lower_trait_object_type(&mut self, is_const: bool, ty: &TypeRef) -> Option<InternedTyId> {
+        let TypeKind::Path { segments } = &ty.kind else {
+            return None;
+        };
+        let type_segment = type_name_segment(segments)?;
+        match self.resolved.type_names.get(&ty.span).copied() {
+            Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
+                Some(self.lower_builtin_trait_object(ty.span, is_const, type_segment, trait_id))
+            }
+            Some(TypeNameResolution::Def(def_id)) => {
+                let def_id = self
+                    .resolved
+                    .qualified_type_names
+                    .get(&ty.span)
+                    .copied()
+                    .unwrap_or(GlobalDefId {
+                        module_id: self.module_id,
+                        def_id,
+                    });
+                self.lower_source_trait_object(ty.span, is_const, type_segment, def_id)
+            }
+            Some(TypeNameResolution::External(def_id)) => {
+                self.lower_source_trait_object(ty.span, is_const, type_segment, def_id)
+            }
+            _ => None,
+        }
+    }
+
+    fn lower_source_trait_object(
+        &mut self,
+        span: Span,
+        is_const: bool,
+        segment: &TypePathSegment,
+        def_id: GlobalDefId,
+    ) -> Option<InternedTyId> {
+        if !self.is_trait_def(def_id) {
+            return None;
+        }
+        let (trait_args, associated_type_bindings) =
+            self.lower_trait_object_args(span, segment, TraitId::Source(def_id))?;
+        self.check_type_arg_count(span, def_id, trait_args.len());
+        Some(self.interner.intern(TyKind::TraitObject {
+            is_const,
+            trait_id: TraitId::Source(def_id),
+            trait_args,
+            associated_type_bindings,
+        }))
+    }
+
+    fn lower_builtin_trait_object(
+        &mut self,
+        span: Span,
+        is_const: bool,
+        segment: &TypePathSegment,
+        trait_id: BuiltinTrait,
+    ) -> InternedTyId {
+        let (trait_args, associated_type_bindings) = self
+            .lower_trait_object_args(span, segment, TraitId::Builtin(trait_id))
+            .unwrap_or_default();
+        self.check_builtin_trait_arg_count(span, trait_id, trait_args.len());
+        self.interner.intern(TyKind::TraitObject {
+            is_const,
+            trait_id: TraitId::Builtin(trait_id),
+            trait_args,
+            associated_type_bindings,
+        })
+    }
+
+    fn lower_trait_object_args(
+        &mut self,
+        _span: Span,
+        segment: &TypePathSegment,
+        trait_id: TraitId,
+    ) -> Option<(Vec<InternedTyId>, Vec<(String, InternedTyId)>)> {
+        let mut args = Vec::new();
+        let mut associated_type_bindings = Vec::new();
+        let mut seen_assoc_bindings = HashSet::new();
+        let mut seen_assoc_binding = false;
+        for arg in &segment.args {
+            match arg {
+                TypeArg::Type(arg_ty) => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::error(
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                }
+                TypeArg::Const(expr) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "const generic type arguments are not supported",
+                    ));
+                }
+                TypeArg::AssocBinding {
+                    name,
+                    span,
+                    ty: binding_ty,
+                } => {
+                    seen_assoc_binding = true;
+                    let binding_ty = self.lower_type_in_context(binding_ty, TypeContext::Value);
+                    if !seen_assoc_bindings.insert(name.as_str()) {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            format!("duplicate associated type binding `{name}`"),
+                        ));
+                    }
+                    if !self.trait_id_has_associated_type(trait_id, name) {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            format!("trait does not define associated type `{name}`"),
+                        ));
+                    }
+                    associated_type_bindings.push((name.clone(), binding_ty));
+                }
+            }
+        }
+        Some((args, associated_type_bindings))
+    }
+
+    fn lower_builtin_trait_type(
+        &mut self,
+        span: Span,
+        segment: &TypePathSegment,
+        trait_id: BuiltinTrait,
+        context: TypeContext,
+    ) -> InternedTyId {
+        let mut args = Vec::new();
+        let mut seen_assoc_bindings = HashSet::new();
+        let mut seen_assoc_binding = false;
+        for arg in &segment.args {
+            match arg {
+                TypeArg::Type(arg_ty) => {
+                    if seen_assoc_binding {
+                        self.diagnostics.push(Diagnostic::error(
+                            arg_ty.span,
+                            "positional type arguments must precede associated type bindings",
+                        ));
+                    }
+                    args.push(self.lower_type_in_context(arg_ty, TypeContext::Value));
+                }
+                TypeArg::Const(expr) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "const generic type arguments are not supported",
+                    ));
+                }
+                TypeArg::AssocBinding {
+                    name,
+                    span,
+                    ty: binding_ty,
+                } => {
+                    seen_assoc_binding = true;
+                    if context == TypeContext::TraitBound {
+                        self.lower_type_in_context(binding_ty, TypeContext::Value);
+                        if !seen_assoc_bindings.insert(name.as_str()) {
+                            self.diagnostics.push(Diagnostic::error(
+                                *span,
+                                format!("duplicate associated type binding `{name}`"),
+                            ));
+                        }
+                        if !trait_id.has_associated_type(name) {
+                            self.diagnostics.push(Diagnostic::error(
+                                *span,
+                                format!("trait does not define associated type `{name}`"),
+                            ));
+                        }
+                    } else {
+                        self.diagnostics.push(Diagnostic::error(
+                            *span,
+                            "associated type bindings are only valid in trait bounds",
+                        ));
+                    }
+                }
+            }
+        }
+        self.check_builtin_trait_arg_count(span, trait_id, args.len());
+        self.interner
+            .intern(TyKind::BuiltinTrait { trait_id, args })
+    }
+
+    fn projection_trait_id(&self, trait_ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match self.interner.get(trait_ty) {
+            Some(TyKind::Nominal { def_id, args }) if self.is_trait_def(*def_id) => {
+                Some((TraitId::Source(*def_id), args.clone()))
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                Some((TraitId::Builtin(*trait_id), args.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    fn is_trait_def(&self, def_id: GlobalDefId) -> bool {
+        self.defs_for_module(def_id.module_id)
+            .and_then(|defs| defs.defs.get(def_id.def_id))
+            .is_some_and(|def| def.kind == nia_defs::DefKind::Trait)
+    }
+
+    fn trait_has_associated_type(&self, trait_id: GlobalDefId, name: &str) -> bool {
+        let Some(defs) = self.defs_for_module(trait_id.module_id) else {
+            return true;
+        };
+        let Some(members) = defs.scopes.struct_members.get(&trait_id.def_id) else {
+            return true;
+        };
+        members.fields.get(name).is_some_and(|def_id| {
+            defs.defs
+                .get(def_id)
+                .is_some_and(|def| def.kind == nia_defs::DefKind::TraitAssociatedType)
+        })
+    }
+
+    fn trait_id_has_associated_type(&self, trait_id: TraitId, name: &str) -> bool {
+        match trait_id {
+            TraitId::Source(def_id) => self.trait_has_associated_type(def_id, name),
+            TraitId::Builtin(trait_id) => trait_id.has_associated_type(name),
         }
     }
 
@@ -335,10 +727,42 @@ impl<'a> TypeLowerer<'a> {
         }
     }
 
+    fn check_builtin_trait_arg_count(&mut self, span: Span, trait_id: BuiltinTrait, actual: usize) {
+        let expected = trait_id.generic_count();
+        if expected != actual {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "generic argument count mismatch for `{}`: expected {expected}, got {actual}",
+                    trait_id.name()
+                ),
+            ));
+        }
+    }
+
     fn with_generics(&mut self, generics: &[String], f: impl FnOnce(&mut Self)) {
         self.generic_stack.push(generics.to_vec());
         f(self);
         self.generic_stack.pop();
+    }
+
+    fn with_self_type(&mut self, self_ty: InternedTyId, f: impl FnOnce(&mut Self)) {
+        self.self_type_stack.push(self_ty);
+        f(self);
+        self.self_type_stack.pop();
+    }
+
+    fn lower_where_clause(&mut self, clause: &WhereClause) {
+        for predicate in &clause.predicates {
+            self.lower_type_in_context(&predicate.ty, TypeContext::Value);
+            for bound in &predicate.bounds {
+                self.lower_trait_bound(bound);
+            }
+        }
+    }
+
+    fn lower_trait_bound(&mut self, bound: &nia_ast::TypeRef) {
+        self.lower_type_in_context(bound, TypeContext::TraitBound);
     }
 
     fn lower_array_len(&mut self, len: &ArrayLen) -> ArrayLenTy {
@@ -353,8 +777,9 @@ impl<'a> TypeLowerer<'a> {
             ExprKind::Builtin {
                 name,
                 type_arg: Some(type_arg),
-            } if name == "size" || name == "align" => ArrayLenTy::Builtin {
-                name: name.clone(),
+            } if LayoutBuiltin::from_name(name).is_some() => ArrayLenTy::Builtin {
+                builtin: LayoutBuiltin::from_name(name)
+                    .expect("layout builtin was checked in match guard"),
                 ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
             },
             ExprKind::Call { callee, args }
@@ -364,7 +789,7 @@ impl<'a> TypeLowerer<'a> {
                         ExprKind::Builtin {
                             name,
                             type_arg: Some(_),
-                        } if name == "size" || name == "align"
+                        } if LayoutBuiltin::from_name(name).is_some()
                     ) =>
             {
                 let ExprKind::Builtin {
@@ -375,7 +800,8 @@ impl<'a> TypeLowerer<'a> {
                     return self.register_const_array_len(expr);
                 };
                 ArrayLenTy::Builtin {
-                    name: name.clone(),
+                    builtin: LayoutBuiltin::from_name(name)
+                        .expect("layout builtin was checked in match guard"),
                     ty: self.lower_type_in_context(type_arg, TypeContext::SizeQuery),
                 }
             }
@@ -413,11 +839,23 @@ impl<'a> TypeLowerer<'a> {
         )
     }
 
-    fn is_invalid_value_type(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.interner.get(ty),
-            Some(TyKind::Primitive(PrimitiveTy::Never))
-        )
+    fn types_equivalent(&self, left: InternedTyId, right: InternedTyId) -> bool {
+        left == right || self.interner.get(left) == self.interner.get(right)
+    }
+
+    fn invalid_value_type_message(&self, ty: InternedTyId) -> Option<&'static str> {
+        match self.interner.get(ty) {
+            Some(TyKind::Primitive(PrimitiveTy::Never)) => {
+                Some("`!` is not valid as a value, field, parameter, or array element type")
+            }
+            Some(TyKind::BuiltinTrait { .. }) => Some(
+                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&const Trait[...]` for a trait object",
+            ),
+            Some(TyKind::Nominal { def_id, .. }) if self.is_trait_def(*def_id) => Some(
+                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&const Trait[...]` for a trait object",
+            ),
+            _ => None,
+        }
     }
 
     fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
@@ -458,6 +896,7 @@ mod tests {
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_parser::parse_module;
     use nia_type_resolve::resolve_module_types;
+    use std::collections::HashMap;
 
     #[test]
     fn lowers_primitive_pointer_array_function_and_nominal_types() {
@@ -623,6 +1062,134 @@ var global_void: void;
                 .filter(|diagnostic| diagnostic.message.contains("`!` is not valid"))
                 .count(),
             2,
+            "{:?}",
+            lowered.diagnostics
+        );
+    }
+
+    #[test]
+    fn lowers_trait_object_pointer_types() {
+        let (module, errors) = parse_module(
+            r#"
+trait Source[T] {
+    type Item;
+}
+
+fn read(source: &const Source[i32, Item = i32]) void {}
+fn write(source: &Source[i32, Item = i32]) void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let lowered = lower_module_types_with_defs(
+            ModuleId(0),
+            &module,
+            &resolved,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        );
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let trait_objects = lowered
+            .type_uses
+            .values()
+            .filter_map(|ty| match lowered.interner.get(*ty) {
+                Some(TyKind::TraitObject {
+                    is_const,
+                    trait_args,
+                    associated_type_bindings,
+                    ..
+                }) => Some((*is_const, trait_args.len(), associated_type_bindings.len())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(trait_objects.contains(&(true, 1, 1)), "{trait_objects:?}");
+        assert!(trait_objects.contains(&(false, 1, 1)), "{trait_objects:?}");
+    }
+
+    #[test]
+    fn validates_trait_object_associated_type_bindings() {
+        let (module, errors) = parse_module(
+            r#"
+trait Source {
+    type Item;
+}
+
+fn unknown(source: &const Source[Missing = i32]) void {}
+fn duplicate(source: &const Source[Item = i32, Item = bool]) void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let lowered = lower_module_types_with_defs(
+            ModuleId(0),
+            &module,
+            &resolved,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        );
+        assert!(
+            lowered.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("trait does not define associated type `Missing`")),
+            "{:?}",
+            lowered.diagnostics
+        );
+        assert!(
+            lowered.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("duplicate associated type binding `Item`")),
+            "{:?}",
+            lowered.diagnostics
+        );
+    }
+
+    #[test]
+    fn rejects_bare_trait_as_value_type() {
+        let (module, errors) = parse_module(
+            r#"
+trait Show {}
+
+fn bad(value: Show) void {}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let program_defs = HashMap::from([(ModuleId(0), defs.clone())]);
+        let lowered = lower_module_types_with_defs(
+            ModuleId(0),
+            &module,
+            &resolved,
+            ProgramDefsContext {
+                defs: Some(&program_defs),
+            },
+        );
+        assert!(
+            lowered
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("trait types are not valid")),
             "{:?}",
             lowered.diagnostics
         );

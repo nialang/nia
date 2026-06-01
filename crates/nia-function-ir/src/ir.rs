@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
-use nia_ids::{InternedTyId, LocalId};
+use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_span::Span;
+use nia_ty::{BuiltinTrait, TraitId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionBlockId(pub u32);
@@ -82,6 +83,9 @@ pub struct FunctionDeferBody {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionTerminator {
+    Error {
+        span: Span,
+    },
     Branch {
         target: FunctionBlockId,
         span: Span,
@@ -159,8 +163,7 @@ pub enum FunctionExprKind {
     },
     EnumVariant(nia_ids::GlobalDefId),
     BuiltinValue(FunctionBuiltinValue),
-    Len(Box<FunctionExpr>),
-    Ptr(Box<FunctionExpr>),
+    Range(FunctionRange),
     InlineAsm(FunctionInlineAsm),
     CStringPointer {
         array: Box<FunctionExpr>,
@@ -197,6 +200,16 @@ pub enum FunctionExprKind {
         expr: Box<FunctionExpr>,
         ty: InternedTyId,
     },
+    TraitObjectUpcast {
+        expr: Box<FunctionExpr>,
+        source_ty: InternedTyId,
+        target_ty: InternedTyId,
+    },
+    TraitObjectCoercion {
+        expr: Box<FunctionExpr>,
+        target_ty: InternedTyId,
+        self_ty: InternedTyId,
+    },
     Call {
         callee: FunctionCallee,
         args: Vec<FunctionExpr>,
@@ -224,6 +237,13 @@ pub struct FunctionSliceRange {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct FunctionRange {
+    pub start: Option<Box<FunctionExpr>>,
+    pub end: Option<Box<FunctionExpr>>,
+    pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionInlineAsm {
     pub code: String,
     pub inputs: Vec<FunctionAsmInput>,
@@ -235,6 +255,10 @@ pub struct FunctionInlineAsm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionBuiltinValue {
     Usize(u64),
+    Layout {
+        builtin: LayoutBuiltin,
+        ty: InternedTyId,
+    },
     Int(i128),
 }
 
@@ -268,7 +292,7 @@ pub enum FunctionArrayElements {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionFieldInit {
-    pub field: nia_ids::GlobalDefId,
+    pub field: Option<nia_ids::GlobalDefId>,
     pub name: String,
     pub value: FunctionExpr,
     pub span: Span,
@@ -286,7 +310,87 @@ pub enum FunctionCallee {
         args: Vec<InternedTyId>,
         receiver: Box<FunctionExpr>,
     },
+    TraitMethod {
+        trait_id: nia_ids::GlobalDefId,
+        method_id: nia_ids::GlobalDefId,
+        method_name: String,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        args: Vec<InternedTyId>,
+        receiver: Box<FunctionExpr>,
+    },
+    DynamicTraitMethod {
+        object_ty: InternedTyId,
+        trait_id: TraitId,
+        method_id: nia_ids::GlobalDefId,
+        method_name: String,
+        trait_args: Vec<InternedTyId>,
+        slot: usize,
+        params: Vec<InternedTyId>,
+        return_type: InternedTyId,
+        receiver: Box<FunctionExpr>,
+    },
+    BuiltinPlaceMethod {
+        trait_id: BuiltinTrait,
+        method: BuiltinTraitMethod,
+        self_ty: InternedTyId,
+        trait_args: Vec<InternedTyId>,
+        receiver: Box<FunctionExpr>,
+    },
+    BuiltinOperator(FunctionBuiltinOperator),
     FunctionPointer(Box<FunctionExpr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FunctionBuiltinOperator {
+    pub trait_id: BuiltinTrait,
+    pub op: FunctionBuiltinOperatorOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionBuiltinOperatorOp {
+    Unary(UnaryOp),
+    Binary(BinaryOp),
+}
+
+impl FunctionBuiltinOperatorOp {
+    pub fn method(self) -> Option<BuiltinTraitMethod> {
+        match self {
+            Self::Unary(op) => match op {
+                UnaryOp::Neg => Some(BuiltinTraitMethod::Neg),
+                UnaryOp::Not => Some(BuiltinTraitMethod::Not),
+                UnaryOp::BitNot => Some(BuiltinTraitMethod::BitNot),
+                UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+            },
+            Self::Binary(op) => match op {
+                BinaryOp::Add => Some(BuiltinTraitMethod::Add),
+                BinaryOp::Sub => Some(BuiltinTraitMethod::Sub),
+                BinaryOp::Mul => Some(BuiltinTraitMethod::Mul),
+                BinaryOp::Div => Some(BuiltinTraitMethod::Div),
+                BinaryOp::Rem => Some(BuiltinTraitMethod::Rem),
+                BinaryOp::BitAnd => Some(BuiltinTraitMethod::BitAnd),
+                BinaryOp::BitOr => Some(BuiltinTraitMethod::BitOr),
+                BinaryOp::BitXor => Some(BuiltinTraitMethod::BitXor),
+                BinaryOp::Shl => Some(BuiltinTraitMethod::Shl),
+                BinaryOp::Shr => Some(BuiltinTraitMethod::Shr),
+                BinaryOp::Eq => Some(BuiltinTraitMethod::Eq),
+                BinaryOp::Ne => Some(BuiltinTraitMethod::Ne),
+                BinaryOp::Lt => Some(BuiltinTraitMethod::Lt),
+                BinaryOp::Le => Some(BuiltinTraitMethod::Le),
+                BinaryOp::Gt => Some(BuiltinTraitMethod::Gt),
+                BinaryOp::Ge => Some(BuiltinTraitMethod::Ge),
+                BinaryOp::And | BinaryOp::Or => None,
+            },
+        }
+    }
+}
+
+impl FunctionBuiltinOperator {
+    pub fn method(self) -> Option<BuiltinTraitMethod> {
+        self.op
+            .method()
+            .filter(|method| method.trait_id() == self.trait_id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -302,17 +406,20 @@ pub enum FunctionPlaceBase {
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
     Deref(Box<FunctionExpr>),
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionPlaceElem {
     Field(nia_ids::GlobalDefId),
     Index(Box<FunctionExpr>),
+    Error,
 }
 
 impl FunctionTerminator {
     pub fn successors(&self) -> Vec<FunctionBlockId> {
         match self {
+            FunctionTerminator::Error { .. } => Vec::new(),
             FunctionTerminator::Branch { target, .. } | FunctionTerminator::Next { target, .. } => {
                 vec![*target]
             }

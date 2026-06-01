@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+mod function_instances;
 mod instantiate;
 mod items;
+mod operator_dispatch;
 mod struct_instances;
+mod trait_object_vtables;
 
 use nia_ast::{Expr, ItemKind, Module};
-use nia_backend_ir::{
-    BackendFunction, BackendFunctionInstance, BackendLayouts, BackendModule, BackendProgram,
-    BackendStructInstanceKey,
-};
+use nia_backend_ir::{BackendLayouts, BackendModule, BackendProgram, BackendStructInstanceKey};
 use nia_body_check::BodyCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
-use nia_item_signatures::ItemSignatures;
+use nia_item_signatures::{
+    ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
@@ -46,6 +48,9 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
+    pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
+    pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 pub fn lower_backend_program(
@@ -96,6 +101,7 @@ impl<'a> ModuleLowerer<'a> {
         let mut globals = Vec::new();
         let mut functions = Vec::new();
         let mut function_templates = Vec::new();
+        let mut trait_object_vtables = Vec::new();
 
         for item in &self.input.module.items {
             match &item.kind {
@@ -114,6 +120,16 @@ impl<'a> ModuleLowerer<'a> {
                         unions.push(item);
                     }
                     union_instances.extend(self.lower_union_instances(item.span, item_union));
+                }
+                ItemKind::Trait(item_trait) => {
+                    for method in &item_trait.methods {
+                        if method.function.body.is_some()
+                            && let Some(function) =
+                                self.lower_function(method.function.span, &method.function)
+                        {
+                            function_templates.push(function);
+                        }
+                    }
                 }
                 ItemKind::Extend(extend) => {
                     let extend_target_is_generic = self.extend_target_has_generics(extend);
@@ -154,6 +170,11 @@ impl<'a> ModuleLowerer<'a> {
         }
 
         let function_instances = self.lower_function_instances(&function_templates);
+        self.collect_trait_object_vtables(
+            &mut trait_object_vtables,
+            &functions,
+            &function_instances,
+        );
         self.extend_struct_instances_from_functions(
             &mut struct_instances,
             &mut union_instances,
@@ -179,6 +200,7 @@ impl<'a> ModuleLowerer<'a> {
             globals,
             functions,
             function_instances,
+            trait_object_vtables,
             generic_instantiations: self
                 .input
                 .body_check
@@ -227,43 +249,6 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn lower_function_instances(
-        &mut self,
-        functions: &[BackendFunction],
-    ) -> Vec<BackendFunctionInstance> {
-        let mut instances = Vec::new();
-        for instance in &self.monomorphization.instances {
-            if instance.def_id.module_id != self.input.module_id {
-                continue;
-            }
-            let Some(base) = functions
-                .iter()
-                .find(|function| function.def_id == instance.def_id)
-            else {
-                continue;
-            };
-            let substitutions = self.effective_generic_substitutions(base.def_id, &instance.args);
-            let function_body = base
-                .function_body
-                .clone()
-                .map(|body| self.instantiate_function_body(body, &substitutions));
-            instances.push(BackendFunctionInstance {
-                def_id: instance.def_id,
-                name: base.name.clone(),
-                arg_module_id: instance.arg_module_id,
-                args: instance.args.clone(),
-                symbol: instance.symbol.clone(),
-                params: self.instantiate_params(base, &substitutions),
-                return_type: self.instantiate_ty(base.return_type, &substitutions),
-                is_extern: base.is_extern,
-                is_variadic: base.is_variadic,
-                function_body,
-                span: base.span,
-            });
-        }
-        instances
-    }
-
     fn extend_target_has_generics(&self, extend: &nia_ast::ExtendItem) -> bool {
         let Some(ty) = self
             .input
@@ -303,7 +288,11 @@ impl<'a> ModuleLowerer<'a> {
     fn def_id_for_span_any_function(&mut self, span: Span) -> Option<DefId> {
         let def_id = self.input.defs.def_spans.get(span)?;
         let def = self.input.defs.defs.get(def_id)?;
-        matches!(def.kind, DefKind::Function | DefKind::Method).then_some(def_id)
+        matches!(
+            def.kind,
+            DefKind::Function | DefKind::Method | DefKind::TraitMethod
+        )
+        .then_some(def_id)
     }
 
     fn global_def_id(&self, def_id: DefId) -> GlobalDefId {
@@ -320,6 +309,24 @@ impl<'a> ModuleLowerer<'a> {
             .get(&id)
             .copied()
             .expect("array length used in backend symbol must be evaluated")
+    }
+
+    pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
+        let ty = self.input.type_normalization.normalize(ty);
+        if let Some(layout) = self.input.layouts.types.get(&ty).cloned() {
+            return Some(layout);
+        }
+        let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty) else {
+            return None;
+        };
+        if def_id.module_id != self.input.module_id {
+            return None;
+        }
+        if args.is_empty() {
+            self.input.layouts.nominal_type_layout(*def_id, args)
+        } else {
+            self.input.layouts.nominal_type_layout(*def_id, args)
+        }
     }
 
     fn error_ty(&self) -> InternedTyId {

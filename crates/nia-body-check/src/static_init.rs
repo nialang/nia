@@ -75,6 +75,13 @@ impl<'a> BodyChecker<'a> {
                 }),
             ExprKind::Builtin { .. } => match self.builtin_values.get(&expr.span) {
                 Some(BuiltinValue::Usize(value)) => StaticInit::Int(*value as i128),
+                Some(BuiltinValue::Layout { .. }) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        "generic layout builtin is not representable as static data",
+                    ));
+                    StaticInit::Zero
+                }
                 None => {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
@@ -111,9 +118,7 @@ impl<'a> BodyChecker<'a> {
                     fields
                         .iter()
                         .map(|field| StaticFieldInit {
-                            field: self
-                                .field_def_for_struct_ty(ty, &field.name)
-                                .unwrap_or_else(|| self.global_error_def()),
+                            field: self.field_def_for_struct_ty(ty, &field.name),
                             value: self.lower_static_init(&field.value),
                         })
                         .collect(),
@@ -225,8 +230,9 @@ impl<'a> BodyChecker<'a> {
                     .unwrap_or_else(|| self.error());
                 let field = self
                     .field_def_for_base_ty(lhs_ty, name)
-                    .unwrap_or_else(|| self.global_error_def());
-                elems.push(StaticAddressElem::Field(field));
+                    .map(StaticAddressElem::Field)
+                    .unwrap_or(StaticAddressElem::Error);
+                elems.push(field);
                 base
             }
             ExprKind::Index { lhs, index } => {

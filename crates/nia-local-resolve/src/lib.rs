@@ -158,7 +158,18 @@ impl<'a> LocalResolver<'a> {
         for item in &module.items {
             match &item.kind {
                 ItemKind::Function(function) => self.resolve_function(function),
+                ItemKind::Trait(item_trait) => {
+                    self.resolve_where_clause(&item_trait.where_clause);
+                    for method in &item_trait.methods {
+                        self.resolve_function(&method.function);
+                    }
+                }
                 ItemKind::Extend(extend) => {
+                    self.resolve_type(&extend.target);
+                    if let Some(trait_ref) = &extend.trait_ref {
+                        self.resolve_type(trait_ref);
+                    }
+                    self.resolve_where_clause(&extend.where_clause);
                     for method in &extend.methods {
                         self.resolve_function(&method.function);
                     }
@@ -189,6 +200,7 @@ impl<'a> LocalResolver<'a> {
 
     fn resolve_function(&mut self, function: &FunctionItem) {
         self.push_scope();
+        self.resolve_where_clause(&function.where_clause);
         for param in &function.params {
             if let Some(ty) = &param.ty {
                 self.resolve_type(ty);
@@ -292,7 +304,11 @@ impl<'a> LocalResolver<'a> {
 
     fn resolve_type(&mut self, ty: &TypeRef) {
         match &ty.kind {
-            TypeKind::Error | TypeKind::Void | TypeKind::Never | TypeKind::Infer => {}
+            TypeKind::Error
+            | TypeKind::SelfType
+            | TypeKind::Void
+            | TypeKind::Never
+            | TypeKind::Infer => {}
             TypeKind::Path { segments } => {
                 for segment in segments {
                     for arg in &segment.args {
@@ -302,6 +318,10 @@ impl<'a> LocalResolver<'a> {
                     }
                 }
             }
+            TypeKind::Projection { ty, trait_ref, .. } => {
+                self.resolve_type(ty);
+                self.resolve_type(trait_ref);
+            }
             TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
                 self.resolve_type(elem);
             }
@@ -310,6 +330,14 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(expr);
                 }
                 self.resolve_type(elem);
+            }
+            TypeKind::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.resolve_type(start);
+                }
+                if let Some(end) = end {
+                    self.resolve_type(end);
+                }
             }
             TypeKind::FunctionPointer {
                 params,
@@ -322,6 +350,15 @@ impl<'a> LocalResolver<'a> {
                 if let Some(return_type) = return_type {
                     self.resolve_type(return_type);
                 }
+            }
+        }
+    }
+
+    fn resolve_where_clause(&mut self, clause: &nia_ast::WhereClause) {
+        for predicate in &clause.predicates {
+            self.resolve_type(&predicate.ty);
+            for bound in &predicate.bounds {
+                self.resolve_type(bound);
             }
         }
     }
@@ -404,6 +441,14 @@ impl<'a> LocalResolver<'a> {
                             self.resolve_expr(end);
                         }
                     }
+                }
+            }
+            ExprKind::Range(range) => {
+                if let Some(start) = &range.start {
+                    self.resolve_expr(start);
+                }
+                if let Some(end) = &range.end {
+                    self.resolve_expr(end);
                 }
             }
             ExprKind::Block(block) => self.resolve_block(block),

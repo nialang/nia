@@ -1,0 +1,274 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+use super::common::*;
+
+#[test]
+fn checks_enum_variants_and_switch_exhaustiveness() {
+    let checked = pipeline(
+        r#"
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Other {
+    One,
+}
+
+fn full(c: Color) i32 {
+    switch c {
+        Color::Red => return 1,
+        Color::Green => return 2,
+        Color::Blue => return 3,
+    }
+    0
+}
+
+fn missing(c: Color) i32 {
+    switch c {
+        Color::Red => return 1,
+    }
+    0
+}
+
+fn with_default(c: Color) i32 {
+    switch c {
+        Color::Red => return 1,
+        _ => return 0,
+    }
+    0
+}
+
+fn bad(c: Color) i32 {
+    switch c {
+        Other::One => return 1,
+        Color::Missing => return 2,
+        _ => return 0,
+    }
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("non-exhaustive enum switch"))
+            .count(),
+        1
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("switch pattern"))
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("unknown enum variant"))
+    );
+}
+
+#[test]
+fn checks_switch_expressions() {
+    let checked = pipeline(
+        r#"
+enum Color {
+    Red,
+    Green,
+}
+
+fn pick(c: Color) i32 {
+    switch c {
+        Color::Red => 1,
+        Color::Green => 2,
+    }
+}
+
+fn with_default(x: u32) i32 {
+    switch x {
+        0 => 10,
+        _ => 20,
+    }
+}
+
+fn with_return_arm(x: u32) i32 {
+    switch x {
+        0 => return 1,
+        _ => 2,
+    }
+}
+
+fn bad(x: u32) i32 {
+    switch x {
+        0 => 1,
+        _ => true,
+    }
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("type mismatch in switch arms")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("non-exhaustive enum switch"))
+            .count(),
+        0,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn checks_switch_arm_body_edge_cases() {
+    let checked = pipeline(
+        r#"
+fn value() i32 { 1 }
+fn cleanup() {}
+
+fn expr_stmt_arm(x: i32) i32 {
+    switch x {
+        0 => cleanup(),
+        _ => value(),
+    }
+}
+
+fn block_arm_void_tail(x: i32) i32 {
+    switch x {
+        0 => {
+            cleanup();
+        },
+        _ => 2,
+    }
+}
+
+fn block_arm_never_tail(x: i32) i32 {
+    switch x {
+        0 => {
+            return 10;
+        },
+        _ => 2,
+    }
+}
+
+fn statement_arm_never(x: i32) i32 {
+    switch x {
+        0 => return 1,
+        _ => 2,
+    }
+}
+
+fn main() i32 {
+    expr_stmt_arm(0) + block_arm_void_tail(0) + block_arm_never_tail(0) + statement_arm_never(0)
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("type mismatch in switch arms"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("statement_arm_never")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn infers_switch_pattern_numeric_literals_from_target_type() {
+    let checked = pipeline(
+        r#"
+fn classify(value: usize) i32 {
+    switch value {
+        0 => return 0,
+        1 + 1 => return 2,
+        _ => return 3,
+    }
+    4
+}
+
+fn bad(value: u8) i32 {
+    switch value {
+        256 => return 1,
+        _ => return 0,
+    }
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.message.contains("out of range for u8"))
+            .count(),
+        1,
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        !checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("type mismatch in switch pattern")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn rejects_implicit_enum_integer_mixing() {
+    let checked = pipeline(
+        r#"
+enum Color: u8 {
+    Red,
+    Green,
+}
+
+fn main() i32 {
+    var same = Color::Red == Color::Green;
+    var n: i32 = Color::Red;
+    var explicit: i32 = Color::Red as i32;
+    var bad_add = Color::Red + Color::Green;
+    var bad_order = Color::Red < Color::Green;
+    if same { explicit } else { n }
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("trait bound not satisfied"))
+    );
+    assert!(
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("explicit"))
+    );
+}

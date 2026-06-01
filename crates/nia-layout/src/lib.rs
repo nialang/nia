@@ -7,7 +7,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyInterner, TyKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetDataLayout {
@@ -251,13 +251,20 @@ impl<'a> LayoutComputer<'a> {
                 size: self.target.pointer_size,
                 align: self.target.pointer_align,
             }),
-            Some(TyKind::Slice { .. }) => Some(TypeLayout {
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. }) => Some(TypeLayout {
                 size: self.target.pointer_size * 2,
                 align: self.target.pointer_align,
             }),
+            Some(TyKind::Range { kind, bound }) => self.range_layout(span, kind, bound),
             Some(TyKind::Array { len, elem }) => self.array_layout(span, len, elem),
             Some(TyKind::Nominal { def_id, args }) => self.nominal_layout(span, def_id, &args),
-            Some(TyKind::Error | TyKind::GenericParam(_)) | None => None,
+            Some(
+                TyKind::Error
+                | TyKind::GenericParam(_)
+                | TyKind::BuiltinTrait { .. }
+                | TyKind::Projection { .. },
+            )
+            | None => None,
         };
         self.visiting.remove(&ty_id);
         if let Some(layout) = &layout {
@@ -325,30 +332,50 @@ impl<'a> LayoutComputer<'a> {
                 };
                 value
             }
-            ArrayLenTy::Builtin { name, ty } => {
+            ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_ty(ty, span) else {
                     self.diagnostics.push(Diagnostic::error(
                         span,
-                        format!("cannot compute layout for array length builtin `@{name}`"),
+                        format!(
+                            "cannot compute layout for array length builtin `@{}`",
+                            builtin.name()
+                        ),
                     ));
                     return None;
                 };
-                match name.as_str() {
-                    "size" => layout.size,
-                    "align" => layout.align,
-                    _ => {
-                        self.diagnostics.push(Diagnostic::error(
-                            span,
-                            format!("unsupported array length builtin `@{name}`"),
-                        ));
-                        return None;
-                    }
+                match builtin {
+                    LayoutBuiltin::Size => layout.size,
+                    LayoutBuiltin::Align => layout.align,
                 }
             }
         };
         Some(TypeLayout {
             size: elem_layout.size.saturating_mul(len),
             align: elem_layout.align,
+        })
+    }
+
+    fn range_layout(
+        &mut self,
+        span: Span,
+        kind: RangeTyKind,
+        bound: Option<InternedTyId>,
+    ) -> Option<TypeLayout> {
+        let field_count = match kind {
+            RangeTyKind::Exclusive | RangeTyKind::Inclusive => 2,
+            RangeTyKind::From | RangeTyKind::To | RangeTyKind::ToInclusive => 1,
+            RangeTyKind::Full => 0,
+        };
+        let Some(bound) = bound else {
+            return (field_count == 0).then_some(TypeLayout { size: 0, align: 1 });
+        };
+        let bound_layout = self.layout_ty(bound, span)?;
+        Some(TypeLayout {
+            size: align_to(
+                bound_layout.size.saturating_mul(field_count),
+                bound_layout.align,
+            ),
+            align: bound_layout.align,
         })
     }
 
@@ -659,6 +686,31 @@ fn substitute_generics(
                 .collect();
             interner.intern(TyKind::Nominal { def_id, args })
         }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let args = args
+                .into_iter()
+                .map(|arg| substitute_generics(interner, arg, substitutions))
+                .collect();
+            interner.intern(TyKind::BuiltinTrait { trait_id, args })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = substitute_generics(interner, self_ty, substitutions);
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_generics(interner, arg, substitutions))
+                .collect();
+            interner.intern(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            })
+        }
         _ => ty,
     }
 }
@@ -669,8 +721,8 @@ fn substitute_array_len_generics(
     substitutions: &HashMap<String, InternedTyId>,
 ) -> ArrayLenTy {
     match len {
-        ArrayLenTy::Builtin { name, ty } => ArrayLenTy::Builtin {
-            name,
+        ArrayLenTy::Builtin { builtin, ty } => ArrayLenTy::Builtin {
+            builtin,
             ty: substitute_generics(interner, ty, substitutions),
         },
         ArrayLenTy::Infer | ArrayLenTy::ConstValue(_) | ArrayLenTy::ConstExpr(_) => len,
@@ -800,18 +852,18 @@ fn main(xs: [@size[Pair]()]u8, ys: [@align[Pair]()]u8) {}
             matches!(
                 ty,
                 TyKind::Array {
-                    len: ArrayLenTy::Builtin { name, .. },
+                    len: ArrayLenTy::Builtin { builtin, .. },
                     ..
-                } if name == "size"
+                } if *builtin == LayoutBuiltin::Size
             ) && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 8, align: 1 })
         }));
         assert!(lowered.interner.iter().any(|(ty_id, ty)| {
             matches!(
                 ty,
                 TyKind::Array {
-                    len: ArrayLenTy::Builtin { name, .. },
+                    len: ArrayLenTy::Builtin { builtin, .. },
                     ..
-                } if name == "align"
+                } if *builtin == LayoutBuiltin::Align
             ) && layouts.types.get(&ty_id) == Some(&TypeLayout { size: 4, align: 1 })
         }));
     }

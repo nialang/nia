@@ -8,25 +8,29 @@ mod expr;
 mod helpers;
 mod literals;
 mod places;
+mod projection_obligations;
 mod static_init;
+mod trait_objects;
 mod type_support;
 
-pub use calls::import_type_into;
+pub use nia_ty::import_type_into;
 
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, ForInit, FunctionItem, ItemKind, Module, Stmt, StmtKind,
 };
 use nia_body_ir::{
     ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
-    FunctionReference, GenericInstantiation, ResolvedCall,
+    FunctionReference, GenericInstantiation, ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{
-    ComptimeSignature, EnumSignature, FunctionSignature, GlobalSignature, ItemSignatures,
-    StructSignature, UnionSignature,
+    EnumSignature, FunctionSignature, ItemSignatures, ProgramComptimeSignature,
+    ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramSignatureMaps,
+    ProgramStructSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+    ProgramUnionSignature, StructSignature, UnionSignature,
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
@@ -42,52 +46,6 @@ use nia_value_resolve::ValueResolution;
 pub struct BodyCheck {
     pub ir: BodyIr,
     pub diagnostics: Vec<Diagnostic>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramFunctionSignature {
-    pub signature: FunctionSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramGlobalSignature {
-    pub signature: GlobalSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramComptimeSignature {
-    pub signature: ComptimeSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramStructSignature {
-    pub signature: StructSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramUnionSignature {
-    pub signature: UnionSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProgramEnumSignature {
-    pub signature: nia_item_signatures::EnumSignature,
-    pub interner: TyInterner,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ProgramSignatureMaps<'a> {
-    pub functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
-    pub globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
-    pub comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,
-    pub structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
-    pub unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
-    pub enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -179,6 +137,8 @@ pub fn check_module_bodies(
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
+    let empty_traits = HashMap::new();
+    let empty_trait_impls = Vec::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
@@ -203,6 +163,8 @@ pub fn check_module_bodies(
             structs: &empty_structs,
             unions: &empty_unions,
             enums: &empty_enums,
+            traits: &empty_traits,
+            trait_impls: &empty_trait_impls,
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &empty_program_comptime,
@@ -278,11 +240,15 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_structs: input.program_signatures.structs,
         program_unions: input.program_signatures.unions,
         program_enums: input.program_signatures.enums,
+        program_traits: input.program_signatures.traits,
+        program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
         expr_types: HashMap::new(),
         bracket_suffix_resolutions: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
         c_string_pointer_coercions: HashMap::new(),
+        trait_object_coercions: HashMap::new(),
+        trait_object_upcasts: HashMap::new(),
         builtin_values: HashMap::new(),
         resolved_calls: HashMap::new(),
         function_references: HashMap::new(),
@@ -290,6 +256,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
         node_c_string_pointer_coercions: HashMap::new(),
+        node_trait_object_coercions: HashMap::new(),
+        node_trait_object_upcasts: HashMap::new(),
         node_builtin_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
         node_function_references: HashMap::new(),
@@ -315,6 +283,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
             array_to_slice_coercions: checker.array_to_slice_coercions,
             c_string_pointer_coercions: checker.c_string_pointer_coercions,
+            trait_object_coercions: checker.trait_object_coercions,
+            trait_object_upcasts: checker.trait_object_upcasts,
             local_types: checker.local_types,
             builtin_values: checker.builtin_values,
             resolved_calls: checker.resolved_calls,
@@ -324,6 +294,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
             node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
             node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
+            node_trait_object_coercions: checker.node_trait_object_coercions,
+            node_trait_object_upcasts: checker.node_trait_object_upcasts,
             node_builtin_values: checker.node_builtin_values,
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
@@ -353,11 +325,15 @@ struct BodyChecker<'a> {
     program_structs: &'a HashMap<GlobalDefId, ProgramStructSignature>,
     program_unions: &'a HashMap<GlobalDefId, ProgramUnionSignature>,
     program_enums: &'a HashMap<GlobalDefId, ProgramEnumSignature>,
+    program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
+    program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     expr_types: HashMap<Span, InternedTyId>,
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
     c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
+    trait_object_coercions: HashMap<Span, TraitObjectCoercion>,
+    trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     builtin_values: HashMap<Span, BuiltinValue>,
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
@@ -365,6 +341,8 @@ struct BodyChecker<'a> {
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
+    node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
+    node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     node_function_references: HashMap<NodeKey, FunctionReference>,
@@ -428,8 +406,22 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn record_trait_object_coercion(&mut self, span: Span, coercion: TraitObjectCoercion) {
+        self.trait_object_coercions.insert(span, coercion);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_trait_object_coercions.insert(key, coercion);
+        }
+    }
+
+    fn record_trait_object_upcast(&mut self, span: Span, upcast: TraitObjectUpcast) {
+        self.trait_object_upcasts.insert(span, upcast);
+        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
+            self.node_trait_object_upcasts.insert(key, upcast);
+        }
+    }
+
     fn record_builtin_value(&mut self, span: Span, value: BuiltinValue) {
-        self.builtin_values.insert(span, value);
+        self.builtin_values.insert(span, value.clone());
         if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
             self.node_builtin_values.insert(key, value);
         }
@@ -495,6 +487,13 @@ impl<'a> BodyChecker<'a> {
         for item in &module.items {
             if let ItemKind::Function(function) = &item.kind {
                 self.check_function_item(item.span, function);
+            }
+        }
+        for item in &module.items {
+            if let ItemKind::Trait(item_trait) = &item.kind {
+                for method in &item_trait.methods {
+                    self.check_trait_function_def(method.function.span, &method.function);
+                }
             }
         }
         for item in &module.items {
@@ -602,16 +601,25 @@ impl<'a> BodyChecker<'a> {
         self.check_function(def_id, function);
     }
 
+    fn check_trait_function_def(&mut self, span: Span, function: &FunctionItem) {
+        let Some(def_id) = self.def_id_for_span(span, DefKind::TraitMethod) else {
+            return;
+        };
+        self.check_function(def_id, function);
+    }
+
     fn check_function(&mut self, def_id: DefId, function: &FunctionItem) {
         let Some(signature) = self.signatures.functions.get(&def_id) else {
             return;
         };
+        self.check_function_signature_projection_obligations(def_id, signature);
         let previous_return = self.current_return;
         let previous_def_id = self.current_def_id;
         let previous_param_locals = std::mem::take(&mut self.current_param_locals);
         self.current_return = signature.return_type;
         self.current_def_id = Some(self.global_def_id(def_id));
         let self_ty = self.method_self_type(def_id, signature);
+        self.check_object_safe_types_in_signature(signature);
         self.seed_param_types(signature, function, self_ty);
         if let Some(body) = &function.body {
             let expected_tail =
@@ -631,6 +639,13 @@ impl<'a> BodyChecker<'a> {
         self.current_return = previous_return;
         self.current_def_id = previous_def_id;
         self.current_param_locals = previous_param_locals;
+    }
+
+    fn check_object_safe_types_in_signature(&mut self, signature: &FunctionSignature) {
+        for param in &signature.params {
+            self.check_object_safe_type(param.span, param.ty);
+        }
+        self.check_object_safe_type(signature.span, signature.return_type);
     }
 
     fn seed_param_types(

@@ -16,6 +16,11 @@ pub enum TypeKind {
     Path {
         segments: Vec<TypePathSegment>,
     },
+    Projection {
+        ty: Box<TypeRef>,
+        trait_ref: Box<TypeRef>,
+        name: String,
+    },
     Pointer {
         is_const: bool,
         elem: Box<TypeRef>,
@@ -28,11 +33,17 @@ pub enum TypeKind {
         len: ArrayLen,
         elem: Box<TypeRef>,
     },
+    Range {
+        start: Option<Box<TypeRef>>,
+        end: Option<Box<TypeRef>>,
+        inclusive: bool,
+    },
     FunctionPointer {
         params: Vec<TypeRef>,
         return_type: Option<Box<TypeRef>>,
         is_variadic: bool,
     },
+    SelfType,
     Void,
     Never,
     Infer,
@@ -48,10 +59,27 @@ pub struct TypePathSegment {
 pub enum TypeArg {
     Type(TypeRef),
     Const(ExprStub),
+    AssocBinding {
+        name: String,
+        ty: TypeRef,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayLen {
     Infer,
     Expr(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct WhereClause {
+    pub predicates: Vec<WherePredicate>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WherePredicate {
+    pub ty: TypeRef,
+    pub bounds: Vec<TypeRef>,
+    pub span: Span,
 }

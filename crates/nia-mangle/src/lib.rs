@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId};
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind};
 
 pub fn sanitize_symbol_part(text: &str) -> String {
     let mut out: String = text
@@ -105,6 +105,23 @@ where
             mangle_array_len(len, interner, nominal_name, array_len),
             mangle_type_inner(interner, *elem, nominal_name, array_len)
         ),
+        Some(TyKind::Range { kind, bound }) => {
+            let kind = match kind {
+                RangeTyKind::Exclusive => "range",
+                RangeTyKind::Inclusive => "range_incl",
+                RangeTyKind::From => "range_from",
+                RangeTyKind::To => "range_to",
+                RangeTyKind::ToInclusive => "range_to_incl",
+                RangeTyKind::Full => "range_full",
+            };
+            match bound {
+                Some(bound) => format!(
+                    "{kind}__{}",
+                    mangle_type_inner(interner, *bound, nominal_name, array_len)
+                ),
+                None => kind.to_string(),
+            }
+        }
         Some(TyKind::FunctionPointer {
             params,
             return_type,
@@ -139,6 +156,84 @@ where
                 format!("nom__{base}__argc{}__{}", args.len(), args)
             }
         }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let base = sanitize_symbol_part(trait_id.name());
+            if args.is_empty() {
+                format!("builtin_trait__{base}")
+            } else {
+                let args = args
+                    .iter()
+                    .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                    .collect::<Vec<_>>()
+                    .join("__");
+                format!("builtin_trait__{base}__argc{}__{}", args.len(), args)
+            }
+        }
+        Some(TyKind::TraitObject {
+            is_const,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let prefix = if *is_const {
+                "trait_obj_const"
+            } else {
+                "trait_obj"
+            };
+            let trait_name = match trait_id {
+                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
+            };
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                .collect::<Vec<_>>()
+                .join("__");
+            let assoc_bindings = associated_type_bindings
+                .iter()
+                .map(|(name, ty)| {
+                    format!(
+                        "{}__{}",
+                        sanitize_symbol_part(name),
+                        mangle_type_inner(interner, *ty, nominal_name, array_len)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            format!(
+                "{prefix}__{}__argc{}__{}__assoc{}__{}",
+                trait_name,
+                trait_args.len(),
+                trait_args,
+                associated_type_bindings.len(),
+                assoc_bindings
+            )
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = mangle_type_inner(interner, *self_ty, nominal_name, array_len);
+            let trait_name = match trait_id {
+                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
+            };
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                .collect::<Vec<_>>()
+                .join("__");
+            format!(
+                "proj__{}__as__{}__argc{}__{}__{}",
+                self_ty,
+                trait_name,
+                trait_args.len(),
+                trait_args,
+                sanitize_symbol_part(name)
+            )
+        }
         Some(TyKind::GenericParam(name)) => format!("gen__{}", sanitize_symbol_part(name)),
         Some(TyKind::Error) | None => "ty_error".to_string(),
     }
@@ -158,9 +253,9 @@ where
         ArrayLenTy::Infer => "infer".to_string(),
         ArrayLenTy::ConstValue(value) => format!("len__{value}"),
         ArrayLenTy::ConstExpr(id) => format!("len__{}", array_len(*id)),
-        ArrayLenTy::Builtin { name, ty } => format!(
+        ArrayLenTy::Builtin { builtin, ty } => format!(
             "builtin__{}__{}",
-            sanitize_symbol_part(name),
+            sanitize_symbol_part(builtin.name()),
             mangle_type_inner(interner, *ty, nominal_name, array_len)
         ),
     }
