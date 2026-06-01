@@ -174,7 +174,9 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
         let graph = db.query(ModuleGraphQuery);
         let id = graph
             .module_id_for_path(self.0.as_str())
-            .unwrap_or_else(|| panic!("missing module id for `{}`", self.0.as_str()));
+            .unwrap_or_else(|| {
+                db.invalid_input(self, format!("missing module id for `{}`", self.0.as_str()))
+            });
         let parsed = db.query(parsed_module_query(db, self.0.clone()));
         LoadedModule {
             id,
@@ -555,6 +557,26 @@ mod tests {
                 .modules
                 .iter()
                 .any(|module| module.path.as_str() == "defs.nia")
+        );
+    }
+
+    #[test]
+    fn loaded_module_query_reports_paths_outside_module_graph() {
+        let db = QueryDb::new(LoaderContext {
+            root_path: SourcePath::new("main.nia"),
+            module_map: ModuleMap::default(),
+            sources: SourceDatabase::new(),
+        });
+
+        let err = db
+            .try_query(LoadedModuleQuery(SourcePath::new("missing.nia")))
+            .expect_err("missing module path should be an invalid query input");
+
+        assert!(matches!(err, nia_query::QueryError::InvalidInput { .. }));
+        assert!(
+            err.to_string()
+                .contains("missing module id for `missing.nia`"),
+            "{err}"
         );
     }
 

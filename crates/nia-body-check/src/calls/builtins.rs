@@ -26,9 +26,14 @@ impl<'a> BodyChecker<'a> {
             return self.primitive(PrimitiveTy::Usize);
         };
         let ty = self.ty_for_span(type_arg.span);
-        match resolution {
-            BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
+        let builtin = match resolution {
+            BuiltinResolution::SizeOf => {
                 self.require_sized_type(type_arg.span, ty, name);
+                LayoutBuiltin::Size
+            }
+            BuiltinResolution::AlignOf => {
+                self.require_sized_type(type_arg.span, ty, name);
+                LayoutBuiltin::Align
             }
             BuiltinResolution::Asm => {
                 self.diagnostics.push(Diagnostic::error(
@@ -38,23 +43,15 @@ impl<'a> BodyChecker<'a> {
                 return self.error();
             }
             BuiltinResolution::Reserved => return self.error(),
-        }
+        };
         if let Some(layout) = self.layout_of(ty) {
-            let value = match resolution {
-                BuiltinResolution::SizeOf => layout.size,
-                BuiltinResolution::AlignOf => layout.align,
-                _ => unreachable!("non-layout builtin returned above"),
+            let value = match builtin {
+                LayoutBuiltin::Size => layout.size,
+                LayoutBuiltin::Align => layout.align,
             };
             self.record_builtin_value(span, BuiltinValue::Usize(value));
         } else {
-            self.record_builtin_value(
-                span,
-                BuiltinValue::Layout {
-                    builtin: LayoutBuiltin::from_name(name)
-                        .expect("layout builtin was resolved by value resolution"),
-                    ty,
-                },
-            );
+            self.record_builtin_value(span, BuiltinValue::Layout { builtin, ty });
         }
         self.primitive(PrimitiveTy::Usize)
     }
