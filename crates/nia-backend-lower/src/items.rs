@@ -7,9 +7,10 @@ use nia_backend_ir::{
 };
 use nia_comptime_check::ComptimeValue;
 use nia_defs::DefKind;
-use nia_opt::OptimizationDepth;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
+
+pub(crate) const SIMPLIFY_STATIC_INIT_PASS: &str = "simplify-static-init";
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct(
@@ -141,7 +142,7 @@ impl<'a> ModuleLowerer<'a> {
                 crate::BackendOptimizationChange::Global {
                     module_id: self.input.module_id,
                     global,
-                    pass: "simplify-static-init",
+                    pass: SIMPLIFY_STATIC_INIT_PASS,
                 },
             );
         }
@@ -149,10 +150,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn static_init_simplification_enabled(&self) -> bool {
-        self.optimization
-            .const_fold
-            .at_least(OptimizationDepth::Full)
-            || self.optimization.prefer_size
+        crate::static_init_simplification_enabled(&self.optimization)
     }
 
     pub(crate) fn lower_function(

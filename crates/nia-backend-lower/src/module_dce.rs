@@ -17,6 +17,9 @@ use nia_ids::{GlobalDefId, InternedTyId};
 use nia_opt::OptimizationDepth;
 use nia_static_ir::StaticInit;
 
+pub(crate) const REMOVE_UNUSED_FUNCTIONS_PASS: &str = "remove-unused-functions";
+pub(crate) const REMOVE_UNUSED_FUNCTION_INSTANCES_PASS: &str = "remove-unused-function-instances";
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FunctionInstanceRef {
     def_id: GlobalDefId,
@@ -107,7 +110,7 @@ impl<'a> ModuleLowerer<'a> {
                 .push(BackendOptimizationChange::Function {
                     module_id: self.input.module_id,
                     function,
-                    pass: "remove-unused-functions",
+                    pass: REMOVE_UNUSED_FUNCTIONS_PASS,
                     is_instance: false,
                     type_arg_count: 0,
                 });
@@ -128,7 +131,7 @@ impl<'a> ModuleLowerer<'a> {
                 .push(BackendOptimizationChange::Function {
                     module_id: self.input.module_id,
                     function,
-                    pass: "remove-unused-function-instances",
+                    pass: REMOVE_UNUSED_FUNCTION_INSTANCES_PASS,
                     is_instance: true,
                     type_arg_count,
                 });
