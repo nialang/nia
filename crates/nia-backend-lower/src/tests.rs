@@ -1190,7 +1190,7 @@ fn main() i32 {
             .any(|change| matches!(
                 change,
                 BackendOptimizationChange::Function {
-                    pass: "inline-constant-functions",
+                    pass: "inline-leaf-functions",
                     is_instance: false,
                     ..
                 }
@@ -1230,7 +1230,7 @@ fn main() i32 {
             .all(|change| !matches!(
                 change,
                 BackendOptimizationChange::Function {
-                    pass: "inline-constant-functions",
+                    pass: "inline-leaf-functions",
                     ..
                 }
             ))
@@ -1269,7 +1269,7 @@ fn main() i32 {
             .any(|change| matches!(
                 change,
                 BackendOptimizationChange::Function {
-                    pass: "inline-constant-functions",
+                    pass: "inline-leaf-functions",
                     is_instance: true,
                     type_arg_count: 1,
                     ..
@@ -1310,7 +1310,7 @@ fn main() [2]i32 {
             .any(|change| matches!(
                 change,
                 BackendOptimizationChange::Function {
-                    pass: "inline-constant-functions",
+                    pass: "inline-leaf-functions",
                     is_instance: false,
                     ..
                 }
@@ -1350,7 +1350,7 @@ fn main() [2]i32 {
             .all(|change| !matches!(
                 change,
                 BackendOptimizationChange::Function {
-                    pass: "inline-constant-functions",
+                    pass: "inline-leaf-functions",
                     ..
                 }
             ))

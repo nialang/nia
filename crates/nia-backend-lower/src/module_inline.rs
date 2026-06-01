@@ -56,7 +56,7 @@ impl InlineCandidate {
 }
 
 impl<'a> ModuleLowerer<'a> {
-    pub(crate) fn inline_constant_functions(
+    pub(crate) fn inline_leaf_functions(
         &mut self,
         functions: &mut [BackendFunction],
         function_instances: &mut [BackendFunctionInstance],
@@ -104,63 +104,55 @@ impl<'a> ModuleLowerer<'a> {
 
         for function in functions {
             if let Some(body) = &mut function.function_body {
-                self.inline_constant_calls_in_body(
-                    body,
-                    &function_candidates,
-                    &instance_candidates,
-                );
+                self.inline_leaf_calls_in_body(body, &function_candidates, &instance_candidates);
             }
         }
         for instance in function_instances {
             if let Some(body) = &mut instance.function_body {
-                self.inline_constant_calls_in_body(
-                    body,
-                    &function_candidates,
-                    &instance_candidates,
-                );
+                self.inline_leaf_calls_in_body(body, &function_candidates, &instance_candidates);
             }
         }
     }
 
-    fn inline_constant_calls_in_body(
+    fn inline_leaf_calls_in_body(
         &mut self,
         body: &mut FunctionBody,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
         for block in &mut body.blocks {
-            self.inline_constant_calls_in_block(block, function_candidates, instance_candidates);
+            self.inline_leaf_calls_in_block(block, function_candidates, instance_candidates);
         }
     }
 
-    fn inline_constant_calls_in_defer_body(
+    fn inline_leaf_calls_in_defer_body(
         &mut self,
         body: &mut FunctionDeferBody,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
         for block in &mut body.blocks {
-            self.inline_constant_calls_in_block(block, function_candidates, instance_candidates);
+            self.inline_leaf_calls_in_block(block, function_candidates, instance_candidates);
         }
     }
 
-    fn inline_constant_calls_in_block(
+    fn inline_leaf_calls_in_block(
         &mut self,
         block: &mut FunctionBlock,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
         for op in &mut block.ops {
-            self.inline_constant_calls_in_op(op, function_candidates, instance_candidates);
+            self.inline_leaf_calls_in_op(op, function_candidates, instance_candidates);
         }
-        self.inline_constant_calls_in_terminator(
+        self.inline_leaf_calls_in_terminator(
             &mut block.terminator,
             function_candidates,
             instance_candidates,
         );
     }
 
-    fn inline_constant_calls_in_op(
+    fn inline_leaf_calls_in_op(
         &mut self,
         op: &mut FunctionOp,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
@@ -169,25 +161,19 @@ impl<'a> ModuleLowerer<'a> {
         match op {
             FunctionOp::Binding(binding) => {
                 if let Some(value) = &mut binding.value {
-                    self.inline_constant_calls_in_expr(
-                        value,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
                 }
             }
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-                self.inline_constant_calls_in_expr(value, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
             }
-            FunctionOp::Defer(body) => self.inline_constant_calls_in_defer_body(
-                body,
-                function_candidates,
-                instance_candidates,
-            ),
+            FunctionOp::Defer(body) => {
+                self.inline_leaf_calls_in_defer_body(body, function_candidates, instance_candidates)
+            }
         }
     }
 
-    fn inline_constant_calls_in_terminator(
+    fn inline_leaf_calls_in_terminator(
         &mut self,
         terminator: &mut FunctionTerminator,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
@@ -195,16 +181,12 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         match terminator {
             FunctionTerminator::If { cond, .. } => {
-                self.inline_constant_calls_in_expr(cond, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(cond, function_candidates, instance_candidates);
             }
             FunctionTerminator::Switch { target, arms, .. } => {
-                self.inline_constant_calls_in_expr(
-                    target,
-                    function_candidates,
-                    instance_candidates,
-                );
+                self.inline_leaf_calls_in_expr(target, function_candidates, instance_candidates);
                 for arm in arms {
-                    self.inline_constant_calls_in_expr(
+                    self.inline_leaf_calls_in_expr(
                         &mut arm.pattern,
                         function_candidates,
                         instance_candidates,
@@ -213,15 +195,11 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(expr) => {
-                    self.inline_constant_calls_in_expr(
-                        expr,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
                 }
                 FunctionForHeader::CStyle { cond } => {
                     if let Some(cond) = cond {
-                        self.inline_constant_calls_in_expr(
+                        self.inline_leaf_calls_in_expr(
                             cond,
                             function_candidates,
                             instance_candidates,
@@ -232,11 +210,7 @@ impl<'a> ModuleLowerer<'a> {
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {
-                    self.inline_constant_calls_in_expr(
-                        value,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
                 }
             }
             FunctionTerminator::Error { .. }
@@ -245,7 +219,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn inline_constant_calls_in_expr(
+    fn inline_leaf_calls_in_expr(
         &mut self,
         expr: &mut FunctionExpr,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
@@ -253,17 +227,9 @@ impl<'a> ModuleLowerer<'a> {
     ) {
         match &mut expr.kind {
             FunctionExprKind::Call { callee, args } => {
-                self.inline_constant_calls_in_callee(
-                    callee,
-                    function_candidates,
-                    instance_candidates,
-                );
+                self.inline_leaf_calls_in_callee(callee, function_candidates, instance_candidates);
                 for arg in args.iter_mut() {
-                    self.inline_constant_calls_in_expr(
-                        arg,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(arg, function_candidates, instance_candidates);
                 }
                 if args.is_empty()
                     && let Some(candidate) = inline_candidate_for_callee(
@@ -279,26 +245,14 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionExprKind::Range(range) => {
                 if let Some(start) = &mut range.start {
-                    self.inline_constant_calls_in_expr(
-                        start,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(start, function_candidates, instance_candidates);
                 }
                 if let Some(end) = &mut range.end {
-                    self.inline_constant_calls_in_expr(
-                        end,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(end, function_candidates, instance_candidates);
                 }
             }
             FunctionExprKind::InlineAsm(asm) => {
-                self.inline_constant_calls_in_inline_asm(
-                    asm,
-                    function_candidates,
-                    instance_candidates,
-                );
+                self.inline_leaf_calls_in_inline_asm(asm, function_candidates, instance_candidates);
             }
             FunctionExprKind::CStringPointer { array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
@@ -306,12 +260,12 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Cast { expr: array, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
             | FunctionExprKind::TraitObjectCoercion { expr: array, .. } => {
-                self.inline_constant_calls_in_expr(array, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(array, function_candidates, instance_candidates);
             }
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {
                     for elem in elems {
-                        self.inline_constant_calls_in_expr(
+                        self.inline_leaf_calls_in_expr(
                             elem,
                             function_candidates,
                             instance_candidates,
@@ -319,16 +273,12 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 FunctionArrayElements::Repeat { value, .. } => {
-                    self.inline_constant_calls_in_expr(
-                        value,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
                 }
             },
             FunctionExprKind::StructLiteral { fields, .. } => {
                 for field in fields {
-                    self.inline_constant_calls_in_expr(
+                    self.inline_leaf_calls_in_expr(
                         &mut field.value,
                         function_candidates,
                         instance_candidates,
@@ -336,53 +286,37 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             FunctionExprKind::UnionLiteral { field, .. } => {
-                self.inline_constant_calls_in_expr(
+                self.inline_leaf_calls_in_expr(
                     &mut field.value,
                     function_candidates,
                     instance_candidates,
                 );
             }
             FunctionExprKind::AddrOf(place) => {
-                self.inline_constant_calls_in_place(
-                    place,
-                    function_candidates,
-                    instance_candidates,
-                );
+                self.inline_leaf_calls_in_place(place, function_candidates, instance_candidates);
             }
             FunctionExprKind::Binary { lhs, rhs, .. } => {
-                self.inline_constant_calls_in_expr(lhs, function_candidates, instance_candidates);
-                self.inline_constant_calls_in_expr(rhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(rhs, function_candidates, instance_candidates);
             }
             FunctionExprKind::Assign { place, rhs, .. } => {
-                self.inline_constant_calls_in_place(
-                    place,
-                    function_candidates,
-                    instance_candidates,
-                );
-                self.inline_constant_calls_in_expr(rhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_place(place, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(rhs, function_candidates, instance_candidates);
             }
             FunctionExprKind::Field { lhs, .. } => {
-                self.inline_constant_calls_in_expr(lhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
             }
             FunctionExprKind::Index { lhs, index } => {
-                self.inline_constant_calls_in_expr(lhs, function_candidates, instance_candidates);
-                self.inline_constant_calls_in_expr(index, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(index, function_candidates, instance_candidates);
             }
             FunctionExprKind::Slice { lhs, range, .. } => {
-                self.inline_constant_calls_in_expr(lhs, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(lhs, function_candidates, instance_candidates);
                 if let Some(start) = &mut range.start {
-                    self.inline_constant_calls_in_expr(
-                        start,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(start, function_candidates, instance_candidates);
                 }
                 if let Some(end) = &mut range.end {
-                    self.inline_constant_calls_in_expr(
-                        end,
-                        function_candidates,
-                        instance_candidates,
-                    );
+                    self.inline_leaf_calls_in_expr(end, function_candidates, instance_candidates);
                 }
             }
             FunctionExprKind::Error
@@ -402,7 +336,7 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn inline_constant_calls_in_callee(
+    fn inline_leaf_calls_in_callee(
         &mut self,
         callee: &mut FunctionCallee,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
@@ -414,11 +348,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::FunctionPointer(receiver) => {
-                self.inline_constant_calls_in_expr(
-                    receiver,
-                    function_candidates,
-                    instance_candidates,
-                );
+                self.inline_leaf_calls_in_expr(receiver, function_candidates, instance_candidates);
             }
             FunctionCallee::Function(_)
             | FunctionCallee::FunctionInstance { .. }
@@ -426,37 +356,37 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn inline_constant_calls_in_place(
+    fn inline_leaf_calls_in_place(
         &mut self,
         place: &mut FunctionPlace,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
         if let FunctionPlaceBase::Deref(expr) = &mut place.base {
-            self.inline_constant_calls_in_expr(expr, function_candidates, instance_candidates);
+            self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
         }
         for elem in &mut place.elems {
             if let FunctionPlaceElem::Index(expr) = elem {
-                self.inline_constant_calls_in_expr(expr, function_candidates, instance_candidates);
+                self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
             }
         }
     }
 
-    fn inline_constant_calls_in_inline_asm(
+    fn inline_leaf_calls_in_inline_asm(
         &mut self,
         asm: &mut FunctionInlineAsm,
         function_candidates: &HashMap<GlobalDefId, InlineCandidate>,
         instance_candidates: &HashMap<FunctionInstanceKey, InlineCandidate>,
     ) {
         for input in &mut asm.inputs {
-            self.inline_constant_calls_in_expr(
+            self.inline_leaf_calls_in_expr(
                 &mut input.value,
                 function_candidates,
                 instance_candidates,
             );
         }
         for output in &mut asm.outputs {
-            self.inline_constant_calls_in_place(
+            self.inline_leaf_calls_in_place(
                 &mut output.place,
                 function_candidates,
                 instance_candidates,
@@ -470,7 +400,7 @@ impl<'a> ModuleLowerer<'a> {
             .push(BackendOptimizationChange::Function {
                 module_id: self.input.module_id,
                 function: candidate.function(),
-                pass: "inline-constant-functions",
+                pass: "inline-leaf-functions",
                 is_instance: candidate.is_instance(),
                 type_arg_count: candidate.type_arg_count(),
             });
