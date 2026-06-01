@@ -759,6 +759,43 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_simplifies_zero_float_static_initializers() {
+    let source = r#"
+const zeroes: [2]f64 = [0.0f64, 0.0];
+
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let zeroes = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "zeroes")
+        .expect("zeroes global");
+
+    assert!(matches!(zeroes.init, Some(StaticInit::Zero)));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    global,
+                    pass: "simplify-static-init",
+                    ..
+                } if *global == zeroes.def_id
+            ))
+    );
+}
+
+#[test]
 fn o1_preserves_zero_static_initializers() {
     let source = r#"
 const zeroes: [4]i32 = [0; 4];
@@ -782,6 +819,42 @@ fn main() i32 {
         zeroes.init,
         Some(StaticInit::Repeat { .. } | StaticInit::Array(_))
     ));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    pass: "simplify-static-init",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o1_preserves_zero_float_static_initializers() {
+    let source = r#"
+const zeroes: [2]f32 = [0.0f32, 0.0f32];
+
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let zeroes = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "zeroes")
+        .expect("zeroes global");
+
+    assert!(matches!(zeroes.init, Some(StaticInit::Array(_))));
     assert!(
         lowering
             .optimization_report
