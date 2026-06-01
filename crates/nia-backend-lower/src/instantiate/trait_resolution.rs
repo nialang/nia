@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use crate::BuiltinTraitGoalKey;
 
 impl<'a> ModuleLowerer<'a> {
     pub(super) fn trait_impl_method_for_target(
@@ -230,6 +231,14 @@ impl<'a> ModuleLowerer<'a> {
         trait_id: BuiltinTrait,
         trait_args: Vec<InternedTyId>,
     ) -> TraitResolution {
+        let key = BuiltinTraitGoalKey {
+            self_ty,
+            trait_id,
+            trait_args,
+        };
+        if let Some(resolution) = self.builtin_trait_resolutions.get(&key) {
+            return resolution.clone();
+        }
         let context = TraitSolverContext {
             normalization: self.input.type_normalization,
             trait_impls: self.input.trait_impls,
@@ -239,11 +248,14 @@ impl<'a> ModuleLowerer<'a> {
             program_enums: Some(self.input.program_enums),
         };
         let mut solver = context.solver(&mut self.interner, &[]);
-        solver.resolve(TraitGoal {
-            self_ty,
-            trait_id: TraitId::Builtin(trait_id),
-            trait_args,
-        })
+        let resolution = solver.resolve(TraitGoal {
+            self_ty: key.self_ty,
+            trait_id: TraitId::Builtin(key.trait_id),
+            trait_args: key.trait_args.clone(),
+        });
+        self.builtin_trait_resolutions
+            .insert(key, resolution.clone());
+        resolution
     }
 
     pub(super) fn pointer_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {

@@ -120,6 +120,11 @@ Current Nia-owned optimization consumers:
   bodies. Full local-copy propagation enables local copy propagation. Full
   dead-code elimination enables overwritten-store cleanup, never-read local
   store cleanup, and unused local binding cleanup.
+- `nia-backend-lower` also owns compiler-throughput caches that are independent
+  of the user optimization level. Repeated builtin trait-goal resolution during
+  function-body instantiation is cached per module lowerer, because array,
+  pointer, slice, and builtin place-method lowering can ask the same solver
+  question many times while producing identical backend IR.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.

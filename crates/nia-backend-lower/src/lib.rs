@@ -24,6 +24,7 @@ use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
 use nia_opt::OptimizationPolicy;
 use nia_span::Span;
+use nia_trait_solve::TraitResolution;
 use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -92,6 +93,14 @@ pub(crate) struct ModuleLowerer<'a> {
     extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
+    builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct BuiltinTraitGoalKey {
+    self_ty: InternedTyId,
+    trait_id: nia_ids::BuiltinTrait,
+    trait_args: Vec<InternedTyId>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -114,6 +123,7 @@ impl<'a> ModuleLowerer<'a> {
             union_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.union_instances.keys(),
             ),
+            builtin_trait_resolutions: HashMap::new(),
         }
     }
 
