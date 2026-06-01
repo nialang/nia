@@ -45,59 +45,85 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
-        if function.is_extern {
-            return self.c_function_type_in(function, interner, layouts);
-        }
-        let mut params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) =
-            self.classify_return_in(function.return_type, interner, layouts)
-        {
-            params.push(self.pointer_abi_type(ty, function.span, interner, layouts)?);
-        }
-        for param in self.classify_params_in(
-            function.params.iter().map(|param| param.ty),
+        self.function_signature_type_in(
+            function.params.iter().map(|param| (param.ty, param.span)),
+            function.return_type,
+            function.is_extern,
+            function.is_variadic,
+            function.span,
             interner,
             layouts,
-        ) {
+        )
+    }
+
+    pub(super) fn function_signature_type_in(
+        &self,
+        param_tys: impl IntoIterator<Item = (InternedTyId, Span)>,
+        return_type: InternedTyId,
+        is_extern: bool,
+        is_variadic: bool,
+        span: Span,
+        interner: &TyInterner,
+        layouts: &BackendLayouts,
+    ) -> Result<FunctionType<'ctx>, Diagnostic> {
+        if is_extern {
+            return self.c_function_type_in(
+                param_tys,
+                return_type,
+                is_variadic,
+                span,
+                interner,
+                layouts,
+            );
+        }
+        let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
+        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type, interner, layouts)
+        {
+            llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
+        }
+        for param in
+            self.classify_params_in(param_tys.into_iter().map(|(ty, _)| ty), interner, layouts)
+        {
             match param {
                 AbiParam::Direct(ty) => {
-                    params.push(self.llvm_basic_type_in(ty, function.span, interner, layouts)?);
+                    llvm_params.push(self.llvm_basic_type_in(ty, span, interner, layouts)?);
                 }
                 AbiParam::IndirectReadonly(ty) => {
-                    params.push(self.pointer_abi_type(ty, function.span, interner, layouts)?);
+                    llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
                 }
                 AbiParam::Omit => {}
             }
         }
-        match self.classify_return_in(function.return_type, interner, layouts) {
+        match self.classify_return_in(return_type, interner, layouts) {
             AbiReturn::Direct(ty) => Ok(self
-                .llvm_basic_type_in(ty, function.span, interner, layouts)?
-                .fn_type(&params, function.is_variadic)),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => Ok(self
-                .context
-                .void_type()
-                .fn_type(&params, function.is_variadic)),
+                .llvm_basic_type_in(ty, span, interner, layouts)?
+                .fn_type(&llvm_params, is_variadic)),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
+                Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
+            }
         }
     }
 
     fn c_function_type_in(
         &self,
-        function: &BackendFunction,
+        param_tys: impl IntoIterator<Item = (InternedTyId, Span)>,
+        return_type: InternedTyId,
+        is_variadic: bool,
+        span: Span,
         interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
-        let mut params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        for param in &function.params {
-            params.push(self.llvm_basic_type_in(param.ty, param.span, interner, layouts)?);
+        let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
+        for (param_ty, param_span) in param_tys {
+            llvm_params.push(self.llvm_basic_type_in(param_ty, param_span, interner, layouts)?);
         }
-        match self.ty_kind(function.return_type) {
-            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => Ok(self
-                .context
-                .void_type()
-                .fn_type(&params, function.is_variadic)),
+        match self.ty_kind(return_type) {
+            Some(TyKind::Primitive(PrimitiveTy::Void | PrimitiveTy::Never)) => {
+                Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
+            }
             _ => Ok(self
-                .llvm_basic_type_in(function.return_type, function.span, interner, layouts)?
-                .fn_type(&params, function.is_variadic)),
+                .llvm_basic_type_in(return_type, span, interner, layouts)?
+                .fn_type(&llvm_params, is_variadic)),
         }
     }
 
