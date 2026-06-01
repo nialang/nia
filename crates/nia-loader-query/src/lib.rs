@@ -101,7 +101,12 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
                 break;
             };
             let imports = db.query(module_imports_query(db, node.path));
-            add_resolved_imports(&mut graph, node.id, imports.imports);
+            if let Err(diagnostic) = add_resolved_imports(&mut graph, node.id, imports.imports) {
+                db.invalid_input(
+                    self,
+                    format!("failed to add resolved imports: {}", diagnostic.message),
+                );
+            }
             index += 1;
         }
         graph
