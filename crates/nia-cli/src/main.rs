@@ -70,7 +70,7 @@ enum CliCommand {
     Lex { path: String },
     Parse { path: String },
     Check { path: String, emit_opt_report: bool },
-    EmitLlvm { path: String },
+    EmitLlvm { path: String, emit_opt_report: bool },
     EmitObj { path: String, args: Vec<String> },
     EmitExe { path: String, args: Vec<String> },
 }
@@ -138,9 +138,15 @@ fn run_cli(cli: Cli) -> ExitCode {
             cli.optimization,
             emit_opt_report,
         ),
-        CliCommand::EmitLlvm { .. } => {
-            run_emit_llvm(&path, &source, cli.module_map, cli.optimization)
-        }
+        CliCommand::EmitLlvm {
+            emit_opt_report, ..
+        } => run_emit_llvm(
+            &path,
+            &source,
+            cli.module_map,
+            cli.optimization,
+            emit_opt_report,
+        ),
         CliCommand::EmitObj { args, .. } => {
             run_emit_obj(&path, &source, args, cli.module_map, cli.optimization)
         }
@@ -155,7 +161,7 @@ fn read_source_for_command(command: &CliCommand) -> Result<(String, String), Str
         CliCommand::Lex { path }
         | CliCommand::Parse { path }
         | CliCommand::Check { path, .. }
-        | CliCommand::EmitLlvm { path }
+        | CliCommand::EmitLlvm { path, .. }
         | CliCommand::EmitObj { path, .. }
         | CliCommand::EmitExe { path, .. } => path,
     };
@@ -398,9 +404,7 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         }));
     }
     match target.as_str() {
-        "llvm" => parse_source_command("emit llvm", rest, HelpTopic::EmitLlvm, |path| {
-            CliCommand::EmitLlvm { path }
-        }),
+        "llvm" => parse_emit_llvm_command(rest),
         "obj" => parse_emit_with_options("emit obj", rest, HelpTopic::EmitObj, |path, args| {
             CliCommand::EmitObj { path, args }
         }),
@@ -412,6 +416,36 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             HelpTopic::Emit,
         )),
     }
+}
+
+fn parse_emit_llvm_command(args: Vec<String>) -> Result<CliCommand, CliError> {
+    if has_help_flag(&args) {
+        return Err(CliError::help(HelpTopic::EmitLlvm));
+    }
+    let mut path = None;
+    let mut emit_opt_report = false;
+    for arg in args {
+        match arg.as_str() {
+            "--emit-opt-report" => emit_opt_report = true,
+            _ if path.is_none() => path = Some(arg),
+            _ => {
+                return Err(CliError::new(
+                    format!("unexpected argument `{arg}` for `niac emit llvm`"),
+                    HelpTopic::EmitLlvm,
+                ));
+            }
+        }
+    }
+    let Some(path) = path else {
+        return Err(CliError::new(
+            "missing source file for `niac emit llvm`",
+            HelpTopic::EmitLlvm,
+        ));
+    };
+    Ok(CliCommand::EmitLlvm {
+        path,
+        emit_opt_report,
+    })
 }
 
 fn parse_emit_with_options(
@@ -493,11 +527,15 @@ fn run_emit_llvm(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    emit_opt_report: bool,
 ) -> ExitCode {
     let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
+    }
+    if emit_opt_report {
+        print_optimization_report_to_stderr(&program);
     }
     let output = nia_codegen_llvm::emit_llvm_ir_with_options(
         &program.backend_lowering.program,
@@ -807,12 +845,23 @@ fn print_codegen_diagnostics(path: &str, source: &str, diagnostics: &[nia_diagno
 }
 
 fn print_optimization_report(program: &nia_driver::CheckedProgram) {
+    print_optimization_report_with(program, |line| println!("{line}"));
+}
+
+fn print_optimization_report_to_stderr(program: &nia_driver::CheckedProgram) {
+    print_optimization_report_with(program, |line| eprintln!("{line}"));
+}
+
+fn print_optimization_report_with(
+    program: &nia_driver::CheckedProgram,
+    mut print_line: impl FnMut(String),
+) {
     let report = &program.backend_lowering.optimization_report;
     if report.changed_passes.is_empty() {
-        println!("backend optimization report: no changes");
+        print_line("backend optimization report: no changes".to_string());
         return;
     }
-    println!("backend optimization report:");
+    print_line("backend optimization report:".to_string());
     for change in &report.changed_passes {
         match change {
             nia_driver::BackendOptimizationChange::Function {
@@ -823,16 +872,16 @@ fn print_optimization_report(program: &nia_driver::CheckedProgram) {
                 ..
             } => {
                 let instance = if *is_instance { " instance" } else { "" };
-                println!(
+                print_line(format!(
                     "  m{}::d{}{} {} type_args={}",
                     function.module_id.0, function.def_id.0, instance, pass, type_arg_count
-                );
+                ));
             }
             nia_driver::BackendOptimizationChange::Global { global, pass, .. } => {
-                println!(
+                print_line(format!(
                     "  m{}::d{} global {}",
                     global.module_id.0, global.def_id.0, pass
-                );
+                ));
             }
         }
     }
