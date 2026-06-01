@@ -144,6 +144,10 @@ Current Nia-owned optimization consumers:
   question many times while producing identical backend IR. Generic function
   instance discovery keeps a queued-instance set beside its FIFO work queue so
   repeated references do not rescan pending work or rebuild mangled symbols.
+  Trait-object vtable collection caches vtable construction by concrete
+  `(self_ty, object_ty)` key across instance-discovery rounds so repeated
+  coercions do not rebuild identical vtable metadata while discovering
+  monomorphized vtable entries.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.

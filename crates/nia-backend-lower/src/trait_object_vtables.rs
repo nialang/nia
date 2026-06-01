@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::ModuleLowerer;
 use nia_backend_ir::{
@@ -111,10 +111,11 @@ impl<'a> ModuleLowerer<'a> {
                     self_ty: *self_ty,
                     object_ty: *target_ty,
                 };
-                if seen.insert(key.clone())
-                    && let Some(vtable) = self.build_trait_object_vtable(key, expr.span)
-                {
-                    out.push(vtable);
+                if seen.insert(key.clone()) {
+                    let cached = self.cached_trait_object_vtable(key, expr.span);
+                    if let Some(vtable) = cached {
+                        out.push(vtable);
+                    }
                 }
             }
             FunctionExprKind::Discard(inner)
@@ -273,6 +274,19 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
+    fn cached_trait_object_vtable(
+        &mut self,
+        key: BackendTraitObjectVtableKey,
+        span: nia_span::Span,
+    ) -> Option<BackendTraitObjectVtable> {
+        if let Some(vtable) = self.trait_object_vtables.get(&key) {
+            return Some(vtable);
+        }
+        let vtable = self.build_trait_object_vtable(key.clone(), span);
+        self.trait_object_vtables.insert(key, vtable.clone());
+        vtable
+    }
+
     fn push_trait_object_vtable_entries(
         &mut self,
         self_ty: InternedTyId,
@@ -361,5 +375,73 @@ impl<'a> ModuleLowerer<'a> {
             );
         }
         visiting.pop();
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct TraitObjectVtableCache {
+    vtables: HashMap<BackendTraitObjectVtableKey, Option<BackendTraitObjectVtable>>,
+}
+
+impl TraitObjectVtableCache {
+    fn get(&self, key: &BackendTraitObjectVtableKey) -> Option<BackendTraitObjectVtable> {
+        self.vtables.get(key).cloned().flatten()
+    }
+
+    fn insert(
+        &mut self,
+        key: BackendTraitObjectVtableKey,
+        vtable: Option<BackendTraitObjectVtable>,
+    ) {
+        self.vtables.insert(key, vtable);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{ModuleId, TyInternerIndex};
+    use nia_span::Span;
+
+    #[test]
+    fn trait_object_vtable_cache_reuses_positive_entries() {
+        let mut cache = TraitObjectVtableCache::default();
+        let key = test_key(0);
+        let vtable = BackendTraitObjectVtable {
+            key: key.clone(),
+            trait_id: nia_ids::TraitId::Source(GlobalDefId {
+                module_id: ModuleId(0),
+                def_id: nia_defs::DefId(0),
+            }),
+            trait_args: Vec::new(),
+            entries: Vec::new(),
+            span: Span::default(),
+        };
+
+        cache.insert(key.clone(), Some(vtable.clone()));
+
+        assert_eq!(cache.get(&key), Some(vtable));
+    }
+
+    #[test]
+    fn trait_object_vtable_cache_remembers_missing_entries() {
+        let mut cache = TraitObjectVtableCache::default();
+        let key = test_key(0);
+
+        cache.insert(key.clone(), None);
+
+        assert!(cache.vtables.contains_key(&key));
+        assert_eq!(cache.get(&key), None);
+    }
+
+    fn test_key(index: u32) -> BackendTraitObjectVtableKey {
+        BackendTraitObjectVtableKey {
+            self_ty: test_ty(index),
+            object_ty: test_ty(index + 1),
+        }
+    }
+
+    fn test_ty(index: u32) -> InternedTyId {
+        InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(index))
     }
 }
