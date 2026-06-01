@@ -18,6 +18,7 @@ fn help_and_version_use_niac_command_name() {
         help_stdout.contains("emit <target> <file.nia>"),
         "{help_stdout}"
     );
+    assert!(help_stdout.contains("-O0..-O3"), "{help_stdout}");
 
     let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("help")
@@ -51,6 +52,55 @@ fn help_and_version_use_niac_command_name() {
     );
     let version_stdout = String::from_utf8_lossy(&version.stdout);
     assert!(version_stdout.starts_with("niac "), "{version_stdout}");
+}
+
+#[test]
+fn optimization_option_can_precede_emit_command() {
+    let root = temp_dir("optimization_option_can_precede_emit_command");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O2")
+        .arg("emit")
+        .arg("llvm")
+        .arg(&main)
+        .output()
+        .expect("run niac -O2 emit llvm");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("define i32 @"), "{stdout}");
+}
+
+#[test]
+fn invalid_optimization_option_reports_expected_levels() {
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O9")
+        .arg("check")
+        .arg("main.nia")
+        .output()
+        .expect("run niac with invalid optimization option");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown optimization level `-O9`"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("-Oz"), "{stderr}");
 }
 
 #[test]

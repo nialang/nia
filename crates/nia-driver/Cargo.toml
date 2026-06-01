@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 nia-compiler-query.workspace = true
 nia-imports.workspace = true
+nia-opt.workspace = true
 nia-loader-query.workspace = true
 
 [dev-dependencies]

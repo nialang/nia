@@ -66,6 +66,13 @@ source files
 The driver orchestrates these phases. Individual phases do not load files,
 schedule whole-program work, or call later backends.
 
+Optimization is configured separately from the phase graph. The CLI accepts
+`-O0`, `-O1`, `-O2`, `-O3`, `-Os`, `-Oz`, and `-O` as `-O2`; these levels are
+lowered into a Nia `OptimizationPolicy` before query execution. The policy is
+threaded through compiler-query, backend lowering, and LLVM codegen even when a
+phase has no optimization pass yet. This keeps future Nia IR passes from
+depending directly on LLVM's smaller codegen-only optimization enum.
+
 ## 3. Foundation Crates
 
 ### 3.1 `nia-span`
@@ -488,6 +495,11 @@ Emits LLVM IR, objects, and native codegen units from backend IR. It owns:
 - control flow lowering;
 - defer lowering;
 - aggregate operations;
+
+LLVM object emission maps the Nia optimization level to LLVM's codegen
+optimization level. Size-oriented levels (`-Os` and `-Oz`) also remain visible in
+the Nia policy so monomorphization, inlining, specialization, and deduplication
+can make size-aware decisions before LLVM sees the program.
 - inline assembly emission;
 - object emission.
 

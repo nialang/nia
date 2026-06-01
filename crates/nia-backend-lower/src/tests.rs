@@ -169,6 +169,7 @@ fn main() i32 {
             instances: Vec::new(),
             diagnostics: Vec::new(),
         },
+        nia_opt::OptimizationPolicy::default(),
     );
     assert!(
         lowering.diagnostics.is_empty(),
@@ -502,5 +503,9 @@ fn lower_source_with_comptime_mutation(
         program_traits: &HashMap::new(),
         trait_impls: &[],
     };
-    lower_backend_program(&[input], &monomorphization)
+    lower_backend_program(
+        &[input],
+        &monomorphization,
+        nia_opt::OptimizationPolicy::default(),
+    )
 }
