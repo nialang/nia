@@ -45,6 +45,7 @@ enum BackendOptPass {
     SimplifyConstantLogicalExprs,
     RemoveOverwrittenLocalStores,
     RemoveNeverReadLocalStores,
+    RemoveUnusedTempBindings,
     RemoveUnusedLocalBindings,
     FoldConstantBoolBranches,
     FoldConstantSwitches,
@@ -66,6 +67,7 @@ impl BackendOptPass {
             Self::SimplifyConstantLogicalExprs => "simplify-constant-logical-exprs",
             Self::RemoveOverwrittenLocalStores => "remove-overwritten-local-stores",
             Self::RemoveNeverReadLocalStores => "remove-never-read-local-stores",
+            Self::RemoveUnusedTempBindings => "remove-unused-temp-bindings",
             Self::RemoveUnusedLocalBindings => "remove-unused-local-bindings",
             Self::FoldConstantBoolBranches => "fold-constant-bool-branches",
             Self::FoldConstantSwitches => "fold-constant-switches",
@@ -87,6 +89,7 @@ impl BackendOptPass {
             Self::SimplifyConstantLogicalExprs => simplify_constant_logical_exprs(body),
             Self::RemoveOverwrittenLocalStores => remove_overwritten_local_stores(&mut body.blocks),
             Self::RemoveNeverReadLocalStores => remove_never_read_local_stores(body),
+            Self::RemoveUnusedTempBindings => remove_unused_temp_bindings(body),
             Self::RemoveUnusedLocalBindings => remove_unused_local_bindings(body),
             Self::FoldConstantBoolBranches => fold_constant_bool_branches(&mut body.blocks),
             Self::FoldConstantSwitches => fold_constant_switches(&mut body.blocks),
@@ -122,6 +125,9 @@ impl BackendOptPass {
             | Self::RemoveNeverReadLocalStores
             | Self::RemoveUnusedLocalBindings => {
                 policy.dead_code_elim.at_least(OptimizationDepth::Full)
+            }
+            Self::RemoveUnusedTempBindings => {
+                policy.dead_code_elim.at_least(OptimizationDepth::Cheap)
             }
             Self::FoldConstantBoolBranches => policy.const_fold.at_least(OptimizationDepth::Cheap),
             Self::FoldConstantSwitches => {
@@ -175,6 +181,7 @@ const ORDERED_BACKEND_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
+    BackendOptPass::RemoveUnusedTempBindings,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::FoldConstantSwitches,
@@ -191,6 +198,7 @@ const O1_PASSES: &[BackendOptPass] = &[
     BackendOptPass::RemoveNoopLocalStores,
     BackendOptPass::RemovePureExprOps,
     BackendOptPass::SimplifyConstantLogicalExprs,
+    BackendOptPass::RemoveUnusedTempBindings,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::SimplifyTrivialBranches,
     BackendOptPass::MergeEmptyJumpBlocks,
@@ -207,6 +215,7 @@ const O2_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
+    BackendOptPass::RemoveUnusedTempBindings,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::FoldConstantSwitches,
@@ -227,6 +236,7 @@ const O3_PASSES: &[BackendOptPass] = &[
     BackendOptPass::SimplifyConstantLogicalExprs,
     BackendOptPass::RemoveOverwrittenLocalStores,
     BackendOptPass::RemoveNeverReadLocalStores,
+    BackendOptPass::RemoveUnusedTempBindings,
     BackendOptPass::RemoveUnusedLocalBindings,
     BackendOptPass::FoldConstantBoolBranches,
     BackendOptPass::FoldConstantSwitches,
@@ -437,19 +447,34 @@ fn remove_noop_local_stores(blocks: &mut [FunctionBlock]) -> bool {
 }
 
 fn remove_unused_local_bindings(body: &mut FunctionBody) -> bool {
+    remove_unused_bindings_matching(body, |_| true)
+}
+
+fn remove_unused_temp_bindings(body: &mut FunctionBody) -> bool {
+    remove_unused_bindings_matching(body, |local| local.name.starts_with("fir.tmp."))
+}
+
+fn remove_unused_bindings_matching(
+    body: &mut FunctionBody,
+    is_candidate: impl Fn(&nia_function_ir::FunctionLocal) -> bool + Copy,
+) -> bool {
     let mut changed = false;
-    while remove_unused_local_bindings_once(body) {
+    while remove_unused_bindings_matching_once(body, is_candidate) {
         changed = true;
     }
     changed
 }
 
-fn remove_unused_local_bindings_once(body: &mut FunctionBody) -> bool {
+fn remove_unused_bindings_matching_once(
+    body: &mut FunctionBody,
+    is_candidate: impl Fn(&nia_function_ir::FunctionLocal) -> bool,
+) -> bool {
     let referenced_locals = collect_referenced_locals(body);
     let removable_locals = body
         .locals
         .iter()
         .filter(|local| matches!(local.kind, FunctionLocalKind::Binding))
+        .filter(|local| is_candidate(local))
         .filter(|local| !referenced_locals.contains(&local.id))
         .map(|local| local.id)
         .collect::<HashSet<_>>();
@@ -2728,6 +2753,7 @@ mod tests {
                 BackendOptPass::SimplifyConstantLogicalExprs,
                 BackendOptPass::RemoveOverwrittenLocalStores,
                 BackendOptPass::RemoveNeverReadLocalStores,
+                BackendOptPass::RemoveUnusedTempBindings,
                 BackendOptPass::RemoveUnusedLocalBindings,
                 BackendOptPass::FoldConstantBoolBranches,
             ]
