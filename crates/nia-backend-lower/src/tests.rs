@@ -797,6 +797,43 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_simplifies_empty_repeat_static_initializers() {
+    let source = r#"
+const values: [0]i32 = [1; 0];
+
+fn main() i32 {
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let values = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "values")
+        .expect("values global");
+
+    assert!(matches!(values.init, Some(StaticInit::Zero)));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    global,
+                    pass: "simplify-static-init",
+                    ..
+                } if *global == values.def_id
+            ))
+    );
+}
+
+#[test]
 fn o1_preserves_zero_static_initializers() {
     let source = r#"
 const zeroes: [4]i32 = [0; 4];
@@ -922,6 +959,83 @@ fn main() i32 {
             .iter()
             .any(|function| function.name == "unused")
     );
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "remove-unused-functions",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o2_does_not_preserve_function_refs_inside_empty_repeat_static_initializers() {
+    let source = r#"
+const values: [0]i32 = [1; 0];
+
+fn unused() i32 {
+    1
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    let policy = nia_opt::OptimizationPolicy {
+        level: nia_opt::NiaOptimizationLevel::O2,
+        simplify_cfg: nia_opt::OptimizationDepth::Disabled,
+        const_fold: nia_opt::OptimizationDepth::Disabled,
+        dead_code_elim: nia_opt::OptimizationDepth::Full,
+        local_copy_prop: nia_opt::OptimizationDepth::Disabled,
+        inline_threshold: nia_opt::InlineThreshold::Never,
+        specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+        dedup_monomorphized_instances: true,
+        prefer_size: false,
+    };
+    let lowering = lower_source_with_body_check_mutation_and_optimization(
+        source,
+        |_| {},
+        |_, _| {},
+        |body_check, _, defs, _| {
+            let values = global_def_id_by_name(defs, "values");
+            let unused = global_def_id_by_name(defs, "unused");
+            body_check.ir.global_inits.insert(
+                values,
+                StaticInit::Repeat {
+                    value: Box::new(StaticInit::AddrOfFunction {
+                        function: unused,
+                        args: Vec::new(),
+                    }),
+                    count: 0,
+                },
+            );
+        },
+        policy,
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        !module
+            .functions
+            .iter()
+            .any(|function| function.name == "unused")
+    );
+    let values = module
+        .globals
+        .iter()
+        .find(|global| global.name == "values")
+        .expect("values global");
+    assert!(matches!(
+        values.init,
+        Some(StaticInit::Repeat { count: 0, .. })
+    ));
     assert!(
         lowering
             .optimization_report
@@ -2770,8 +2884,29 @@ fn lower_source_with_body_mutation_and_optimization(
 
 fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
     source: &str,
+    mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
+    mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
+    optimization: nia_opt::OptimizationPolicy,
+) -> BackendLowering {
+    lower_source_with_body_check_mutation_and_optimization(
+        source,
+        mutate_body,
+        mutate_comptime,
+        |_, _, _, _| {},
+        optimization,
+    )
+}
+
+fn lower_source_with_body_check_mutation_and_optimization(
+    source: &str,
     mut mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
     mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
+    mutate_body_check: impl FnOnce(
+        &mut nia_body_check::BodyCheck,
+        &nia_ast::Module,
+        &nia_defs::DefCollection,
+        &ItemSignatures,
+    ),
     optimization: nia_opt::OptimizationPolicy,
 ) -> BackendLowering {
     let (module, errors) = parse_module(source);
@@ -2803,7 +2938,7 @@ fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
     );
     let extensions = VisibleExtensionMethods::default();
     let origins = NodeOriginTable::default();
-    let body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
+    let mut body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
         origins: &origins,
         module: &module,
@@ -2837,6 +2972,7 @@ fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
         "{:?}",
         body_check.diagnostics
     );
+    mutate_body_check(&mut body_check, &module, &defs, &signatures);
     let function_bodies = body_check
         .ir
         .function_bodies
@@ -2885,6 +3021,18 @@ fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
         trait_impls: &[],
     };
     lower_backend_program(&[input], &monomorphization, optimization)
+}
+
+fn global_def_id_by_name(defs: &nia_defs::DefCollection, name: &str) -> GlobalDefId {
+    defs.defs
+        .iter()
+        .find_map(|(def_id, def)| {
+            (def.name == name).then_some(GlobalDefId {
+                module_id: defs.module_id,
+                def_id,
+            })
+        })
+        .unwrap_or_else(|| panic!("missing def `{name}`"))
 }
 
 fn first_terminal_value(body: &nia_function_ir::FunctionBody) -> &nia_function_ir::FunctionExpr {

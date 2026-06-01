@@ -243,7 +243,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty) else {
             return Err(self.error(span, "repeat static initializer target is not array"));
         };
-        if is_zero_static_init(value) {
+        if count == 0 || is_zero_static_init(value) {
             return Ok(self
                 .llvm_basic_type_in(ty, span, interner, layouts)?
                 .into_array_type()?
@@ -389,7 +389,7 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         StaticInit::Chars(scalars) => scalars.iter().all(|scalar| *scalar == 0),
         StaticInit::Bytes(bytes) => bytes.iter().all(|byte| *byte == 0),
         StaticInit::Array(elems) => elems.iter().all(is_zero_static_init),
-        StaticInit::Repeat { value, .. } => is_zero_static_init(value),
+        StaticInit::Repeat { value, count } => *count == 0 || is_zero_static_init(value),
         StaticInit::Struct(fields) => fields.iter().all(|field| is_zero_static_init(&field.value)),
         StaticInit::AddrOfGlobal { .. } | StaticInit::AddrOfFunction { .. } => false,
     }
