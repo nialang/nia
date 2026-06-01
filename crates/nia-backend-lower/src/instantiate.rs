@@ -67,12 +67,9 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn extension_target_generics(&self, def_id: GlobalDefId) -> Option<Vec<String>> {
-        self.input
-            .extensions
-            .targets()
-            .iter()
-            .find(|target| target.methods.iter().any(|method| method.def_id == def_id))
-            .map(|target| self.generic_params_in_ty(target.target_ty))
+        self.extension_targets_by_method
+            .get(&def_id)
+            .map(|target_ty| self.generic_params_in_ty(*target_ty))
     }
 
     pub(crate) fn generic_params_in_ty(&self, ty: InternedTyId) -> Vec<String> {

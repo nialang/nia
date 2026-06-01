@@ -6,7 +6,7 @@ mod operator_dispatch;
 mod struct_instances;
 mod trait_object_vtables;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use nia_ast::{Expr, ItemKind, Module};
 use nia_backend_ir::{BackendLayouts, BackendModule, BackendProgram, BackendStructInstanceKey};
@@ -87,6 +87,7 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) interner: nia_ty::TyInterner,
     pub(crate) diagnostics: Vec<Diagnostic>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
+    extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
 }
 
 impl<'a> ModuleLowerer<'a> {
@@ -97,6 +98,7 @@ impl<'a> ModuleLowerer<'a> {
             interner: input.body_check.ir.interner.clone(),
             diagnostics: Vec::new(),
             missing_array_len_diagnostics: HashSet::new(),
+            extension_targets_by_method: index_extension_targets_by_method(input.extensions),
         }
     }
 
@@ -348,6 +350,18 @@ impl<'a> ModuleLowerer<'a> {
         }
         None
     }
+}
+
+fn index_extension_targets_by_method(
+    extensions: &VisibleExtensionMethods,
+) -> HashMap<GlobalDefId, InternedTyId> {
+    let mut targets_by_method = HashMap::new();
+    for target in extensions.targets() {
+        for method in &target.methods {
+            targets_by_method.insert(method.def_id, target.target_ty);
+        }
+    }
+    targets_by_method
 }
 #[cfg(test)]
 mod tests;
