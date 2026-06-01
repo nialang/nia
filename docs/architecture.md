@@ -147,9 +147,13 @@ Current Nia-owned optimization consumers:
   may inline larger pure no-argument leaf returns that `O2` deliberately leaves
   as calls. `O2`/`O3` may substitute parameter locals when every call argument is
   itself a small pure expression and the substituted result still fits the
-  active budget. The pass does not inline calls with effectful arguments, inline
-  assembly, address-taking, assignments, trait-object conversions, or references
-  to non-parameter callee locals.
+  active budget. Calls to monomorphized function instances are also gated by
+  `specialize_generics`: `Normal` and `Aggressive` may use the active inline
+  budget, while `SizeAware` and `RequiredOnly` restrict instance inlining to
+  constant leaf returns so size-oriented and required-only policies do not copy
+  non-constant generic bodies into every call site. The pass does not inline
+  calls with effectful arguments, inline assembly, address-taking, assignments,
+  trait-object conversions, or references to non-parameter callee locals.
 - `nia-backend-lower` records a lightweight optimization report alongside the
   lowered backend program. The CLI report starts with the selected
   `OptimizationPolicy` summary, then lists each changed pass and the affected
