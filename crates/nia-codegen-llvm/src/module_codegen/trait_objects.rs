@@ -41,11 +41,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if *object_trait == trait_id {
             return slot;
         }
-        self.program
-            .modules
-            .values()
-            .flat_map(|module| module.trait_object_vtables.iter())
-            .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+        self.trait_object_vtable_metadata(object_ty)
             .and_then(|vtable| vtable_slot(vtable, trait_id, method_id))
             .unwrap_or(slot)
     }
@@ -62,13 +58,25 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         else {
             return 0;
         };
-        self.program
-            .modules
-            .values()
-            .flat_map(|module| module.trait_object_vtables.iter())
-            .find(|vtable| self.same_type(vtable.key.object_ty, source_ty))
+        self.trait_object_vtable_metadata(source_ty)
             .and_then(|vtable| first_vtable_slot_for_trait(vtable, *target_trait))
             .unwrap_or(0)
+    }
+
+    fn trait_object_vtable_metadata(
+        &self,
+        object_ty: InternedTyId,
+    ) -> Option<&BackendTraitObjectVtable> {
+        self.program
+            .trait_object_vtables_for_object_ty(object_ty)
+            .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+            .or_else(|| {
+                self.program
+                    .modules
+                    .values()
+                    .flat_map(|module| module.trait_object_vtables.iter())
+                    .find(|vtable| self.same_type(vtable.key.object_ty, object_ty))
+            })
     }
 }
 
