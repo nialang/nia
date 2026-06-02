@@ -1341,6 +1341,100 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_preserves_function_refs_inside_static_initializers() {
+    let source = r#"
+const values: [2]usize = [0, 0];
+
+fn kept() i32 {
+    1
+}
+
+fn kept_id[T](value: T) T {
+    value
+}
+
+fn seed() i32 {
+    kept_id[i32](1)
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    let policy = nia_opt::OptimizationPolicy {
+        level: nia_opt::NiaOptimizationLevel::O2,
+        simplify_cfg: nia_opt::OptimizationDepth::Disabled,
+        const_fold: nia_opt::OptimizationDepth::Disabled,
+        dead_code_elim: nia_opt::OptimizationDepth::Full,
+        local_copy_prop: nia_opt::OptimizationDepth::Disabled,
+        inline_threshold: nia_opt::InlineThreshold::Never,
+        specialize_generics: nia_opt::SpecializationPolicy::RequiredOnly,
+        dedup_monomorphized_instances: true,
+        prefer_size: false,
+    };
+    let lowering = lower_source_with_body_check_mutation_and_optimization(
+        source,
+        |_| {},
+        |_, _, _, _| {},
+        |_, _| {},
+        |body_check, _, defs, _| {
+            let values = global_def_id_by_name(defs, "values");
+            let kept = global_def_id_by_name(defs, "kept");
+            let kept_id = global_def_id_by_name(defs, "kept_id");
+            let i32_ty = body_check.ir.interner.primitive(nia_ty::PrimitiveTy::I32);
+            body_check.ir.global_inits.insert(
+                values,
+                StaticInit::Array(vec![
+                    StaticInit::AddrOfFunction {
+                        function: kept,
+                        args: Vec::new(),
+                    },
+                    StaticInit::AddrOfFunction {
+                        function: kept_id,
+                        args: vec![i32_ty],
+                    },
+                ]),
+            );
+        },
+        policy,
+    );
+    let module = &lowering.program.modules[0];
+
+    assert!(
+        module
+            .functions
+            .iter()
+            .any(|function| function.name == "kept")
+    );
+    assert!(
+        !module
+            .functions
+            .iter()
+            .any(|function| function.name == "seed")
+    );
+    assert!(
+        module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == "kept_id")
+    );
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "remove-unused-functions",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o2_preserves_transitively_used_private_functions() {
     let source = r#"
 fn leaf(value: i32) i32 {
