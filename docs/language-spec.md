@@ -2313,9 +2313,10 @@ The CLI surface is:
 niac lex <file.nia>
 niac parse <file.nia>
 niac check <file.nia>
+niac emit backend <file.nia>
 niac emit llvm <file.nia>
-niac emit obj <file.nia> [-o file.o | --out-dir dir]
-niac emit exe <file.nia> [-o executable]
+niac emit obj <file.nia> [-o file.o | --out-dir dir] [--emit-opt-report]
+niac emit exe <file.nia> [-o executable] [--emit-opt-report]
 ```
 
 Module-map options are accepted before or after the command:
@@ -2324,6 +2325,23 @@ Module-map options are accepted before or after the command:
 -M name=path
 --module name=path
 ```
+
+Optimization options are accepted before or after the command:
+
+```text
+-O
+-O0
+-O1
+-O2
+-O3
+-Os
+-Oz
+```
+
+`-O` means `-O2`. `niac check <file.nia> --emit-opt-report` prints the active
+optimization policy and backend optimization report to stdout. Emit commands
+write the same report to stderr when `--emit-opt-report` is supplied, so stdout
+remains backend IR or LLVM IR and native emit targets remain file-only.
 
 `emit obj` writes one object per backend codegen unit. `-o` is only valid for a
 single-unit program. Multi-unit output uses `--out-dir`. `emit exe` writes

@@ -70,12 +70,17 @@ See [docs/platform-support.md](docs/platform-support.md).
 niac lex <file.nia>
 niac parse <file.nia>
 niac check <file.nia>
+niac emit backend <file.nia>
 niac emit llvm <file.nia>
-niac emit obj <file.nia> [-o file.o | --out-dir dir]
-niac emit exe <file.nia> [-o executable]
+niac emit obj <file.nia> [-o file.o | --out-dir dir] [--emit-opt-report]
+niac emit exe <file.nia> [-o executable] [--emit-opt-report]
 ```
 
 Module aliases can be supplied with `-M name=path`.
+Optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`; `-O`
+means `-O2`. `niac check <file.nia> --emit-opt-report` prints the active
+optimization policy to stdout. Emit commands write the same report to stderr
+when `--emit-opt-report` is supplied.
 
 ## Testing
 
