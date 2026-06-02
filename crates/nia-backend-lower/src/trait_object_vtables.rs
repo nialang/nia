@@ -6,7 +6,10 @@ use nia_backend_ir::{
     BackendFunction, BackendFunctionInstance, BackendTraitObjectVtable,
     BackendTraitObjectVtableEntry, BackendTraitObjectVtableFunction, BackendTraitObjectVtableKey,
 };
-use nia_function_ir::{FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind, FunctionOp};
+use nia_function_ir::{
+    FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
+    FunctionForHeader, FunctionOp, FunctionTerminator,
+};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::TyKind;
 
@@ -80,61 +83,97 @@ impl<'a> ModuleLowerer<'a> {
         out: &mut Vec<BackendTraitObjectVtable>,
         seen: &mut HashSet<BackendTraitObjectVtableKey>,
     ) {
-        for block in &body.blocks {
-            for op in &block.ops {
-                match op {
-                    FunctionOp::Binding(binding) => {
-                        if let Some(value) = &binding.value {
-                            self.collect_trait_object_vtables_from_expr(value, out, seen);
-                        }
-                    }
-                    FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-                        self.collect_trait_object_vtables_from_expr(value, out, seen);
-                    }
-                    FunctionOp::Defer(defer) => {
-                        for block in &defer.blocks {
-                            for op in &block.ops {
-                                match op {
-                                    FunctionOp::Binding(binding) => {
-                                        if let Some(value) = &binding.value {
-                                            self.collect_trait_object_vtables_from_expr(
-                                                value, out, seen,
-                                            );
-                                        }
-                                    }
-                                    FunctionOp::StoreLocal { value, .. }
-                                    | FunctionOp::Expr(value) => {
-                                        self.collect_trait_object_vtables_from_expr(
-                                            value, out, seen,
-                                        );
-                                    }
-                                    FunctionOp::Defer(_) => {}
-                                }
-                            }
-                        }
-                    }
+        self.collect_trait_object_vtables_from_blocks(&body.blocks, out, seen);
+    }
+
+    fn collect_trait_object_vtables_from_defer_body(
+        &mut self,
+        body: &FunctionDeferBody,
+        out: &mut Vec<BackendTraitObjectVtable>,
+        seen: &mut HashSet<BackendTraitObjectVtableKey>,
+    ) {
+        self.collect_trait_object_vtables_from_blocks(&body.blocks, out, seen);
+    }
+
+    fn collect_trait_object_vtables_from_blocks(
+        &mut self,
+        blocks: &[nia_function_ir::FunctionBlock],
+        out: &mut Vec<BackendTraitObjectVtable>,
+        seen: &mut HashSet<BackendTraitObjectVtableKey>,
+    ) {
+        for block in blocks {
+            self.collect_trait_object_vtables_from_ops(&block.ops, out, seen);
+            self.collect_trait_object_vtables_from_terminator(&block.terminator, out, seen);
+        }
+    }
+
+    fn collect_trait_object_vtables_from_ops(
+        &mut self,
+        ops: &[FunctionOp],
+        out: &mut Vec<BackendTraitObjectVtable>,
+        seen: &mut HashSet<BackendTraitObjectVtableKey>,
+    ) {
+        for op in ops {
+            self.collect_trait_object_vtables_from_op(op, out, seen);
+        }
+    }
+
+    fn collect_trait_object_vtables_from_op(
+        &mut self,
+        op: &FunctionOp,
+        out: &mut Vec<BackendTraitObjectVtable>,
+        seen: &mut HashSet<BackendTraitObjectVtableKey>,
+    ) {
+        match op {
+            FunctionOp::Binding(binding) => {
+                if let Some(value) = &binding.value {
+                    self.collect_trait_object_vtables_from_expr(value, out, seen);
                 }
             }
-            match &block.terminator {
-                nia_function_ir::FunctionTerminator::If { cond, .. }
-                | nia_function_ir::FunctionTerminator::Switch { target: cond, .. }
-                | nia_function_ir::FunctionTerminator::Return {
-                    value: Some(cond), ..
-                }
-                | nia_function_ir::FunctionTerminator::Tail {
-                    value: Some(cond), ..
-                } => self.collect_trait_object_vtables_from_expr(cond, out, seen),
-                nia_function_ir::FunctionTerminator::Loop { header, .. } => match header {
-                    nia_function_ir::FunctionForHeader::Condition(cond) => {
-                        self.collect_trait_object_vtables_from_expr(cond, out, seen);
-                    }
-                    nia_function_ir::FunctionForHeader::CStyle { cond: Some(cond) } => {
-                        self.collect_trait_object_vtables_from_expr(cond, out, seen);
-                    }
-                    _ => {}
-                },
-                _ => {}
+            FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
+                self.collect_trait_object_vtables_from_expr(value, out, seen);
             }
+            FunctionOp::Defer(defer) => {
+                self.collect_trait_object_vtables_from_defer_body(defer, out, seen);
+            }
+        }
+    }
+
+    fn collect_trait_object_vtables_from_terminator(
+        &mut self,
+        terminator: &FunctionTerminator,
+        out: &mut Vec<BackendTraitObjectVtable>,
+        seen: &mut HashSet<BackendTraitObjectVtableKey>,
+    ) {
+        match terminator {
+            FunctionTerminator::If { cond, .. } => {
+                self.collect_trait_object_vtables_from_expr(cond, out, seen);
+            }
+            FunctionTerminator::Switch { target, arms, .. } => {
+                self.collect_trait_object_vtables_from_expr(target, out, seen);
+                for arm in arms {
+                    self.collect_trait_object_vtables_from_expr(&arm.pattern, out, seen);
+                }
+            }
+            FunctionTerminator::Loop { header, .. } => match header {
+                FunctionForHeader::Condition(cond) => {
+                    self.collect_trait_object_vtables_from_expr(cond, out, seen);
+                }
+                FunctionForHeader::CStyle { cond } => {
+                    if let Some(cond) = cond {
+                        self.collect_trait_object_vtables_from_expr(cond, out, seen);
+                    }
+                }
+                FunctionForHeader::Infinite => {}
+            },
+            FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+                if let Some(value) = value {
+                    self.collect_trait_object_vtables_from_expr(value, out, seen);
+                }
+            }
+            FunctionTerminator::Error { .. }
+            | FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. } => {}
         }
     }
 
