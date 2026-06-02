@@ -168,6 +168,7 @@ pub(crate) struct ModuleLowerer<'a> {
     extension_ty_generics: HashMap<InternedTyId, Vec<String>>,
     generic_param_presence: HashMap<InternedTyId, bool>,
     def_names: HashMap<GlobalDefId, String>,
+    method_names_by_def: HashMap<GlobalDefId, String>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
 }
 
@@ -222,6 +223,7 @@ impl<'a> ModuleLowerer<'a> {
             extension_ty_generics: HashMap::new(),
             generic_param_presence: HashMap::new(),
             def_names: HashMap::new(),
+            method_names_by_def: index_method_names_by_def(input),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
         }
     }
@@ -526,6 +528,31 @@ fn index_trait_methods_with_defaults(input: &BackendLowerModuleInput<'_>) -> Has
             def_id: method.def_id,
         })
         .collect()
+}
+
+fn index_method_names_by_def(input: &BackendLowerModuleInput<'_>) -> HashMap<GlobalDefId, String> {
+    let mut names = input
+        .defs
+        .defs
+        .iter()
+        .map(|(def_id, def)| {
+            (
+                GlobalDefId {
+                    module_id: input.module_id,
+                    def_id,
+                },
+                def.name.clone(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    for target in input.extensions.targets() {
+        for method in &target.methods {
+            names
+                .entry(method.def_id)
+                .or_insert_with(|| method.name.clone());
+        }
+    }
+    names
 }
 
 fn index_layout_instances_by_def<'a>(
