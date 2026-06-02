@@ -592,7 +592,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn dispatch_builtin_place_method_call(
-        &self,
+        &mut self,
         trait_id: BuiltinTrait,
         method: BuiltinTraitMethod,
         self_ty: InternedTyId,
@@ -626,7 +626,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn resolve_builtin_operator_impl_method(
-        &self,
+        &mut self,
         operator: FunctionBuiltinOperator,
         lhs_ty: InternedTyId,
         trait_args: &[InternedTyId],
@@ -641,7 +641,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn resolve_builtin_extension_impl_method(
-        &self,
+        &mut self,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
         method_name: &str,
@@ -667,7 +667,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn resolve_builtin_place_impl_method(
-        &self,
+        &mut self,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],
         method: BuiltinTraitMethod,
@@ -677,7 +677,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn builtin_impl_method_for_target(
-        &self,
+        &mut self,
         target: &VisibleExtensionTarget,
         trait_id: BuiltinTrait,
         trait_args: &[InternedTyId],

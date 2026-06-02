@@ -248,10 +248,21 @@ impl<'a> ModuleLowerer<'a> {
         self.optimize_function_body(function, true, type_arg_count, body)
     }
 
-    pub(crate) fn generic_params_in_extension_ty(&self, ty: InternedTyId) -> Vec<String> {
+    pub(crate) fn generic_params_in_extension_ty(&mut self, ty: InternedTyId) -> &[String] {
+        if self.extension_ty_generics.contains_key(&ty) {
+            return self
+                .extension_ty_generics
+                .get(&ty)
+                .map(Vec::as_slice)
+                .unwrap();
+        }
         let mut generics = Vec::new();
         self.collect_generic_params_in_extension_ty(ty, &mut generics);
-        generics
+        self.extension_ty_generics.insert(ty, generics);
+        self.extension_ty_generics
+            .get(&ty)
+            .map(Vec::as_slice)
+            .unwrap()
     }
 
     fn collect_generic_params_in_extension_ty(&self, ty: InternedTyId, generics: &mut Vec<String>) {
