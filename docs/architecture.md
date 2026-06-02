@@ -336,7 +336,9 @@ small and generic. It must not embed semantic policy.
 source loading, syntax parsing, AST lowering, import graph construction,
 definition collection, public surfaces, and semantic checks. Query keys use
 source versions where source text matters, and `nia-query` tracks in-memory
-dependencies and invalidation.
+dependencies and invalidation. Public-surface computation builds a temporary
+`ModuleId` index over definition collections, so repeated pub-using expansion
+and enum namespace validation do not rescan the module list for every segment.
 
 The query frontend is batch-friendly. Persistent caches, cross-session reuse,
 LSP scheduling, cancellation, and priority handling are separate future layers.
