@@ -202,6 +202,41 @@ fn main() i32 {
 }
 
 #[test]
+fn bare_optimization_option_aliases_o2() {
+    let root = temp_dir("bare_optimization_option_aliases_o2");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O")
+        .arg("check")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac -O check --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("policy level=O2"), "{stdout}");
+    assert!(stdout.contains("inline=normal"), "{stdout}");
+    assert!(stdout.contains("specialize=normal"), "{stdout}");
+    assert!(stdout.contains("llvm_codegen=default"), "{stdout}");
+    assert!(stdout.contains("llvm_size=default"), "{stdout}");
+}
+
+#[test]
 fn invalid_optimization_option_reports_expected_levels() {
     let output = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("-O9")
