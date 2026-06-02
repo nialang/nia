@@ -132,6 +132,27 @@ fn help_and_version_use_niac_command_name() {
         assert!(emit_obj_stdout.contains(level), "{emit_obj_stdout}");
     }
 
+    let emit_exe_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("help")
+        .arg("emit")
+        .arg("exe")
+        .output()
+        .expect("run niac help emit exe");
+    assert!(
+        emit_exe_help.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&emit_exe_help.stderr)
+    );
+    let emit_exe_stdout = String::from_utf8_lossy(&emit_exe_help.stdout);
+    assert!(
+        emit_exe_stdout.contains("niac emit exe <file.nia>"),
+        "{emit_exe_stdout}"
+    );
+    assert!(
+        emit_exe_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
+        "{emit_exe_stdout}"
+    );
+
     let version = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("--version")
         .output()
