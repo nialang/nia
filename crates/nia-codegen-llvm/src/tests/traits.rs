@@ -157,6 +157,71 @@ fn main() i32 {
 }
 
 #[test]
+fn size_levels_deduplicate_repeated_trait_object_vtables() {
+    let root = temp_dir("size_levels_deduplicate_repeated_trait_object_vtables");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Source {
+    fn add(&const self, rhs: i32) i32;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    fn add(&const self, rhs: i32) i32 {
+        self.value + rhs
+    }
+}
+
+fn read(source: &const Source) i32 {
+    source.add(4)
+}
+
+fn left() i32 {
+    var counter: Counter = { value: 8 };
+    read(&const counter)
+}
+
+fn right() i32 {
+    var counter: Counter = { value: 9 };
+    read(&const counter)
+}
+
+fn main() i32 {
+    left() + right()
+}
+"#,
+    )
+    .expect("write test source");
+
+    for level in [
+        nia_driver::NiaOptimizationLevel::Os,
+        nia_driver::NiaOptimizationLevel::Oz,
+    ] {
+        let checked =
+            nia_driver::check_program_with_options(main.to_string_lossy().into_owned(), level);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+        let module = &checked.backend_lowering.program.modules[0];
+        assert_eq!(module.trait_object_vtables.len(), 1, "{level:?}");
+        assert_eq!(module.trait_object_vtables[0].entries.len(), 1, "{level:?}");
+
+        let output = emit_llvm_ir(&checked.backend_lowering.program);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let ir = &output.modules[0].ir;
+        let vtable_defs = ir
+            .lines()
+            .filter(|line| line.starts_with("@nia__vtable__"))
+            .count();
+        assert_eq!(vtable_defs, 1, "{level:?}\n{ir}");
+    }
+}
+
+#[test]
 fn emits_trait_object_vtable_from_defer_tail_expr() {
     let root = temp_dir("emits_trait_object_vtable_from_defer_tail_expr");
     let main = root.join("main.nia");
