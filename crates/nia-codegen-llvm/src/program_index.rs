@@ -14,16 +14,16 @@ pub(super) struct ProgramIndex<'a> {
     pub(super) structs: HashMap<GlobalDefId, &'a nia_backend_ir::BackendStruct>,
     pub(super) unions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendUnion>,
     pub(super) struct_instances:
-        HashMap<(GlobalDefId, Vec<InternedTyId>), &'a nia_backend_ir::BackendStructInstance>,
+        HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a nia_backend_ir::BackendStructInstance>>,
     pub(super) union_instances:
-        HashMap<(GlobalDefId, Vec<InternedTyId>), &'a nia_backend_ir::BackendUnionInstance>,
+        HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, &'a nia_backend_ir::BackendUnionInstance>>,
     pub(super) enums: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnum>,
     pub(super) enum_variants: HashMap<GlobalDefId, &'a nia_backend_ir::BackendEnumVariant>,
     pub(super) enum_variant_infos: HashMap<GlobalDefId, EnumVariantInfo<'a>>,
     pub(super) globals: HashMap<GlobalDefId, &'a nia_backend_ir::BackendGlobal>,
     pub(super) functions: HashMap<GlobalDefId, &'a nia_backend_ir::BackendFunction>,
     pub(super) function_instances:
-        HashMap<(GlobalDefId, ModuleId, Vec<InternedTyId>), &'a BackendFunctionInstance>,
+        HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, &'a BackendFunctionInstance>>,
     pub(super) function_instances_by_def: HashMap<GlobalDefId, Vec<&'a BackendFunctionInstance>>,
     trait_object_vtables_by_object_ty: HashMap<InternedTyId, Vec<&'a BackendTraitObjectVtable>>,
     trait_object_vtables_by_trait: HashMap<TraitId, Vec<&'a BackendTraitObjectVtable>>,
@@ -122,7 +122,9 @@ impl<'a> ProgramIndex<'a> {
             for item in &module.struct_instances {
                 index
                     .struct_instances
-                    .insert((item.def_id, item.args.clone()), item);
+                    .entry(item.def_id)
+                    .or_default()
+                    .insert(item.args.clone(), item);
                 index
                     .struct_instances_by_def
                     .entry(item.def_id)
@@ -132,7 +134,9 @@ impl<'a> ProgramIndex<'a> {
             for item in &module.union_instances {
                 index
                     .union_instances
-                    .insert((item.def_id, item.args.clone()), item);
+                    .entry(item.def_id)
+                    .or_default()
+                    .insert(item.args.clone(), item);
                 index
                     .union_instances_by_def
                     .entry(item.def_id)
@@ -162,7 +166,9 @@ impl<'a> ProgramIndex<'a> {
             for item in &module.function_instances {
                 index
                     .function_instances
-                    .insert((item.def_id, item.arg_module_id, item.args.clone()), item);
+                    .entry((item.def_id, item.arg_module_id))
+                    .or_default()
+                    .insert(item.args.clone(), item);
                 index
                     .function_instances_by_def
                     .entry(item.def_id)
@@ -232,7 +238,10 @@ impl<'a> ProgramIndex<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&'a nia_backend_ir::BackendStructInstance> {
-        self.struct_instances.get(&(def_id, args.to_vec())).copied()
+        self.struct_instances
+            .get(&def_id)
+            .and_then(|instances| instances.get(args))
+            .copied()
     }
 
     pub(super) fn union_instance(
@@ -240,7 +249,10 @@ impl<'a> ProgramIndex<'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&'a nia_backend_ir::BackendUnionInstance> {
-        self.union_instances.get(&(def_id, args.to_vec())).copied()
+        self.union_instances
+            .get(&def_id)
+            .and_then(|instances| instances.get(args))
+            .copied()
     }
 
     pub(super) fn function_instance(
@@ -250,7 +262,8 @@ impl<'a> ProgramIndex<'a> {
         args: &[InternedTyId],
     ) -> Option<&'a BackendFunctionInstance> {
         self.function_instances
-            .get(&(def_id, arg_module_id, args.to_vec()))
+            .get(&(def_id, arg_module_id))
+            .and_then(|instances| instances.get(args))
             .copied()
     }
 
