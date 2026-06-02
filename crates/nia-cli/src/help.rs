@@ -106,7 +106,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             options: &[
                 HelpRow {
                     left: "--emit-opt-report",
-                    right: "print backend optimization policy, enabled passes, and changes",
+                    right: "print backend optimization policy, enabled passes, change count, and changes",
                 },
                 HelpRow {
                     left: OPTIMIZATION_OPTION_HELP,
@@ -167,7 +167,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             options: &[
                 HelpRow {
                     left: "--emit-opt-report",
-                    right: "print backend optimization policy, enabled passes, and changes to stderr",
+                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
                 },
                 HelpRow {
                     left: OPTIMIZATION_OPTION_HELP,
@@ -196,7 +196,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             options: &[
                 HelpRow {
                     left: "--emit-opt-report",
-                    right: "print backend optimization policy, enabled passes, and changes to stderr",
+                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
                 },
                 HelpRow {
                     left: OPTIMIZATION_OPTION_HELP,
