@@ -15,7 +15,9 @@ mod type_support;
 
 pub use nia_ty::import_type_into;
 
-use nia_ast::{BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, Stmt, StmtKind};
+use nia_ast::{
+    BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, SliceRange, Stmt, StmtKind,
+};
 use nia_body_ir::{
     ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
     FunctionReference, GenericInstantiation, ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
@@ -35,7 +37,7 @@ use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
 use nia_source::SourceVersion;
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, RangeTyKind, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -776,10 +778,16 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::ForIn(for_stmt) => {
-                let iter_ty = self.check_expr(&for_stmt.iter);
+                let explicit_binding_ty = for_stmt
+                    .binding
+                    .ty
+                    .as_ref()
+                    .map(|explicit| self.ty_for_span(explicit.span));
+                let expected_iter_ty = explicit_binding_ty
+                    .and_then(|item_ty| self.expected_for_iterator_ty(&for_stmt.iter, item_ty));
+                let iter_ty = self.check_expr_with_expected(&for_stmt.iter, expected_iter_ty);
                 let item_ty = self.for_iterator_item_type(&for_stmt.iter, iter_ty);
-                let binding_ty = if let Some(explicit) = &for_stmt.binding.ty {
-                    let explicit_ty = self.ty_for_span(explicit.span);
+                let binding_ty = if let Some(explicit_ty) = explicit_binding_ty {
                     self.expect_type(for_stmt.binding.span, explicit_ty, item_ty, "for binding");
                     explicit_ty
                 } else {
@@ -804,6 +812,30 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Loop(loop_stmt) => {
                 self.check_block(&loop_stmt.body);
             }
+        }
+    }
+
+    fn expected_for_iterator_ty(
+        &mut self,
+        iter: &Expr,
+        item_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let ExprKind::Range(range) = &iter.kind else {
+            return None;
+        };
+        let kind = self.for_range_kind(range)?;
+        Some(self.interner.intern(TyKind::Range {
+            kind,
+            bound: Some(item_ty),
+        }))
+    }
+
+    fn for_range_kind(&self, range: &SliceRange) -> Option<RangeTyKind> {
+        match (range.start.is_some(), range.end.is_some(), range.inclusive) {
+            (true, true, false) => Some(RangeTyKind::Exclusive),
+            (true, true, true) => Some(RangeTyKind::Inclusive),
+            (true, false, false) => Some(RangeTyKind::From),
+            _ => None,
         }
     }
 

@@ -236,6 +236,45 @@ fn main() i32 {
 }
 
 #[test]
+fn for_binding_annotation_guides_range_item_type() {
+    let checked = pipeline(
+        r#"
+fn main(len: usize) usize {
+    var total = 0usize;
+    for n: usize in 0..len {
+        total += n;
+    }
+    total
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn for_binding_annotation_checks_range_literal_bounds() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    var total = 0;
+    for n: u8 in 0..300 {
+        total += n as i32;
+    }
+    total
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("out of range for u8")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn accepts_for_in_range_iter_method() {
     let checked = pipeline(
         r#"
