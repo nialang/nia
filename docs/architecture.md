@@ -183,13 +183,14 @@ Current Nia-owned optimization consumers:
   and ordinary vtable dispatch unchanged.
 - `nia-backend-lower` records a lightweight optimization report alongside the
   lowered backend program. The CLI report starts with the selected
-  `OptimizationPolicy` summary, the LLVM codegen optimization level selected by
-  `nia-codegen-llvm`, enabled backend module, function-body, and global pass
-  inventories, and a `changes=<n>` summary, then lists each changed pass and the
-  affected function or global context, including whether a function body was a
-  monomorphized instance. This is the stable observability hook for reviewing
-  pass behavior without embedding full before/after IR snapshots in normal
-  compiler output.
+  `OptimizationPolicy` summary, including the monomorphized-instance
+  deduplication and size-preference switches, plus the LLVM codegen
+  optimization level selected by `nia-codegen-llvm`, enabled backend module,
+  function-body, and global pass inventories, and a `changes=<n>` summary. It
+  then lists each changed pass and the affected function or global context,
+  including whether a function body was a monomorphized instance. This is the
+  stable observability hook for reviewing pass behavior without embedding full
+  before/after IR snapshots in normal compiler output.
   `niac check --emit-opt-report` prints this report for direct CLI inspection,
   and `niac emit backend --emit-opt-report` or
   `niac emit llvm --emit-opt-report` writes the same report to stderr so stdout
