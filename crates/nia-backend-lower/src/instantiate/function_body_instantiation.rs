@@ -596,21 +596,9 @@ impl<'a> ModuleLowerer<'a> {
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         let trait_method_name = self
-            .input
-            .defs
-            .defs
-            .get(trait_method_id.def_id)
-            .filter(|_| trait_method_id.module_id == self.input.module_id)
-            .map(|def| def.name.clone())
-            .or_else(|| {
-                self.input
-                    .extensions
-                    .targets()
-                    .iter()
-                    .flat_map(|target| target.methods.iter())
-                    .find(|method| method.def_id == trait_method_id)
-                    .map(|method| method.name.clone())
-            })
+            .method_names_by_def
+            .get(&trait_method_id)
+            .cloned()
             .unwrap_or_else(|| trait_method_name.to_string());
         let candidates = self
             .input
