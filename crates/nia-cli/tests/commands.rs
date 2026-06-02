@@ -294,6 +294,28 @@ fn main() i32 {
     assert!(stdout.contains("enabled_global_passes=none"), "{stdout}");
     assert!(stdout.contains("no changes"), "{stdout}");
 
+    let o3 = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-O3")
+        .arg("check")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac -O3 check --emit-opt-report");
+
+    assert!(
+        o3.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&o3.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&o3.stdout);
+    assert!(stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stdout.contains("policy level=O3"), "{stdout}");
+    assert!(stdout.contains("llvm_codegen=aggressive"), "{stdout}");
+    assert!(
+        stdout.contains("devirtualize-direct-trait-calls"),
+        "{stdout}"
+    );
+
     let oz = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("-Oz")
         .arg("check")
