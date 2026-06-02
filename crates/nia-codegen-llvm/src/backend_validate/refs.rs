@@ -23,17 +23,26 @@ impl BackendValidator<'_> {
         for arg in args {
             self.validate_type(*arg, span);
         }
-        let exists = self
-            .index
-            .function_instance(def_id, def_id.module_id, args)
-            .is_some()
-            || self
+        let key = (def_id, args.to_vec());
+        let exists = if let Some(exists) = self.function_instance_ref_cache.borrow().get(&key) {
+            *exists
+        } else {
+            let exists = self
                 .index
-                .function_instances_by_def
-                .get(&def_id)
-                .into_iter()
-                .flatten()
-                .any(|item| self.same_type_args(&item.args, args));
+                .function_instance(def_id, def_id.module_id, args)
+                .is_some()
+                || self
+                    .index
+                    .function_instances_by_def
+                    .get(&def_id)
+                    .into_iter()
+                    .flatten()
+                    .any(|item| self.same_type_args(&item.args, args));
+            self.function_instance_ref_cache
+                .borrow_mut()
+                .insert(key, exists);
+            exists
+        };
         if !exists {
             self.diagnostics
                 .push(Diagnostic::error(span, format!("{message} {def_id:?}")));

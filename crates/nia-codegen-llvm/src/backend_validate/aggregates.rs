@@ -137,15 +137,33 @@ impl BackendValidator<'_> {
         if let Some(item) = self.index.struct_instance(def_id, args) {
             return Some(&item.fields);
         }
-        if let Some(item) = self
-            .index
-            .struct_instances_by_def
-            .get(&def_id)
-            .into_iter()
-            .flatten()
-            .find(|item| self.same_type_args(&item.args, args))
-        {
-            return Some(&item.fields);
+        let key = (def_id, args.to_vec());
+        if let Some(cached_args) = self.struct_fields_lookup_cache.borrow().get(&key).cloned() {
+            if let Some(fields) = cached_args
+                .as_deref()
+                .and_then(|args| self.index.struct_instance(def_id, args))
+                .map(|item| item.fields.as_slice())
+            {
+                return Some(fields);
+            }
+        } else {
+            let matched_args = self
+                .index
+                .struct_instances_by_def
+                .get(&def_id)
+                .into_iter()
+                .flatten()
+                .find(|item| self.same_type_args(&item.args, args))
+                .map(|item| item.args.clone());
+            self.struct_fields_lookup_cache
+                .borrow_mut()
+                .insert(key, matched_args.clone());
+            if let Some(matched_args) = matched_args {
+                return self
+                    .index
+                    .struct_instance(def_id, &matched_args)
+                    .map(|item| item.fields.as_slice());
+            }
         }
         self.index
             .structs
@@ -157,15 +175,33 @@ impl BackendValidator<'_> {
         if let Some(item) = self.index.union_instance(def_id, args) {
             return Some(&item.fields);
         }
-        if let Some(item) = self
-            .index
-            .union_instances_by_def
-            .get(&def_id)
-            .into_iter()
-            .flatten()
-            .find(|item| self.same_type_args(&item.args, args))
-        {
-            return Some(&item.fields);
+        let key = (def_id, args.to_vec());
+        if let Some(cached_args) = self.union_fields_lookup_cache.borrow().get(&key).cloned() {
+            if let Some(fields) = cached_args
+                .as_deref()
+                .and_then(|args| self.index.union_instance(def_id, args))
+                .map(|item| item.fields.as_slice())
+            {
+                return Some(fields);
+            }
+        } else {
+            let matched_args = self
+                .index
+                .union_instances_by_def
+                .get(&def_id)
+                .into_iter()
+                .flatten()
+                .find(|item| self.same_type_args(&item.args, args))
+                .map(|item| item.args.clone());
+            self.union_fields_lookup_cache
+                .borrow_mut()
+                .insert(key, matched_args.clone());
+            if let Some(matched_args) = matched_args {
+                return self
+                    .index
+                    .union_instance(def_id, &matched_args)
+                    .map(|item| item.fields.as_slice());
+            }
         }
         self.index
             .unions
