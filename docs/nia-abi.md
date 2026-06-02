@@ -635,13 +635,17 @@ surface defined by this document. Trivial single-parameter forwarding wrapper
 inlining is ABI-neutral because it removes only the local call wrapper and keeps
 the argument expression's evaluation as the resulting value.
 
-O3 direct trait-call devirtualization is ABI-neutral. It may replace a backend
-IR dynamic trait method call with a direct concrete method call only when the
-receiver is a local trait-object coercion and the selected implementation is
-known before codegen. It does not change the trait object representation,
-vtable layout, object-safe method ABI, or any externally visible symbol; calls
-whose receiver may carry runtime metadata still use the normal vtable dispatch
-ABI.
+O3 cross-function constant propagation and direct trait-call devirtualization
+are ABI-neutral. Cross-function constant propagation may replace a call to a
+no-argument leaf function or function instance with the backend constant that
+the callee returns. It does not change the callee symbol, function ABI, or the
+representation of the constant value. Direct trait-call devirtualization may
+replace a backend IR dynamic trait method call with a direct concrete method
+call only when the receiver is a local trait-object coercion and the selected
+implementation is known before codegen. It does not change the trait object
+representation, vtable layout, object-safe method ABI, or any externally
+visible symbol; calls whose receiver may carry runtime metadata still use the
+normal vtable dispatch ABI.
 
 The LLVM codegen optimization level and size policy reported by
 `niac --emit-opt-report` are also backend-visible only. They may affect
@@ -659,7 +663,10 @@ Static initializer simplification is representation-preserving. For example, a
 repeated zero array may be emitted as an equivalent backend `zeroinitializer`,
 and repeated nonzero array, byte-string, or char-string data may be canonicalized
 to an equivalent repeated initializer. The global's type, layout, addressability,
-and element values remain the same as the explicit initializer.
+and element values remain the same as the explicit initializer. LLVM codegen may
+also emit repeated byte-array initializers as equivalent constant strings; this
+is a backend-visible encoding choice for the same `[N]u8` object, not a new
+static data representation.
 
 ## 20. Inline Assembly Boundary
 
