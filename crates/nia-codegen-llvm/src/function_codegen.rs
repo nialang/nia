@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use crate::module_codegen::{AbiParam, AbiReturn, ModuleCodegen};
 use defer::DeferScope;
 use nia_ast::BinaryOp;
-use nia_backend_ir::BackendFunction;
+use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBody, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionLocal,
@@ -30,7 +30,7 @@ use nia_ty::{LayoutBuiltin, PrimitiveTy, TyKind};
 pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     module: &'m ModuleCodegen<'ctx, 'a>,
     builder: Builder<'ctx>,
-    function: &'a BackendFunction,
+    function: FunctionCodegenInput<'a>,
     llvm_function: FunctionValue<'ctx>,
     locals: HashMap<LocalId, PointerValue<'ctx>>,
     local_tys: HashMap<LocalId, InternedTyId>,
@@ -40,16 +40,33 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     active_function_scope: Option<FunctionScopeId>,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct FunctionCodegenInput<'a> {
+    pub(super) params: &'a [BackendParam],
+    pub(super) return_type: InternedTyId,
+    pub(super) span: Span,
+}
+
+impl<'a> From<&'a BackendFunction> for FunctionCodegenInput<'a> {
+    fn from(function: &'a BackendFunction) -> Self {
+        Self {
+            params: &function.params,
+            return_type: function.return_type,
+            span: function.span,
+        }
+    }
+}
+
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn new(
         module: &'m ModuleCodegen<'ctx, 'a>,
-        function: &'a BackendFunction,
+        function: impl Into<FunctionCodegenInput<'a>>,
         llvm_function: FunctionValue<'ctx>,
     ) -> Self {
         Self {
             module,
             builder: module.context.create_builder(),
-            function,
+            function: function.into(),
             llvm_function,
             locals: HashMap::new(),
             local_tys: HashMap::new(),

@@ -8,7 +8,7 @@ pub(crate) use types::{AbiParam, AbiReturn};
 
 use std::{cell::RefCell, collections::HashMap};
 
-use crate::function_codegen::FunctionCodegen;
+use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
 use crate::output::LlvmCodegenOptions;
 use crate::program_index::ProgramIndex;
 use nia_backend_ir::{BackendFunction, BackendModule};
@@ -260,18 +260,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             else {
                 return Err(self.error(instance.span, "missing function instance"));
             };
-            let function = BackendFunction {
-                def_id: instance.def_id,
-                name: instance.name.clone(),
-                generics: Vec::new(),
-                params: instance.params.clone(),
-                return_type: instance.return_type,
-                is_extern: instance.is_extern,
-                is_variadic: instance.is_variadic,
-                function_body: instance.function_body.clone(),
-                span: instance.span,
-            };
-            let mut codegen = FunctionCodegen::new(self, &function, llvm_function);
+            let mut codegen = FunctionCodegen::new(
+                self,
+                FunctionCodegenInput {
+                    params: &instance.params,
+                    return_type: instance.return_type,
+                    span: instance.span,
+                },
+                llvm_function,
+            );
             codegen.emit_function_body(function_body)?;
         }
         Ok(())

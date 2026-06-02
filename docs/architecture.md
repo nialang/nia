@@ -209,7 +209,9 @@ Current Nia-owned optimization consumers:
   a fallback for cross-interner cases. Function-instance declarations derive
   their LLVM function type directly from the signature helper, so declarations
   do not need to construct temporary backend function bodies or clone instance
-  bodies.
+  bodies. Function-instance body emission also uses a borrowed codegen signature
+  view, avoiding temporary `BackendFunction` construction and cloned params or
+  function bodies for every monomorphized instance.
 - `nia-codegen-llvm` performs local ABI-lowering cleanup while preserving the
   backend IR contract. Aggregate literals stored into locals, returned through
   Nia hidden out pointers, or passed as Nia indirect readonly arguments are
