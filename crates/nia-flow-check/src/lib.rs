@@ -141,26 +141,9 @@ impl FlowChecker<'_> {
     }
 
     fn switch_tail_covers_all_paths(&mut self, switch: &nia_ast::SwitchStmt) -> bool {
-        let mut seen_default = false;
-        let mut seen_patterns = HashSet::new();
+        self.check_switch_patterns(switch);
         let mut all_arms_produce = !switch.arms.is_empty();
         for arm in &switch.arms {
-            match &arm.pattern {
-                SwitchPattern::Default => {
-                    if seen_default {
-                        self.diagnostics
-                            .push(Diagnostic::error(arm.span, "duplicate switch default"));
-                    }
-                    seen_default = true;
-                }
-                SwitchPattern::Expr(expr) => {
-                    let key = format!("{:?}", expr.kind);
-                    if !seen_patterns.insert(key) {
-                        self.diagnostics
-                            .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
-                    }
-                }
-            }
             all_arms_produce &= self.switch_tail_arm_produces_value(&arm.body);
         }
         all_arms_produce
@@ -270,11 +253,17 @@ impl FlowChecker<'_> {
                 let mut has_default = false;
                 let mut all_arms_terminate = !switch.arms.is_empty();
                 for arm in &switch.arms {
-                    if matches!(arm.pattern, SwitchPattern::Default) {
-                        has_default = true;
-                    }
-                    if let SwitchPattern::Expr(pattern) = &arm.pattern {
-                        self.check_expr_flow(pattern);
+                    for pattern in &arm.patterns {
+                        match pattern {
+                            SwitchPattern::Default => has_default = true,
+                            SwitchPattern::Expr(pattern) => {
+                                self.check_expr_flow(pattern);
+                            }
+                            SwitchPattern::Range { start, end, .. } => {
+                                self.check_expr_flow(start);
+                                self.check_expr_flow(end);
+                            }
+                        }
                     }
                     all_arms_terminate &= !self.check_switch_arm_flow(&arm.body).falls_through;
                 }
@@ -500,8 +489,15 @@ impl FlowChecker<'_> {
                 self.check_switch_patterns(switch);
                 self.check_no_deferred_control_flow(&switch.target);
                 for arm in &switch.arms {
-                    if let SwitchPattern::Expr(expr) = &arm.pattern {
-                        self.check_no_deferred_control_flow(expr);
+                    for pattern in &arm.patterns {
+                        match pattern {
+                            SwitchPattern::Default => {}
+                            SwitchPattern::Expr(expr) => self.check_no_deferred_control_flow(expr),
+                            SwitchPattern::Range { start, end, .. } => {
+                                self.check_no_deferred_control_flow(start);
+                                self.check_no_deferred_control_flow(end);
+                            }
+                        }
                     }
                     match &arm.body {
                         SwitchArmBody::Expr(expr) => self.check_no_deferred_control_flow(expr),
@@ -567,19 +563,33 @@ impl FlowChecker<'_> {
         let mut has_default = false;
         let mut seen_patterns = HashSet::new();
         for arm in &switch.arms {
-            match &arm.pattern {
-                SwitchPattern::Default => {
-                    if has_default {
-                        self.diagnostics
-                            .push(Diagnostic::error(arm.span, "duplicate switch default"));
+            for pattern in &arm.patterns {
+                match pattern {
+                    SwitchPattern::Default => {
+                        if has_default {
+                            self.diagnostics
+                                .push(Diagnostic::error(arm.span, "duplicate switch default"));
+                        }
+                        has_default = true;
                     }
-                    has_default = true;
-                }
-                SwitchPattern::Expr(expr) => {
-                    let key = format!("{:?}", expr.kind);
-                    if !seen_patterns.insert(key) {
-                        self.diagnostics
-                            .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                    SwitchPattern::Expr(expr) => {
+                        let key = format!("{:?}", expr.kind);
+                        if !seen_patterns.insert(key) {
+                            self.diagnostics
+                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                        }
+                    }
+                    SwitchPattern::Range {
+                        start,
+                        end,
+                        inclusive,
+                        ..
+                    } => {
+                        let key = format!("range:{:?}:{:?}:{}", start.kind, end.kind, inclusive);
+                        if !seen_patterns.insert(key) {
+                            self.diagnostics
+                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                        }
                     }
                 }
             }

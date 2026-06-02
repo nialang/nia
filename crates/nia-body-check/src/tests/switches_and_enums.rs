@@ -235,6 +235,83 @@ fn bad(value: u8) i32 {
 }
 
 #[test]
+fn checks_switch_pattern_lists_and_ranges() {
+    let checked = pipeline(
+        r#"
+fn classify(value: i32) i32 {
+    switch value {
+        0, 1 => 10,
+        2..5 => 20,
+        5..=7 => 30,
+        _ => 40,
+    }
+}
+
+fn overlap(value: i32) i32 {
+    switch value {
+        0..3 => 10,
+        2 => 20,
+        _ => 30,
+    }
+}
+
+fn empty(value: i32) i32 {
+    switch value {
+        3..3 => 10,
+        _ => 20,
+    }
+}
+
+fn non_integer(value: bool) i32 {
+    switch value {
+        false..=true => 10,
+        _ => 20,
+    }
+}
+
+fn non_constant(value: i32, start: i32) i32 {
+    switch value {
+        start..3 => 10,
+        _ => 20,
+    }
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("switch pattern overlaps")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("switch range pattern is empty")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("integer switch target")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("compile-time integer constant")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_implicit_enum_integer_mixing() {
     let checked = pipeline(
         r#"

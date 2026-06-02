@@ -381,6 +381,10 @@ impl FunctionLowerer {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionExpr {
+        if self.switch_has_range_patterns(switch) {
+            return self
+                .lower_value_switch_expr_as_chain(expr, switch, scope, current, ops, blocks);
+        }
         let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let merge_target = self.alloc_block();
@@ -389,12 +393,15 @@ impl FunctionLowerer {
         let mut default = None;
         for arm in &switch.arms {
             let arm_target = self.alloc_block();
-            match &arm.pattern {
-                TypedSwitchPattern::Expr(pattern) => arms.push(FunctionSwitchArm {
-                    pattern: self.lower_value_expr(pattern, scope, current, ops, blocks),
-                    target: arm_target,
-                }),
-                TypedSwitchPattern::Default => default = Some(arm_target),
+            for pattern in &arm.patterns {
+                match pattern {
+                    TypedSwitchPattern::Expr(pattern) => arms.push(FunctionSwitchArm {
+                        pattern: self.lower_value_expr(pattern, scope, current, ops, blocks),
+                        target: arm_target,
+                    }),
+                    TypedSwitchPattern::Default => default = Some(arm_target),
+                    TypedSwitchPattern::Range { .. } => {}
+                }
             }
             lowered_arms.push((arm_target, arm));
         }
@@ -432,6 +439,112 @@ impl FunctionLowerer {
             span: expr.span,
             ty: expr.ty,
             kind: FunctionExprKind::Local(local),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lower_value_switch_expr_as_chain(
+        &mut self,
+        expr: &TypedExpr,
+        switch: &TypedSwitch,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionExpr {
+        let target_value = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
+        let target_local = self.alloc_temp_local(switch.target.span, switch.target.ty);
+        ops.push(FunctionOp::StoreLocal {
+            local_id: target_local,
+            value: target_value,
+            span: switch.target.span,
+        });
+        let target = FunctionExpr {
+            span: switch.target.span,
+            ty: switch.target.ty,
+            kind: FunctionExprKind::Local(target_local),
+        };
+        let result_local = self.alloc_temp_local(expr.span, expr.ty);
+        let merge_target = self.alloc_block();
+        let mut lowered_arms = Vec::new();
+        let mut tests = Vec::new();
+        let mut default = merge_target;
+        for arm in &switch.arms {
+            let arm_target = self.alloc_block();
+            for pattern in &arm.patterns {
+                if matches!(pattern, TypedSwitchPattern::Default) {
+                    default = arm_target;
+                } else {
+                    tests.push((pattern, arm_target));
+                }
+            }
+            lowered_arms.push((arm_target, arm));
+        }
+        let check_blocks = tests.iter().map(|_| self.alloc_block()).collect::<Vec<_>>();
+        let first_target = check_blocks.first().copied().unwrap_or(default);
+        self.finish_block(
+            blocks,
+            *current,
+            scope,
+            expr.span,
+            std::mem::take(ops),
+            FunctionTerminator::Branch {
+                target: first_target,
+                span: expr.span,
+            },
+        );
+        for (index, ((pattern, arm_target), check_block)) in
+            tests.iter().zip(check_blocks.iter()).enumerate()
+        {
+            let mut check_ops = Vec::new();
+            let mut check_current = *check_block;
+            let cond = self
+                .switch_pattern_condition(
+                    &target,
+                    pattern,
+                    scope,
+                    &mut check_current,
+                    &mut check_ops,
+                    blocks,
+                    switch.bool_ty,
+                )
+                .unwrap_or_else(|| FunctionExpr {
+                    span: expr.span,
+                    ty: switch.bool_ty,
+                    kind: FunctionExprKind::Bool(true),
+                });
+            let else_target = check_blocks.get(index + 1).copied().unwrap_or(default);
+            self.finish_block(
+                blocks,
+                check_current,
+                scope,
+                expr.span,
+                check_ops,
+                FunctionTerminator::If {
+                    cond,
+                    then_target: *arm_target,
+                    else_target,
+                    span: expr.span,
+                },
+            );
+        }
+        for (arm_target, arm) in lowered_arms {
+            let arm_scope = self.alloc_scope(Some(scope), arm.span);
+            self.lower_value_switch_arm_body(
+                arm.span,
+                &arm.body,
+                arm_scope,
+                arm_target,
+                result_local,
+                merge_target,
+                blocks,
+            );
+        }
+        *current = merge_target;
+        FunctionExpr {
+            span: expr.span,
+            ty: expr.ty,
+            kind: FunctionExprKind::Local(result_local),
         }
     }
 

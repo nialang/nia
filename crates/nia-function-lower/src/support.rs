@@ -131,6 +131,81 @@ impl FunctionLowerer {
         id
     }
 
+    pub(super) fn switch_has_range_patterns(&self, switch: &TypedSwitch) -> bool {
+        switch.arms.iter().any(|arm| {
+            arm.patterns
+                .iter()
+                .any(|pattern| matches!(pattern, TypedSwitchPattern::Range { .. }))
+        })
+    }
+
+    pub(super) fn switch_pattern_condition(
+        &mut self,
+        target: &FunctionExpr,
+        pattern: &TypedSwitchPattern,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+        bool_ty: InternedTyId,
+    ) -> Option<FunctionExpr> {
+        match pattern {
+            TypedSwitchPattern::Default => None,
+            TypedSwitchPattern::Expr(pattern) => {
+                let pattern = self.lower_value_expr(pattern, scope, current, ops, blocks);
+                Some(FunctionExpr {
+                    span: pattern.span,
+                    ty: bool_ty,
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(target.clone()),
+                        op: BinaryOp::Eq,
+                        rhs: Box::new(pattern),
+                    },
+                })
+            }
+            TypedSwitchPattern::Range {
+                start,
+                end,
+                inclusive,
+                span,
+            } => {
+                let start = self.lower_value_expr(start, scope, current, ops, blocks);
+                let end = self.lower_value_expr(end, scope, current, ops, blocks);
+                let lower = FunctionExpr {
+                    span: *span,
+                    ty: bool_ty,
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(target.clone()),
+                        op: BinaryOp::Ge,
+                        rhs: Box::new(start),
+                    },
+                };
+                let upper = FunctionExpr {
+                    span: *span,
+                    ty: bool_ty,
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(target.clone()),
+                        op: if *inclusive {
+                            BinaryOp::Le
+                        } else {
+                            BinaryOp::Lt
+                        },
+                        rhs: Box::new(end),
+                    },
+                };
+                Some(FunctionExpr {
+                    span: *span,
+                    ty: bool_ty,
+                    kind: FunctionExprKind::Binary {
+                        lhs: Box::new(lower),
+                        op: BinaryOp::And,
+                        rhs: Box::new(upper),
+                    },
+                })
+            }
+        }
+    }
+
     pub(super) fn alloc_scope(
         &mut self,
         parent: Option<FunctionScopeId>,
@@ -366,8 +441,15 @@ impl FunctionLowerer {
                 TypedExprKind::Switch(switch) => {
                     visit_expr(&switch.target, max_id);
                     for arm in &switch.arms {
-                        if let TypedSwitchPattern::Expr(pattern) = &arm.pattern {
-                            visit_expr(pattern, max_id);
+                        for pattern in &arm.patterns {
+                            match pattern {
+                                TypedSwitchPattern::Default => {}
+                                TypedSwitchPattern::Expr(pattern) => visit_expr(pattern, max_id),
+                                TypedSwitchPattern::Range { start, end, .. } => {
+                                    visit_expr(start, max_id);
+                                    visit_expr(end, max_id);
+                                }
+                            }
                         }
                         match &arm.body {
                             TypedSwitchArmBody::Expr(expr) => visit_expr(expr, max_id),

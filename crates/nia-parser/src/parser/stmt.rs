@@ -178,23 +178,65 @@ impl Parser {
         let mut arms = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let start = self.peek().span.start;
-            let pattern = if self.eat(TokenKind::Underscore).is_some() {
-                SwitchPattern::Default
-            } else {
-                SwitchPattern::Expr(self.parse_expr()?)
-            };
+            let patterns = self.parse_switch_arm_patterns()?;
             self.expect(TokenKind::FatArrow, "expected `=>` in switch arm")?;
             let body = self.parse_switch_arm_body()?;
             self.eat(TokenKind::Comma);
             let end = body.span().end;
             arms.push(SwitchArm {
                 span: Span::new(start, end),
-                pattern,
+                patterns,
                 body,
             });
         }
         self.expect(TokenKind::RBrace, "expected `}` after switch")?;
         Some(SwitchStmt { target, arms })
+    }
+
+    fn parse_switch_arm_patterns(&mut self) -> Option<Vec<SwitchPattern>> {
+        let mut patterns = Vec::new();
+        loop {
+            patterns.push(self.parse_switch_arm_pattern()?);
+            if self.at(TokenKind::FatArrow) {
+                break;
+            }
+            self.expect(
+                TokenKind::Comma,
+                "expected `,` or `=>` after switch pattern",
+            )?;
+            if self.at(TokenKind::FatArrow) {
+                self.error_here("trailing comma is not allowed in switch pattern list");
+                break;
+            }
+        }
+        Some(patterns)
+    }
+
+    fn parse_switch_arm_pattern(&mut self) -> Option<SwitchPattern> {
+        if self.eat(TokenKind::Underscore).is_some() {
+            return Some(SwitchPattern::Default);
+        }
+        let expr = self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?;
+        let ExprKind::Range(range) = expr.kind else {
+            return Some(SwitchPattern::Expr(expr));
+        };
+        match (&range.start, &range.end) {
+            (Some(start), Some(end)) => Some(SwitchPattern::Range {
+                start: (**start).clone(),
+                end: (**end).clone(),
+                inclusive: range.inclusive,
+                span: expr.span,
+            }),
+            _ => {
+                self.error_at(
+                    expr.span,
+                    "open-ended switch range patterns are not supported; use `_` for the default arm",
+                );
+                Some(SwitchPattern::Expr(
+                    self.make_expr(expr.span, ExprKind::Range(range)),
+                ))
+            }
+        }
     }
 
     fn parse_switch_arm_body(&mut self) -> Option<SwitchArmBody> {

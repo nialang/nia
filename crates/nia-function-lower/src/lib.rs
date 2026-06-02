@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::UnaryOp;
+use nia_ast::{BinaryOp, UnaryOp};
 use nia_body_ir::{
     AsmOption, BuiltinConst, BuiltinMethod, BuiltinPlaceMethod, PlaceBase, PlaceElem,
     TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIn,

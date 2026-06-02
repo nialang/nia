@@ -46,6 +46,13 @@ pub struct BodyCheck {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SwitchInterval {
+    start: i128,
+    end: i128,
+    span: Span,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramComptimeMaps<'a> {
     pub comptimes: &'a HashMap<ModuleId, ComptimeCheck>,
@@ -878,33 +885,58 @@ impl<'a> BodyChecker<'a> {
         let enum_id = self.enum_global_def_id(target_ty);
         let mut has_default = false;
         let mut covered_variants = HashSet::new();
+        let mut covered_intervals = Vec::new();
+        let mut covered_enum_variants = HashMap::<DefId, Span>::new();
         let mut result_ty = expected;
 
-        for arm in &switch.arms {
-            match &arm.pattern {
-                nia_ast::SwitchPattern::Default => {
-                    has_default = true;
-                }
-                nia_ast::SwitchPattern::Expr(pattern) => {
-                    let pattern_ty = self.check_expr_with_expected(pattern, Some(target_ty));
-                    if self.is_open_enum(target_ty)
-                        && self.check_integer_literal_enum_backing_range(
+        for (arm_index, arm) in switch.arms.iter().enumerate() {
+            if has_default {
+                self.diagnostics.push(Diagnostic::error(
+                    arm.span,
+                    "switch arm is unreachable because `_` default appears earlier",
+                ));
+            }
+            for pattern in &arm.patterns {
+                match pattern {
+                    nia_ast::SwitchPattern::Default => {
+                        if arm.patterns.len() != 1 {
+                            self.diagnostics.push(Diagnostic::error(
+                                arm.span,
+                                "`_` default must be the only pattern in a switch arm",
+                            ));
+                        }
+                        has_default = true;
+                    }
+                    nia_ast::SwitchPattern::Expr(pattern) => {
+                        self.check_switch_expr_pattern(
                             pattern,
                             target_ty,
-                            "switch pattern",
-                        )
-                    {
-                        self.record_expr_type(pattern.span, target_ty);
-                    } else {
-                        self.expect_expr_type(pattern, target_ty, pattern_ty, "switch pattern");
+                            enum_id,
+                            &mut covered_variants,
+                            &mut covered_enum_variants,
+                            &mut covered_intervals,
+                        );
                     }
-                    if let Some(expected_enum) = enum_id
-                        && let Some((variant_enum, variant_id)) = self.enum_variant_info(pattern)
-                        && variant_enum == expected_enum
-                    {
-                        covered_variants.insert(variant_id);
+                    nia_ast::SwitchPattern::Range {
+                        start,
+                        end,
+                        inclusive,
+                        span,
+                    } => {
+                        self.check_switch_range_pattern(
+                            *span,
+                            start,
+                            end,
+                            *inclusive,
+                            target_ty,
+                            &mut covered_intervals,
+                        );
                     }
                 }
+            }
+            if has_default && arm_index + 1 != switch.arms.len() {
+                // The following arm will get the concrete unreachable diagnostic
+                // above; this branch only keeps the default state explicit.
             }
             let arm_ty = self.check_switch_arm_body(&arm.body, result_ty);
             if let Some(expected) = result_ty {
@@ -923,6 +955,150 @@ impl<'a> BodyChecker<'a> {
             );
         }
         result_ty.unwrap_or_else(|| self.void())
+    }
+
+    fn check_switch_expr_pattern(
+        &mut self,
+        pattern: &Expr,
+        target_ty: InternedTyId,
+        enum_id: Option<GlobalDefId>,
+        covered_variants: &mut HashSet<DefId>,
+        covered_enum_variants: &mut HashMap<DefId, Span>,
+        covered_intervals: &mut Vec<SwitchInterval>,
+    ) {
+        let pattern_ty = self.check_expr_with_expected(pattern, Some(target_ty));
+        if self.is_open_enum(target_ty)
+            && self.check_integer_literal_enum_backing_range(pattern, target_ty, "switch pattern")
+        {
+            self.record_expr_type(pattern.span, target_ty);
+        } else {
+            self.expect_expr_type(pattern, target_ty, pattern_ty, "switch pattern");
+        }
+        if let Some(expected_enum) = enum_id
+            && let Some((variant_enum, variant_id)) = self.enum_variant_info(pattern)
+            && variant_enum == expected_enum
+        {
+            if let Some(previous) = covered_enum_variants.insert(variant_id, pattern.span) {
+                self.diagnostics.push(Diagnostic::error(
+                    pattern.span,
+                    format!("switch pattern overlaps previous pattern at {previous:?}"),
+                ));
+            }
+            covered_variants.insert(variant_id);
+            return;
+        }
+        if self.is_integer(target_ty) || self.is_bool(target_ty) {
+            let Some(value) = self.switch_pattern_int_value(pattern) else {
+                self.diagnostics.push(Diagnostic::error(
+                    pattern.span,
+                    "switch pattern must be a compile-time integer constant",
+                ));
+                return;
+            };
+            self.check_switch_interval_overlap(
+                SwitchInterval {
+                    start: value,
+                    end: value,
+                    span: pattern.span,
+                },
+                covered_intervals,
+            );
+        }
+    }
+
+    fn check_switch_range_pattern(
+        &mut self,
+        span: Span,
+        start: &Expr,
+        end: &Expr,
+        inclusive: bool,
+        target_ty: InternedTyId,
+        covered_intervals: &mut Vec<SwitchInterval>,
+    ) {
+        if !self.is_integer(target_ty) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "switch range patterns require an integer switch target",
+            ));
+        }
+        let start_ty = self.check_expr_with_expected(start, Some(target_ty));
+        self.expect_expr_type(start, target_ty, start_ty, "switch range pattern");
+        let end_ty = self.check_expr_with_expected(end, Some(target_ty));
+        self.expect_expr_type(end, target_ty, end_ty, "switch range pattern");
+        let Some(start_value) = self.switch_pattern_int_value(start) else {
+            self.diagnostics.push(Diagnostic::error(
+                start.span,
+                "switch range start must be a compile-time integer constant",
+            ));
+            return;
+        };
+        let Some(end_value) = self.switch_pattern_int_value(end) else {
+            self.diagnostics.push(Diagnostic::error(
+                end.span,
+                "switch range end must be a compile-time integer constant",
+            ));
+            return;
+        };
+        let Some(end_inclusive) = (if inclusive {
+            Some(end_value)
+        } else {
+            end_value.checked_sub(1)
+        }) else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "switch range pattern endpoint is out of range",
+            ));
+            return;
+        };
+        if start_value > end_inclusive {
+            self.diagnostics
+                .push(Diagnostic::error(span, "switch range pattern is empty"));
+            return;
+        }
+        self.check_switch_interval_overlap(
+            SwitchInterval {
+                start: start_value,
+                end: end_inclusive,
+                span,
+            },
+            covered_intervals,
+        );
+    }
+
+    fn switch_pattern_int_value(&mut self, expr: &Expr) -> Option<i128> {
+        if let ExprKind::Bool(value) = expr.kind {
+            return Some(if value { 1 } else { 0 });
+        }
+        match nia_comptime_engine::eval_expr(expr, self).ok()? {
+            nia_comptime_engine::ComptimeValue::Int(value) => Some(value),
+        }
+    }
+
+    fn check_switch_interval_overlap(
+        &mut self,
+        interval: SwitchInterval,
+        covered_intervals: &mut Vec<SwitchInterval>,
+    ) {
+        if let Some(previous) = covered_intervals
+            .iter()
+            .find(|previous| interval.start <= previous.end && previous.start <= interval.end)
+        {
+            self.diagnostics.push(Diagnostic::error(
+                interval.span,
+                format!(
+                    "switch pattern overlaps previous pattern at {:?}",
+                    previous.span
+                ),
+            ));
+        }
+        covered_intervals.push(interval);
+    }
+
+    fn is_bool(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalization.normalize(ty)),
+            Some(TyKind::Primitive(PrimitiveTy::Bool))
+        )
     }
 
     fn check_switch_arm_body(

@@ -76,6 +76,41 @@ fn statement_switch_without_default_falls_back_to_merge() {
 }
 
 #[test]
+fn statement_switch_with_range_patterns_lowers_to_condition_chain() {
+    let body = switch_stmt_body(vec![
+        switch_range_arm(0, 3, false, TypedSwitchArmBody::Expr(int_expr(10))),
+        switch_expr_arm(7, TypedSwitchArmBody::Expr(int_expr(20))),
+        switch_default_arm(TypedSwitchArmBody::Expr(int_expr(30))),
+    ]);
+
+    let function_body = lower_function_body(&body);
+
+    assert!(
+        function_body
+            .block(function_body.entry)
+            .expect("entry block")
+            .ops
+            .iter()
+            .any(|op| matches!(op, FunctionOp::StoreLocal { .. })),
+        "{function_body:#?}"
+    );
+    assert!(
+        function_body
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator, FunctionTerminator::If { .. })),
+        "{function_body:#?}"
+    );
+    assert!(
+        !function_body
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator, FunctionTerminator::Switch { .. })),
+        "{function_body:#?}"
+    );
+}
+
+#[test]
 fn statement_switch_arm_block_exits_arm_scope_to_merge() {
     let body = switch_stmt_body(vec![switch_expr_arm(
         1,

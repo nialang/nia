@@ -564,7 +564,7 @@ Checks flow-sensitive structural rules:
 - unreachable statements;
 - `break` and `continue` outside loops;
 - invalid control flow in deferred expressions;
-- switch duplicate defaults and duplicate patterns.
+- switch duplicate defaults and duplicate syntactic patterns.
 
 It should not perform full type checking.
 
@@ -578,7 +578,7 @@ Type-checks function bodies and expression semantics. It owns:
 - array-to-slice coercions;
 - indexing, slicing, field access, and method calls;
 - function calls and generic argument inference;
-- enum casts and switch exhaustiveness;
+- enum casts, switch exhaustiveness, and switch range-pattern validation;
 - builtin expression typing;
 - inline assembly configuration validation.
 
