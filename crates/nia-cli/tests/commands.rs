@@ -262,6 +262,7 @@ fn main() i32 {
     assert!(stdout.contains("specialize=normal"), "{stdout}");
     assert!(stdout.contains("prefer_size=false"), "{stdout}");
     assert!(stdout.contains("llvm_codegen=default"), "{stdout}");
+    assert!(stdout.contains("llvm_size=default"), "{stdout}");
     assert!(stdout.contains("enabled_module_passes="), "{stdout}");
     assert!(stdout.contains("inline-leaf-functions"), "{stdout}");
     assert!(stdout.contains("remove-unused-functions"), "{stdout}");
@@ -293,6 +294,7 @@ fn main() i32 {
     assert!(stdout.contains("policy level=O0"), "{stdout}");
     assert!(stdout.contains("inline=never"), "{stdout}");
     assert!(stdout.contains("llvm_codegen=none"), "{stdout}");
+    assert!(stdout.contains("llvm_size=default"), "{stdout}");
     assert!(stdout.contains("enabled_module_passes=none"), "{stdout}");
     assert!(stdout.contains("enabled_function_passes=none"), "{stdout}");
     assert!(stdout.contains("enabled_global_passes=none"), "{stdout}");
@@ -316,6 +318,7 @@ fn main() i32 {
     assert!(stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stdout.contains("policy level=O3"), "{stdout}");
     assert!(stdout.contains("llvm_codegen=aggressive"), "{stdout}");
+    assert!(stdout.contains("llvm_size=default"), "{stdout}");
     assert!(
         stdout.contains("devirtualize-direct-trait-calls"),
         "{stdout}"
@@ -338,6 +341,26 @@ fn main() i32 {
     assert!(stdout.contains("policy level=Oz"), "{stdout}");
     assert!(stdout.contains("prefer_size=true"), "{stdout}");
     assert!(stdout.contains("llvm_codegen=less"), "{stdout}");
+    assert!(stdout.contains("llvm_size=tiny"), "{stdout}");
+
+    let os = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-Os")
+        .arg("check")
+        .arg(&main)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac -Os check --emit-opt-report");
+
+    assert!(
+        os.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&os.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&os.stdout);
+    assert!(stdout.contains("policy level=Os"), "{stdout}");
+    assert!(stdout.contains("prefer_size=true"), "{stdout}");
+    assert!(stdout.contains("llvm_codegen=default"), "{stdout}");
+    assert!(stdout.contains("llvm_size=small"), "{stdout}");
 }
 
 #[test]
@@ -411,6 +434,7 @@ fn main() i32 {
     assert!(!stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stderr.contains("backend optimization report:"), "{stderr}");
     assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
+    assert!(stderr.contains("llvm_size=default"), "{stderr}");
     assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
     assert!(stderr.contains("changes="), "{stderr}");
@@ -490,6 +514,7 @@ fn main() i32 {
     assert!(stderr.contains("policy level=O1"), "{stderr}");
     assert!(stderr.contains("inline=small"), "{stderr}");
     assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
+    assert!(stderr.contains("llvm_size=default"), "{stderr}");
     assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
     assert!(stderr.contains("changes="), "{stderr}");

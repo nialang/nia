@@ -643,13 +643,14 @@ vtable layout, object-safe method ABI, or any externally visible symbol; calls
 whose receiver may carry runtime metadata still use the normal vtable dispatch
 ABI.
 
-The LLVM codegen optimization level reported by `niac --emit-opt-report` is also
-backend-visible only. It may affect instruction selection, scheduling, register
-allocation, and equivalent object-code details after Nia lowering, but it must
-not reinterpret Nia layout metadata, symbol identity, function ABI
-classification, static data meaning, or field offsets. `Os` and `Oz` still rely
-on the Nia optimization policy for size-aware monomorphization, inlining,
-specialization, and deduplication before LLVM sees the lowered program.
+The LLVM codegen optimization level and size policy reported by
+`niac --emit-opt-report` are also backend-visible only. They may affect
+instruction selection, scheduling, register allocation, and equivalent
+object-code details after Nia lowering, but they must not reinterpret Nia layout
+metadata, symbol identity, function ABI classification, static data meaning, or
+field offsets. `Os` and `Oz` still rely on the Nia optimization policy for
+size-aware monomorphization, inlining, specialization, and deduplication before
+LLVM sees the lowered program.
 The optimization report is an observability tool, not an ABI contract. It may
 list enabled passes and changed backend IR contexts, but ABI compatibility is
 defined by the representation and calling-convention rules in this document.
