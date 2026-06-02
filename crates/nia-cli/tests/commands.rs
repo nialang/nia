@@ -268,6 +268,8 @@ fn main() i32 {
         stdout.contains("enabled_global_passes=simplify-static-init"),
         "{stdout}"
     );
+    assert!(stdout.contains("changes="), "{stdout}");
+    assert!(!stdout.contains("changes=0"), "{stdout}");
     assert!(stdout.contains("remove-unused-local-bindings"), "{stdout}");
     assert!(stdout.contains("global simplify-static-init"), "{stdout}");
 
@@ -292,6 +294,7 @@ fn main() i32 {
     assert!(stdout.contains("enabled_module_passes=none"), "{stdout}");
     assert!(stdout.contains("enabled_function_passes=none"), "{stdout}");
     assert!(stdout.contains("enabled_global_passes=none"), "{stdout}");
+    assert!(stdout.contains("changes=0"), "{stdout}");
     assert!(stdout.contains("no changes"), "{stdout}");
 
     let o3 = Command::new(env!("CARGO_BIN_EXE_niac"))
@@ -408,6 +411,7 @@ fn main() i32 {
     assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
     assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
+    assert!(stderr.contains("changes="), "{stderr}");
     assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
 }
 
@@ -486,6 +490,7 @@ fn main() i32 {
     assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
     assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
+    assert!(stderr.contains("changes="), "{stderr}");
     assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
 }
 
