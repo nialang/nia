@@ -157,6 +157,56 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_trait_object_vtable_from_defer_tail_expr() {
+    let root = temp_dir("emits_trait_object_vtable_from_defer_tail_expr");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(value: i32);
+
+trait Source {
+    fn add(&const self, rhs: i32) i32;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    fn add(&const self, rhs: i32) i32 {
+        self.value + rhs
+    }
+}
+
+fn read(source: &const Source) i32 {
+    source.add(4)
+}
+
+fn main() i32 {
+    var counter: Counter = { value: 8 };
+    defer {
+        log(read(&const counter))
+    };
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("nia__vtable__"), "{ir}");
+    assert!(ir.contains("vtable.fn"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+    assert!(ir.contains("call void @log"), "{ir}");
+}
+
+#[test]
 fn emits_trait_object_supertrait_upcast_metadata_offset() {
     let root = temp_dir("emits_trait_object_supertrait_upcast_metadata_offset");
     let main = root.join("main.nia");
