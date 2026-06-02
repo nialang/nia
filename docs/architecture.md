@@ -114,7 +114,11 @@ Current Nia-owned optimization consumers:
   or clone whole definition maps. The policy keeps monomorphized instance
   deduplication visible at this boundary; exact-key deduplication is required
   for symbol uniqueness, while size-oriented levels may later add stronger
-  cross-instance deduplication.
+  cross-instance deduplication. Nested type arguments discovered while
+  expanding generic bodies are substituted through a per-module working
+  interner and a substitution-id cache, so recursive pointer, slice, array,
+  nominal, and projection shapes are instantiated once for a given substitution
+  map instead of cloning interners for every edge.
 - `nia-backend-lower` consumes the policy while lowering function bodies into
   backend IR. Backend passes are selected from policy capabilities, not directly
   from the user-facing level. Cheap dead-code elimination enables same-type cast
