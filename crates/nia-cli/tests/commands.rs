@@ -18,6 +18,10 @@ fn help_and_version_use_niac_command_name() {
         help_stdout.contains("emit <target> <file.nia>"),
         "{help_stdout}"
     );
+    assert!(
+        help_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
+        "{help_stdout}"
+    );
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
         assert!(help_stdout.contains(level), "{help_stdout}");
     }
@@ -34,6 +38,10 @@ fn help_and_version_use_niac_command_name() {
     );
     let check_stdout = String::from_utf8_lossy(&check_help.stdout);
     assert!(check_stdout.contains("--emit-opt-report"), "{check_stdout}");
+    assert!(
+        check_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
+        "{check_stdout}"
+    );
     assert!(
         check_stdout.contains("optimization policy, enabled passes, change count, and changes"),
         "{check_stdout}"
