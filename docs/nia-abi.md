@@ -648,8 +648,9 @@ defined by the representation and calling-convention rules in this document.
 
 Static initializer simplification is representation-preserving. For example, a
 repeated zero array may be emitted as an equivalent backend `zeroinitializer`,
-but the global's type, layout, addressability, and element values remain the same
-as the explicit repeated initializer.
+and repeated nonzero array, byte-string, or char-string data may be canonicalized
+to an equivalent repeated initializer. The global's type, layout, addressability,
+and element values remain the same as the explicit initializer.
 
 ## 20. Inline Assembly Boundary
 

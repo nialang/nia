@@ -144,8 +144,9 @@ Current Nia-owned optimization consumers:
   including inside defer bodies, but not for size-oriented modes. Full
   dead-code elimination enables overwritten-store cleanup, never-read local
   store cleanup, and unused user local binding cleanup. Full constant folding
-  or size-oriented policy also simplifies all-zero static initializers to the
-  canonical `Zero` initializer.
+  or size-oriented policy also canonicalizes static initializers: all-zero
+  static data becomes `Zero`, and repeated array, byte-string, and char-string
+  data becomes `Repeat`.
   Module-level leaf inlining is gated by `inline_threshold`: `O0` disables it,
   `O1` inlines only no-argument leaf functions that return a backend constant.
   `Os` and `Oz` also inline single-parameter forwarding wrappers that return
@@ -252,11 +253,12 @@ Current Nia-owned optimization consumers:
   separate literal temporary and copying it again. Aggregate-return calls used
   immediately as local stores or indirect arguments reuse the destination
   storage as their hidden return pointer.
-- Backend lowering canonicalizes all-zero static initializers to
-  `StaticInit::Zero` under full constant folding or size-oriented policy, and
-  static initializer emission may choose cheaper equivalent LLVM constants such
-  as `zeroinitializer`. Both must preserve the documented Nia static data
-  representation and ABI layout.
+- Backend lowering canonicalizes static initializers under full constant
+  folding or size-oriented policy. All-zero static data becomes
+  `StaticInit::Zero`; repeated array, byte-string, and char-string data becomes
+  `StaticInit::Repeat`. Static initializer emission may choose cheaper
+  equivalent LLVM constants such as `zeroinitializer`. These forms must preserve
+  the documented Nia static data representation and ABI layout.
 
 Future Nia-owned optimization consumers should follow the same boundary:
 
