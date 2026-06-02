@@ -134,6 +134,9 @@ impl BackendValidator<'_> {
     }
 
     fn struct_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
+        if let Some(item) = self.index.struct_instance(def_id, args) {
+            return Some(&item.fields);
+        }
         if let Some(item) = self
             .index
             .struct_instances_by_def
@@ -151,6 +154,9 @@ impl BackendValidator<'_> {
     }
 
     fn union_fields(&self, def_id: GlobalDefId, args: &[InternedTyId]) -> Option<&[BackendField]> {
+        if let Some(item) = self.index.union_instance(def_id, args) {
+            return Some(&item.fields);
+        }
         if let Some(item) = self
             .index
             .union_instances_by_def
