@@ -21,6 +21,10 @@ pub(crate) fn compute_public_surfaces(
     Vec<(ModuleId, Diagnostic)>,
 ) {
     let mut diagnostics: Vec<(ModuleId, Diagnostic)> = Vec::new();
+    let defs_by_id = defs_by_module
+        .iter()
+        .map(|defs| (defs.module_id, defs))
+        .collect::<HashMap<_, _>>();
 
     let mut surfaces = PublicSurfaces::new();
     for defs in defs_by_module {
@@ -64,7 +68,7 @@ pub(crate) fn compute_public_surfaces(
                 if using.visibility != Visibility::Public {
                     continue;
                 }
-                match expand_using(defs_by_module, defs, using, imports, &surfaces) {
+                match expand_using(&defs_by_id, defs, using, imports, &surfaces) {
                     UsingExpansion::Resolved(entries) => {
                         let surface = surfaces
                             .get(defs.module_id)
@@ -118,7 +122,7 @@ pub(crate) fn compute_public_surfaces(
             if using.visibility != Visibility::Public {
                 continue;
             }
-            match expand_using(defs_by_module, defs, using, imports, &surfaces) {
+            match expand_using(&defs_by_id, defs, using, imports, &surfaces) {
                 UsingExpansion::Resolved(_) | UsingExpansion::HardError(_) => {}
                 UsingExpansion::Unresolved => {
                     diagnostics.push((
@@ -141,7 +145,7 @@ pub(crate) fn compute_public_surfaces(
     for defs in defs_by_module {
         let mut scope = ModuleUsingScope::default();
         for using in &defs.module_usings {
-            let entries = match expand_using(defs_by_module, defs, using, imports, &surfaces) {
+            let entries = match expand_using(&defs_by_id, defs, using, imports, &surfaces) {
                 UsingExpansion::Resolved(entries) => entries,
                 UsingExpansion::Unresolved => {
                     if using.visibility != Visibility::Public {
@@ -283,7 +287,7 @@ enum ResolvedNamespace {
 }
 
 fn resolve_namespace_path(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
     imports: &ImportAliasMap,
     surfaces: &PublicSurfaces,
@@ -331,10 +335,7 @@ fn resolve_namespace_path(
                         module_id: item.target_module,
                         def_id: item.target_def_id,
                     };
-                    let Some(target_defs) = defs_by_module
-                        .iter()
-                        .find(|defs| defs.module_id == enum_id.module_id)
-                    else {
+                    let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
                         return Err(Diagnostic::error(
                             segment.span,
                             "type namespace refers to an unloaded module",
@@ -371,7 +372,7 @@ fn resolve_namespace_path(
 fn expand_namespace(
     namespace: ResolvedNamespace,
     selector: &UsingSelector,
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     surfaces: &PublicSurfaces,
     source: PublicSource,
 ) -> UsingExpansion {
@@ -390,7 +391,7 @@ fn expand_namespace(
 }
 
 fn expand_using(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
     using: &ModuleUsing,
     imports: &ImportAliasMap,
@@ -433,7 +434,7 @@ fn expand_using(
 }
 
 fn expand_root_group(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
     imports: &ImportAliasMap,
     surfaces: &PublicSurfaces,
@@ -464,7 +465,7 @@ fn expand_root_group(
 }
 
 fn expand_root_group_item(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current: &DefCollection,
     imports: &ImportAliasMap,
     surfaces: &PublicSurfaces,
@@ -511,7 +512,7 @@ fn expand_root_group_item(
 }
 
 fn expand_module_host(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     target_module: ModuleId,
     selector: &UsingSelector,
     surfaces: &PublicSurfaces,
@@ -584,7 +585,7 @@ fn expand_module_host(
 }
 
 fn expand_group_item(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     current_module: ModuleId,
     item: &UsingGroupItem,
     surfaces: &PublicSurfaces,
@@ -654,7 +655,7 @@ fn expand_self_namespace(
 }
 
 fn resolve_public_namespace_path(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     start_module: ModuleId,
     surfaces: &PublicSurfaces,
     host: &[nia_ast::UsingHostSegment],
@@ -684,7 +685,7 @@ fn resolve_public_namespace_path(
 }
 
 fn resolve_public_namespace_segment(
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     module_id: ModuleId,
     surfaces: &PublicSurfaces,
     segment: &nia_ast::UsingHostSegment,
@@ -703,10 +704,7 @@ fn resolve_public_namespace_segment(
             module_id: item.target_module,
             def_id: item.target_def_id,
         };
-        let Some(target_defs) = defs_by_module
-            .iter()
-            .find(|defs| defs.module_id == enum_id.module_id)
-        else {
+        let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
             return Err(Diagnostic::error(
                 segment.span,
                 "type namespace refers to an unloaded module",
@@ -834,15 +832,12 @@ fn resolve_current_single(
 
 fn expand_enum_host(
     enum_id: GlobalDefId,
-    defs_by_module: &[DefCollection],
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
     selector: &UsingSelector,
     _visible: bool,
     source: PublicSource,
 ) -> UsingExpansion {
-    let Some(target_defs) = defs_by_module
-        .iter()
-        .find(|defs| defs.module_id == enum_id.module_id)
-    else {
+    let Some(target_defs) = defs_by_module.get(&enum_id.module_id).copied() else {
         return UsingExpansion::Unresolved;
     };
     let Some(enum_scope) = target_defs.scopes.enum_members.get(&enum_id.def_id) else {
