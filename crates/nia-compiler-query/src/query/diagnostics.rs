@@ -18,10 +18,7 @@ impl QueryKey<DriverContext> for ProgramDiagnosticsQuery {
 }
 
 pub(super) fn defs_by_module_id(db: &QueryDb<DriverContext>) -> HashMap<ModuleId, DefCollection> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
-        .collect()
+    db.query(ProgramDefsByIdQuery)
 }
 
 pub(super) fn path_for_diagnostic_span(modules: &[CheckedModule], span: Span) -> SourcePath {

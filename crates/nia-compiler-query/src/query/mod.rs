@@ -10,6 +10,7 @@ use crate::{
     },
     public_surface::compute_public_surfaces,
 };
+use nia_ast::Module;
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
@@ -396,6 +397,32 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_type_normalizations"
                 && dependency.to.name == "type_normalization"
+        }));
+    }
+
+    #[test]
+    fn comptime_uses_program_context_map_queries() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "const VALUE = 1; fn main() i32 { VALUE }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(ComptimeQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime" && dependency.to.name == "program_modules_by_id"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime" && dependency.to.name == "program_defs_by_id"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_modules_by_id" && dependency.to.name == "loaded_module"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"
         }));
     }
 
