@@ -3012,6 +3012,51 @@ fn main() i32 {
 }
 
 #[test]
+fn o0_preserves_pure_zst_local_runtime_ops() {
+    let source = r#"
+struct Empty {}
+
+fn main() i32 {
+    var local: Empty = {};
+    local = {};
+    0
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O0.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let body = main.function_body.as_ref().expect("main function body");
+
+    assert!(body.blocks.iter().any(|block| {
+        block.ops.iter().any(|op| {
+            matches!(
+                op,
+                FunctionOp::Binding(binding) if binding.name == "local"
+            )
+        })
+    }));
+    assert!(body.blocks.iter().any(|block| {
+        block.ops.iter().any(|op| {
+            matches!(
+                op,
+                FunctionOp::Expr(FunctionExpr {
+                    kind: FunctionExprKind::Assign { .. },
+                    ..
+                })
+            )
+        })
+    }));
+    assert!(lowering.optimization_report.changed_passes.is_empty());
+}
+
+#[test]
 fn o1_preserves_effects_from_zst_local_runtime_ops() {
     let source = r#"
 struct Wrap {
