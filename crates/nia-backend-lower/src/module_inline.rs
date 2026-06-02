@@ -535,27 +535,67 @@ fn leaf_inline_return(
     allow_forwarding_wrapper: bool,
 ) -> Option<LeafInlineBody> {
     let body = body.as_ref()?;
-    let [block] = body.blocks.as_slice() else {
-        return None;
-    };
-    if !block.ops.is_empty() {
-        return None;
-    }
-    let value = match &block.terminator {
-        FunctionTerminator::Return {
-            value: Some(value), ..
-        }
-        | FunctionTerminator::Tail {
-            value: Some(value), ..
-        } => value,
-        _ => return None,
-    };
+    let (block, value) = leaf_return_shape(body, threshold)?;
     let params = body
         .locals
         .iter()
         .filter(|local| local.kind == FunctionLocalKind::Param)
         .map(|local| local.id)
         .collect::<Vec<_>>();
+
+    if !block.ops.is_empty() {
+        return matches!(threshold, InlineThreshold::Aggressive)
+            .then(|| aggressive_leaf_inline_return_from_bindings(block, value, params))
+            .flatten();
+    }
+
+    leaf_inline_return_value(value, params, threshold, allow_forwarding_wrapper)
+}
+
+fn leaf_return_shape(
+    body: &FunctionBody,
+    threshold: InlineThreshold,
+) -> Option<(&FunctionBlock, &FunctionExpr)> {
+    if let [block] = body.blocks.as_slice() {
+        return leaf_return_value(block).map(|value| (block, value));
+    }
+
+    if !matches!(threshold, InlineThreshold::Aggressive) {
+        return None;
+    }
+
+    if body.blocks.len() != 2 {
+        return None;
+    }
+    let entry = body.blocks.iter().find(|block| block.id == body.entry)?;
+    let FunctionTerminator::Next { target, .. } = entry.terminator else {
+        return None;
+    };
+    let return_block = body.blocks.iter().find(|block| block.id == target)?;
+    if !return_block.ops.is_empty() {
+        return None;
+    }
+    leaf_return_value(return_block).map(|value| (entry, value))
+}
+
+fn leaf_return_value(block: &FunctionBlock) -> Option<&FunctionExpr> {
+    match &block.terminator {
+        FunctionTerminator::Return {
+            value: Some(value), ..
+        }
+        | FunctionTerminator::Tail {
+            value: Some(value), ..
+        } => Some(value),
+        _ => None,
+    }
+}
+
+fn leaf_inline_return_value(
+    value: &FunctionExpr,
+    params: Vec<LocalId>,
+    threshold: InlineThreshold,
+    allow_forwarding_wrapper: bool,
+) -> Option<LeafInlineBody> {
     if params.is_empty() {
         return inline_expr_allowed(value, threshold).then(|| LeafInlineBody {
             params,
@@ -580,6 +620,29 @@ fn leaf_inline_return(
             value: value.clone(),
         }
     })
+}
+
+fn aggressive_leaf_inline_return_from_bindings(
+    block: &FunctionBlock,
+    value: &FunctionExpr,
+    params: Vec<LocalId>,
+) -> Option<LeafInlineBody> {
+    let budget = inline_expr_budget(InlineThreshold::Aggressive);
+    let mut substitutions = HashMap::<LocalId, FunctionExpr>::new();
+    for op in &block.ops {
+        let FunctionOp::Binding(binding) = op else {
+            return None;
+        };
+        let mut value = binding.value.clone()?;
+        substitute_known_locals(&mut value, &substitutions)?;
+        small_pure_param_inline_expr_cost(&value, budget, &params)?;
+        substitutions.insert(binding.local_id, value);
+    }
+
+    let mut value = value.clone();
+    substitute_known_locals(&mut value, &substitutions)?;
+    small_pure_param_inline_expr_cost(&value, budget, &params)
+        .map(|_| LeafInlineBody { params, value })
 }
 
 fn size_safe_forwarded_param_value(
@@ -636,59 +699,78 @@ fn substitute_inline_params(
     expr: &mut FunctionExpr,
     substitutions: &HashMap<LocalId, FunctionExpr>,
 ) -> Option<()> {
+    substitute_inline_locals(expr, substitutions, true)
+}
+
+fn substitute_known_locals(
+    expr: &mut FunctionExpr,
+    substitutions: &HashMap<LocalId, FunctionExpr>,
+) -> Option<()> {
+    substitute_inline_locals(expr, substitutions, false)
+}
+
+fn substitute_inline_locals(
+    expr: &mut FunctionExpr,
+    substitutions: &HashMap<LocalId, FunctionExpr>,
+    require_local_match: bool,
+) -> Option<()> {
     match &mut expr.kind {
         FunctionExprKind::Local(local_id) => {
-            *expr = substitutions.get(local_id)?.clone();
+            if let Some(value) = substitutions.get(local_id) {
+                *expr = value.clone();
+            } else if require_local_match {
+                return None;
+            }
         }
         FunctionExprKind::Range(range) => {
             if let Some(start) = &mut range.start {
-                substitute_inline_params(start, substitutions)?;
+                substitute_inline_locals(start, substitutions, require_local_match)?;
             }
             if let Some(end) = &mut range.end {
-                substitute_inline_params(end, substitutions)?;
+                substitute_inline_locals(end, substitutions, require_local_match)?;
             }
         }
         FunctionExprKind::ArrayLiteral { elems } => match elems {
             FunctionArrayElements::List(elems) => {
                 for elem in elems {
-                    substitute_inline_params(elem, substitutions)?;
+                    substitute_inline_locals(elem, substitutions, require_local_match)?;
                 }
             }
             FunctionArrayElements::Repeat { value, .. } => {
-                substitute_inline_params(value, substitutions)?;
+                substitute_inline_locals(value, substitutions, require_local_match)?;
             }
         },
         FunctionExprKind::StructLiteral { fields, .. } => {
             for field in fields {
-                substitute_inline_params(&mut field.value, substitutions)?;
+                substitute_inline_locals(&mut field.value, substitutions, require_local_match)?;
             }
         }
         FunctionExprKind::UnionLiteral { field, .. } => {
-            substitute_inline_params(&mut field.value, substitutions)?;
+            substitute_inline_locals(&mut field.value, substitutions, require_local_match)?;
         }
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. } => {
-            substitute_inline_params(expr, substitutions)?;
+            substitute_inline_locals(expr, substitutions, require_local_match)?;
         }
         FunctionExprKind::Binary { lhs, rhs, .. } => {
-            substitute_inline_params(lhs, substitutions)?;
-            substitute_inline_params(rhs, substitutions)?;
+            substitute_inline_locals(lhs, substitutions, require_local_match)?;
+            substitute_inline_locals(rhs, substitutions, require_local_match)?;
         }
         FunctionExprKind::Field { lhs, .. } => {
-            substitute_inline_params(lhs, substitutions)?;
+            substitute_inline_locals(lhs, substitutions, require_local_match)?;
         }
         FunctionExprKind::Index { lhs, index } => {
-            substitute_inline_params(lhs, substitutions)?;
-            substitute_inline_params(index, substitutions)?;
+            substitute_inline_locals(lhs, substitutions, require_local_match)?;
+            substitute_inline_locals(index, substitutions, require_local_match)?;
         }
         FunctionExprKind::Slice { lhs, range, .. } => {
-            substitute_inline_params(lhs, substitutions)?;
+            substitute_inline_locals(lhs, substitutions, require_local_match)?;
             if let Some(start) = &mut range.start {
-                substitute_inline_params(start, substitutions)?;
+                substitute_inline_locals(start, substitutions, require_local_match)?;
             }
             if let Some(end) = &mut range.end {
-                substitute_inline_params(end, substitutions)?;
+                substitute_inline_locals(end, substitutions, require_local_match)?;
             }
         }
         FunctionExprKind::Error
