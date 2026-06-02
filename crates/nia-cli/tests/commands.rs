@@ -717,6 +717,7 @@ fn emit_obj_can_emit_optimization_report_to_stderr() {
     let root = temp_dir("emit_obj_can_emit_optimization_report_to_stderr");
     let main = root.join("main.nia");
     let object = root.join("main.o");
+    let object_before_source = root.join("main_before_source.o");
     let object_before_output_flag = root.join("main_before_output_flag.o");
     std::fs::write(
         &main,
@@ -757,6 +758,27 @@ fn main() i32 {
     assert!(stderr.contains("llvm_codegen=default"), "{stderr}");
     assert!(stderr.contains("llvm_size=small"), "{stderr}");
     let metadata = std::fs::metadata(&object).expect("object metadata");
+    assert!(metadata.len() > 0);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-Os")
+        .arg("emit")
+        .arg("obj")
+        .arg("--emit-opt-report")
+        .arg(&main)
+        .arg("-o")
+        .arg(&object_before_source)
+        .output()
+        .expect("run niac emit obj --emit-opt-report before source");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    let metadata = std::fs::metadata(&object_before_source).expect("object metadata before source");
     assert!(metadata.len() > 0);
 
     let output = Command::new(env!("CARGO_BIN_EXE_niac"))
