@@ -2591,6 +2591,166 @@ fn main() i32 {
 }
 
 #[test]
+fn o3_preserves_direct_trait_object_calls_to_generic_impl_instances() {
+    let source = r#"
+trait Source {
+    fn add(&const self, rhs: i32) i32;
+}
+
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] : Source {
+    fn add(&const self, rhs: i32) i32 {
+        rhs
+    }
+}
+
+fn main() i32 {
+    var value: Box[i32] = { value: 0 };
+    _ = value;
+    0
+}
+"#;
+    let box_def = std::cell::Cell::new(None);
+    let source_trait = std::cell::Cell::new(None);
+    let add_method = std::cell::Cell::new(None);
+    let box_i32_ty = std::cell::Cell::new(None);
+    let source_object_ty = std::cell::Cell::new(None);
+    let i32_ty = std::cell::Cell::new(None);
+    let build_dynamic_call = |body: &mut nia_function_ir::FunctionBody| {
+        let value = first_terminal_value_mut(body);
+        if !matches!(value.kind, FunctionExprKind::Integer(ref text) if text == "0") {
+            return;
+        }
+        let Some(box_def) = box_def.get() else {
+            return;
+        };
+        let Some(source_trait) = source_trait.get() else {
+            return;
+        };
+        let Some(add_method) = add_method.get() else {
+            return;
+        };
+        let Some(box_i32_ty) = box_i32_ty.get() else {
+            return;
+        };
+        let Some(source_object_ty) = source_object_ty.get() else {
+            return;
+        };
+        let Some(i32_ty) = i32_ty.get() else {
+            return;
+        };
+        let span = value.span;
+        value.kind = FunctionExprKind::Call {
+            callee: nia_function_ir::FunctionCallee::DynamicTraitMethod {
+                object_ty: source_object_ty,
+                trait_id: nia_ids::TraitId::Source(source_trait),
+                method_id: add_method,
+                method_name: "add".to_string(),
+                trait_args: Vec::new(),
+                slot: 0,
+                params: vec![i32_ty],
+                return_type: i32_ty,
+                receiver: Box::new(FunctionExpr {
+                    span,
+                    ty: source_object_ty,
+                    kind: FunctionExprKind::TraitObjectCoercion {
+                        expr: Box::new(FunctionExpr {
+                            span,
+                            ty: box_i32_ty,
+                            kind: FunctionExprKind::StructLiteral {
+                                def_id: box_def,
+                                fields: Vec::new(),
+                            },
+                        }),
+                        target_ty: source_object_ty,
+                        self_ty: box_i32_ty,
+                    },
+                }),
+            },
+            args: vec![FunctionExpr {
+                span,
+                ty: i32_ty,
+                kind: FunctionExprKind::Integer("4".to_string()),
+            }],
+        };
+    };
+    let setup_extensions = |extensions: &mut VisibleExtensionMethods,
+                            defs: &nia_defs::DefCollection,
+                            type_lowering: &TypeLowering,
+                            signatures: &ItemSignatures| {
+        let box_id = global_def_id_by_name(defs, "Box");
+        let source_id = global_def_id_by_name(defs, "Source");
+        let add_id = global_def_id_by_name(defs, "add");
+        let i32_type = type_lowering.interner.primitive(nia_ty::PrimitiveTy::I32);
+        let box_pattern = signatures
+            .trait_impls
+            .iter()
+            .find_map(|signature| {
+                matches!(
+                    type_lowering.interner.get(signature.target_ty),
+                    Some(nia_ty::TyKind::Nominal { def_id, .. }) if *def_id == box_id
+                )
+                .then_some(signature.target_ty)
+            })
+            .expect("Box[T] trait impl target");
+        let box_i32_type =
+            nominal_type_by_def_with_args(&type_lowering.interner, box_id, &[i32_type]);
+        let source_object = nominal_type_by_def(&type_lowering.interner, source_id);
+        box_def.set(Some(box_id));
+        source_trait.set(Some(source_id));
+        add_method.set(Some(add_id));
+        box_i32_ty.set(Some(box_i32_type));
+        source_object_ty.set(Some(source_object));
+        i32_ty.set(Some(i32_type));
+        extensions.insert(
+            box_pattern,
+            VisibleExtensionMethod {
+                name: "add".to_string(),
+                def_id: add_id,
+                trait_id: Some(nia_ids::TraitId::Source(source_id)),
+                trait_args: Vec::new(),
+            },
+        );
+    };
+    let o3 = lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+        source,
+        build_dynamic_call,
+        setup_extensions,
+        |_, _| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let main = o3.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(
+        value.kind,
+        FunctionExprKind::Call {
+            callee: nia_function_ir::FunctionCallee::DynamicTraitMethod { .. },
+            ..
+        }
+    ));
+    assert!(
+        o3.optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "devirtualize-direct-trait-calls",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o2_inlines_tiny_pure_leaf_function_instance_calls_with_params() {
     let source = r#"
 fn identity[T](value: T) T {
@@ -4120,6 +4280,14 @@ fn global_def_id_by_name(defs: &nia_defs::DefCollection, name: &str) -> GlobalDe
 }
 
 fn nominal_type_by_def(interner: &nia_ty::TyInterner, target: GlobalDefId) -> InternedTyId {
+    nominal_type_by_def_with_args(interner, target, &[])
+}
+
+fn nominal_type_by_def_with_args(
+    interner: &nia_ty::TyInterner,
+    target: GlobalDefId,
+    target_args: &[InternedTyId],
+) -> InternedTyId {
     interner
         .iter()
         .find_map(|(ty, kind)| {
@@ -4128,11 +4296,11 @@ fn nominal_type_by_def(interner: &nia_ty::TyInterner, target: GlobalDefId) -> In
                 nia_ty::TyKind::Nominal {
                     def_id,
                     args
-                } if *def_id == target && args.is_empty()
+                } if *def_id == target && args == target_args
             )
             .then_some(ty)
         })
-        .unwrap_or_else(|| panic!("missing nominal type {target:?}"))
+        .unwrap_or_else(|| panic!("missing nominal type {target:?} with args {target_args:?}"))
 }
 
 fn first_terminal_value(body: &nia_function_ir::FunctionBody) -> &nia_function_ir::FunctionExpr {
