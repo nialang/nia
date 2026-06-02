@@ -237,8 +237,9 @@ Current Nia-owned optimization consumers:
   refs to bodies, then walks transitive reachability with queues instead of
   repeatedly scanning every lowered function for each discovered reference.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
-  Size-oriented policy remains visible outside LLVM for future Nia-level
-  decisions that affect code size before LLVM emission.
+  Size-oriented policy remains visible outside LLVM for Nia-level inlining,
+  specialization, static-data canonicalization, vtable deduplication, and
+  future code-size decisions that happen before LLVM emission.
 - `nia-codegen-llvm` also builds a whole-program index before validation and
   emission. This is compiler-throughput infrastructure rather than a generated
   code optimization: repeated module, item, function-instance, vtable, and
