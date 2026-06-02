@@ -193,11 +193,13 @@ Current Nia-owned optimization consumers:
   including whether a function body was a monomorphized instance. This is the
   stable observability hook for reviewing pass behavior without embedding full
   before/after IR snapshots in normal compiler output.
-  `niac check --emit-opt-report` prints this report for direct CLI inspection.
-  `niac emit backend --emit-opt-report`, `niac emit llvm --emit-opt-report`,
-  `niac emit obj --emit-opt-report`, and `niac emit exe --emit-opt-report`
-  write the same report to stderr so stdout remains machine-readable backend IR
-  or LLVM IR and native emit targets keep object/executable output file-only.
+  `niac check <file.nia> --emit-opt-report` prints this report for direct CLI
+  inspection. `niac emit backend <file.nia> --emit-opt-report`,
+  `niac emit llvm <file.nia> --emit-opt-report`,
+  `niac emit obj <file.nia> --emit-opt-report`, and
+  `niac emit exe <file.nia> --emit-opt-report` write the same report to stderr
+  so stdout remains machine-readable backend IR or LLVM IR and native emit
+  targets keep object/executable output file-only.
   Dedicated `--emit-*-before-opt` / `--emit-*-after-opt` snapshots are not
   implemented yet; reviewers should currently use `emit backend` for the final
   optimized backend IR and `--emit-opt-report` for pass inventory and change
@@ -798,16 +800,18 @@ Global optimization options are listed explicitly in CLI help:
 -Oz
 ```
 
-`niac check --emit-opt-report` prints the active optimization policy, LLVM
-codegen optimization level, enabled backend module/function/global pass
-inventories, the backend optimization change count, and backend optimization
-changes to stdout.
+`niac check <file.nia> --emit-opt-report` prints the active optimization
+policy, LLVM codegen optimization level, enabled backend module/function/global
+pass inventories, the backend optimization change count, and backend
+optimization changes to stdout.
 `niac emit backend` prints the optimized backend IR to stdout for pass review.
-`niac emit backend --emit-opt-report`, `niac emit llvm --emit-opt-report`,
-`niac emit obj --emit-opt-report`, and `niac emit exe --emit-opt-report` print
-the report to stderr while leaving stdout as backend IR or LLVM IR, and while
-keeping native object/executable output file-only. This is useful when reviewing
-pass behavior next to emitted code or native codegen artifacts.
+`niac emit backend <file.nia> --emit-opt-report`,
+`niac emit llvm <file.nia> --emit-opt-report`,
+`niac emit obj <file.nia> --emit-opt-report`, and
+`niac emit exe <file.nia> --emit-opt-report` print the report to stderr while
+leaving stdout as backend IR or LLVM IR, and while keeping native
+object/executable output file-only. This is useful when reviewing pass behavior
+next to emitted code or native codegen artifacts.
 The CLI does not yet expose separate before/after backend optimization snapshots;
 `emit backend` is the post-lowering optimized backend IR, and
 `--emit-opt-report` is the stable pass-observability interface.
