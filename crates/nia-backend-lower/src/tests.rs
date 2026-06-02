@@ -2289,6 +2289,44 @@ fn main() i32 {
 }
 
 #[test]
+fn o3_does_not_cross_propagate_parameterized_instance_returns() {
+    let source = r#"
+fn answer[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    answer[i32](42)
+}
+"#;
+    let o3 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let main = o3.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::Integer(ref text) if text == "42"));
+    assert!(
+        o3.optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "propagate-cross-function-constants",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o3_propagates_cross_function_constant_instance_returns() {
     let source = r#"
 fn answer[T]() i32 {
