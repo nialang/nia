@@ -81,6 +81,38 @@ fn main(pair: Pair[i32], ptr: &const Pair[i32]) i32 {
 }
 
 #[test]
+fn accepts_typed_literals_and_rvalue_reference_targets() {
+    let checked = pipeline(
+        r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+extend Point {
+    fn sum(&self) i32 {
+        self.x + self.y
+    }
+}
+
+fn main() i32 {
+    var p = Point { x: 1, y: 2 };
+    var p_ptr = &(Point { x: 3, y: 4 });
+    var literal_ptr = &10i32;
+    var call_ptr = &make();
+    var slice = &([_]i32[1, 2, 3])[..];
+    p.sum() + Point { x: 5, y: 6 }.sum() + p_ptr.x + literal_ptr.* + call_ptr.* + slice[0]
+}
+
+fn make() i32 {
+    7
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
 fn rejects_implicit_discard_of_non_void_expression_statements() {
     let checked = pipeline(
         r#"

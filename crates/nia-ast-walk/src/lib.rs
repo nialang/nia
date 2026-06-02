@@ -270,6 +270,26 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(&field.value);
             }
         }
+        ExprKind::TypedArrayLiteral { ty, elems } => {
+            visitor.visit_type(ty);
+            match elems {
+                ArrayElements::List(elems) => {
+                    for elem in elems {
+                        visitor.visit_expr(elem);
+                    }
+                }
+                ArrayElements::Repeat { value, count } => {
+                    visitor.visit_expr(value);
+                    visitor.visit_expr(count);
+                }
+            }
+        }
+        ExprKind::TypedStructLiteral { ty, fields } => {
+            visitor.visit_type(ty);
+            for field in fields {
+                visitor.visit_expr(&field.value);
+            }
+        }
         ExprKind::Unary { expr, .. } => visitor.visit_expr(expr),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
             visitor.visit_expr(lhs);

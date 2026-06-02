@@ -327,13 +327,7 @@ impl<'a> BodyChecker<'a> {
         if !self.types_match(expected_elem, actual_elem) {
             return None;
         }
-        if self.is_place_expr(expr) {
-            if is_const {
-                self.check_addressable(expr, "array-to-slice source");
-            } else {
-                self.check_assignable(expr, "array-to-slice source");
-            }
-        }
+        self.check_reference_target_with_ty(expr, "array-to-slice source", is_const, Some(actual));
         self.record_array_to_slice_coercion(
             expr.span,
             ArrayToSliceCoercion {

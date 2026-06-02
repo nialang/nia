@@ -13,7 +13,9 @@ use nia_ty::{ArrayLenTy, TyKind};
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
-        let ExprKind::ArrayLiteral { elems } = &expr.kind else {
+        let (ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. }) =
+            &expr.kind
+        else {
             return self.check_expr(expr);
         };
         let ty = self.infer_array_literal_type(expr.span, elems);
@@ -94,7 +96,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn infer_array_literal_elem_type(&mut self, elem: &Expr) -> InternedTyId {
-        if matches!(elem.kind, ExprKind::ArrayLiteral { .. }) {
+        if matches!(
+            elem.kind,
+            ExprKind::ArrayLiteral { .. } | ExprKind::TypedArrayLiteral { .. }
+        ) {
             self.infer_array_literal_expr(elem)
         } else {
             self.check_expr(elem)

@@ -253,8 +253,8 @@ pub enum TypedSwitchPattern {
     Default,
     Expr(TypedExpr),
     Range {
-        start: TypedExpr,
-        end: TypedExpr,
+        start: Box<TypedExpr>,
+        end: Box<TypedExpr>,
         inclusive: bool,
         span: Span,
     },

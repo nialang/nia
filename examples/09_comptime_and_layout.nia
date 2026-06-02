@@ -1,0 +1,38 @@
+extern fn printf(fmt: &const u8, ...);
+
+// `comptime` bindings are evaluated during compilation and can drive types,
+// array lengths, and other compile-time-only decisions.
+comptime width: usize = 2 + 2;
+comptime byte_count: usize = 4 * width;
+
+// Top-level `const` data has an address and can be used for static byte data.
+const message = c"layout";
+const first_message_byte = &const message[0];
+
+struct Header {
+    tag: u8,
+    len: usize,
+}
+
+fn sized[T]() usize
+where T: Sized {
+    // Layout builtins are type-level queries available to checked code.
+    @size[T]() + @align[T]()
+}
+
+fn main() i32 {
+    comptime local_width: usize = width;
+    var values: [local_width]i32 = [1, 2, 3, 4];
+    var storage: [byte_count]u8 = [0; byte_count];
+    var header: Header = { tag: first_message_byte.*, len: storage.len() };
+
+    printf(
+        c"comptime/layout: values=%d storage=%d tag=%d header_len=%d size_align=%d\n",
+        values.len() as i32,
+        storage.len() as i32,
+        header.tag as i32,
+        header.len as i32,
+        sized[Header]() as i32,
+    );
+    0
+}

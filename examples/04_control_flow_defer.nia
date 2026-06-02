@@ -1,0 +1,75 @@
+extern fn printf(fmt: &const u8, ...);
+
+var cleanup_count: i32 = 0;
+
+fn cleanup(tag: i32) void {
+    cleanup_count += tag;
+}
+
+fn block_value(seed: i32) i32 {
+    // Blocks are expressions. The last expression becomes the block value.
+    {
+        var local = seed;
+        local += 1;
+        local
+    }
+}
+
+fn loop_sum(limit: i32) i32 {
+    var sum = 0;
+
+    // `for` iterates over a range value. `continue` and `break` still run any
+    // active defers in their scope.
+    for i in 0..10 {
+        if i == 2 {
+            continue;
+        }
+        if i == limit {
+            break;
+        }
+        sum += i;
+    }
+
+    // `while` repeats while its condition is true.
+    var n = 0;
+    while n < 3 {
+        sum += n;
+        n += 1;
+    }
+
+    // `loop` is explicit infinite looping until a `break`.
+    loop {
+        sum += 1;
+        break;
+    }
+
+    sum
+}
+
+fn with_defer(x: i32) i32 {
+    // `defer` runs when the current block exits, including `return`.
+    defer cleanup(1);
+    if x < 0 {
+        defer cleanup(10);
+        return 0;
+    }
+
+    {
+        defer {
+            cleanup(100);
+        };
+        block_value(x)
+    }
+}
+
+fn main() i32 {
+    var deferred_value = with_defer(4);
+    var sum = loop_sum(7);
+    printf(
+        c"control/defer: block=%d loop_sum=%d cleanup_count=%d\n",
+        deferred_value,
+        sum,
+        cleanup_count,
+    );
+    0
+}

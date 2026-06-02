@@ -155,6 +155,14 @@ pub enum ExprKind {
     StructLiteral {
         fields: Vec<FieldInit>,
     },
+    TypedArrayLiteral {
+        ty: TypeRef,
+        elems: ArrayElements,
+    },
+    TypedStructLiteral {
+        ty: TypeRef,
+        fields: Vec<FieldInit>,
+    },
     Unary {
         op: UnaryOp,
         expr: Box<Expr>,

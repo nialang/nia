@@ -1,0 +1,89 @@
+extern fn printf(fmt: &const u8, ...);
+
+trait Same {
+    fn eq(&const self, other: &const Self) bool;
+
+    // Default trait methods can call required methods on `Self`.
+    fn ne(&const self, other: &const Self) bool {
+        !self.eq(other)
+    }
+}
+
+struct Number {
+    value: i32,
+}
+
+extend Number : Same {
+    fn eq(&const self, other: &const Number) bool {
+        self.value == other.value
+    }
+}
+
+// Builtin operator traits use associated type outputs.
+extend Number : Add[Number] {
+    type Output = Number;
+
+    fn add(self, rhs: Number) Number {
+        { value: self.value + rhs.value }
+    }
+}
+
+extend Number : Eq[Number] {
+    fn eq(&const self, other: &const Number) bool {
+        self.value == other.value
+    }
+
+    fn ne(&const self, other: &const Number) bool {
+        self.value != other.value
+    }
+}
+
+extend Number : Ord[Number] {
+    fn lt(&const self, other: &const Number) bool {
+        self.value < other.value
+    }
+
+    fn le(&const self, other: &const Number) bool {
+        self.value <= other.value
+    }
+
+    fn gt(&const self, other: &const Number) bool {
+        self.value > other.value
+    }
+
+    fn ge(&const self, other: &const Number) bool {
+        self.value >= other.value
+    }
+}
+
+fn add_same[T](a: T, b: T) T
+where T: Add[T, Output = T] {
+    // `+` dispatches through the selected `Add` implementation.
+    a + b
+}
+
+fn different[T](a: &const T, b: &const T) bool
+where T: Same {
+    a.ne(b)
+}
+
+fn main() i32 {
+    var one: Number = { value: 1 };
+    var two: Number = { value: 2 };
+    var three = add_same[Number](one, two);
+    var four: Number = { value: 4 };
+    var different_flag = if different[Number](&const three, &const four) {
+        1
+    } else {
+        0
+    };
+    var less_flag = if three < four { 1 } else { 0 };
+
+    printf(
+        c"traits/operators: sum=%d different=%d less=%d\n",
+        three.value,
+        different_flag,
+        less_flag,
+    );
+    0
+}

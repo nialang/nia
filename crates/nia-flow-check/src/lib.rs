@@ -282,7 +282,7 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-            ExprKind::ArrayLiteral { elems } => {
+            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
                 match elems {
                     nia_ast::ArrayElements::List(elems) => {
                         for elem in elems {
@@ -298,7 +298,7 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-            ExprKind::StructLiteral { fields } => {
+            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {
                     self.check_expr_flow(&field.value);
                 }
@@ -421,18 +421,20 @@ impl FlowChecker<'_> {
                     }
                 }
             }
-            ExprKind::ArrayLiteral { elems } => match elems {
-                nia_ast::ArrayElements::List(elems) => {
-                    for elem in elems {
-                        self.check_no_deferred_control_flow(elem);
+            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
+                match elems {
+                    nia_ast::ArrayElements::List(elems) => {
+                        for elem in elems {
+                            self.check_no_deferred_control_flow(elem);
+                        }
+                    }
+                    nia_ast::ArrayElements::Repeat { value, count } => {
+                        self.check_no_deferred_control_flow(value);
+                        self.check_no_deferred_control_flow(count);
                     }
                 }
-                nia_ast::ArrayElements::Repeat { value, count } => {
-                    self.check_no_deferred_control_flow(value);
-                    self.check_no_deferred_control_flow(count);
-                }
-            },
-            ExprKind::StructLiteral { fields } => {
+            }
+            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {
                     self.check_no_deferred_control_flow(&field.value);
                 }

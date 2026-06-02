@@ -32,6 +32,9 @@ compatibility with earlier experimental syntax.
 - [docs/ai-usage.md](docs/ai-usage.md): AI-assisted work policy.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
+- [examples/README.md](examples/README.md): runnable teaching programs for the
+  current language surface, including modules, aggregate literals, generics,
+  traits, comptime, and inline assembly.
 - [crates/nia-cli](crates/nia-cli): the `nia` command-line compiler frontend.
 - `crates/nia-*`: compiler libraries used by `nia`.
 
@@ -53,6 +56,21 @@ cargo run -p nia-cli -- --help
 ```
 
 The compiler binary is named `nia`.
+
+## Examples
+
+The repository includes small examples in [`examples/`](examples/). They are
+ordered from basic hosted programs through arrays, structs, control flow,
+functions, generics, traits, comptime, and inline assembly. The module example
+under [`examples/modules/`](examples/modules/) demonstrates imports, aliases,
+`using`, grouped `using`, and re-exports.
+
+Check every top-level example from the repository root with:
+
+```sh
+for file in examples/*.nia; do cargo run -p nia-cli -- check "$file"; done
+cargo run -p nia-cli -- check examples/modules/main.nia
+```
 
 ## Platform Status
 

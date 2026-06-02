@@ -1,0 +1,57 @@
+extern fn printf(fmt: &const u8, ...);
+
+// Literals infer their type from context.
+const global_mask: u32 = 0xff;
+const banner = "nia";
+
+// `c"..."` is a null-terminated byte string for C ABI calls. A top-level
+// `const` has a stable address, so it is the usual place for reusable C strings.
+const c_banner = c"nia";
+
+fn bool_score(a: bool, b: bool) i32 {
+    // `if` is an expression, so both branches produce the function result.
+    if a and !b {
+        1
+    } else {
+        0
+    }
+}
+
+fn main() i32 {
+    // Numeric suffixes pick a concrete type before surrounding context does.
+    var decimal = 1_000;
+    var hex = 0xffu8;
+    var binary = 0b1010_0000u8;
+    var octal = 0o755usize;
+    var float32 = 1.5f32;
+    var float64: f64 = 1.0e3;
+    var byte = b'\n'; // `b'...'` is one ASCII byte.
+    var ch = 'N'; // `char` is a Unicode scalar value.
+
+    // `printf` is a C variadic function. The format string is checked by libc,
+    // not by Nia, so cast values to the C ABI type expected by each format
+    // specifier. Here `%d` expects an `int`, represented as Nia `i32`.
+    printf(
+        c"bindings/literals: decimal=%d hex=%d binary=%d octal=%d\n",
+        decimal,
+        hex as i32,
+        binary as i32,
+        octal as i32,
+    );
+    printf(
+        c"floats/casts: f32=%d f64=%d byte=%d char=%d mask=%d\n",
+        float32 as i32,
+        float64 as i32,
+        byte as i32,
+        ch as u32 as i32,
+        global_mask as i32,
+    );
+    printf(
+        c"strings/bools: banner_len=%d c_banner=%s c_len=%d bool_score=%d\n",
+        banner.len() as i32,
+        &const c_banner[0],
+        c_banner.len() as i32,
+        bool_score(true, false),
+    );
+    0
+}

@@ -154,7 +154,7 @@ impl Parser {
     }
 
     fn parse_expr_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
-        let expr = self.parse_expr();
+        let expr = self.parse_expr_until_tokens(stops);
         if expr.is_some() {
             return expr;
         }

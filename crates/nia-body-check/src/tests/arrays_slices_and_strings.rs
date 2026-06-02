@@ -189,17 +189,30 @@ fn take_matrix(xs: [2][2]i32) i32 {
     xs[1][0]
 }
 
+struct Box[T] {
+    value: T,
+}
+
+fn take_box_matrix(xs: [2][2]Box[i32]) i32 {
+    xs[1][0].value
+}
+
 fn main() i32 {
     var xs = [1, 2, 3];
     var repeated = [1; 3];
     var anchored = [1, xs[0], 3];
     var matrix = [[1, 2], [3, 4]];
+    var typed_matrix = [2][2]Box[i32][
+        [Box[i32] { value: 1 }, Box[i32] { value: 2 }],
+        [Box[i32] { value: 3 }, Box[i32] { value: 4 }],
+    ];
     var bad = [xs[0], true];
     _ = take_triplet(global_xs);
     _ = take_triplet(xs);
     _ = take_triplet(repeated);
     _ = take_triplet(anchored);
     _ = take_matrix(matrix);
+    _ = take_box_matrix(typed_matrix);
     0
 }
 "#,
@@ -362,7 +375,7 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
-fn checks_array_to_slice_coercions_and_rejects_address_of_rvalues() {
+fn checks_array_to_slice_coercions_and_rvalue_reference_targets() {
     let checked = pipeline(
         r#"
 fn take(xs: &const [i32]) i32 {
@@ -388,10 +401,10 @@ fn main() i32 {
     _ = mutate([4, 5]);
     _ = bytes(c"hi");
 
-    var bad_int: &i32 = &10;
-    var bad_sum: &i32 = &(1 + 2);
-    var bad_call: &i32 = &make();
-    var bad_slice: &const [i32] = &const [1, 2, 3][..];
+    var int_ptr: &i32 = &10;
+    var sum_ptr: &i32 = &(1 + 2);
+    var call_ptr: &i32 = &make();
+    var temp_slice: &const [i32] = &const [1, 2, 3][..];
     0
 }
 
@@ -417,23 +430,25 @@ fn make() i32 {
         checked.diagnostics
     );
     assert!(
-        checked
+        !checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic
-                .message
-                .contains("reference target is not assignable"))
-            .count()
-            >= 3,
+            .any(|diagnostic| diagnostic.message.contains("reference target")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("slice target is not addressable")),
+        !checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("slice target")),
         "{:?}",
         checked.diagnostics
+    );
+    assert!(
+        checked.ir.array_to_slice_coercions.len() >= 6,
+        "{:?}",
+        checked.ir.array_to_slice_coercions
     );
 }
 
