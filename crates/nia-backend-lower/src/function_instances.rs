@@ -4,7 +4,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::ModuleLowerer;
 use nia_backend_ir::{BackendFunction, BackendFunctionInstance, BackendTraitObjectVtableFunction};
 use nia_defs::DefKind;
-use nia_function_ir::{FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind, FunctionOp};
+use nia_function_ir::{
+    FunctionBlock, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
+    FunctionForHeader, FunctionOp, FunctionTerminator,
+};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_ty::TyKind;
 
@@ -185,41 +188,67 @@ impl<'a> ModuleLowerer<'a> {
         seen: &mut HashSet<InstanceKey>,
         queue: &mut InstanceWorkQueue,
     ) {
-        for block in &body.blocks {
+        self.enqueue_function_instances_from_blocks(&body.blocks, seen, queue);
+    }
+
+    fn enqueue_function_instances_from_defer_body(
+        &mut self,
+        body: &FunctionDeferBody,
+        seen: &mut HashSet<InstanceKey>,
+        queue: &mut InstanceWorkQueue,
+    ) {
+        self.enqueue_function_instances_from_blocks(&body.blocks, seen, queue);
+    }
+
+    fn enqueue_function_instances_from_blocks(
+        &mut self,
+        blocks: &[FunctionBlock],
+        seen: &mut HashSet<InstanceKey>,
+        queue: &mut InstanceWorkQueue,
+    ) {
+        for block in blocks {
             for op in &block.ops {
                 self.enqueue_function_instances_from_op(op, seen, queue);
             }
-            match &block.terminator {
-                nia_function_ir::FunctionTerminator::If { cond, .. } => {
-                    self.enqueue_function_instances_from_expr(cond, seen, queue);
-                }
-                nia_function_ir::FunctionTerminator::Switch { target, arms, .. } => {
-                    self.enqueue_function_instances_from_expr(target, seen, queue);
-                    for arm in arms {
-                        self.enqueue_function_instances_from_expr(&arm.pattern, seen, queue);
-                    }
-                }
-                nia_function_ir::FunctionTerminator::Loop { header, .. } => match header {
-                    nia_function_ir::FunctionForHeader::Condition(expr) => {
-                        self.enqueue_function_instances_from_expr(expr, seen, queue);
-                    }
-                    nia_function_ir::FunctionForHeader::CStyle { cond } => {
-                        if let Some(cond) = cond {
-                            self.enqueue_function_instances_from_expr(cond, seen, queue);
-                        }
-                    }
-                    nia_function_ir::FunctionForHeader::Infinite => {}
-                },
-                nia_function_ir::FunctionTerminator::Return { value, .. }
-                | nia_function_ir::FunctionTerminator::Tail { value, .. } => {
-                    if let Some(value) = value {
-                        self.enqueue_function_instances_from_expr(value, seen, queue);
-                    }
-                }
-                nia_function_ir::FunctionTerminator::Branch { .. }
-                | nia_function_ir::FunctionTerminator::Next { .. }
-                | nia_function_ir::FunctionTerminator::Error { .. } => {}
+            self.enqueue_function_instances_from_terminator(&block.terminator, seen, queue);
+        }
+    }
+
+    fn enqueue_function_instances_from_terminator(
+        &mut self,
+        terminator: &FunctionTerminator,
+        seen: &mut HashSet<InstanceKey>,
+        queue: &mut InstanceWorkQueue,
+    ) {
+        match terminator {
+            FunctionTerminator::If { cond, .. } => {
+                self.enqueue_function_instances_from_expr(cond, seen, queue);
             }
+            FunctionTerminator::Switch { target, arms, .. } => {
+                self.enqueue_function_instances_from_expr(target, seen, queue);
+                for arm in arms {
+                    self.enqueue_function_instances_from_expr(&arm.pattern, seen, queue);
+                }
+            }
+            FunctionTerminator::Loop { header, .. } => match header {
+                FunctionForHeader::Condition(expr) => {
+                    self.enqueue_function_instances_from_expr(expr, seen, queue);
+                }
+                FunctionForHeader::CStyle { cond } => {
+                    if let Some(cond) = cond {
+                        self.enqueue_function_instances_from_expr(cond, seen, queue);
+                    }
+                }
+                FunctionForHeader::Infinite => {}
+            },
+            FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
+                if let Some(value) = value {
+                    self.enqueue_function_instances_from_expr(value, seen, queue);
+                }
+            }
+            FunctionTerminator::Branch { .. }
+            | FunctionTerminator::Next { .. }
+            | FunctionTerminator::Error { .. } => {}
         }
     }
 
@@ -239,11 +268,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.enqueue_function_instances_from_expr(value, seen, queue);
             }
             FunctionOp::Defer(body) => {
-                for block in &body.blocks {
-                    for op in &block.ops {
-                        self.enqueue_function_instances_from_op(op, seen, queue);
-                    }
-                }
+                self.enqueue_function_instances_from_defer_body(body, seen, queue);
             }
         }
     }

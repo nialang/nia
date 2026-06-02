@@ -177,6 +177,56 @@ fn main() i32 {
 }
 
 #[test]
+fn instantiates_generic_calls_from_defer_tail_expr() {
+    let root = temp_dir("instantiates_generic_calls_from_defer_tail_expr");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+extern fn log(value: i32);
+
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    defer {
+        log(id[i32](7))
+    };
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let module = &checked.backend_lowering.program.modules[0];
+    assert!(
+        module
+            .function_instances
+            .iter()
+            .any(|instance| instance.name == "id"),
+        "{:?}",
+        module.function_instances
+    );
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(
+        ir.contains("define i32 @nia__m0__d1__id__inst__i32"),
+        "{ir}"
+    );
+    assert!(
+        ir.contains("call i32 @nia__m0__d1__id__inst__i32(i32 7)"),
+        "{ir}"
+    );
+    assert!(ir.contains("call void @log(i32 %calltmp)"), "{ir}");
+    assert!(ir.contains("ret i32 0"), "{ir}");
+}
+
+#[test]
 fn emits_defer_lifo_for_normal_nested_block_exit() {
     let root = temp_dir("emits_defer_lifo_for_normal_nested_block_exit");
     let main = root.join("main.nia");
