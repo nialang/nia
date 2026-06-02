@@ -1958,6 +1958,63 @@ fn main() [5]i32 {
 }
 
 #[test]
+fn o3_inlines_pure_leaf_function_calls_through_bindings() {
+    let source = r#"
+fn values() [5]i32 {
+    var items = [1, 2, 3, 4, 5];
+    items
+}
+
+fn main() [5]i32 {
+    values()
+}
+"#;
+    let o2 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let o2_main = o2.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(o2_value.kind, FunctionExprKind::Call { .. }));
+
+    let o3 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let o3_main = o3.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(
+        o3_value.kind,
+        FunctionExprKind::ArrayLiteral { .. }
+    ));
+    assert!(
+        o3.optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-leaf-functions",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o2_inlines_tiny_pure_leaf_function_instance_calls_with_params() {
     let source = r#"
 fn identity[T](value: T) T {
