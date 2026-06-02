@@ -160,6 +160,7 @@ pub(crate) struct ModuleLowerer<'a> {
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
+    trait_methods_with_defaults: HashSet<GlobalDefId>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     type_substitutions: Vec<HashMap<String, InternedTyId>>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
@@ -213,6 +214,7 @@ impl<'a> ModuleLowerer<'a> {
                 input.layouts.union_instances.keys(),
             ),
             builtin_trait_resolutions: HashMap::new(),
+            trait_methods_with_defaults: index_trait_methods_with_defaults(input),
             type_instantiations: HashMap::new(),
             type_substitutions: Vec::new(),
             type_substitution_ids: HashMap::new(),
@@ -510,6 +512,20 @@ fn index_extension_targets_by_method(
         }
     }
     targets_by_method
+}
+
+fn index_trait_methods_with_defaults(input: &BackendLowerModuleInput<'_>) -> HashSet<GlobalDefId> {
+    input
+        .signatures
+        .traits
+        .values()
+        .flat_map(|signature| signature.methods.iter())
+        .filter(|method| method.has_default)
+        .map(|method| GlobalDefId {
+            module_id: input.module_id,
+            def_id: method.def_id,
+        })
+        .collect()
 }
 
 fn index_layout_instances_by_def<'a>(
