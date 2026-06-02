@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::support::{LoweringContext, SwitchPatternConditionContext};
 use super::*;
 use nia_ast::BinaryOp;
 use nia_body_ir::BuiltinOperatorOp;
@@ -274,7 +275,13 @@ impl FunctionLowerer {
         blocks: &mut Vec<FunctionBlock>,
     ) {
         if self.switch_has_range_patterns(switch) {
-            self.lower_switch_as_chain(span, switch, scope, current, ops, blocks);
+            let mut context = LoweringContext {
+                scope,
+                current,
+                ops,
+                blocks,
+            };
+            self.lower_switch_as_chain(span, switch, &mut context);
             return;
         }
         let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
@@ -327,19 +334,21 @@ impl FunctionLowerer {
         *current = merge_target;
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn lower_switch_as_chain(
         &mut self,
         span: Span,
         switch: &TypedSwitch,
-        scope: FunctionScopeId,
-        current: &mut FunctionBlockId,
-        ops: &mut Vec<FunctionOp>,
-        blocks: &mut Vec<FunctionBlock>,
+        context: &mut LoweringContext<'_>,
     ) {
-        let target_value = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
+        let target_value = self.lower_value_expr(
+            &switch.target,
+            context.scope,
+            context.current,
+            context.ops,
+            context.blocks,
+        );
         let target_local = self.alloc_temp_local(switch.target.span, switch.target.ty);
-        ops.push(FunctionOp::StoreLocal {
+        context.ops.push(FunctionOp::StoreLocal {
             local_id: target_local,
             value: target_value,
             span: switch.target.span,
@@ -367,11 +376,11 @@ impl FunctionLowerer {
         let check_blocks = tests.iter().map(|_| self.alloc_block()).collect::<Vec<_>>();
         let first_target = check_blocks.first().copied().unwrap_or(default);
         self.finish_block(
-            blocks,
-            *current,
-            scope,
+            context.blocks,
+            *context.current,
+            context.scope,
             span,
-            std::mem::take(ops),
+            std::mem::take(context.ops),
             FunctionTerminator::Branch {
                 target: first_target,
                 span,
@@ -382,26 +391,25 @@ impl FunctionLowerer {
         {
             let mut check_ops = Vec::new();
             let mut check_current = *check_block;
+            let mut condition_context = SwitchPatternConditionContext {
+                scope: context.scope,
+                current: &mut check_current,
+                ops: &mut check_ops,
+                blocks: context.blocks,
+                bool_ty: switch.bool_ty,
+            };
             let cond = self
-                .switch_pattern_condition(
-                    &target,
-                    pattern,
-                    scope,
-                    &mut check_current,
-                    &mut check_ops,
-                    blocks,
-                    switch.bool_ty,
-                )
-                .unwrap_or_else(|| FunctionExpr {
+                .switch_pattern_condition(&target, pattern, &mut condition_context)
+                .unwrap_or(FunctionExpr {
                     span,
                     ty: switch.bool_ty,
                     kind: FunctionExprKind::Bool(true),
                 });
             let else_target = check_blocks.get(index + 1).copied().unwrap_or(default);
             self.finish_block(
-                blocks,
+                context.blocks,
                 check_current,
-                scope,
+                context.scope,
                 span,
                 check_ops,
                 FunctionTerminator::If {
@@ -413,17 +421,17 @@ impl FunctionLowerer {
             );
         }
         for (arm_target, arm) in lowered_arms {
-            let arm_scope = self.alloc_scope(Some(scope), arm.span);
+            let arm_scope = self.alloc_scope(Some(context.scope), arm.span);
             self.lower_switch_arm_body(
                 arm.span,
                 &arm.body,
                 arm_scope,
                 arm_target,
                 merge_target,
-                blocks,
+                context.blocks,
             );
         }
-        *current = merge_target;
+        *context.current = merge_target;
     }
 
     pub(super) fn lower_switch_arm_body(

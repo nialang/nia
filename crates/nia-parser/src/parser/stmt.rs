@@ -173,7 +173,7 @@ impl Parser {
 
     fn parse_switch(&mut self) -> Option<SwitchStmt> {
         self.expect(TokenKind::Switch, "expected `switch`")?;
-        let target = self.parse_expr()?;
+        let target = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
         self.expect(TokenKind::LBrace, "expected `{` after switch target")?;
         let mut arms = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {

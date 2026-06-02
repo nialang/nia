@@ -2,6 +2,12 @@
 use super::*;
 use nia_ast::AssocBindingKey;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TypeParseMode {
+    Normal,
+    BeforeAggregateLiteral,
+}
+
 impl Parser {
     pub(super) fn parse_generic_params(&mut self) -> Vec<String> {
         let mut generics = Vec::new();
@@ -42,10 +48,18 @@ impl Parser {
     }
 
     pub(super) fn parse_type(&mut self) -> Option<TypeRef> {
+        self.parse_type_with_mode(TypeParseMode::Normal)
+    }
+
+    pub(super) fn parse_type_before_aggregate_literal(&mut self) -> Option<TypeRef> {
+        self.parse_type_with_mode(TypeParseMode::BeforeAggregateLiteral)
+    }
+
+    fn parse_type_with_mode(&mut self, mode: TypeParseMode) -> Option<TypeRef> {
         let start = self.peek().span.start;
         if self.eat(TokenKind::DotDot).is_some() {
             let end = if self.type_can_start() {
-                Some(Box::new(self.parse_type()?))
+                Some(Box::new(self.parse_type_with_mode(mode)?))
             } else {
                 None
             };
@@ -63,7 +77,7 @@ impl Parser {
             ));
         }
         if self.eat(TokenKind::DotDotEq).is_some() {
-            let end = self.parse_type()?;
+            let end = self.parse_type_with_mode(mode)?;
             let span = Span::new(start, end.span.end);
             return Some(self.make_type_ref(
                 span,
@@ -76,7 +90,7 @@ impl Parser {
         }
 
         let kind = if self.eat(TokenKind::Amp).is_some() {
-            self.parse_type_after_amp(start)?
+            self.parse_type_after_amp_with_mode(start, mode)?
         } else if self.eat(TokenKind::LBracket).is_some() {
             if let Some(kind) = self.parse_projection_type_after_open() {
                 kind
@@ -87,7 +101,7 @@ impl Parser {
                     ArrayLen::Expr(Box::new(self.parse_expr()?))
                 };
                 self.expect(TokenKind::RBracket, "expected `]` in array type")?;
-                let elem = self.parse_type()?;
+                let elem = self.parse_type_with_mode(mode)?;
                 TypeKind::Array {
                     len,
                     elem: Box::new(elem),
@@ -106,7 +120,7 @@ impl Parser {
             TypeKind::Never
         } else if self.at(TokenKind::Ident) || self.at(TokenKind::Bool) {
             TypeKind::Path {
-                segments: self.parse_type_path_segments()?,
+                segments: self.parse_type_path_segments_with_mode(mode)?,
             }
         } else {
             self.error_here("expected type");
@@ -116,7 +130,7 @@ impl Parser {
         let start_bound = self.make_type_ref(Span::new(start, start_bound_end), kind);
         if self.eat(TokenKind::DotDot).is_some() {
             let end = if self.type_can_start() {
-                Some(Box::new(self.parse_type()?))
+                Some(Box::new(self.parse_type_with_mode(mode)?))
             } else {
                 None
             };
@@ -134,7 +148,7 @@ impl Parser {
             ));
         }
         if self.eat(TokenKind::DotDotEq).is_some() {
-            let end = self.parse_type()?;
+            let end = self.parse_type_with_mode(mode)?;
             let span = Span::new(start, end.span.end);
             return Some(self.make_type_ref(
                 span,
@@ -192,7 +206,11 @@ impl Parser {
         })
     }
 
-    pub(super) fn parse_type_after_amp(&mut self, _start: usize) -> Option<TypeKind> {
+    fn parse_type_after_amp_with_mode(
+        &mut self,
+        _start: usize,
+        mode: TypeParseMode,
+    ) -> Option<TypeKind> {
         let is_const = self.eat(TokenKind::Const).is_some();
         if self.at(TokenKind::Fn) {
             if !is_const {
@@ -207,14 +225,14 @@ impl Parser {
                     is_variadic = true;
                     break;
                 }
-                params.push(self.parse_type()?);
+                params.push(self.parse_type_with_mode(mode)?);
                 if self.eat(TokenKind::Comma).is_none() {
                     break;
                 }
             }
             self.expect(TokenKind::RParen, "expected `)` in function pointer type")?;
             let return_type = if self.type_can_start() {
-                Some(Box::new(self.parse_type()?))
+                Some(Box::new(self.parse_type_with_mode(mode)?))
             } else {
                 None
             };
@@ -225,14 +243,14 @@ impl Parser {
             })
         } else {
             if self.eat(TokenKind::LBracket).is_some() {
-                let elem = self.parse_type()?;
+                let elem = self.parse_type_with_mode(mode)?;
                 self.expect(TokenKind::RBracket, "expected `]` in slice type")?;
                 Some(TypeKind::Slice {
                     is_const,
                     elem: Box::new(elem),
                 })
             } else {
-                let elem = self.parse_type()?;
+                let elem = self.parse_type_with_mode(mode)?;
                 Some(TypeKind::Pointer {
                     is_const,
                     elem: Box::new(elem),
@@ -241,7 +259,10 @@ impl Parser {
         }
     }
 
-    fn parse_type_path_segments(&mut self) -> Option<Vec<TypePathSegment>> {
+    fn parse_type_path_segments_with_mode(
+        &mut self,
+        mode: TypeParseMode,
+    ) -> Option<Vec<TypePathSegment>> {
         let mut segments = Vec::new();
         loop {
             let name = match self.peek().kind {
@@ -254,8 +275,23 @@ impl Parser {
                     return None;
                 }
             };
+            let args_checkpoint = self.tokens.checkpoint();
+            let args_errors_len = self.errors.len();
             let args = self.parse_type_args();
-            segments.push(TypePathSegment { name, args });
+            if mode == TypeParseMode::BeforeAggregateLiteral
+                && !args.is_empty()
+                && !self.at(TokenKind::LBrace)
+                && !self.at(TokenKind::LBracket)
+            {
+                self.tokens.rewind(args_checkpoint);
+                self.errors.truncate(args_errors_len);
+                segments.push(TypePathSegment {
+                    name,
+                    args: Vec::new(),
+                });
+            } else {
+                segments.push(TypePathSegment { name, args });
+            }
             if self.eat(TokenKind::ColonColon).is_none() {
                 break;
             }
@@ -264,6 +300,9 @@ impl Parser {
     }
 
     pub(super) fn parse_type_args(&mut self) -> Vec<TypeArg> {
+        if self.peek().span.start != self.previous_end() {
+            return Vec::new();
+        }
         if self.eat(TokenKind::LBracket).is_none() {
             return Vec::new();
         }
@@ -297,36 +336,36 @@ impl Parser {
             if self.type_can_start() {
                 let checkpoint_before_key = self.tokens.checkpoint();
                 let errors_before_key = self.errors.len();
-                if let Some(key_ty) = self.parse_type() {
-                    if self.eat(TokenKind::Eq).is_some() {
-                        let key_start = key_ty.span.start;
-                        let Some(ty) = self.parse_type() else {
-                            self.error_here("expected associated type binding value");
-                            break;
-                        };
-                        let key = match &key_ty.kind {
-                            TypeKind::Path { segments } if segments.len() == 1 => {
-                                AssocBindingKey::Name(segments[0].name.clone())
-                            }
-                            TypeKind::Projection { .. } => AssocBindingKey::Projection(key_ty),
-                            _ => {
-                                self.error_at(
-                                    key_ty.span,
-                                    "associated type binding key must be a name or projection",
-                                );
-                                AssocBindingKey::Projection(key_ty)
-                            }
-                        };
-                        args.push(TypeArg::AssocBinding {
-                            key,
-                            span: Span::new(key_start, ty.span.end),
-                            ty,
-                        });
-                        if self.eat(TokenKind::Comma).is_none() {
-                            break;
+                if let Some(key_ty) = self.parse_type()
+                    && self.eat(TokenKind::Eq).is_some()
+                {
+                    let key_start = key_ty.span.start;
+                    let Some(ty) = self.parse_type() else {
+                        self.error_here("expected associated type binding value");
+                        break;
+                    };
+                    let key = match &key_ty.kind {
+                        TypeKind::Path { segments } if segments.len() == 1 => {
+                            AssocBindingKey::Name(segments[0].name.clone())
                         }
-                        continue;
+                        TypeKind::Projection { .. } => AssocBindingKey::Projection(key_ty),
+                        _ => {
+                            self.error_at(
+                                key_ty.span,
+                                "associated type binding key must be a name or projection",
+                            );
+                            AssocBindingKey::Projection(key_ty)
+                        }
+                    };
+                    args.push(TypeArg::AssocBinding {
+                        key,
+                        span: Span::new(key_start, ty.span.end),
+                        ty,
+                    });
+                    if self.eat(TokenKind::Comma).is_none() {
+                        break;
                     }
+                    continue;
                 }
                 self.tokens.rewind(checkpoint_before_key);
                 self.errors.truncate(errors_before_key);
@@ -351,7 +390,7 @@ impl Parser {
         args
     }
 
-    fn type_can_start(&self) -> bool {
+    pub(super) fn type_can_start(&self) -> bool {
         self.token_can_start_type(&self.peek().kind)
     }
 

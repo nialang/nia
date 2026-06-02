@@ -237,8 +237,8 @@ impl<'a> BodyChecker<'a> {
                                 inclusive,
                                 span,
                             } => TypedSwitchPattern::Range {
-                                start: self.lower_expr(start),
-                                end: self.lower_expr(end),
+                                start: Box::new(self.lower_expr(start)),
+                                end: Box::new(self.lower_expr(end)),
                                 inclusive: *inclusive,
                                 span: *span,
                             },
@@ -447,7 +447,10 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ArrayLiteral { elems } => TypedExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems),
             },
-            ExprKind::StructLiteral { fields } => {
+            ExprKind::TypedArrayLiteral { elems, .. } => TypedExprKind::ArrayLiteral {
+                elems: self.lower_array_elements(elems),
+            },
+            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
                 let Some(def_id) = self.nominal_global_def(ty) else {
                     return TypedExpr {
                         span: expr.span,

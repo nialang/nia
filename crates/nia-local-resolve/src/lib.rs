@@ -394,18 +394,20 @@ impl<'a> LocalResolver<'a> {
                     }
                 }
             }
-            ExprKind::ArrayLiteral { elems } => match elems {
-                nia_ast::ArrayElements::List(elems) => {
-                    for elem in elems {
-                        self.resolve_expr(elem);
+            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
+                match elems {
+                    nia_ast::ArrayElements::List(elems) => {
+                        for elem in elems {
+                            self.resolve_expr(elem);
+                        }
+                    }
+                    nia_ast::ArrayElements::Repeat { value, count } => {
+                        self.resolve_expr(value);
+                        self.resolve_expr(count);
                     }
                 }
-                nia_ast::ArrayElements::Repeat { value, count } => {
-                    self.resolve_expr(value);
-                    self.resolve_expr(count);
-                }
-            },
-            ExprKind::StructLiteral { fields } => {
+            }
+            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
                 for field in fields {
                     self.resolve_expr(&field.value);
                 }

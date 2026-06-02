@@ -11,7 +11,7 @@ use std::{cell::RefCell, collections::HashMap};
 use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
 use crate::output::LlvmCodegenOptions;
 use crate::program_index::ProgramIndex;
-use nia_backend_ir::{BackendFunction, BackendModule};
+use nia_backend_ir::{BackendFunction, BackendLayouts, BackendModule};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_layout::TypeLayout;
@@ -24,6 +24,21 @@ use nia_llvm::{
 use nia_mangle::{mangle_base_symbol, mangle_type_with};
 use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+
+type InstanceKey = (GlobalDefId, Vec<InternedTyId>);
+type InstanceTypeLookup<'ctx> = RefCell<HashMap<InstanceKey, Option<StructType<'ctx>>>>;
+type FunctionInstanceLookup<'ctx> = RefCell<HashMap<InstanceKey, Option<FunctionValue<'ctx>>>>;
+type AggregateLayoutLookup = RefCell<HashMap<InstanceKey, Option<Vec<InternedTyId>>>>;
+
+struct FunctionSignature<'a, P> {
+    param_tys: P,
+    return_type: InternedTyId,
+    is_extern: bool,
+    is_variadic: bool,
+    span: Span,
+    interner: &'a TyInterner,
+    layouts: &'a BackendLayouts,
+}
 
 pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) context: &'ctx Context,
@@ -39,25 +54,20 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) union_instances: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, StructType<'ctx>>>,
     pub(super) union_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
-    struct_instance_type_lookups:
-        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<StructType<'ctx>>>>,
-    union_instance_type_lookups:
-        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<StructType<'ctx>>>>,
+    struct_instance_type_lookups: InstanceTypeLookup<'ctx>,
+    union_instance_type_lookups: InstanceTypeLookup<'ctx>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, FunctionValue<'ctx>>>,
     pub(super) function_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, FunctionValue<'ctx>)>>,
-    function_instance_value_lookups:
-        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<FunctionValue<'ctx>>>>,
+    function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     mangled_types: RefCell<HashMap<InternedTyId, String>>,
-    struct_layout_lookups:
-        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<Vec<InternedTyId>>>>,
-    union_layout_lookups:
-        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<Vec<InternedTyId>>>>,
+    struct_layout_lookups: AggregateLayoutLookup,
+    union_layout_lookups: AggregateLayoutLookup,
     pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
     trait_object_vtable_lookups:
         RefCell<HashMap<(InternedTyId, InternedTyId), Option<GlobalValue<'ctx>>>>,

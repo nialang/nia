@@ -175,6 +175,85 @@ fn make(ptr: &const u8, xs: &[_]i32) Pair[i32] {
 }
 
 #[test]
+fn parses_typed_aggregate_literals() {
+    let (module, errors) = parse_module(
+        r#"
+struct Box[T] {
+    value: T,
+}
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn make() i32 {
+    var p = Point{x: 1, y: 2};
+    var xs = [_]i32[1, 2, 3];
+    var boxes = [_]Box[i32][Box { value: 1 }];
+    var matrix = [2][2]Box[i32][
+        [Box[i32] { value: 1 }, Box[i32] { value: 2 }],
+        [Box[i32] { value: 3 }, Box[i32] { value: 4 }],
+    ];
+    p.x + xs[0]
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[2].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(point) = &body.stmts[0].kind else {
+        panic!("expected point binding");
+    };
+    assert!(matches!(
+        point.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::TypedStructLiteral { .. })
+    ));
+    let StmtKind::Binding(array) = &body.stmts[1].kind else {
+        panic!("expected array binding");
+    };
+    assert!(matches!(
+        array.value.as_ref().map(|value| &value.kind),
+        Some(ExprKind::TypedArrayLiteral { .. })
+    ));
+    let StmtKind::Binding(generic_array) = &body.stmts[2].kind else {
+        panic!("expected generic array binding");
+    };
+    let Some(ExprKind::TypedArrayLiteral { ty, .. }) =
+        generic_array.value.as_ref().map(|value| &value.kind)
+    else {
+        panic!("expected typed generic array literal");
+    };
+    let TypeKind::Array { elem, .. } = &ty.kind else {
+        panic!("expected array type prefix");
+    };
+    let TypeKind::Path { segments } = &elem.kind else {
+        panic!("expected generic element path");
+    };
+    assert_eq!(segments[0].args.len(), 1);
+    let StmtKind::Binding(matrix) = &body.stmts[3].kind else {
+        panic!("expected matrix binding");
+    };
+    let Some(ExprKind::TypedArrayLiteral { ty, .. }) =
+        matrix.value.as_ref().map(|value| &value.kind)
+    else {
+        panic!("expected typed matrix array literal");
+    };
+    let TypeKind::Array { elem, .. } = &ty.kind else {
+        panic!("expected outer array type prefix");
+    };
+    let TypeKind::Array { elem, .. } = &elem.kind else {
+        panic!("expected inner array type prefix");
+    };
+    let TypeKind::Path { segments } = &elem.kind else {
+        panic!("expected generic matrix element path");
+    };
+    assert_eq!(segments[0].args.len(), 1);
+}
+
+#[test]
 fn parses_slice_types_and_ranges() {
     let (module, errors) = parse_module(
         r#"

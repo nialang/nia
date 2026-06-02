@@ -1,0 +1,8 @@
+import .math;
+import .palette;
+
+pub using math;
+pub using math::{Point, add};
+pub using palette::Color;
+pub using palette::Color::*;
+pub using palette::code as color_code;

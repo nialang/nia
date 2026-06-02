@@ -129,8 +129,8 @@ pub(super) fn switch_range_arm(
 ) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
         patterns: vec![TypedSwitchPattern::Range {
-            start: int_expr(start),
-            end: int_expr(end),
+            start: Box::new(int_expr(start)),
+            end: Box::new(int_expr(end)),
             inclusive,
             span: Span::default(),
         }],

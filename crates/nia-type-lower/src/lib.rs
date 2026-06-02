@@ -224,6 +224,26 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             ExprKind::TypeTarget { ty } => {
                 self.visit_type(ty);
             }
+            ExprKind::TypedArrayLiteral { ty, elems } => {
+                self.visit_type(ty);
+                match elems {
+                    nia_ast::ArrayElements::List(elems) => {
+                        for elem in elems {
+                            self.visit_expr(elem);
+                        }
+                    }
+                    nia_ast::ArrayElements::Repeat { value, count } => {
+                        self.visit_expr(value);
+                        self.visit_expr(count);
+                    }
+                }
+            }
+            ExprKind::TypedStructLiteral { ty, fields } => {
+                self.visit_type(ty);
+                for field in fields {
+                    self.visit_expr(&field.value);
+                }
+            }
             _ => nia_ast_walk::walk_expr(self, expr),
         }
     }

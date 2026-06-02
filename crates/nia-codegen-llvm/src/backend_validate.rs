@@ -13,9 +13,12 @@ use std::{
 use crate::program_index::ProgramIndex;
 use nia_backend_ir::{BackendModule, BackendProgram, BackendTraitObjectVtableFunction};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_layout::TypeLayout;
 use nia_ty::PrimitiveTy;
+
+type InstanceKey = (GlobalDefId, Vec<InternedTyId>);
+type AggregateFieldsLookup = RefCell<HashMap<InstanceKey, Option<Vec<InternedTyId>>>>;
 
 pub(super) fn validate_backend_program(
     program: &BackendProgram,
@@ -44,11 +47,9 @@ pub(super) struct BackendValidator<'a> {
     seen_types: HashSet<InternedTyId>,
     layout_cache: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
-    function_instance_ref_cache: RefCell<HashMap<(nia_ids::GlobalDefId, Vec<InternedTyId>), bool>>,
-    struct_fields_lookup_cache:
-        RefCell<HashMap<(nia_ids::GlobalDefId, Vec<InternedTyId>), Option<Vec<InternedTyId>>>>,
-    union_fields_lookup_cache:
-        RefCell<HashMap<(nia_ids::GlobalDefId, Vec<InternedTyId>), Option<Vec<InternedTyId>>>>,
+    function_instance_ref_cache: RefCell<HashMap<InstanceKey, bool>>,
+    struct_fields_lookup_cache: AggregateFieldsLookup,
+    union_fields_lookup_cache: AggregateFieldsLookup,
     local_tys: Vec<HashMap<LocalId, InternedTyId>>,
 }
 

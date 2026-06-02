@@ -1,0 +1,38 @@
+extern fn printf(fmt: &const u8, ...);
+extern fn puts(s: &const u8) i32;
+
+// `extern fn` with a body defines a C ABI-visible symbol from Nia code.
+extern fn exported_add(a: i32, b: i32) i32 {
+    a + b
+}
+
+fn add(a: i32, b: i32) i32 {
+    a + b
+}
+
+fn apply(f: &const fn(i32, i32) i32, a: i32, b: i32) i32 {
+    f(a, b)
+}
+
+fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    // Function items can be taken by address and called through function
+    // pointer values.
+    var f: &const fn(i32, i32) i32 = &const add;
+    var g = &const id[i32];
+    var applied = apply(f, 20, 1);
+    var generic = g(10);
+    var exported = exported_add(5, 6);
+
+    _ = puts(c"function pointers and extern symbols");
+    printf(
+        c"functions: applied=%d generic=%d exported=%d\n",
+        applied,
+        generic,
+        exported,
+    );
+    0
+}

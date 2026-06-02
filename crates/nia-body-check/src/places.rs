@@ -137,12 +137,48 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn check_addressable(&mut self, expr: &Expr, context: &str) {
-        if let Some(reason) = self.not_addressable_reason(expr) {
+    pub(crate) fn check_reference_target(&mut self, expr: &Expr, context: &str, is_const: bool) {
+        let ty = self.expr_types.get(&expr.span).copied();
+        self.check_reference_target_with_ty(expr, context, is_const, ty);
+    }
+
+    pub(crate) fn check_reference_target_with_ty(
+        &mut self,
+        expr: &Expr,
+        context: &str,
+        is_const: bool,
+        ty: Option<InternedTyId>,
+    ) {
+        let reason = if self.is_place_expr(expr) {
+            if is_const {
+                self.not_addressable_reason(expr)
+            } else {
+                self.not_assignable_reason(expr)
+            }
+        } else {
+            self.not_materializable_reason(ty)
+        };
+        if let Some(reason) = reason {
+            let property = if is_const {
+                "addressable"
+            } else {
+                "assignable"
+            };
             self.diagnostics.push(Diagnostic::error(
                 expr.span,
-                format!("{context} is not addressable: {reason}"),
+                format!("{context} is not {property}: {reason}"),
             ));
+        }
+    }
+
+    fn not_materializable_reason(&self, ty: Option<InternedTyId>) -> Option<&'static str> {
+        let Some(ty) = ty else {
+            return Some("expression type is not known");
+        };
+        if self.is_invalid_temporary_type(ty) {
+            Some("temporary cannot have void or never type")
+        } else {
+            None
         }
     }
 
@@ -307,9 +343,9 @@ impl<'a> BodyChecker<'a> {
         let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
         let range_ty = self.check_slice_range_bounds(range);
         if is_const {
-            self.check_addressable(lhs, "slice target");
+            self.check_reference_target(lhs, "slice target", true);
         } else {
-            self.check_assignable(lhs, "slice target");
+            self.check_reference_target(lhs, "slice target", false);
         }
         self.slice_result_type_with_context(span, lhs_ty, is_const, range_ty)
     }

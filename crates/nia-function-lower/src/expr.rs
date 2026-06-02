@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::support::{LoweringContext, SwitchPatternConditionContext, SwitchValueArmContext};
 use super::*;
 
 impl FunctionLowerer {
@@ -19,15 +20,18 @@ impl FunctionLowerer {
                 then_branch,
                 else_branch,
             } => {
+                let mut context = LoweringContext {
+                    scope,
+                    current,
+                    ops,
+                    blocks,
+                };
                 return self.lower_value_if_expr(
                     expr,
                     cond,
                     then_branch,
                     else_branch.as_deref(),
-                    scope,
-                    current,
-                    ops,
-                    blocks,
+                    &mut context,
                 );
             }
             TypedExprKind::Switch(switch) => {
@@ -298,29 +302,31 @@ impl FunctionLowerer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn lower_value_if_expr(
         &mut self,
         expr: &TypedExpr,
         cond: &TypedExpr,
         then_branch: &TypedBody,
         else_branch: Option<&TypedExpr>,
-        scope: FunctionScopeId,
-        current: &mut FunctionBlockId,
-        ops: &mut Vec<FunctionOp>,
-        blocks: &mut Vec<FunctionBlock>,
+        context: &mut LoweringContext<'_>,
     ) -> FunctionExpr {
-        let cond = self.lower_value_expr(cond, scope, current, ops, blocks);
+        let cond = self.lower_value_expr(
+            cond,
+            context.scope,
+            context.current,
+            context.ops,
+            context.blocks,
+        );
         let local = self.alloc_temp_local(expr.span, expr.ty);
         let then_target = self.alloc_block();
         let else_target = self.alloc_block();
         let merge_target = self.alloc_block();
         self.finish_block(
-            blocks,
-            *current,
-            scope,
+            context.blocks,
+            *context.current,
+            context.scope,
             expr.span,
-            std::mem::take(ops),
+            std::mem::take(context.ops),
             FunctionTerminator::If {
                 cond,
                 then_target,
@@ -329,12 +335,12 @@ impl FunctionLowerer {
             },
         );
 
-        let then_scope = self.alloc_scope(Some(scope), then_branch.span);
+        let then_scope = self.alloc_scope(Some(context.scope), then_branch.span);
         self.lower_body_into(
             then_branch,
             then_target,
             then_scope,
-            blocks,
+            context.blocks,
             Fallthrough::StoreThenBranch {
                 local_id: local,
                 target: merge_target,
@@ -344,8 +350,13 @@ impl FunctionLowerer {
         let mut else_current = else_target;
         let mut else_ops = Vec::new();
         if let Some(else_branch) = else_branch {
-            let value =
-                self.lower_value_expr(else_branch, scope, &mut else_current, &mut else_ops, blocks);
+            let value = self.lower_value_expr(
+                else_branch,
+                context.scope,
+                &mut else_current,
+                &mut else_ops,
+                context.blocks,
+            );
             else_ops.push(FunctionOp::StoreLocal {
                 local_id: local,
                 value,
@@ -353,9 +364,9 @@ impl FunctionLowerer {
             });
         }
         self.finish_block(
-            blocks,
+            context.blocks,
             else_current,
-            scope,
+            context.scope,
             else_branch.map(|expr| expr.span).unwrap_or(expr.span),
             else_ops,
             FunctionTerminator::Branch {
@@ -364,7 +375,7 @@ impl FunctionLowerer {
             },
         );
 
-        *current = merge_target;
+        *context.current = merge_target;
         FunctionExpr {
             span: expr.span,
             ty: expr.ty,
@@ -382,8 +393,13 @@ impl FunctionLowerer {
         blocks: &mut Vec<FunctionBlock>,
     ) -> FunctionExpr {
         if self.switch_has_range_patterns(switch) {
-            return self
-                .lower_value_switch_expr_as_chain(expr, switch, scope, current, ops, blocks);
+            let mut context = LoweringContext {
+                scope,
+                current,
+                ops,
+                blocks,
+            };
+            return self.lower_value_switch_expr_as_chain(expr, switch, &mut context);
         }
         let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
         let local = self.alloc_temp_local(expr.span, expr.ty);
@@ -423,15 +439,15 @@ impl FunctionLowerer {
 
         for (arm_target, arm) in lowered_arms {
             let arm_scope = self.alloc_scope(Some(scope), arm.span);
-            self.lower_value_switch_arm_body(
-                arm.span,
-                &arm.body,
-                arm_scope,
-                arm_target,
-                local,
+            let mut arm_context = SwitchValueArmContext {
+                span: arm.span,
+                scope: arm_scope,
+                entry: arm_target,
+                result_local: local,
                 merge_target,
                 blocks,
-            );
+            };
+            self.lower_value_switch_arm_body(&arm.body, &mut arm_context);
         }
 
         *current = merge_target;
@@ -442,19 +458,21 @@ impl FunctionLowerer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn lower_value_switch_expr_as_chain(
         &mut self,
         expr: &TypedExpr,
         switch: &TypedSwitch,
-        scope: FunctionScopeId,
-        current: &mut FunctionBlockId,
-        ops: &mut Vec<FunctionOp>,
-        blocks: &mut Vec<FunctionBlock>,
+        context: &mut LoweringContext<'_>,
     ) -> FunctionExpr {
-        let target_value = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
+        let target_value = self.lower_value_expr(
+            &switch.target,
+            context.scope,
+            context.current,
+            context.ops,
+            context.blocks,
+        );
         let target_local = self.alloc_temp_local(switch.target.span, switch.target.ty);
-        ops.push(FunctionOp::StoreLocal {
+        context.ops.push(FunctionOp::StoreLocal {
             local_id: target_local,
             value: target_value,
             span: switch.target.span,
@@ -483,11 +501,11 @@ impl FunctionLowerer {
         let check_blocks = tests.iter().map(|_| self.alloc_block()).collect::<Vec<_>>();
         let first_target = check_blocks.first().copied().unwrap_or(default);
         self.finish_block(
-            blocks,
-            *current,
-            scope,
+            context.blocks,
+            *context.current,
+            context.scope,
             expr.span,
-            std::mem::take(ops),
+            std::mem::take(context.ops),
             FunctionTerminator::Branch {
                 target: first_target,
                 span: expr.span,
@@ -498,26 +516,25 @@ impl FunctionLowerer {
         {
             let mut check_ops = Vec::new();
             let mut check_current = *check_block;
+            let mut condition_context = SwitchPatternConditionContext {
+                scope: context.scope,
+                current: &mut check_current,
+                ops: &mut check_ops,
+                blocks: context.blocks,
+                bool_ty: switch.bool_ty,
+            };
             let cond = self
-                .switch_pattern_condition(
-                    &target,
-                    pattern,
-                    scope,
-                    &mut check_current,
-                    &mut check_ops,
-                    blocks,
-                    switch.bool_ty,
-                )
-                .unwrap_or_else(|| FunctionExpr {
+                .switch_pattern_condition(&target, pattern, &mut condition_context)
+                .unwrap_or(FunctionExpr {
                     span: expr.span,
                     ty: switch.bool_ty,
                     kind: FunctionExprKind::Bool(true),
                 });
             let else_target = check_blocks.get(index + 1).copied().unwrap_or(default);
             self.finish_block(
-                blocks,
+                context.blocks,
                 check_current,
-                scope,
+                context.scope,
                 expr.span,
                 check_ops,
                 FunctionTerminator::If {
@@ -529,18 +546,18 @@ impl FunctionLowerer {
             );
         }
         for (arm_target, arm) in lowered_arms {
-            let arm_scope = self.alloc_scope(Some(scope), arm.span);
-            self.lower_value_switch_arm_body(
-                arm.span,
-                &arm.body,
-                arm_scope,
-                arm_target,
+            let arm_scope = self.alloc_scope(Some(context.scope), arm.span);
+            let mut arm_context = SwitchValueArmContext {
+                span: arm.span,
+                scope: arm_scope,
+                entry: arm_target,
                 result_local,
                 merge_target,
-                blocks,
-            );
+                blocks: context.blocks,
+            };
+            self.lower_value_switch_arm_body(&arm.body, &mut arm_context);
         }
-        *current = merge_target;
+        *context.current = merge_target;
         FunctionExpr {
             span: expr.span,
             ty: expr.ty,
@@ -548,52 +565,58 @@ impl FunctionLowerer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) fn lower_value_switch_arm_body(
         &mut self,
-        span: Span,
         body: &TypedSwitchArmBody,
-        scope: FunctionScopeId,
-        entry: FunctionBlockId,
-        local_id: LocalId,
-        merge_target: FunctionBlockId,
-        blocks: &mut Vec<FunctionBlock>,
+        context: &mut SwitchValueArmContext<'_>,
     ) {
         match body {
             TypedSwitchArmBody::Expr(expr) => {
-                let mut current = entry;
+                let mut current = context.entry;
                 let mut ops = Vec::new();
-                let value = self.lower_value_expr(expr, scope, &mut current, &mut ops, blocks);
+                let value = self.lower_value_expr(
+                    expr,
+                    context.scope,
+                    &mut current,
+                    &mut ops,
+                    context.blocks,
+                );
                 ops.push(FunctionOp::StoreLocal {
-                    local_id,
+                    local_id: context.result_local,
                     value,
                     span: expr.span,
                 });
                 self.finish_block(
-                    blocks,
+                    context.blocks,
                     current,
-                    scope,
-                    span,
+                    context.scope,
+                    context.span,
                     ops,
                     FunctionTerminator::Branch {
-                        target: merge_target,
-                        span,
+                        target: context.merge_target,
+                        span: context.span,
                     },
                 );
             }
             TypedSwitchArmBody::Stmt(stmt) => {
-                let mut current = entry;
+                let mut current = context.entry;
                 let mut ops = Vec::new();
-                if !self.lower_stmt_into(stmt, scope, &mut current, &mut ops, blocks) {
+                if !self.lower_stmt_into(
+                    stmt,
+                    context.scope,
+                    &mut current,
+                    &mut ops,
+                    context.blocks,
+                ) {
                     self.finish_block(
-                        blocks,
+                        context.blocks,
                         current,
-                        scope,
-                        span,
+                        context.scope,
+                        context.span,
                         ops,
                         FunctionTerminator::Branch {
-                            target: merge_target,
-                            span,
+                            target: context.merge_target,
+                            span: context.span,
                         },
                     );
                 }
@@ -601,12 +624,12 @@ impl FunctionLowerer {
             TypedSwitchArmBody::Block(body) => {
                 self.lower_body_into(
                     body,
-                    entry,
-                    scope,
-                    blocks,
+                    context.entry,
+                    context.scope,
+                    context.blocks,
                     Fallthrough::StoreThenBranch {
-                        local_id,
-                        target: merge_target,
+                        local_id: context.result_local,
+                        target: context.merge_target,
                     },
                 );
             }

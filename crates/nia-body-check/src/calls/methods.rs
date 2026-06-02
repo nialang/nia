@@ -86,9 +86,7 @@ impl<'a> BodyChecker<'a> {
             ) {
                 return Some(output);
             }
-            if BuiltinTraitMethod::from_name(name).is_none() {
-                return None;
-            }
+            BuiltinTraitMethod::from_name(name)?;
         }
         if !candidates.is_empty() {
             self.single_method_candidate(span, name, candidates)?;

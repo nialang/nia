@@ -1,6 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 
+pub(super) struct LoweringContext<'a> {
+    pub(super) scope: FunctionScopeId,
+    pub(super) current: &'a mut FunctionBlockId,
+    pub(super) ops: &'a mut Vec<FunctionOp>,
+    pub(super) blocks: &'a mut Vec<FunctionBlock>,
+}
+
+pub(super) struct SwitchPatternConditionContext<'a> {
+    pub(super) scope: FunctionScopeId,
+    pub(super) current: &'a mut FunctionBlockId,
+    pub(super) ops: &'a mut Vec<FunctionOp>,
+    pub(super) blocks: &'a mut Vec<FunctionBlock>,
+    pub(super) bool_ty: InternedTyId,
+}
+
+pub(super) struct SwitchValueArmContext<'a> {
+    pub(super) span: Span,
+    pub(super) scope: FunctionScopeId,
+    pub(super) entry: FunctionBlockId,
+    pub(super) result_local: LocalId,
+    pub(super) merge_target: FunctionBlockId,
+    pub(super) blocks: &'a mut Vec<FunctionBlock>,
+}
+
 impl FunctionLowerer {
     pub(super) fn lower_place(
         &mut self,
@@ -83,12 +107,32 @@ impl FunctionLowerer {
                 )));
                 place
             }
-            _ => FunctionPlace {
-                span: expr.span,
-                ty: expr.ty,
-                base: FunctionPlaceBase::Error,
-                elems: Vec::new(),
-            },
+            _ => self.materialize_expr_place(expr, scope, current, ops, blocks),
+        }
+    }
+
+    fn materialize_expr_place(
+        &mut self,
+        expr: &TypedExpr,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionPlace {
+        let local_id = self.alloc_temp_local(expr.span, expr.ty);
+        let value = self.lower_value_expr(expr, scope, current, ops, blocks);
+        ops.push(FunctionOp::Binding(FunctionBinding {
+            local_id,
+            name: format!("fir.tmp.{}", local_id.0),
+            ty: expr.ty,
+            value: Some(value),
+            is_const: false,
+        }));
+        FunctionPlace {
+            span: expr.span,
+            ty: expr.ty,
+            base: FunctionPlaceBase::Local(local_id),
+            elems: Vec::new(),
         }
     }
 
@@ -143,19 +187,21 @@ impl FunctionLowerer {
         &mut self,
         target: &FunctionExpr,
         pattern: &TypedSwitchPattern,
-        scope: FunctionScopeId,
-        current: &mut FunctionBlockId,
-        ops: &mut Vec<FunctionOp>,
-        blocks: &mut Vec<FunctionBlock>,
-        bool_ty: InternedTyId,
+        context: &mut SwitchPatternConditionContext<'_>,
     ) -> Option<FunctionExpr> {
         match pattern {
             TypedSwitchPattern::Default => None,
             TypedSwitchPattern::Expr(pattern) => {
-                let pattern = self.lower_value_expr(pattern, scope, current, ops, blocks);
+                let pattern = self.lower_value_expr(
+                    pattern,
+                    context.scope,
+                    context.current,
+                    context.ops,
+                    context.blocks,
+                );
                 Some(FunctionExpr {
                     span: pattern.span,
-                    ty: bool_ty,
+                    ty: context.bool_ty,
                     kind: FunctionExprKind::Binary {
                         lhs: Box::new(target.clone()),
                         op: BinaryOp::Eq,
@@ -169,11 +215,23 @@ impl FunctionLowerer {
                 inclusive,
                 span,
             } => {
-                let start = self.lower_value_expr(start, scope, current, ops, blocks);
-                let end = self.lower_value_expr(end, scope, current, ops, blocks);
+                let start = self.lower_value_expr(
+                    start,
+                    context.scope,
+                    context.current,
+                    context.ops,
+                    context.blocks,
+                );
+                let end = self.lower_value_expr(
+                    end,
+                    context.scope,
+                    context.current,
+                    context.ops,
+                    context.blocks,
+                );
                 let lower = FunctionExpr {
                     span: *span,
-                    ty: bool_ty,
+                    ty: context.bool_ty,
                     kind: FunctionExprKind::Binary {
                         lhs: Box::new(target.clone()),
                         op: BinaryOp::Ge,
@@ -182,7 +240,7 @@ impl FunctionLowerer {
                 };
                 let upper = FunctionExpr {
                     span: *span,
-                    ty: bool_ty,
+                    ty: context.bool_ty,
                     kind: FunctionExprKind::Binary {
                         lhs: Box::new(target.clone()),
                         op: if *inclusive {
@@ -195,7 +253,7 @@ impl FunctionLowerer {
                 };
                 Some(FunctionExpr {
                     span: *span,
-                    ty: bool_ty,
+                    ty: context.bool_ty,
                     kind: FunctionExprKind::Binary {
                         lhs: Box::new(lower),
                         op: BinaryOp::And,

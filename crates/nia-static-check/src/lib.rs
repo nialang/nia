@@ -83,15 +83,19 @@ impl StaticChecker<'_> {
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Bool(_) => None,
-            ExprKind::ArrayLiteral { elems } => match elems {
-                ArrayElements::List(elems) => elems
+            ExprKind::ArrayLiteral { elems } | ExprKind::TypedArrayLiteral { elems, .. } => {
+                match elems {
+                    ArrayElements::List(elems) => elems
+                        .iter()
+                        .find_map(|elem| self.static_init_reject_reason(elem)),
+                    ArrayElements::Repeat { value, .. } => self.static_init_reject_reason(value),
+                }
+            }
+            ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
+                fields
                     .iter()
-                    .find_map(|elem| self.static_init_reject_reason(elem)),
-                ArrayElements::Repeat { value, .. } => self.static_init_reject_reason(value),
-            },
-            ExprKind::StructLiteral { fields } => fields
-                .iter()
-                .find_map(|field| self.static_init_reject_reason(&field.value)),
+                    .find_map(|field| self.static_init_reject_reason(&field.value))
+            }
             ExprKind::Unary { op, expr: inner } => match op {
                 UnaryOp::Neg => self.int_const_expr_reject_reason(expr),
                 UnaryOp::Ref | UnaryOp::RefConst => self.static_address_path_reject_reason(inner),

@@ -404,10 +404,15 @@ var x = p.*;
 p.* = 1;
 ```
 
-`&place` requires a writable place. `&const place` requires an addressable place.
-Identifiers, field access, array indexing, slice indexing, and pointer
-dereference may be places. Field access and indexing inherit place-ness from
-their left-hand side.
+`&place` takes a writable reference to a place. `&const place` takes a read-only
+reference to an addressable place. Identifiers, field access, array indexing,
+slice indexing, and pointer dereference may be places. Field access and indexing
+inherit place-ness from their left-hand side.
+
+When the operand is a typed value expression rather than a place, address-of
+materializes a block-scoped temporary object and returns a pointer to that
+temporary. The temporary has the expression's runtime value type. `void` and
+`never` expressions cannot be materialized.
 
 When the pointee type is a trait name, `&Trait[...]` and `&const Trait[...]`
 denote trait object pointers, not thin object pointers. A trait object is a Nia
@@ -428,13 +433,20 @@ arguments come first, followed by associated type bindings. Binding names must
 be associated types declared by the trait, and a single object type may not bind
 the same associated type more than once.
 
-Literals, ordinary call results, arithmetic results, and struct rvalues are not
-places and cannot be addressed directly. Bind them to a local or global object
-when a stable address is needed:
+Materialized rvalue references are ordinary block-scoped temporaries. Bind a
+value to local or global storage when a stable address with a chosen lifetime is
+needed:
 
 ```nia
+fn make_i32() i32 {
+    42
+}
+
 var point: Point = { x: 10, y: 20 };
 var p: &Point = &point;
+var temp = &Point { x: 1, y: 2 };
+var answer = &42i32;
+var returned = &make_i32();
 
 const hello = c"hello";
 _ = &const hello[0];
@@ -475,6 +487,26 @@ var xs = [1, 2, 3]; // [3]i32
 
 In other expression contexts, the expected type must still supply the array
 element type and length.
+
+An array literal may also carry an explicit array type prefix:
+
+```nia
+[3]i32[1, 2, 3]
+[_]i32[1, 2, 3]
+[2][2]i32[
+    [1, 2],
+    [3, 4],
+]
+```
+
+The prefix supplies the expected array type for the literal. `[_]T[...]` infers
+the length from the literal elements. This form is useful when the literal stands
+alone, when nested array shape should be explicit, or when the literal is
+immediately materialized, for example:
+
+```nia
+var s = &const ([3]i32[1, 2, 3])[..];
+```
 
 Repeated array literals use semicolon syntax:
 
@@ -571,8 +603,8 @@ write([1, 2, 3]);
 If the source expression is an array place, conversion to `&const [T]` requires
 an addressable place; conversion to `&[T]` requires a writable place. Array and
 string literals used by this conversion create block-scoped array temporaries.
-That temporary materialization is only for array-to-slice conversion and does not
-make ordinary `&rvalue` valid.
+The same rvalue materialization rule used by address-of also permits explicit
+temporary slice construction from typed array values.
 
 Range forms:
 
@@ -648,9 +680,26 @@ Struct value construction:
 var s: String = { ptr: &const bytes[0], len: 3 };
 ```
 
-Struct literals do not carry a nominal type by themselves. The expected type must
-provide the struct type. Anonymous struct inference such as
+The common struct literal form does not carry a nominal type by itself. The
+expected type must provide the struct type. Anonymous struct inference such as
 `var p = { x: 10, y: 20 };` is not supported.
+
+```nia
+fn sum(point: Point) i32 {
+    point.x + point.y
+}
+
+var p: Point = { x: 10, y: 20 };
+var total = sum({ x: 1, y: 2 });
+```
+
+A struct literal may also carry an explicit nominal type prefix:
+
+```nia
+var p = Point { x: 10, y: 20 };
+var q = Point{x: 1, y: 2};
+var ptr = &const Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
+```
 
 Field access:
 

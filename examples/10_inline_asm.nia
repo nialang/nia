@@ -1,0 +1,20 @@
+extern fn printf(fmt: &const u8, ...);
+
+// Inline assembly is target-specific. This example demonstrates the shape of
+// the compiler-consumed `@asm` configuration. The fields are not a runtime
+// struct; they are checked and lowered by the compiler.
+fn main() i32 {
+    var value: i64 = 0;
+    @asm({
+        code:
+            b\\mov rax, rax
+            \\add rax, 0
+        ,
+        outputs: { rax: value },
+        inputs: { rax: 7 },
+        clobbers: [b"memory"],
+        options: [b"volatile"],
+    });
+    printf(c"inline asm: value=%d\n", value as i32);
+    0
+}

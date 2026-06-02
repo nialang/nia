@@ -62,18 +62,8 @@ impl Parser {
             ));
         }
 
-        let start_expr = self.parse_binary_until(
-            0,
-            &[
-                TokenKind::DotDot,
-                TokenKind::DotDotEq,
-                TokenKind::Comma,
-                TokenKind::RParen,
-                TokenKind::RBracket,
-                TokenKind::RBrace,
-                TokenKind::Semicolon,
-            ],
-        )?;
+        let range_stops = self.range_start_stops(stops);
+        let start_expr = self.parse_binary_until(0, &range_stops)?;
         if stops.iter().any(|kind| self.at(kind.clone())) {
             return Some(start_expr);
         }
@@ -118,8 +108,26 @@ impl Parser {
         Some(start_expr)
     }
 
+    fn range_start_stops(&self, stops: &[TokenKind]) -> Vec<TokenKind> {
+        let mut range_stops = stops.to_vec();
+        for stop in [
+            TokenKind::DotDot,
+            TokenKind::DotDotEq,
+            TokenKind::Comma,
+            TokenKind::RParen,
+            TokenKind::RBracket,
+            TokenKind::RBrace,
+            TokenKind::Semicolon,
+        ] {
+            if !range_stops.contains(&stop) {
+                range_stops.push(stop);
+            }
+        }
+        range_stops
+    }
+
     fn parse_binary_until(&mut self, min_prec: u8, stops: &[TokenKind]) -> Option<Expr> {
-        let mut lhs = self.parse_cast()?;
+        let mut lhs = self.parse_cast_until(stops)?;
         while let Some((op, prec)) = self.binary_op() {
             if stops.iter().any(|kind| self.at(kind.clone())) {
                 break;
@@ -142,8 +150,8 @@ impl Parser {
         Some(lhs)
     }
 
-    fn parse_cast(&mut self) -> Option<Expr> {
-        let mut expr = self.parse_unary()?;
+    fn parse_cast_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        let mut expr = self.parse_unary_until(stops)?;
         while self.eat(TokenKind::As).is_some() {
             let ty = self.parse_type()?;
             expr = self.make_expr(
@@ -157,7 +165,7 @@ impl Parser {
         Some(expr)
     }
 
-    fn parse_unary(&mut self) -> Option<Expr> {
+    fn parse_unary_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
         let start = self.peek().span.start;
         let op = if self.eat(TokenKind::Minus).is_some() {
             Some(UnaryOp::Neg)
@@ -177,7 +185,7 @@ impl Parser {
             None
         };
         if let Some(op) = op {
-            let expr = self.parse_unary()?;
+            let expr = self.parse_unary_until(stops)?;
             return Some(self.make_expr(
                 Span::new(start, expr.span.end),
                 ExprKind::Unary {
@@ -186,11 +194,11 @@ impl Parser {
                 },
             ));
         }
-        self.parse_postfix()
+        self.parse_postfix_until(stops)
     }
 
-    fn parse_postfix(&mut self) -> Option<Expr> {
-        let mut expr = self.parse_primary()?;
+    fn parse_postfix_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        let mut expr = self.parse_primary_until(stops)?;
         loop {
             if expr_can_terminate_statement_without_semicolon(&expr)
                 && self.has_line_break_between(expr.span.end, self.peek().span.start)
@@ -449,7 +457,10 @@ impl Parser {
         Some(args)
     }
 
-    fn parse_primary(&mut self) -> Option<Expr> {
+    fn parse_primary_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        if let Some(expr) = self.parse_typed_aggregate_literal(stops) {
+            return Some(expr);
+        }
         let token = self.peek().clone();
         match token.kind {
             TokenKind::Integer => Some(self.literal_expr(token, ExprKind::Integer)),
@@ -506,9 +517,51 @@ impl Parser {
         }
     }
 
+    fn parse_typed_aggregate_literal(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        if !self.type_can_start() {
+            return None;
+        }
+        let checkpoint = self.tokens.checkpoint();
+        let errors_len = self.errors.len();
+        let start = self.peek().span.start;
+        let Some(ty) = self.parse_type_before_aggregate_literal() else {
+            self.tokens.rewind(checkpoint);
+            self.errors.truncate(errors_len);
+            return None;
+        };
+        if self.at(TokenKind::LBrace) && !stops.iter().any(|kind| self.at(kind.clone())) {
+            self.expect(TokenKind::LBrace, "expected `{` before struct literal")?;
+            let fields = self.parse_struct_literal_fields()?;
+            let end = self
+                .expect(TokenKind::RBrace, "expected `}` after struct literal")?
+                .end;
+            return Some(self.make_expr(
+                Span::new(start, end),
+                ExprKind::TypedStructLiteral { ty, fields },
+            ));
+        }
+        if matches!(ty.kind, TypeKind::Array { .. })
+            && self.at(TokenKind::LBracket)
+            && !stops.iter().any(|kind| self.at(kind.clone()))
+        {
+            self.expect(TokenKind::LBracket, "expected `[` before array literal")?;
+            let elems = self.parse_array_elements_until_rbracket()?;
+            let end = self
+                .expect(TokenKind::RBracket, "expected `]` after array literal")?
+                .end;
+            return Some(self.make_expr(
+                Span::new(start, end),
+                ExprKind::TypedArrayLiteral { ty, elems },
+            ));
+        }
+        self.tokens.rewind(checkpoint);
+        self.errors.truncate(errors_len);
+        None
+    }
+
     fn parse_if_expr(&mut self) -> Option<Expr> {
         let start = self.expect(TokenKind::If, "expected `if`")?.start;
-        let cond = self.parse_expr()?;
+        let cond = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
         let then_branch = self.parse_block()?;
         let else_branch = if self.eat(TokenKind::Else).is_some() {
             if self.at(TokenKind::If) {

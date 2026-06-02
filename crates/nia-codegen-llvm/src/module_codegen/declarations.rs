@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::ModuleCodegen;
+use super::{FunctionSignature, ModuleCodegen};
 use nia_backend_ir::BackendTraitObjectVtableFunction;
 use nia_diagnostic::Diagnostic;
 use nia_llvm::module::Linkage;
@@ -152,15 +152,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             let Some(owner) = self.program.module(instance.def_id.module_id) else {
                 return Err(self.error(instance.span, "missing function owner module"));
             };
-            let ty = self.function_signature_type_in(
-                instance.params.iter().map(|param| (param.ty, param.span)),
-                instance.return_type,
-                instance.is_extern,
-                instance.is_variadic,
-                instance.span,
-                &owner.interner,
-                &owner.layouts,
-            )?;
+            let ty = self.function_signature_type_in(FunctionSignature {
+                param_tys: instance.params.iter().map(|param| (param.ty, param.span)),
+                return_type: instance.return_type,
+                is_extern: instance.is_extern,
+                is_variadic: instance.is_variadic,
+                span: instance.span,
+                interner: &owner.interner,
+                layouts: &owner.layouts,
+            })?;
             let value = self
                 .module
                 .add_function(

@@ -966,7 +966,7 @@ impl<'a> BodyChecker<'a> {
                     "receiver cannot be matched through `&const T`",
                 ));
             } else if !base.as_ref().is_some_and(|base| base.from_pointer) {
-                self.check_assignable(receiver, "receiver");
+                self.check_reference_target(receiver, "receiver", false);
             }
         }
     }

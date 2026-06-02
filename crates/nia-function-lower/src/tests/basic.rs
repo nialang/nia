@@ -106,9 +106,14 @@ fn lowers_address_of_places_to_function_place() {
 
     let function_body = lower_function_body(&body);
 
+    let tail_block = function_body
+        .blocks
+        .iter()
+        .find(|block| matches!(block.terminator, FunctionTerminator::Tail { .. }))
+        .expect("expected tail block");
     let FunctionTerminator::Tail {
         value: Some(value), ..
-    } = &function_body.blocks[0].terminator
+    } = &tail_block.terminator
     else {
         panic!("expected address-of tail value");
     };
@@ -119,7 +124,7 @@ fn lowers_address_of_places_to_function_place() {
 }
 
 #[test]
-fn malformed_address_of_lowers_to_error_place() {
+fn address_of_rvalue_materializes_temp_place() {
     let span = Span::default();
     let ty = test_ty();
     let body = TypedBody {
@@ -143,16 +148,39 @@ fn malformed_address_of_lowers_to_error_place() {
 
     let function_body = lower_function_body(&body);
 
+    let tail_block = function_body
+        .blocks
+        .iter()
+        .find(|block| matches!(block.terminator, FunctionTerminator::Tail { .. }))
+        .expect("expected tail block");
     let FunctionTerminator::Tail {
         value: Some(value), ..
-    } = &function_body.blocks[0].terminator
+    } = &tail_block.terminator
     else {
         panic!("expected address-of tail value");
     };
     let FunctionExprKind::AddrOf(place) = &value.kind else {
         panic!("expected address-of place");
     };
-    assert!(matches!(place.base, FunctionPlaceBase::Error));
+    let FunctionPlaceBase::Local(temp) = place.base else {
+        panic!("expected materialized temp local");
+    };
+    assert_eq!(function_body.locals.len(), 1);
+    assert_eq!(function_body.locals[0].id, temp);
+    let materialize_block = function_body
+        .blocks
+        .iter()
+        .find(|block| !block.ops.is_empty())
+        .expect("expected materialization block");
+    assert_eq!(materialize_block.ops.len(), 1);
+    let FunctionOp::Binding(binding) = &materialize_block.ops[0] else {
+        panic!("expected temp binding");
+    };
+    assert_eq!(binding.local_id, temp);
+    assert!(matches!(
+        binding.value.as_ref().map(|value| &value.kind),
+        Some(FunctionExprKind::Integer(_))
+    ));
 }
 
 #[test]

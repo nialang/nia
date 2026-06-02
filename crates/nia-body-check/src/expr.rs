@@ -55,6 +55,14 @@ impl<'a> BodyChecker<'a> {
             ExprKind::StructLiteral { fields } => {
                 self.check_struct_literal(expr.span, expected, fields)
             }
+            ExprKind::TypedArrayLiteral { ty, elems } => {
+                let explicit = self.ty_for_span(ty.span);
+                self.check_array_literal(expr.span, Some(explicit), elems)
+            }
+            ExprKind::TypedStructLiteral { ty, fields } => {
+                let explicit = self.ty_for_span(ty.span);
+                self.check_struct_literal(expr.span, Some(explicit), fields)
+            }
             ExprKind::Unary { op, expr: inner } => {
                 let expected_ref_target = match (op, expected.and_then(|ty| self.interner.get(ty)))
                 {
@@ -116,7 +124,7 @@ impl<'a> BodyChecker<'a> {
                                 "const reference target cannot have void or never type",
                             ));
                         }
-                        self.check_addressable(inner, "const reference target");
+                        self.check_reference_target(inner, "const reference target", true);
                         self.interner.intern(TyKind::Pointer {
                             is_const: true,
                             elem: inner_ty,
@@ -129,7 +137,7 @@ impl<'a> BodyChecker<'a> {
                                 "reference target cannot have void or never type",
                             ));
                         }
-                        self.check_assignable(inner, "reference target");
+                        self.check_reference_target(inner, "reference target", false);
                         self.interner.intern(TyKind::Pointer {
                             is_const: false,
                             elem: inner_ty,

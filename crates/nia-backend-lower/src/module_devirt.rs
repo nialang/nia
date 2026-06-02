@@ -22,17 +22,17 @@ impl<'a> ModuleLowerer<'a> {
         }
 
         for function in functions {
-            if let Some(body) = &mut function.function_body {
-                if self.devirtualize_direct_trait_calls_in_body(body) {
-                    self.record_devirtualization(function.def_id, false, 0);
-                }
+            if let Some(body) = &mut function.function_body
+                && self.devirtualize_direct_trait_calls_in_body(body)
+            {
+                self.record_devirtualization(function.def_id, false, 0);
             }
         }
         for instance in function_instances {
-            if let Some(body) = &mut instance.function_body {
-                if self.devirtualize_direct_trait_calls_in_body(body) {
-                    self.record_devirtualization(instance.def_id, true, instance.args.len());
-                }
+            if let Some(body) = &mut instance.function_body
+                && self.devirtualize_direct_trait_calls_in_body(body)
+            {
+                self.record_devirtualization(instance.def_id, true, instance.args.len());
             }
         }
     }

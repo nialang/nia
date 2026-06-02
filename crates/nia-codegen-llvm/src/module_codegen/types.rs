@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::ModuleCodegen;
+use super::{FunctionSignature, ModuleCodegen};
 use nia_backend_ir::{
     BackendField, BackendFunction, BackendFunctionInstance, BackendLayouts, BackendStructInstance,
     BackendUnionInstance,
@@ -45,62 +45,79 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
-        self.function_signature_type_in(
-            function.params.iter().map(|param| (param.ty, param.span)),
-            function.return_type,
-            function.is_extern,
-            function.is_variadic,
-            function.span,
+        self.function_signature_type_in(FunctionSignature {
+            param_tys: function.params.iter().map(|param| (param.ty, param.span)),
+            return_type: function.return_type,
+            is_extern: function.is_extern,
+            is_variadic: function.is_variadic,
+            span: function.span,
             interner,
             layouts,
-        )
+        })
     }
 
-    pub(super) fn function_signature_type_in(
+    pub(super) fn function_signature_type_in<P>(
         &self,
-        param_tys: impl IntoIterator<Item = (InternedTyId, Span)>,
-        return_type: InternedTyId,
-        is_extern: bool,
-        is_variadic: bool,
-        span: Span,
-        interner: &TyInterner,
-        layouts: &BackendLayouts,
-    ) -> Result<FunctionType<'ctx>, Diagnostic> {
-        if is_extern {
+        signature: FunctionSignature<'_, P>,
+    ) -> Result<FunctionType<'ctx>, Diagnostic>
+    where
+        P: IntoIterator<Item = (InternedTyId, Span)>,
+    {
+        if signature.is_extern {
             return self.c_function_type_in(
-                param_tys,
-                return_type,
-                is_variadic,
-                span,
-                interner,
-                layouts,
+                signature.param_tys,
+                signature.return_type,
+                signature.is_variadic,
+                signature.span,
+                signature.interner,
+                signature.layouts,
             );
         }
         let mut llvm_params = Vec::<BasicMetadataTypeEnum<'ctx>>::new();
-        if let AbiReturn::IndirectOut(ty) = self.classify_return_in(return_type, interner, layouts)
+        if let AbiReturn::IndirectOut(ty) =
+            self.classify_return_in(signature.return_type, signature.interner, signature.layouts)
         {
-            llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
+            llvm_params.push(self.pointer_abi_type(
+                ty,
+                signature.span,
+                signature.interner,
+                signature.layouts,
+            )?);
         }
-        for param in
-            self.classify_params_in(param_tys.into_iter().map(|(ty, _)| ty), interner, layouts)
-        {
+        for param in self.classify_params_in(
+            signature.param_tys.into_iter().map(|(ty, _)| ty),
+            signature.interner,
+            signature.layouts,
+        ) {
             match param {
                 AbiParam::Direct(ty) => {
-                    llvm_params.push(self.llvm_basic_type_in(ty, span, interner, layouts)?);
+                    llvm_params.push(self.llvm_basic_type_in(
+                        ty,
+                        signature.span,
+                        signature.interner,
+                        signature.layouts,
+                    )?);
                 }
                 AbiParam::IndirectReadonly(ty) => {
-                    llvm_params.push(self.pointer_abi_type(ty, span, interner, layouts)?);
+                    llvm_params.push(self.pointer_abi_type(
+                        ty,
+                        signature.span,
+                        signature.interner,
+                        signature.layouts,
+                    )?);
                 }
                 AbiParam::Omit => {}
             }
         }
-        match self.classify_return_in(return_type, interner, layouts) {
+        match self.classify_return_in(signature.return_type, signature.interner, signature.layouts)
+        {
             AbiReturn::Direct(ty) => Ok(self
-                .llvm_basic_type_in(ty, span, interner, layouts)?
-                .fn_type(&llvm_params, is_variadic)),
-            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => {
-                Ok(self.context.void_type().fn_type(&llvm_params, is_variadic))
-            }
+                .llvm_basic_type_in(ty, signature.span, signature.interner, signature.layouts)?
+                .fn_type(&llvm_params, signature.is_variadic)),
+            AbiReturn::Void | AbiReturn::IndirectOut(_) | AbiReturn::Never => Ok(self
+                .context
+                .void_type()
+                .fn_type(&llvm_params, signature.is_variadic)),
         }
     }
 
