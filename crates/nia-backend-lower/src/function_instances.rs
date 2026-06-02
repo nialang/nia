@@ -411,7 +411,10 @@ impl<'a> ModuleLowerer<'a> {
         if args.is_empty() || def_id.module_id != self.input.module_id {
             return;
         }
-        if args.iter().any(|arg| self.ty_contains_generic_param(*arg)) {
+        if args
+            .iter()
+            .any(|arg| self.cached_ty_contains_generic_param(*arg))
+        {
             return;
         }
         let arg_module_id = args
@@ -436,52 +439,174 @@ impl<'a> ModuleLowerer<'a> {
         queue.push(def_id, arg_module_id, key.2, symbol);
     }
 
-    fn ty_contains_generic_param(&self, ty: InternedTyId) -> bool {
-        match self.ty_kind(ty) {
-            Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
-                self.ty_contains_generic_param(*elem)
-            }
-            Some(TyKind::Array { elem, .. }) => self.ty_contains_generic_param(*elem),
-            Some(TyKind::Range { bound, .. }) => {
-                bound.is_some_and(|bound| self.ty_contains_generic_param(bound))
-            }
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            }) => {
-                params
-                    .iter()
-                    .any(|param| self.ty_contains_generic_param(*param))
-                    || self.ty_contains_generic_param(*return_type)
-            }
-            Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => {
-                args.iter().any(|arg| self.ty_contains_generic_param(*arg))
-            }
-            Some(TyKind::TraitObject {
-                trait_args,
-                associated_type_bindings,
-                ..
-            }) => {
-                trait_args
-                    .iter()
-                    .any(|arg| self.ty_contains_generic_param(*arg))
-                    || associated_type_bindings
-                        .iter()
-                        .any(|(_, ty)| self.ty_contains_generic_param(*ty))
-            }
-            Some(TyKind::Projection {
-                self_ty,
-                trait_args,
-                ..
-            }) => {
-                self.ty_contains_generic_param(*self_ty)
-                    || trait_args
-                        .iter()
-                        .any(|arg| self.ty_contains_generic_param(*arg))
-            }
-            Some(TyKind::Primitive(_) | TyKind::Error) | None => false,
+    fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
+        let body_interner = &self.input.body_check.ir.interner;
+        let extension_interner = self.input.extension_interner;
+        contains_generic_param(
+            ty,
+            &mut |ty| {
+                if ty.interner_id == body_interner.interner_id() {
+                    return body_interner.get(ty).cloned();
+                }
+                if let Some(extension_interner) = extension_interner
+                    && ty.interner_id == extension_interner.interner_id()
+                {
+                    return extension_interner.get(ty).cloned();
+                }
+                None
+            },
+            Some(&mut self.generic_param_presence),
+        )
+    }
+}
+
+pub(crate) fn contains_generic_param(
+    ty: InternedTyId,
+    ty_kind: &mut impl FnMut(InternedTyId) -> Option<TyKind>,
+    mut cache: Option<&mut HashMap<InternedTyId, bool>>,
+) -> bool {
+    if let Some(cache) = cache.as_deref()
+        && let Some(cached) = cache.get(&ty)
+    {
+        return *cached;
+    }
+    let contains = match ty_kind(ty) {
+        Some(TyKind::GenericParam(_)) => true,
+        Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
+            contains_generic_param(elem, ty_kind, cache.as_deref_mut())
         }
+        Some(TyKind::Array { elem, .. }) => {
+            contains_generic_param(elem, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::Range { bound, .. }) => {
+            bound.is_some_and(|bound| contains_generic_param(bound, ty_kind, cache.as_deref_mut()))
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            ..
+        }) => {
+            params
+                .iter()
+                .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
+                || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+            .iter()
+            .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut())),
+        Some(TyKind::TraitObject {
+            trait_args,
+            associated_type_bindings,
+            ..
+        }) => {
+            trait_args
+                .iter()
+                .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                || associated_type_bindings
+                    .iter()
+                    .any(|(_, ty)| contains_generic_param(*ty, ty_kind, cache.as_deref_mut()))
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_args,
+            ..
+        }) => {
+            contains_generic_param(self_ty, ty_kind, cache.as_deref_mut())
+                || trait_args
+                    .iter()
+                    .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+        }
+        Some(TyKind::Primitive(_) | TyKind::Error) | None => false,
+    };
+    if let Some(cache) = cache {
+        cache.insert(ty, contains);
+    }
+    contains
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::{ModuleId, TyInternerIndex};
+    use nia_ty::PrimitiveTy;
+
+    #[test]
+    fn generic_param_presence_cache_reuses_recursive_results() {
+        let generic = test_ty(0);
+        let pointer = test_ty(1);
+        let mut calls = 0;
+        let mut cache = HashMap::new();
+
+        let first = contains_generic_param(
+            pointer,
+            &mut |ty| {
+                calls += 1;
+                match ty.index.index() {
+                    0 => Some(TyKind::GenericParam("T".to_string())),
+                    1 => Some(TyKind::Pointer {
+                        is_const: true,
+                        elem: generic,
+                    }),
+                    _ => None,
+                }
+            },
+            Some(&mut cache),
+        );
+        let first_calls = calls;
+        let second = contains_generic_param(
+            pointer,
+            &mut |_| {
+                calls += 1;
+                None
+            },
+            Some(&mut cache),
+        );
+
+        assert!(first);
+        assert!(second);
+        assert_eq!(first_calls, 2);
+        assert_eq!(calls, first_calls);
+    }
+
+    #[test]
+    fn generic_param_presence_cache_reuses_negative_results() {
+        let int = test_ty(0);
+        let slice = test_ty(1);
+        let mut calls = 0;
+        let mut cache = HashMap::new();
+
+        let first = contains_generic_param(
+            slice,
+            &mut |ty| {
+                calls += 1;
+                match ty.index.index() {
+                    0 => Some(TyKind::Primitive(PrimitiveTy::I32)),
+                    1 => Some(TyKind::Slice {
+                        is_const: false,
+                        elem: int,
+                    }),
+                    _ => None,
+                }
+            },
+            Some(&mut cache),
+        );
+        let first_calls = calls;
+        let second = contains_generic_param(
+            slice,
+            &mut |_| {
+                calls += 1;
+                None
+            },
+            Some(&mut cache),
+        );
+
+        assert!(!first);
+        assert!(!second);
+        assert_eq!(first_calls, 2);
+        assert_eq!(calls, first_calls);
+    }
+
+    fn test_ty(index: u32) -> InternedTyId {
+        InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(index))
     }
 }

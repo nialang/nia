@@ -200,6 +200,9 @@ Current Nia-owned optimization consumers:
   Generic parameter lists discovered from extension target types are cached by
   target type id, avoiding repeated recursive scans across trait-method and
   builtin-operator resolution.
+  Function-instance discovery caches whether each lowered type contains generic
+  parameters, so repeated instance-call scans do not recursively re-walk the
+  same nested type shapes while rejecting still-generic call arguments.
   Module-level DCE also builds per-pass indexes from function ids and instance
   refs to bodies, then walks transitive reachability with queues instead of
   repeatedly scanning every lowered function for each discovered reference.
