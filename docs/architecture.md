@@ -118,7 +118,9 @@ Current Nia-owned optimization consumers:
   expanding generic bodies are substituted through a per-module working
   interner and a substitution-id cache, so recursive pointer, slice, array,
   nominal, and projection shapes are instantiated once for a given substitution
-  map instead of cloning interners for every edge.
+  map instead of cloning interners for every edge. The substitution id is built
+  directly from the effective generic parameter order, avoiding a clone-and-sort
+  pass for every nested generic edge.
 - `nia-backend-lower` consumes the policy while lowering function bodies into
   backend IR. Backend passes are selected from policy capabilities, not directly
   from the user-facing level. Cheap dead-code elimination enables same-type cast
