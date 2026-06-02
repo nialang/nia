@@ -27,6 +27,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .entry(item.def_id)
                 .or_default()
                 .push((item.args.clone(), ty));
+            self.struct_instance_type_lookups.borrow_mut().clear();
         }
         for item in self.program.unions.values() {
             let name = self.struct_symbol_name(item.def_id, &item.name);
@@ -49,6 +50,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .entry(item.def_id)
                 .or_default()
                 .push((item.args.clone(), ty));
+            self.union_instance_type_lookups.borrow_mut().clear();
         }
         Ok(())
     }
@@ -179,6 +181,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .entry(instance.def_id)
                 .or_default()
                 .push((instance.args.clone(), value));
+            self.function_instance_value_lookups.borrow_mut().clear();
         }
         Ok(())
     }

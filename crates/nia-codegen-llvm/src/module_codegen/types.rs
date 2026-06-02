@@ -731,21 +731,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
+        let key = (def_id, args.to_vec());
+        if let Some(cached) = self.struct_instance_type_lookups.borrow().get(&key) {
+            return *cached;
+        }
         if let Some(ty) = self
             .struct_instances
             .get(&def_id)
             .and_then(|instances| instances.get(args))
             .copied()
         {
+            self.struct_instance_type_lookups
+                .borrow_mut()
+                .insert(key, Some(ty));
             return Some(ty);
         }
-        self.struct_instances_by_def
+        let ty = self
+            .struct_instances_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
             .find_map(|(candidate_args, ty)| {
                 self.same_type_args(args, candidate_args).then_some(*ty)
-            })
+            });
+        self.struct_instance_type_lookups
+            .borrow_mut()
+            .insert(key, ty);
+        ty
     }
 
     fn struct_instance_item(
@@ -770,21 +782,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<StructType<'ctx>> {
+        let key = (def_id, args.to_vec());
+        if let Some(cached) = self.union_instance_type_lookups.borrow().get(&key) {
+            return *cached;
+        }
         if let Some(ty) = self
             .union_instances
             .get(&def_id)
             .and_then(|instances| instances.get(args))
             .copied()
         {
+            self.union_instance_type_lookups
+                .borrow_mut()
+                .insert(key, Some(ty));
             return Some(ty);
         }
-        self.union_instances_by_def
+        let ty = self
+            .union_instances_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
             .find_map(|(candidate_args, ty)| {
                 self.same_type_args(args, candidate_args).then_some(*ty)
-            })
+            });
+        self.union_instance_type_lookups
+            .borrow_mut()
+            .insert(key, ty);
+        ty
     }
 
     fn union_instance_item(
@@ -834,21 +858,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<FunctionValue<'ctx>> {
+        let key = (def_id, args.to_vec());
+        if let Some(cached) = self.function_instance_value_lookups.borrow().get(&key) {
+            return *cached;
+        }
         if let Some(value) = self
             .function_instances
             .get(&(def_id, self.source.id))
             .and_then(|instances| instances.get(args))
             .copied()
         {
+            self.function_instance_value_lookups
+                .borrow_mut()
+                .insert(key, Some(value));
             return Some(value);
         }
-        self.function_instances_by_def
+        let value = self
+            .function_instances_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
             .find_map(|(candidate_args, value)| {
                 self.same_type_args(args, candidate_args).then_some(*value)
-            })
+            });
+        self.function_instance_value_lookups
+            .borrow_mut()
+            .insert(key, value);
+        value
     }
 
     pub(super) fn same_type_args(&self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
