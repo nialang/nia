@@ -858,6 +858,17 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if left == right {
             return true;
         }
+        if let Some(cached) = self.same_type_cache.borrow().get(&(left, right)) {
+            return *cached;
+        }
+        let same = self.compute_same_type(left, right);
+        let mut cache = self.same_type_cache.borrow_mut();
+        cache.insert((left, right), same);
+        cache.insert((right, left), same);
+        same
+    }
+
+    fn compute_same_type(&self, left: InternedTyId, right: InternedTyId) -> bool {
         match (self.ty_kind(left), self.ty_kind(right)) {
             (Some(TyKind::Error), Some(TyKind::Error)) => true,
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,

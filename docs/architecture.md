@@ -226,7 +226,10 @@ Current Nia-owned optimization consumers:
   from the index. Module codegen also memoizes trait-object vtable global
   lookup results after the exact key fast path, so repeated coercions avoid
   rescanning declared vtables. Structural type-argument matching is retained as
-  a fallback for cross-interner cases. Function-instance declarations derive
+  a fallback for cross-interner cases, and module codegen memoizes structural
+  type equality pairs so repeated layout, function-instance, and vtable fallback
+  lookups do not recursively compare the same nested types. Function-instance
+  declarations derive
   their LLVM function type directly from the signature helper, so declarations
   do not need to construct temporary backend function bodies or clone instance
   bodies. Function-instance body emission also uses a borrowed codegen signature

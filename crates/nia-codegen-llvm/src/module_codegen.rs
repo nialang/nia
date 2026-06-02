@@ -46,6 +46,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, FunctionValue<'ctx>)>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
+    same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
     trait_object_vtable_lookups:
         RefCell<HashMap<(InternedTyId, InternedTyId), Option<GlobalValue<'ctx>>>>,
@@ -77,6 +78,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             function_instances_by_def: HashMap::new(),
             globals: HashMap::new(),
             layouts: RefCell::new(HashMap::new()),
+            same_type_cache: RefCell::new(HashMap::new()),
             trait_object_vtables: HashMap::new(),
             trait_object_vtable_lookups: RefCell::new(HashMap::new()),
         })
