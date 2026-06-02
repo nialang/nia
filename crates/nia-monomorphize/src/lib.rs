@@ -88,7 +88,7 @@ struct MonoCollector<'a> {
     working_interners_by_module: HashMap<ModuleId, TyInterner>,
     instantiations_by_source: HashMap<GlobalDefId, Vec<usize>>,
     source_instantiation_edges: Vec<SourceInstantiationEdge>,
-    recorded_generics_by_def: HashMap<GlobalDefId, Vec<Vec<String>>>,
+    recorded_generics_by_def: HashMap<GlobalDefId, Vec<String>>,
     instances: Vec<MonoInstance>,
     seen: HashSet<MonoInstanceKey>,
     expanded: HashSet<MonoInstanceKey>,
@@ -173,7 +173,7 @@ impl MonoCollector<'_> {
     }
 
     fn compute_effective_generics(&self, def_id: GlobalDefId) -> Vec<String> {
-        if let Some(generics) = self.first_non_empty_recorded_generics(def_id) {
+        if let Some(generics) = self.recorded_generics(def_id) {
             return generics.to_vec();
         }
         let Some(defs) = self.defs_by_module.get(&def_id.module_id) else {
@@ -214,15 +214,12 @@ impl MonoCollector<'_> {
     }
 
     fn has_recorded_generics(&self, def_id: GlobalDefId) -> bool {
-        self.recorded_generics_by_def
-            .get(&def_id)
-            .is_some_and(|all| all.iter().any(|generics| !generics.is_empty()))
+        self.recorded_generics_by_def.contains_key(&def_id)
     }
 
-    fn first_non_empty_recorded_generics(&self, def_id: GlobalDefId) -> Option<&[String]> {
+    fn recorded_generics(&self, def_id: GlobalDefId) -> Option<&[String]> {
         self.recorded_generics_by_def
             .get(&def_id)
-            .and_then(|all| all.iter().find(|generics| !generics.is_empty()))
             .map(Vec::as_slice)
     }
 
@@ -262,13 +259,10 @@ impl MonoCollector<'_> {
             let edge_module_id = edge.module_id;
             let edge_def_id = edge.def_id;
             let edge_span = edge.span;
+            let edge_args = edge.args.clone();
             if !self.is_generic_def(edge_def_id) {
                 continue;
             }
-            let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
-                continue;
-            };
-            let edge_args = edge.args.clone();
             let args = self.instantiate_args(edge_module_id, &edge_args, substitution_id);
             let edge_key = MonoInstanceKey {
                 def_id: edge_def_id,
@@ -620,15 +614,14 @@ fn collect_source_instantiation_edges(
 
 fn collect_recorded_generics_by_def(
     inputs: &[MonomorphizeModuleInput<'_>],
-) -> HashMap<GlobalDefId, Vec<Vec<String>>> {
-    let mut generics = HashMap::<GlobalDefId, Vec<Vec<String>>>::new();
+) -> HashMap<GlobalDefId, Vec<String>> {
+    let mut generics = HashMap::<GlobalDefId, Vec<String>>::new();
     for input in inputs {
         for instantiation in input.instantiations {
             if !instantiation.generics.is_empty() {
                 generics
                     .entry(instantiation.def_id)
-                    .or_default()
-                    .push(instantiation.generics.clone());
+                    .or_insert_with(|| instantiation.generics.clone());
             }
         }
     }
@@ -951,10 +944,9 @@ fn wrap[T](value: T) T { value }
             def_id: nia_ids::DefId(0),
         };
         let mut collector = empty_collector();
-        collector.recorded_generics_by_def.insert(
-            def_id,
-            vec![Vec::new(), vec!["T".to_string(), "U".to_string()]],
-        );
+        collector
+            .recorded_generics_by_def
+            .insert(def_id, vec!["T".to_string(), "U".to_string()]);
 
         assert_eq!(
             collector.effective_generics_for(def_id),
