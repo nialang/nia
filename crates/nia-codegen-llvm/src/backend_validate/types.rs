@@ -230,10 +230,20 @@ impl BackendValidator<'_> {
                         })
                 } else {
                     self.index
-                        .struct_instance_layouts(*def_id)
-                        .find_map(|item| {
-                            self.same_type_args(&item.key.args, args)
-                                .then_some(item.layout.layout.clone())
+                        .struct_instance_layout(*def_id, args)
+                        .map(|layout| layout.layout.clone())
+                        .or_else(|| {
+                            self.index
+                                .union_instance_layout(*def_id, args)
+                                .map(|layout| layout.layout.clone())
+                        })
+                        .or_else(|| {
+                            self.index
+                                .struct_instance_layouts(*def_id)
+                                .find_map(|item| {
+                                    self.same_type_args(&item.key.args, args)
+                                        .then_some(item.layout.layout.clone())
+                                })
                         })
                         .or_else(|| {
                             self.index.union_instance_layouts(*def_id).find_map(|item| {
