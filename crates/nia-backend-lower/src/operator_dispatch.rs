@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use crate::ModuleLowerer;
-use nia_defs::VisibleExtensionTarget;
+use crate::{ExtensionTraitMethodCandidate, ExtensionTraitMethodKey, ModuleLowerer};
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding,
     FunctionBuiltinOperator, FunctionBuiltinOperatorOp, FunctionCallee, FunctionDeferBody,
@@ -647,15 +646,21 @@ impl<'a> ModuleLowerer<'a> {
         method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let key = ExtensionTraitMethodKey {
+            trait_id: TraitId::Builtin(trait_id),
+            method_name: method_name.to_string(),
+            trait_arg_count: trait_args.len(),
+        };
+        let candidates = self
+            .extension_trait_method_candidates
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
         let mut candidate = None;
-        for target in self.input.extensions.targets() {
-            let Some(next) = self.builtin_impl_method_for_target(
-                target,
-                trait_id,
-                trait_args,
-                method_name,
-                self_ty,
-            ) else {
+        for next_candidate in &candidates {
+            let Some(next) =
+                self.builtin_impl_method_for_candidate(next_candidate, trait_args, self_ty)
+            else {
                 continue;
             };
             if candidate.is_some() {
@@ -676,52 +681,37 @@ impl<'a> ModuleLowerer<'a> {
         self.resolve_builtin_extension_impl_method(trait_id, trait_args, method.name(), self_ty)
     }
 
-    fn builtin_impl_method_for_target(
+    fn builtin_impl_method_for_candidate(
         &mut self,
-        target: &VisibleExtensionTarget,
-        trait_id: BuiltinTrait,
+        candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
-        method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let method_def_id =
-            self.match_builtin_extension_method(target, trait_id, trait_args, method_name)?;
+        if !self.builtin_extension_trait_args_match(candidate, trait_args) {
+            return None;
+        }
         let mut substitutions = HashMap::new();
-        if !self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions) {
+        if !self.match_extension_type_pattern(candidate.target_ty, self_ty, &mut substitutions) {
             return None;
         }
         let args = self
-            .generic_params_in_extension_ty(target.target_ty)
+            .generic_params_in_extension_ty(candidate.target_ty)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
-        Some((method_def_id, args))
+        Some((candidate.method_def_id, args))
     }
 
-    fn match_builtin_extension_method(
+    fn builtin_extension_trait_args_match(
         &self,
-        target: &VisibleExtensionTarget,
-        trait_id: BuiltinTrait,
+        candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
-        method_name: &str,
-    ) -> Option<GlobalDefId> {
-        target
-            .methods
+    ) -> bool {
+        candidate
+            .trait_args
             .iter()
-            .find(|method| {
-                if method.name != method_name
-                    || method.trait_id != Some(TraitId::Builtin(trait_id))
-                    || method.trait_args.len() != trait_args.len()
-                {
-                    return false;
-                }
-                method
-                    .trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| self.types_match(*actual, *expected))
-            })
-            .map(|method| method.def_id)
+            .zip(trait_args)
+            .all(|(actual, expected)| self.types_match(*actual, *expected))
     }
 
     fn builtin_operator_resolution(
