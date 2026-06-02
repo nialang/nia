@@ -54,6 +54,10 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     mangled_types: RefCell<HashMap<InternedTyId, String>>,
+    struct_layout_lookups:
+        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<Vec<InternedTyId>>>>,
+    union_layout_lookups:
+        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<Vec<InternedTyId>>>>,
     pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
     trait_object_vtable_lookups:
         RefCell<HashMap<(InternedTyId, InternedTyId), Option<GlobalValue<'ctx>>>>,
@@ -90,6 +94,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
             mangled_types: RefCell::new(HashMap::new()),
+            struct_layout_lookups: RefCell::new(HashMap::new()),
+            union_layout_lookups: RefCell::new(HashMap::new()),
             trait_object_vtables: HashMap::new(),
             trait_object_vtable_lookups: RefCell::new(HashMap::new()),
         })

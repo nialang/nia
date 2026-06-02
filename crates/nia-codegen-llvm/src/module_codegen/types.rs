@@ -691,16 +691,28 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if args.is_empty() {
             self.program.union_layout(def_id)
         } else {
-            self.program
-                .union_instance_layout(def_id, args)
-                .or_else(|| {
-                    self.program
-                        .union_instance_layouts(def_id)
-                        .find_map(|item| {
-                            self.same_type_args(&item.key.args, args)
-                                .then_some(item.layout)
-                        })
-                })
+            if let Some(layout) = self.program.union_instance_layout(def_id, args) {
+                return Some(layout);
+            }
+            let key = (def_id, args.to_vec());
+            if let Some(cached_args) = self.union_layout_lookups.borrow().get(&key).cloned() {
+                return cached_args
+                    .as_deref()
+                    .and_then(|args| self.program.union_instance_layout(def_id, args));
+            }
+            let matched_args = self
+                .program
+                .union_instance_layouts(def_id)
+                .find_map(|item| {
+                    self.same_type_args(&item.key.args, args)
+                        .then(|| item.key.args.clone())
+                });
+            self.union_layout_lookups
+                .borrow_mut()
+                .insert(key, matched_args.clone());
+            matched_args
+                .as_deref()
+                .and_then(|args| self.program.union_instance_layout(def_id, args))
         }
     }
 
@@ -713,16 +725,28 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if args.is_empty() {
             self.program.struct_layout(def_id)
         } else {
-            self.program
-                .struct_instance_layout(def_id, args)
-                .or_else(|| {
-                    self.program
-                        .struct_instance_layouts(def_id)
-                        .find_map(|item| {
-                            self.same_type_args(&item.key.args, args)
-                                .then_some(item.layout)
-                        })
-                })
+            if let Some(layout) = self.program.struct_instance_layout(def_id, args) {
+                return Some(layout);
+            }
+            let key = (def_id, args.to_vec());
+            if let Some(cached_args) = self.struct_layout_lookups.borrow().get(&key).cloned() {
+                return cached_args
+                    .as_deref()
+                    .and_then(|args| self.program.struct_instance_layout(def_id, args));
+            }
+            let matched_args = self
+                .program
+                .struct_instance_layouts(def_id)
+                .find_map(|item| {
+                    self.same_type_args(&item.key.args, args)
+                        .then(|| item.key.args.clone())
+                });
+            self.struct_layout_lookups
+                .borrow_mut()
+                .insert(key, matched_args.clone());
+            matched_args
+                .as_deref()
+                .and_then(|args| self.program.struct_instance_layout(def_id, args))
         }
     }
 
