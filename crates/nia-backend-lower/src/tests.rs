@@ -2509,6 +2509,11 @@ fn main() i32 {
     );
     assert!(
         o3.optimization_report
+            .enabled_module_passes
+            .contains(&"devirtualize-direct-trait-calls")
+    );
+    assert!(
+        o3.optimization_report
             .enabled_function_passes
             .contains(&"propagate-local-constants")
     );
