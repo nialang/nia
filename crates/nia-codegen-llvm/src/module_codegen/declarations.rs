@@ -232,6 +232,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn declare_trait_object_vtables(&mut self) -> Result<(), Diagnostic> {
         let ptr_ty = self.context.ptr_type(Default::default());
+        let mut inserted_vtable = false;
         for module in self.program.modules.values() {
             for vtable in &module.trait_object_vtables {
                 if self
@@ -281,7 +282,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 self.trait_object_vtables
                     .insert((vtable.key.self_ty, vtable.key.object_ty), global);
+                inserted_vtable = true;
             }
+        }
+        if inserted_vtable {
+            self.trait_object_vtable_lookups.borrow_mut().clear();
         }
         Ok(())
     }

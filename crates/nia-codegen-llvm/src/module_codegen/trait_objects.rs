@@ -10,18 +10,25 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self_ty: InternedTyId,
         object_ty: InternedTyId,
     ) -> Option<nia_llvm::values::GlobalValue<'ctx>> {
-        self.trait_object_vtables
-            .get(&(self_ty, object_ty))
-            .copied()
-            .or_else(|| {
-                self.trait_object_vtables
-                    .iter()
-                    .find(|((candidate_self, candidate_object), _)| {
-                        self.same_type(*candidate_self, self_ty)
-                            && self.same_type(*candidate_object, object_ty)
-                    })
-                    .map(|(_, global)| *global)
+        let key = (self_ty, object_ty);
+        if let Some(global) = self.trait_object_vtables.get(&key).copied() {
+            return Some(global);
+        }
+        if let Some(cached) = self.trait_object_vtable_lookups.borrow().get(&key) {
+            return *cached;
+        }
+        let resolved = self
+            .trait_object_vtables
+            .iter()
+            .find(|((candidate_self, candidate_object), _)| {
+                self.same_type(*candidate_self, self_ty)
+                    && self.same_type(*candidate_object, object_ty)
             })
+            .map(|(_, global)| *global);
+        self.trait_object_vtable_lookups
+            .borrow_mut()
+            .insert(key, resolved);
+        resolved
     }
 
     pub(crate) fn trait_object_method_slot(
