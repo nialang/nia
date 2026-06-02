@@ -144,12 +144,15 @@ Current Nia-owned optimization consumers:
   Full local-copy propagation enables local copy propagation, including
   independent propagation inside defer bodies. Aggressive constant folding plus
   aggressive local propagation enables local constant propagation for O3,
-  including inside defer bodies, but not for size-oriented modes. Full
-  dead-code elimination enables overwritten-store cleanup, never-read local
-  store cleanup, and unused user local binding cleanup. Full constant folding
-  or size-oriented policy also canonicalizes static initializers: all-zero
-  static data becomes `Zero`, and repeated array, byte-string, and char-string
-  data becomes `Repeat`.
+  including inside defer bodies, but not for size-oriented modes. `O3` also
+  enables a conservative module-level cross-function constant propagation pass:
+  calls to no-argument leaf functions or function instances that return a
+  backend constant are replaced with that constant and reported separately from
+  leaf inlining. Full dead-code elimination enables overwritten-store cleanup,
+  never-read local store cleanup, and unused user local binding cleanup. Full
+  constant folding or size-oriented policy also canonicalizes static
+  initializers: all-zero static data becomes `Zero`, and repeated array,
+  byte-string, and char-string data becomes `Repeat`.
   Module-level leaf inlining is gated by `inline_threshold`: `O0` disables it,
   `O1` inlines only no-argument leaf functions that return a backend constant.
   `Os` and `Oz` also inline single-parameter forwarding wrappers that return

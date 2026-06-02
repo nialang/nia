@@ -2,6 +2,7 @@
 mod function_instances;
 mod instantiate;
 mod items;
+mod module_const_prop;
 mod module_dce;
 mod module_devirt;
 mod module_inline;
@@ -124,11 +125,14 @@ pub fn lower_backend_program(
 
 fn enabled_module_passes(optimization: &OptimizationPolicy) -> Vec<&'static str> {
     let mut passes = Vec::new();
-    if !matches!(optimization.inline_threshold, InlineThreshold::Never) {
-        passes.push(module_inline::INLINE_LEAF_FUNCTIONS_PASS);
-    }
     if optimization.level == nia_opt::NiaOptimizationLevel::O3 {
         passes.push(module_devirt::DEVIRTUALIZE_DIRECT_TRAIT_CALLS_PASS);
+    }
+    if module_const_prop::cross_function_constant_propagation_enabled(optimization) {
+        passes.push(module_const_prop::PROPAGATE_CROSS_FUNCTION_CONSTANTS_PASS);
+    }
+    if !matches!(optimization.inline_threshold, InlineThreshold::Never) {
+        passes.push(module_inline::INLINE_LEAF_FUNCTIONS_PASS);
     }
     if optimization
         .dead_code_elim
@@ -335,6 +339,7 @@ impl<'a> ModuleLowerer<'a> {
             &function_instances,
         );
         self.devirtualize_direct_trait_calls(&mut functions, &mut function_instances);
+        self.propagate_cross_function_constants(&mut functions, &mut function_instances);
         self.inline_leaf_functions(&mut functions, &mut function_instances);
         self.remove_unused_private_functions(
             &mut functions,
