@@ -680,6 +680,16 @@ also emit repeated byte-array initializers as equivalent constant strings; this
 is a backend-visible encoding choice for the same `[N]u8` object, not a new
 static data representation.
 
+Aggregate codegen cleanup is also representation-preserving. An aggregate
+literal may be materialized directly into local storage, an indirect readonly
+argument copy, or the function's hidden aggregate return storage instead of
+first building a separate temporary aggregate value and copying it. Likewise, an
+aggregate-returning call may reuse the destination local, indirect argument
+copy, or hidden return pointer as its out pointer when doing so preserves defer
+and initializer evaluation order. These choices may remove temporary storage and
+copies, but they do not change aggregate layout, field identity, parameter and
+return classification, or externally visible ABI.
+
 ## 20. Inline Assembly Boundary
 
 Inline assembly observes backend-level values and machine registers.
