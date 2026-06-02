@@ -169,6 +169,12 @@ Current Nia-owned optimization consumers:
   argument expression is moved unchanged into the call result. It still rejects
   inline assembly, address-taking, assignments, trait-object conversions, or
   references to non-parameter callee locals.
+  `O3` also enables a conservative direct trait-call devirtualization pass. It
+  rewrites a dynamic trait method call only when the receiver is syntactically a
+  trait-object coercion from a known concrete type and trait resolution finds a
+  unique non-generic implementation method. The pass leaves parameter-carried
+  trait objects, ambiguous implementations, generic implementation instances,
+  and ordinary vtable dispatch unchanged.
 - `nia-backend-lower` records a lightweight optimization report alongside the
   lowered backend program. The CLI report starts with the selected
   `OptimizationPolicy` summary, the LLVM codegen optimization level selected by

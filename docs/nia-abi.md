@@ -635,6 +635,14 @@ surface defined by this document. Trivial single-parameter forwarding wrapper
 inlining is ABI-neutral because it removes only the local call wrapper and keeps
 the argument expression's evaluation as the resulting value.
 
+O3 direct trait-call devirtualization is ABI-neutral. It may replace a backend
+IR dynamic trait method call with a direct concrete method call only when the
+receiver is a local trait-object coercion and the selected implementation is
+known before codegen. It does not change the trait object representation,
+vtable layout, object-safe method ABI, or any externally visible symbol; calls
+whose receiver may carry runtime metadata still use the normal vtable dispatch
+ABI.
+
 The LLVM codegen optimization level reported by `niac --emit-opt-report` is also
 backend-visible only. It may affect instruction selection, scheduling, register
 allocation, and equivalent object-code details after Nia lowering, but it must
