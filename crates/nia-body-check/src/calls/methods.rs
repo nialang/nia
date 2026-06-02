@@ -114,6 +114,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let method = match name {
             "len" => BuiltinMethod::Len,
+            "iter" => BuiltinMethod::RangeIter,
             _ => return None,
         };
         self.check_call_arg_count(span, args.len(), 0, false);
@@ -132,8 +133,29 @@ impl<'a> BodyChecker<'a> {
                     _ => return None,
                 }
             }
+            BuiltinMethod::RangeIter => {
+                match self.interner.get(self.normalization.normalize(receiver_ty)) {
+                    Some(TyKind::Range {
+                        kind:
+                            nia_ty::RangeTyKind::Exclusive
+                            | nia_ty::RangeTyKind::Inclusive
+                            | nia_ty::RangeTyKind::From,
+                        bound: Some(_),
+                    }) => receiver_ty,
+                    Some(TyKind::Range { .. }) => {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            "range.iter() requires a start bound",
+                        ));
+                        return Some(self.error());
+                    }
+                    _ => return None,
+                }
+            }
         };
-        self.check_receiver_match(receiver, receiver_ty, ReceiverKind::RefConst);
+        if method == BuiltinMethod::Len {
+            self.check_receiver_match(receiver, receiver_ty, ReceiverKind::RefConst);
+        }
         if let Some(expected) = expected {
             self.expect_type(span, expected, output, "builtin method call");
         }

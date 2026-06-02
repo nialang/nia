@@ -204,6 +204,46 @@ fn main() i32 {
 }
 
 #[test]
+fn accepts_for_in_range_iter_method() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    var r = 0..3;
+    for n in r.iter() {
+        _ = n;
+    }
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_range_iter_method_without_start_bound() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    var r = ..3;
+    for n in r.iter() {
+        _ = n;
+    }
+    0
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .message
+                .contains("range.iter() requires a start bound")
+        }),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_defer_expression_type_edges() {
     let checked = pipeline(
         r#"

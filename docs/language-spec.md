@@ -1144,10 +1144,12 @@ for i in 0..10 {
 
 `for name in expr` requires `expr` to be an iterator expression. The loop does
 not implicitly call `.iter()` or `.iter_const()` and does not infer mutable
-iteration from the source expression. Ranges with a start bound are iterable
-directly, whether written inline or stored in a range-typed value. Collection
-iteration should be written explicitly through iterator-producing methods such
-as `xs.iter()` or `xs.iter_const()` once those methods are provided.
+iteration from the source expression. Ranges with a start bound are iterator
+values directly, whether written inline or stored in a range-typed value.
+Start-bound ranges also provide the compiler built-in method `.iter()`, which
+returns the same range iterator value. Collection iteration should be written
+explicitly through iterator-producing methods such as `xs.iter()` or
+`xs.iter_const()` once those methods are provided.
 
 The loop binding may be annotated:
 
@@ -1372,6 +1374,7 @@ Nia provides a small builtin surface:
 @size[T]()
 @align[T]()
 value.len()
+range.iter()
 slice.get_ptr_const()
 slice.get_ptr()
 @asm({...})
@@ -1401,6 +1404,9 @@ generic function is instantiated.
 it returns `N`; for `&[T]` and `&const [T]`, it returns the runtime slice
 length. `len` is not a trait method and user types cannot implement a built-in
 `Len` capability.
+
+`range.iter()` is a compiler built-in method for start-bound ranges. It returns
+the same range value as an iterator value.
 
 `slice.get_ptr_const()` and `slice.get_ptr()` call the built-in `GetPtrConst`
 and `GetPtr` trait methods. `&[T]` and `&const [T]` have compiler-proven
