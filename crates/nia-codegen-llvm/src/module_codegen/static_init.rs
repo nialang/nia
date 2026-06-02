@@ -250,6 +250,18 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .const_zero()
                 .into());
         }
+        if let StaticInit::Byte(byte) = value
+            && let Some(TyKind::Array { elem, .. }) = interner.get(ty)
+            && matches!(
+                interner.get(*elem),
+                Some(TyKind::Primitive(PrimitiveTy::U8))
+            )
+        {
+            return Ok(self
+                .context
+                .const_string(&vec![*byte; count as usize], true)
+                .into());
+        }
         let value = self.static_init_value_in(*elem, value, span, interner, layouts)?;
         let values = std::iter::repeat_n(value, count as usize).collect::<Vec<_>>();
         self.const_array_from_values_in(*elem, &values, span, interner, layouts)

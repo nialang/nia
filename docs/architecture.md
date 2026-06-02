@@ -270,8 +270,10 @@ Current Nia-owned optimization consumers:
   folding or size-oriented policy. All-zero static data becomes
   `StaticInit::Zero`; repeated array, byte-string, and char-string data becomes
   `StaticInit::Repeat`. Static initializer emission may choose cheaper
-  equivalent LLVM constants such as `zeroinitializer`. These forms must preserve
-  the documented Nia static data representation and ABI layout.
+  equivalent LLVM constants such as `zeroinitializer`; repeated byte-array
+  initializers are emitted as LLVM constant strings when possible instead of
+  rebuilding element-by-element arrays. These forms must preserve the documented
+  Nia static data representation and ABI layout.
 
 Future Nia-owned optimization consumers should follow the same boundary:
 
