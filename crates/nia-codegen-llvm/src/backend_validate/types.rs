@@ -242,6 +242,11 @@ impl BackendValidator<'_> {
                             })
                         })
                         .or_else(|| {
+                            self.index.struct_instance(*def_id, args).and_then(|item| {
+                                self.zero_sized_aggregate_layout(&item.fields, active)
+                            })
+                        })
+                        .or_else(|| {
                             self.index
                                 .struct_instances_by_def
                                 .get(def_id)
@@ -254,6 +259,11 @@ impl BackendValidator<'_> {
                         })
                         .or_else(|| {
                             self.index.structs.get(def_id).and_then(|item| {
+                                self.zero_sized_aggregate_layout(&item.fields, active)
+                            })
+                        })
+                        .or_else(|| {
+                            self.index.union_instance(*def_id, args).and_then(|item| {
                                 self.zero_sized_aggregate_layout(&item.fields, active)
                             })
                         })
