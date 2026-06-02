@@ -642,11 +642,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(crate) fn is_union_def(&self, def_id: GlobalDefId) -> bool {
         self.program.unions.contains_key(&def_id)
-            || self
-                .program
-                .union_instances
-                .keys()
-                .any(|(candidate, _)| *candidate == def_id)
+            || self.program.union_instances_by_def.contains_key(&def_id)
     }
 
     pub(super) fn union_storage_fields(

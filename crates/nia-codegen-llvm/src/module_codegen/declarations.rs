@@ -14,7 +14,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.structs.insert(item.def_id, ty);
         }
-        for item in self.program.struct_instances.values() {
+        for item in self.program.struct_instances_by_def.values().flatten() {
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -36,7 +36,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.unions.insert(item.def_id, ty);
         }
-        for item in self.program.union_instances.values() {
+        for item in self.program.union_instances_by_def.values().flatten() {
             let ty = self
                 .context
                 .opaque_struct_type(&item.symbol)
@@ -75,7 +75,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             struct_ty.set_body(&fields, false);
         }
-        for item in self.program.struct_instances.values() {
+        for item in self.program.struct_instances_by_def.values().flatten() {
             let Some(owner) = self.program.module(item.def_id.module_id) else {
                 return Err(self.error(item.span, "missing struct owner module"));
             };
@@ -109,7 +109,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 false,
             );
         }
-        for item in self.program.union_instances.values() {
+        for item in self.program.union_instances_by_def.values().flatten() {
             let Some(union_ty) = self
                 .union_instances
                 .get(&item.def_id)
@@ -146,7 +146,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .map_err(Self::diagnostic_from_llvm_error)?;
             self.functions.insert(function.def_id, value);
         }
-        for instance in self.program.function_instances.values() {
+        for instance in self.program.function_instances_by_def.values().flatten() {
             let Some(owner) = self.program.module(instance.def_id.module_id) else {
                 return Err(self.error(instance.span, "missing function owner module"));
             };
