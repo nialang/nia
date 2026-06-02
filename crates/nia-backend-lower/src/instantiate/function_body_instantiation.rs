@@ -600,19 +600,20 @@ impl<'a> ModuleLowerer<'a> {
             .get(&trait_method_id)
             .cloned()
             .unwrap_or_else(|| trait_method_name.to_string());
+        let key = crate::ExtensionTraitMethodKey {
+            trait_id: TraitId::Source(trait_id),
+            method_name: trait_method_name.clone(),
+            trait_arg_count: trait_args.len(),
+        };
         let candidates = self
-            .input
-            .extensions
-            .targets()
+            .extension_trait_method_candidates
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
+        let candidates = candidates
             .iter()
-            .filter_map(|target| {
-                self.trait_impl_method_for_target(
-                    target,
-                    trait_id,
-                    trait_args,
-                    &trait_method_name,
-                    self_ty,
-                )
+            .filter_map(|candidate| {
+                self.trait_impl_method_for_candidate(candidate, trait_args, self_ty)
             })
             .collect::<Vec<_>>();
         match candidates.as_slice() {

@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use crate::{ModuleLowerer, TypeInstantiationKey, TypeSubstitutionId, TypeSubstitutionKey};
 use nia_backend_ir::{BackendFunction, BackendParam};
-use nia_defs::VisibleExtensionTarget;
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBody,
     FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit,
