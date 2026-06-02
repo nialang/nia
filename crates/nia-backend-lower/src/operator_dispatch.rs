@@ -687,16 +687,8 @@ impl<'a> ModuleLowerer<'a> {
         if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
             return None;
         }
-        let method = target.methods.iter().find(|method| {
-            method.name == method_name
-                && method.trait_id == Some(TraitId::Builtin(trait_id))
-                && method.trait_args.len() == trait_args.len()
-                && method
-                    .trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| self.types_match(*actual, *expected))
-        })?;
+        let method_def_id =
+            self.match_builtin_extension_method(target, trait_id, trait_args, method_name)?;
         let mut substitutions = HashMap::new();
         self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
             .then(|| {
@@ -705,8 +697,34 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .filter_map(|generic| substitutions.get(generic).copied())
                     .collect::<Vec<_>>();
-                (method.def_id, args)
+                (method_def_id, args)
             })
+    }
+
+    fn match_builtin_extension_method(
+        &self,
+        target: &VisibleExtensionTarget,
+        trait_id: BuiltinTrait,
+        trait_args: &[InternedTyId],
+        method_name: &str,
+    ) -> Option<GlobalDefId> {
+        target
+            .methods
+            .iter()
+            .find(|method| {
+                if method.name != method_name
+                    || method.trait_id != Some(TraitId::Builtin(trait_id))
+                    || method.trait_args.len() != trait_args.len()
+                {
+                    return false;
+                }
+                method
+                    .trait_args
+                    .iter()
+                    .zip(trait_args)
+                    .all(|(actual, expected)| self.types_match(*actual, *expected))
+            })
+            .map(|method| method.def_id)
     }
 
     fn builtin_operator_resolution(

@@ -187,10 +187,11 @@ Current Nia-owned optimization consumers:
   expanding nested generic types. Extension trait-method resolution filters by
   method name, trait id, and trait-argument arity before importing extension
   trait arguments for structural matching, avoiding repeated temporary argument
-  lists for unrelated methods. Module-level DCE also builds per-pass indexes
-  from function ids and instance refs to bodies, then walks transitive
-  reachability with queues instead of repeatedly scanning every lowered function
-  for each discovered reference.
+  lists for unrelated methods; builtin operator dispatch uses the same cheap
+  filtering shape before checking extension method trait arguments. Module-level
+  DCE also builds per-pass indexes from function ids and instance refs to
+  bodies, then walks transitive reachability with queues instead of repeatedly
+  scanning every lowered function for each discovered reference.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.
