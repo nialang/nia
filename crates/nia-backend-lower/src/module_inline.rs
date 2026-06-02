@@ -25,12 +25,14 @@ enum InlineCandidate {
         function: GlobalDefId,
         body: LeafInlineBody,
         threshold: InlineThreshold,
+        allow_forwarding_wrapper: bool,
     },
     Instance {
         function: GlobalDefId,
         type_arg_count: usize,
         body: LeafInlineBody,
         threshold: InlineThreshold,
+        allow_forwarding_wrapper: bool,
     },
 }
 
@@ -44,6 +46,19 @@ impl InlineCandidate {
     fn threshold(&self) -> InlineThreshold {
         match self {
             Self::Function { threshold, .. } | Self::Instance { threshold, .. } => *threshold,
+        }
+    }
+
+    fn allow_forwarding_wrapper(&self) -> bool {
+        match self {
+            Self::Function {
+                allow_forwarding_wrapper,
+                ..
+            }
+            | Self::Instance {
+                allow_forwarding_wrapper,
+                ..
+            } => *allow_forwarding_wrapper,
         }
     }
 
@@ -86,16 +101,23 @@ impl<'a> ModuleLowerer<'a> {
             self.optimization.inline_threshold,
             self.optimization.specialize_generics,
         );
+        let allow_forwarding_wrapper = self.optimization.prefer_size;
         let function_candidates = functions
             .iter()
             .filter_map(|function| {
-                leaf_inline_return(&function.function_body, inline_threshold).map(|body| {
+                leaf_inline_return(
+                    &function.function_body,
+                    inline_threshold,
+                    allow_forwarding_wrapper,
+                )
+                .map(|body| {
                     (
                         function.def_id,
                         InlineCandidate::Function {
                             function: function.def_id,
                             body,
                             threshold: inline_threshold,
+                            allow_forwarding_wrapper,
                         },
                     )
                 })
@@ -104,7 +126,12 @@ impl<'a> ModuleLowerer<'a> {
         let instance_candidates = function_instances
             .iter()
             .filter_map(|instance| {
-                leaf_inline_return(&instance.function_body, instance_inline_threshold).map(|body| {
+                leaf_inline_return(
+                    &instance.function_body,
+                    instance_inline_threshold,
+                    allow_forwarding_wrapper,
+                )
+                .map(|body| {
                     (
                         FunctionInstanceKey {
                             def_id: instance.def_id,
@@ -115,6 +142,7 @@ impl<'a> ModuleLowerer<'a> {
                             type_arg_count: instance.args.len(),
                             body,
                             threshold: instance_inline_threshold,
+                            allow_forwarding_wrapper,
                         },
                     )
                 })
@@ -459,6 +487,11 @@ fn inline_candidate_value(
     if body.params.is_empty() {
         return Some(body.value.clone());
     }
+    if let Some(value) =
+        size_safe_forwarded_param_value(candidate.allow_forwarding_wrapper(), threshold, body, args)
+    {
+        return Some(value);
+    }
     if !matches!(
         threshold,
         InlineThreshold::Normal | InlineThreshold::Aggressive
@@ -499,6 +532,7 @@ fn generic_instance_inline_threshold(
 fn leaf_inline_return(
     body: &Option<FunctionBody>,
     threshold: InlineThreshold,
+    allow_forwarding_wrapper: bool,
 ) -> Option<LeafInlineBody> {
     let body = body.as_ref()?;
     let [block] = body.blocks.as_slice() else {
@@ -528,6 +562,12 @@ fn leaf_inline_return(
             value: value.clone(),
         });
     }
+    if size_safe_forwarded_param_return(allow_forwarding_wrapper, threshold, value, &params) {
+        return Some(LeafInlineBody {
+            params,
+            value: value.clone(),
+        });
+    }
     if !matches!(
         threshold,
         InlineThreshold::Normal | InlineThreshold::Aggressive
@@ -540,6 +580,37 @@ fn leaf_inline_return(
             value: value.clone(),
         }
     })
+}
+
+fn size_safe_forwarded_param_value(
+    allow_forwarding_wrapper: bool,
+    threshold: InlineThreshold,
+    body: &LeafInlineBody,
+    args: &[FunctionExpr],
+) -> Option<FunctionExpr> {
+    if !size_safe_forwarded_param_return(
+        allow_forwarding_wrapper,
+        threshold,
+        &body.value,
+        &body.params,
+    ) {
+        return None;
+    }
+    let [arg] = args else {
+        return None;
+    };
+    Some(arg.clone())
+}
+
+fn size_safe_forwarded_param_return(
+    allow_forwarding_wrapper: bool,
+    threshold: InlineThreshold,
+    value: &FunctionExpr,
+    params: &[LocalId],
+) -> bool {
+    allow_forwarding_wrapper
+        && matches!(threshold, InlineThreshold::Minimal | InlineThreshold::Size)
+        && matches!(params, [param] if matches!(value.kind, FunctionExprKind::Local(local_id) if local_id == *param))
 }
 
 fn inline_expr_allowed(expr: &FunctionExpr, threshold: InlineThreshold) -> bool {

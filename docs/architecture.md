@@ -141,9 +141,12 @@ Current Nia-owned optimization consumers:
   or size-oriented policy also simplifies all-zero static initializers to the
   canonical `Zero` initializer.
   Module-level leaf inlining is gated by `inline_threshold`: `O0` disables it,
-  `O1`, `Os`, and `Oz` inline only no-argument leaf functions that return a
-  backend constant. Size-oriented levels deliberately keep non-constant pure
-  leaf returns as calls to avoid duplicating aggregate or expression trees.
+  `O1` inlines only no-argument leaf functions that return a backend constant.
+  `Os` and `Oz` also inline single-parameter forwarding wrappers that return
+  the parameter unchanged, which removes trivial wrapper/thunk calls without
+  copying expression trees or dropping evaluation of unused arguments.
+  Size-oriented levels deliberately keep other non-constant pure leaf returns
+  as calls to avoid duplicating aggregate or expression trees.
   `O2`/`O3` additionally inline small pure leaf expressions under a fixed
   expression-cost budget. `O3` uses a larger aggressive budget than `O2`, so it
   may inline larger pure no-argument leaf returns that `O2` deliberately leaves
@@ -152,10 +155,13 @@ Current Nia-owned optimization consumers:
   active budget. Calls to monomorphized function instances are also gated by
   `specialize_generics`: `Normal` and `Aggressive` may use the active inline
   budget, while `SizeAware` and `RequiredOnly` restrict instance inlining to
-  constant leaf returns so size-oriented and required-only policies do not copy
-  non-constant generic bodies into every call site. The pass does not inline
-  calls with effectful arguments, inline assembly, address-taking, assignments,
-  trait-object conversions, or references to non-parameter callee locals.
+  constant leaf returns and single-parameter forwarding wrappers so
+  size-oriented and required-only policies do not copy non-constant generic
+  bodies into every call site. The pass does not inline calls with effectful
+  arguments except for those single-argument forwarding wrappers where the
+  argument expression is moved unchanged into the call result. It still rejects
+  inline assembly, address-taking, assignments, trait-object conversions, or
+  references to non-parameter callee locals.
 - `nia-backend-lower` records a lightweight optimization report alongside the
   lowered backend program. The CLI report starts with the selected
   `OptimizationPolicy` summary, the LLVM codegen optimization level selected by
