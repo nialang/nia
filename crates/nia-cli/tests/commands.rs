@@ -399,6 +399,10 @@ fn main() i32 {
         stdout.contains("devirtualize-direct-trait-calls"),
         "{stdout}"
     );
+    assert!(
+        stdout.contains("propagate-cross-function-constants"),
+        "{stdout}"
+    );
 
     let oz = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("-Oz")

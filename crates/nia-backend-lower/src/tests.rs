@@ -2158,6 +2158,111 @@ fn main() [5]i32 {
 }
 
 #[test]
+fn o3_propagates_cross_function_constant_returns() {
+    let source = r#"
+fn answer() i32 {
+    42
+}
+
+fn main() i32 {
+    answer()
+}
+"#;
+    let o2 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let o2_main = o2.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(o2_value.kind, FunctionExprKind::Integer(ref text) if text == "42"));
+    assert!(
+        o2.optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "propagate-cross-function-constants",
+                    ..
+                }
+            ))
+    );
+
+    let o3 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let o3_main = o3.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(o3_value.kind, FunctionExprKind::Integer(ref text) if text == "42"));
+    assert!(
+        o3.optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "propagate-cross-function-constants",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o3_propagates_cross_function_constant_instance_returns() {
+    let source = r#"
+fn answer[T]() i32 {
+    42
+}
+
+fn main() i32 {
+    answer[i32]()
+}
+"#;
+    let o3 = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let main = o3.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::Integer(ref text) if text == "42"));
+    assert!(
+        o3.optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "propagate-cross-function-constants",
+                    is_instance: false,
+                    type_arg_count: 0,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
 fn o3_inlines_pure_leaf_function_calls_through_bindings() {
     let source = r#"
 fn values() [5]i32 {
@@ -2710,6 +2815,11 @@ fn main() i32 {
         o3.optimization_report
             .enabled_module_passes
             .contains(&"devirtualize-direct-trait-calls")
+    );
+    assert!(
+        o3.optimization_report
+            .enabled_module_passes
+            .contains(&"propagate-cross-function-constants")
     );
     assert!(
         o3.optimization_report
