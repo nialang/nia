@@ -60,10 +60,16 @@ pub enum TypeArg {
     Type(TypeRef),
     Const(ExprStub),
     AssocBinding {
-        name: String,
+        key: AssocBindingKey,
         ty: TypeRef,
         span: Span,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssocBindingKey {
+    Name(String),
+    Projection(TypeRef),
 }
 
 #[derive(Debug, Clone, PartialEq)]

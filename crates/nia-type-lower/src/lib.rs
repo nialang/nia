@@ -2,8 +2,8 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_ast::{
-    ArrayLen, Expr, ExprKind, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
-    TypePathSegment, TypeRef, WhereClause,
+    ArrayLen, AssocBindingKey, Expr, ExprKind, FunctionItem, Item, ItemKind, Module, TypeArg,
+    TypeKind, TypePathSegment, TypeRef, WhereClause,
 };
 use nia_ast_walk::{Visitor, walk_module};
 use nia_defs::DefCollection;
@@ -11,7 +11,8 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_span::Span;
 use nia_ty::{
-    ArrayLenTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind,
+    ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, RangeTyKind,
+    TraitId, TyInterner, TyKind,
 };
 use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 
@@ -101,7 +102,7 @@ struct TraitObjectArgs {
     // `Assoc = Ty` bindings in the same bracket list. Keeping them separated
     // here prevents later phases from depending on parser ordering details.
     trait_args: Vec<InternedTyId>,
-    associated_type_bindings: Vec<(String, InternedTyId)>,
+    associated_type_bindings: Vec<AssociatedTypeBindingTy>,
 }
 
 impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
@@ -457,7 +458,7 @@ impl<'a> TypeLowerer<'a> {
                     ));
                 }
                 TypeArg::AssocBinding {
-                    name,
+                    key,
                     span,
                     ty: binding_ty,
                 } => {
@@ -470,7 +471,16 @@ impl<'a> TypeLowerer<'a> {
                                 "associated type bindings require a trait bound",
                             ));
                         } else {
-                            if !seen_assoc_bindings.insert(name.as_str()) {
+                            let Some((name, _, _)) =
+                                self.lower_assoc_binding_key(key, Some(TraitId::Source(def_id)))
+                            else {
+                                continue;
+                            };
+                            if !seen_assoc_bindings.insert(self.assoc_binding_seen_key(
+                                name,
+                                None,
+                                &[],
+                            )) {
                                 self.diagnostics.push(Diagnostic::error(
                                     *span,
                                     format!("duplicate associated type binding `{name}`"),
@@ -592,19 +602,27 @@ impl<'a> TypeLowerer<'a> {
                     ));
                 }
                 TypeArg::AssocBinding {
-                    name,
+                    key,
                     span,
                     ty: binding_ty,
                 } => {
                     seen_assoc_binding = true;
                     let binding_ty = self.lower_type_in_context(binding_ty, TypeContext::Value);
-                    if !seen_assoc_bindings.insert(name.as_str()) {
+                    let Some((name, binding_trait_id, binding_trait_args)) =
+                        self.lower_assoc_binding_key(key, Some(trait_id))
+                    else {
+                        continue;
+                    };
+                    let seen_key =
+                        self.assoc_binding_seen_key(name, binding_trait_id, &binding_trait_args);
+                    if !seen_assoc_bindings.insert(seen_key) {
                         self.diagnostics.push(Diagnostic::error(
                             *span,
                             format!("duplicate associated type binding `{name}`"),
                         ));
                     }
-                    if !self.trait_id_has_associated_type(trait_id, name) {
+                    let effective_trait = binding_trait_id.unwrap_or(trait_id);
+                    if !self.trait_id_has_associated_type(effective_trait, name) {
                         self.diagnostics.push(Diagnostic::error(
                             *span,
                             format!("trait does not define associated type `{name}`"),
@@ -612,11 +630,84 @@ impl<'a> TypeLowerer<'a> {
                     }
                     object_args
                         .associated_type_bindings
-                        .push((name.clone(), binding_ty));
+                        .push(AssociatedTypeBindingTy {
+                            trait_id: binding_trait_id,
+                            trait_args: binding_trait_args,
+                            name: name.to_string(),
+                            ty: binding_ty,
+                        });
                 }
             }
         }
         Some(object_args)
+    }
+
+    fn lower_assoc_binding_key<'b>(
+        &mut self,
+        key: &'b AssocBindingKey,
+        target_trait: Option<TraitId>,
+    ) -> Option<(&'b str, Option<TraitId>, Vec<InternedTyId>)> {
+        match key {
+            AssocBindingKey::Name(name) => Some((name.as_str(), None, Vec::new())),
+            AssocBindingKey::Projection(projection) => {
+                let TypeKind::Projection {
+                    ty,
+                    trait_ref,
+                    name,
+                } = &projection.kind
+                else {
+                    self.diagnostics.push(Diagnostic::error(
+                        projection.span,
+                        "associated type binding projection key must be `[Self as Trait]::Name`",
+                    ));
+                    return None;
+                };
+                if !matches!(ty.kind, TypeKind::SelfType) {
+                    self.diagnostics.push(Diagnostic::error(
+                        ty.span,
+                        "associated type binding projection must project from `Self`",
+                    ));
+                }
+                let lowered_trait = self.lower_type_in_context(trait_ref, TypeContext::TraitBound);
+                let (trait_id, trait_args) = match self
+                    .interner
+                    .get(self.normalize_if_known(lowered_trait))
+                    .cloned()
+                {
+                    Some(TyKind::Nominal { def_id, args }) => (TraitId::Source(def_id), args),
+                    Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                        (TraitId::Builtin(trait_id), args)
+                    }
+                    Some(TyKind::TraitObject {
+                        trait_id,
+                        trait_args,
+                        ..
+                    }) => (trait_id, trait_args),
+                    _ => {
+                        self.diagnostics.push(Diagnostic::error(
+                            trait_ref.span,
+                            "associated type binding projection trait must resolve to a trait",
+                        ));
+                        return None;
+                    }
+                };
+                if let Some(target_trait) = target_trait
+                    && trait_id == target_trait
+                {
+                    return Some((name.as_str(), None, trait_args));
+                }
+                Some((name.as_str(), Some(trait_id), trait_args))
+            }
+        }
+    }
+
+    fn assoc_binding_seen_key(
+        &self,
+        name: &str,
+        trait_id: Option<TraitId>,
+        trait_args: &[InternedTyId],
+    ) -> String {
+        format!("{trait_id:?}:{trait_args:?}:{name}")
     }
 
     fn lower_builtin_trait_type(
@@ -647,20 +738,39 @@ impl<'a> TypeLowerer<'a> {
                     ));
                 }
                 TypeArg::AssocBinding {
-                    name,
+                    key,
                     span,
                     ty: binding_ty,
                 } => {
                     seen_assoc_binding = true;
                     if context == TypeContext::TraitBound {
                         self.lower_type_in_context(binding_ty, TypeContext::Value);
-                        if !seen_assoc_bindings.insert(name.as_str()) {
+                        let Some((name, binding_trait_id, binding_trait_args)) =
+                            self.lower_assoc_binding_key(key, Some(TraitId::Builtin(trait_id)))
+                        else {
+                            continue;
+                        };
+                        let seen_key = self.assoc_binding_seen_key(
+                            name,
+                            binding_trait_id,
+                            &binding_trait_args,
+                        );
+                        if !seen_assoc_bindings.insert(seen_key) {
                             self.diagnostics.push(Diagnostic::error(
                                 *span,
                                 format!("duplicate associated type binding `{name}`"),
                             ));
                         }
-                        if !trait_id.has_associated_type(name) {
+                        let valid = match binding_trait_id {
+                            Some(TraitId::Builtin(binding_trait)) => {
+                                binding_trait.has_associated_type(name)
+                            }
+                            Some(TraitId::Source(def_id)) => {
+                                self.trait_has_associated_type(def_id, name)
+                            }
+                            None => trait_id.has_associated_type(name),
+                        };
+                        if !valid {
                             self.diagnostics.push(Diagnostic::error(
                                 *span,
                                 format!("trait does not define associated type `{name}`"),

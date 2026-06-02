@@ -12,10 +12,25 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
 use nia_trait_solve::TraitSolverContext;
-use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
+use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
 use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn associated_type_binding_keys_match(
+        &mut self,
+        left: &AssociatedTypeBindingTy,
+        right: &AssociatedTypeBindingTy,
+    ) -> bool {
+        left.name == right.name
+            && left.trait_id == right.trait_id
+            && left.trait_args.len() == right.trait_args.len()
+            && left
+                .trait_args
+                .iter()
+                .zip(right.trait_args.iter())
+                .all(|(left, right)| self.types_match_normalized(*left, *right))
+    }
+
     pub(crate) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty).cloned() {
@@ -78,7 +93,16 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
-                    .map(|(name, ty)| (name, self.normalize_projection(ty)))
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.normalize_projection(arg))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_projection(binding.ty),
+                    })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_const,
@@ -611,16 +635,26 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .zip(actual_args.iter())
                         .all(|(expected, actual)| self.types_match_normalized(*expected, *actual))
-                    && expected_bindings
-                        .iter()
-                        .all(|(expected_name, expected_ty)| {
-                            actual_bindings
-                                .iter()
-                                .find(|(actual_name, _)| actual_name == expected_name)
-                                .is_some_and(|(_, actual_ty)| {
-                                    self.types_match_normalized(*expected_ty, *actual_ty)
-                                })
-                        })
+                    && expected_bindings.iter().all(|expected_binding| {
+                        actual_bindings
+                            .iter()
+                            .find(|actual_binding| {
+                                actual_binding.name == expected_binding.name
+                                    && actual_binding.trait_id == expected_binding.trait_id
+                                    && actual_binding.trait_args.len()
+                                        == expected_binding.trait_args.len()
+                                    && actual_binding
+                                        .trait_args
+                                        .iter()
+                                        .zip(expected_binding.trait_args.iter())
+                                        .all(|(actual, expected)| {
+                                            self.types_match_normalized(*expected, *actual)
+                                        })
+                            })
+                            .is_some_and(|actual_binding| {
+                                self.types_match_normalized(expected_binding.ty, actual_binding.ty)
+                            })
+                    })
             }
             _ => false,
         }
@@ -885,7 +919,7 @@ impl<'a> BodyChecker<'a> {
         is_const: bool,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
-        associated_type_bindings: &[(String, InternedTyId)],
+        associated_type_bindings: &[nia_ty::AssociatedTypeBindingTy],
     ) -> String {
         let const_part = if is_const { "const " } else { "" };
         let base = match trait_id {
@@ -900,15 +934,46 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .map(|arg| self.ty_name(*arg))
             .collect::<Vec<_>>();
-        args.extend(
-            associated_type_bindings
-                .iter()
-                .map(|(name, ty)| format!("{name} = {}", self.ty_name(*ty))),
-        );
+        args.extend(associated_type_bindings.iter().map(|binding| {
+            let name = if let Some(trait_id) = binding.trait_id {
+                format!(
+                    "[Self as {}]::{}",
+                    self.trait_binding_name(trait_id, &binding.trait_args),
+                    binding.name
+                )
+            } else {
+                binding.name.clone()
+            };
+            format!("{name} = {}", self.ty_name(binding.ty))
+        }));
         if args.is_empty() {
             format!("&{const_part}{base}")
         } else {
             format!("&{const_part}{base}[{}]", args.join(", "))
+        }
+    }
+
+    fn trait_binding_name(&self, trait_id: TraitId, trait_args: &[InternedTyId]) -> String {
+        let base = match trait_id {
+            TraitId::Source(def_id) => self
+                .defs_for_module(def_id.module_id)
+                .and_then(|defs| defs.defs.get(def_id.def_id))
+                .map(|def| def.name.clone())
+                .unwrap_or_else(|| "<unknown trait>".to_string()),
+            TraitId::Builtin(trait_id) => trait_id.name().to_string(),
+        };
+        if trait_args.is_empty() {
+            base
+        } else {
+            format!(
+                "{}[{}]",
+                base,
+                trait_args
+                    .iter()
+                    .map(|arg| self.ty_name(*arg))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
     }
 

@@ -12,6 +12,7 @@ nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
+nia-layout.workspace = true
 nia-local-resolve.workspace = true
 nia-span.workspace = true
 nia-ty.workspace = true

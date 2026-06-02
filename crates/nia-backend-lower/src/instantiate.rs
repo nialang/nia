@@ -159,8 +159,11 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in trait_args {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
-                for (_, ty) in associated_type_bindings {
-                    self.collect_generic_params_in_ty(*ty, generics);
+                for binding in associated_type_bindings {
+                    for arg in &binding.trait_args {
+                        self.collect_generic_params_in_ty(*arg, generics);
+                    }
+                    self.collect_generic_params_in_ty(binding.ty, generics);
                 }
             }
             Some(TyKind::Projection {
@@ -312,8 +315,11 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in trait_args {
                     self.collect_generic_params_in_extension_ty(*arg, generics);
                 }
-                for (_, ty) in associated_type_bindings {
-                    self.collect_generic_params_in_extension_ty(*ty, generics);
+                for binding in associated_type_bindings {
+                    for arg in &binding.trait_args {
+                        self.collect_generic_params_in_extension_ty(*arg, generics);
+                    }
+                    self.collect_generic_params_in_extension_ty(binding.ty, generics);
                 }
             }
             Some(TyKind::Projection {
@@ -424,11 +430,16 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Vec<_>>();
                 let associated_type_bindings = associated_type_bindings
                     .iter()
-                    .map(|(name, ty)| {
-                        (
-                            name.clone(),
-                            self.instantiate_ty_with_id(*ty, substitutions),
-                        )
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .iter()
+                            .copied()
+                            .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
+                            .collect(),
+                        name: binding.name.clone(),
+                        ty: self.instantiate_ty_with_id(binding.ty, substitutions),
                     })
                     .collect();
                 let instantiated = self.interner.intern(TyKind::TraitObject {
@@ -672,14 +683,19 @@ impl<'a> ModuleLowerer<'a> {
                         .all(|(pattern, actual)| {
                             self.match_extension_type_pattern(*pattern, *actual, substitutions)
                         })
-                        && pattern_bindings.iter().all(|(pattern_name, pattern_ty)| {
+                        && pattern_bindings.iter().all(|pattern_binding| {
                             associated_type_bindings
                                 .iter()
-                                .find(|(actual_name, _)| actual_name == pattern_name)
-                                .is_some_and(|(_, actual_ty)| {
+                                .find(|actual_binding| {
+                                    self.associated_type_binding_keys_match(
+                                        pattern_binding,
+                                        actual_binding,
+                                    )
+                                })
+                                .is_some_and(|actual_binding| {
                                     self.match_extension_type_pattern(
-                                        *pattern_ty,
-                                        *actual_ty,
+                                        pattern_binding.ty,
+                                        actual_binding.ty,
                                         substitutions,
                                     )
                                 })
@@ -790,11 +806,15 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .zip(right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
-                    && left_bindings.iter().all(|(left_name, left_ty)| {
+                    && left_bindings.iter().all(|left_binding| {
                         right_bindings
                             .iter()
-                            .find(|(right_name, _)| right_name == left_name)
-                            .is_some_and(|(_, right_ty)| self.types_match(*left_ty, *right_ty))
+                            .find(|right_binding| {
+                                self.associated_type_binding_keys_match(left_binding, right_binding)
+                            })
+                            .is_some_and(|right_binding| {
+                                self.types_match(left_binding.ty, right_binding.ty)
+                            })
                     })
             }
             (
@@ -841,5 +861,20 @@ impl<'a> ModuleLowerer<'a> {
             }
             _ => false,
         }
+    }
+
+    fn associated_type_binding_keys_match(
+        &self,
+        left: &nia_ty::AssociatedTypeBindingTy,
+        right: &nia_ty::AssociatedTypeBindingTy,
+    ) -> bool {
+        left.name == right.name
+            && left.trait_id == right.trait_id
+            && left.trait_args.len() == right.trait_args.len()
+            && left
+                .trait_args
+                .iter()
+                .zip(&right.trait_args)
+                .all(|(left, right)| self.types_match(*left, *right))
     }
 }

@@ -1024,11 +1024,15 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     && left_trait == right_trait
                     && self.same_type_args(left_args, right_args)
                     && left_bindings.len() == right_bindings.len()
-                    && left_bindings.iter().all(|(left_name, left_ty)| {
+                    && left_bindings.iter().all(|left_binding| {
                         right_bindings
                             .iter()
-                            .find(|(right_name, _)| right_name == left_name)
-                            .is_some_and(|(_, right_ty)| self.same_type(*left_ty, *right_ty))
+                            .find(|right_binding| {
+                                self.same_associated_type_binding_key(left_binding, right_binding)
+                            })
+                            .is_some_and(|right_binding| {
+                                self.same_type(left_binding.ty, right_binding.ty)
+                            })
                     })
             }
             (
@@ -1052,6 +1056,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             }
             _ => false,
         }
+    }
+
+    fn same_associated_type_binding_key(
+        &self,
+        left: &nia_ty::AssociatedTypeBindingTy,
+        right: &nia_ty::AssociatedTypeBindingTy,
+    ) -> bool {
+        left.name == right.name
+            && left.trait_id == right.trait_id
+            && self.same_type_args(&left.trait_args, &right.trait_args)
     }
 
     fn same_array_len(&self, left: &ArrayLenTy, right: &ArrayLenTy) -> bool {

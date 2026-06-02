@@ -259,6 +259,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 "The optimization report is written to stderr so object output remains file-only.",
                 "Use --out-dir when a program emits multiple codegen units.",
                 "-o is accepted only when one object file is produced.",
+                "Missing parent directories for -o and --out-dir are created automatically.",
             ],
         },
         HelpTopic::EmitExe => HelpDoc {
@@ -296,6 +297,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             notes: &[
                 "The optimization report is written to stderr so the executable path remains the only file output.",
                 "The linker is selected with CC, or `cc` when CC is not set.",
+                "Missing parent directories for -o are created automatically.",
             ],
         },
     }

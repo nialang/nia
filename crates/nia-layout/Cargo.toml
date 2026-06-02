@@ -6,7 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-nia-comptime-check.workspace = true
 nia-comptime-engine.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
@@ -17,6 +16,7 @@ nia-ty.workspace = true
 
 [dev-dependencies]
 nia-ast.workspace = true
+nia-comptime-check.workspace = true
 nia-local-resolve.workspace = true
 nia-parser.workspace = true
 nia-type-lower.workspace = true

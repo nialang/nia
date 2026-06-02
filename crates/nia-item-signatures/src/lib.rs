@@ -643,9 +643,19 @@ impl<'a> SignatureCollector<'a> {
             .args
             .iter()
             .filter_map(|arg| match arg {
-                nia_ast::TypeArg::AssocBinding { name, ty, span } => {
+                nia_ast::TypeArg::AssocBinding { key, ty, span } => {
+                    let name = match key {
+                        nia_ast::AssocBindingKey::Name(name) => name.clone(),
+                        nia_ast::AssocBindingKey::Projection(projection) => {
+                            let nia_ast::TypeKind::Projection { name, .. } = &projection.kind
+                            else {
+                                return None;
+                            };
+                            name.clone()
+                        }
+                    };
                     Some(AssociatedTypeBindingSignature {
-                        name: name.clone(),
+                        name,
                         ty: self.ty_for_span(ty.span),
                         span: *span,
                     })

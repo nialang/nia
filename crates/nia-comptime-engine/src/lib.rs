@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{BinaryOp, Expr, ExprKind, UnaryOp};
+use nia_ast::{BinaryOp, Expr, ExprKind, TypeRef, UnaryOp};
+use nia_ids::LayoutBuiltin;
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,6 +16,13 @@ pub struct ComptimeError {
 
 pub trait ComptimeEnv {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError>;
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        builtin: LayoutBuiltin,
+        ty: &TypeRef,
+    ) -> Result<ComptimeValue, ComptimeError>;
 }
 
 #[derive(Default)]
@@ -25,6 +33,18 @@ impl ComptimeEnv for EmptyEnv {
         Err(ComptimeError {
             span,
             message: format!("unknown comptime value `{name}`"),
+        })
+    }
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        _builtin: LayoutBuiltin,
+        _ty: &TypeRef,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        Err(ComptimeError {
+            span,
+            message: "layout builtins are not available in this comptime context".to_string(),
         })
     }
 }
@@ -41,6 +61,38 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
         }
         ExprKind::Ident(name) => env.resolve_ident(expr.span, name),
         ExprKind::Qualified { name, .. } => env.resolve_ident(expr.span, name),
+        ExprKind::Builtin {
+            name,
+            type_arg: Some(type_arg),
+        } => {
+            let Some(builtin) = LayoutBuiltin::from_name(name) else {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: format!("unsupported builtin in comptime expression: @{name}"),
+                });
+            };
+            env.resolve_layout_builtin(expr.span, builtin, type_arg)
+        }
+        ExprKind::Call { callee, args } if args.is_empty() => {
+            if let ExprKind::Builtin {
+                name,
+                type_arg: Some(type_arg),
+            } = &callee.kind
+            {
+                let Some(builtin) = LayoutBuiltin::from_name(name) else {
+                    return Err(ComptimeError {
+                        span: expr.span,
+                        message: format!("unsupported builtin in comptime expression: @{name}"),
+                    });
+                };
+                env.resolve_layout_builtin(expr.span, builtin, type_arg)
+            } else {
+                Err(ComptimeError {
+                    span: expr.span,
+                    message: "unsupported comptime expression".to_string(),
+                })
+            }
+        }
         ExprKind::Unary {
             op: UnaryOp::Neg,
             expr: inner,

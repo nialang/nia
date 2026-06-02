@@ -1546,4 +1546,27 @@ impl nia_comptime_engine::ComptimeEnv for BirComptimeEnv<'_, '_> {
                 message: format!("failed to evaluate comptime value `{name}`"),
             })
     }
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        builtin: nia_ids::LayoutBuiltin,
+        ty: &nia_ast::TypeRef,
+    ) -> Result<nia_comptime_check::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        let ty_id = self.checker.ty_for_span(ty.span);
+        let Some(layout) = self.checker.layout_of(ty_id) else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: format!(
+                    "cannot compute layout for comptime builtin `@{}`",
+                    builtin.name()
+                ),
+            });
+        };
+        let value = match builtin {
+            nia_ids::LayoutBuiltin::Size => layout.size,
+            nia_ids::LayoutBuiltin::Align => layout.align,
+        };
+        Ok(nia_comptime_check::ComptimeValue::Int(value as i128))
+    }
 }

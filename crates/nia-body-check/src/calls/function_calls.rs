@@ -593,14 +593,18 @@ impl<'a> BodyChecker<'a> {
                     for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
                         self.infer_generics_from_type(*pattern, *actual, substitutions, span);
                     }
-                    for (pattern_name, pattern_ty) in pattern_bindings {
-                        if let Some((_, actual_ty)) = actual_bindings
-                            .iter()
-                            .find(|(actual_name, _)| actual_name == &pattern_name)
+                    for pattern_binding in pattern_bindings {
+                        if let Some(actual_binding) =
+                            actual_bindings.iter().find(|actual_binding| {
+                                self.associated_type_binding_keys_match(
+                                    &pattern_binding,
+                                    actual_binding,
+                                )
+                            })
                         {
                             self.infer_generics_from_type(
-                                pattern_ty,
-                                *actual_ty,
+                                pattern_binding.ty,
+                                actual_binding.ty,
                                 substitutions,
                                 span,
                             );

@@ -206,7 +206,16 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .iter()
-                    .map(|(name, ty)| (name.clone(), self.substitute_generics(*ty, substitutions)))
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .iter()
+                            .map(|arg| self.substitute_generics(*arg, substitutions))
+                            .collect(),
+                        name: binding.name.clone(),
+                        ty: self.substitute_generics(binding.ty, substitutions),
+                    })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_const,

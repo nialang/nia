@@ -3,7 +3,8 @@ use std::collections::HashMap;
 
 use nia_ast::Visibility;
 use nia_ast::{
-    ArrayLen, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind, TypePathSegment, TypeRef,
+    ArrayLen, AssocBindingKey, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
+    TypePathSegment, TypeRef,
 };
 use nia_ast_walk::{Visitor, walk_function, walk_item, walk_module};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
@@ -272,10 +273,22 @@ impl<'a> TypeResolver<'a> {
             for arg in &segment.args {
                 match arg {
                     TypeArg::Type(ty) => self.visit_type(ty),
-                    TypeArg::AssocBinding { ty, .. } => self.visit_type(ty),
+                    TypeArg::AssocBinding { key, ty, .. } => {
+                        self.visit_assoc_binding_key(key);
+                        self.visit_type(ty);
+                    }
                     TypeArg::Const(_) => {}
                 }
             }
+        }
+    }
+
+    fn visit_assoc_binding_key(&mut self, key: &AssocBindingKey) {
+        let AssocBindingKey::Projection(projection) = key else {
+            return;
+        };
+        if let TypeKind::Projection { trait_ref, .. } = &projection.kind {
+            self.visit_type(trait_ref);
         }
     }
 

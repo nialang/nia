@@ -824,7 +824,10 @@ checking that the hosted executable exits with the same value at every level.
 `emit obj` may produce multiple object files because backend lowering can produce
 multiple codegen units. `-o` is only valid for single-unit output; `--out-dir` is
 the multi-unit form. `emit exe` uses host linking and is therefore part of the
-host execution model.
+host execution model. Native output paths are mkdir-friendly by design: missing
+parent directories for `emit obj -o`, `emit obj --out-dir`, and `emit exe -o`
+are created before writing or linking output artifacts. Input paths and module
+map paths are never created implicitly.
 
 ## 14. Diagnostics
 

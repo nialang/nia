@@ -87,8 +87,11 @@ impl BackendValidator<'_> {
                 for arg in trait_args {
                     self.validate_type(arg, span);
                 }
-                for (_, ty) in associated_type_bindings {
-                    self.validate_type(ty, span);
+                for binding in associated_type_bindings {
+                    for arg in &binding.trait_args {
+                        self.validate_type(*arg, span);
+                    }
+                    self.validate_type(binding.ty, span);
                 }
             }
             TyKind::Projection {

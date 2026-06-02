@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::{EnumSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, LayoutBuiltin, PrimitiveTy, RangeTyKind, TyInterner, TyKind};
@@ -59,6 +58,28 @@ pub struct Layouts {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+pub trait ArrayLengthValues {
+    fn array_len(&self, id: GlobalConstExprId) -> Option<u64>;
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct NoArrayLengthValues;
+
+impl ArrayLengthValues for NoArrayLengthValues {
+    fn array_len(&self, _id: GlobalConstExprId) -> Option<u64> {
+        None
+    }
+}
+
+impl<F> ArrayLengthValues for F
+where
+    F: Fn(GlobalConstExprId) -> Option<u64>,
+{
+    fn array_len(&self, id: GlobalConstExprId) -> Option<u64> {
+        self(id)
+    }
+}
+
 impl Layouts {
     pub fn nominal_type_layout(
         &self,
@@ -98,13 +119,13 @@ pub fn compute_layouts(
     target: TargetDataLayout,
 ) -> Layouts {
     let normalized = HashMap::new();
-    let empty_comptime = ComptimeCheck::default();
+    let empty_lengths = NoArrayLengthValues;
     compute_layouts_with_normalized_types(
         defs,
         interner,
         signatures,
         &normalized,
-        &empty_comptime,
+        &empty_lengths,
         target,
     )
 }
@@ -114,7 +135,7 @@ pub fn compute_layouts_with_normalized_types(
     interner: &TyInterner,
     signatures: &ItemSignatures,
     normalized: &HashMap<InternedTyId, InternedTyId>,
-    comptime: &ComptimeCheck,
+    array_lengths: &dyn ArrayLengthValues,
     target: TargetDataLayout,
 ) -> Layouts {
     compute_layouts_with_program_context(
@@ -122,7 +143,7 @@ pub fn compute_layouts_with_normalized_types(
         interner,
         signatures,
         normalized,
-        comptime,
+        array_lengths,
         target,
         ProgramLayoutContext::default(),
     )
@@ -131,7 +152,7 @@ pub fn compute_layouts_with_normalized_types(
 #[derive(Clone, Copy, Default)]
 pub struct ProgramLayoutContext<'a> {
     pub layouts: Option<&'a dyn Fn(ModuleId) -> Option<Layouts>>,
-    pub comptimes: Option<&'a dyn Fn(ModuleId) -> Option<ComptimeCheck>>,
+    pub array_lengths: Option<&'a dyn Fn(GlobalConstExprId) -> Option<u64>>,
 }
 
 pub fn compute_layouts_with_program_context(
@@ -139,7 +160,7 @@ pub fn compute_layouts_with_program_context(
     interner: &TyInterner,
     signatures: &ItemSignatures,
     normalized: &HashMap<InternedTyId, InternedTyId>,
-    comptime: &ComptimeCheck,
+    array_lengths: &dyn ArrayLengthValues,
     target: TargetDataLayout,
     program: ProgramLayoutContext<'_>,
 ) -> Layouts {
@@ -148,7 +169,7 @@ pub fn compute_layouts_with_program_context(
         interner: interner.clone(),
         signatures,
         normalized,
-        comptime,
+        array_lengths,
         target,
         types: HashMap::new(),
         structs: HashMap::new(),
@@ -169,7 +190,7 @@ struct LayoutComputer<'a> {
     interner: TyInterner,
     signatures: &'a ItemSignatures,
     normalized: &'a HashMap<InternedTyId, InternedTyId>,
-    comptime: &'a ComptimeCheck,
+    array_lengths: &'a dyn ArrayLengthValues,
     target: TargetDataLayout,
     types: HashMap<InternedTyId, TypeLayout>,
     structs: HashMap<DefId, StructLayout>,
@@ -316,12 +337,11 @@ impl<'a> LayoutComputer<'a> {
             ArrayLenTy::ConstValue(value) => value,
             ArrayLenTy::ConstExpr(id) => {
                 let value = if id.module_id == self.module_id {
-                    self.comptime.array_lengths.get(&id).copied()
+                    self.array_lengths.array_len(id)
                 } else {
                     self.program
-                        .comptimes
-                        .and_then(|comptimes| comptimes(id.module_id))
-                        .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+                        .array_lengths
+                        .and_then(|array_lengths| array_lengths(id))
                 };
                 let Some(value) = value else {
                     self.diagnostics.push(Diagnostic::error(
@@ -767,6 +787,8 @@ mod tests {
             locals: &locals,
             signatures,
             interner: &lowered.interner,
+            type_uses: &lowered.type_uses,
+            normalized: &HashMap::new(),
             const_exprs: &lowered.const_exprs,
             program: ComptimeProgramContext::empty(),
         })
@@ -795,7 +817,7 @@ fn main(p: &Pair, xs: [3]u16) {}
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &comptime,
+            &|id| comptime.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -844,7 +866,7 @@ fn main(xs: [@size[Pair]()]u8, ys: [@align[Pair]()]u8) {}
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &comptime,
+            &|id| comptime.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -888,7 +910,7 @@ fn main(value: Empty) {}
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &comptime,
+            &|id| comptime.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);
@@ -1026,7 +1048,7 @@ fn main(a: ArrayBox[u8], b: ArrayBox[i32]) {}
             &lowered.interner,
             &signatures,
             &HashMap::new(),
-            &comptime,
+            &|id| comptime.array_lengths.get(&id).copied(),
             TargetDataLayout::LP64,
         );
         assert!(layouts.diagnostics.is_empty(), "{:?}", layouts.diagnostics);

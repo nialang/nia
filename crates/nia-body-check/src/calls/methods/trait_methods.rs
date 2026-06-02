@@ -170,10 +170,14 @@ impl<'a> BodyChecker<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|param| self.substitute_generics(param.ty, &substitutions))
+            .map(|param| {
+                let ty = self.substitute_generics(param.ty, &substitutions);
+                self.normalize_dynamic_trait_object_projection(candidate, ty)
+            })
             .collect();
         self.check_direct_call_args(call.span, call.args, &params, false);
         let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
+        let return_type = self.normalize_dynamic_trait_object_projection(candidate, return_type);
         self.record_resolved_call(
             call.span,
             ResolvedCall::DynamicTraitMethod {
@@ -188,6 +192,155 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(self.normalize_projection(return_type))
+    }
+
+    fn normalize_dynamic_trait_object_projection(
+        &mut self,
+        candidate: &DynamicTraitMethodCandidate,
+        ty: InternedTyId,
+    ) -> InternedTyId {
+        let ty = self.normalization.normalize(ty);
+        let object_self_ty = self.trait_object_self_ty(candidate.object_ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) if self.types_match(self_ty, object_self_ty)
+                && trait_id == candidate.trait_id
+                && self.trait_args_match_for_dynamic_object(&trait_args, &candidate.trait_args) =>
+            {
+                candidate
+                    .associated_type_bindings
+                    .iter()
+                    .find_map(|binding| {
+                        (binding.name == name
+                            && binding
+                                .trait_id
+                                .is_none_or(|trait_id| trait_id == candidate.trait_id)
+                            && (binding.trait_id.is_none()
+                                || self.trait_args_match_for_dynamic_object(
+                                    &binding.trait_args,
+                                    &candidate.trait_args,
+                                )))
+                        .then_some(binding.ty)
+                    })
+                    .unwrap_or(ty)
+            }
+            Some(TyKind::Pointer { is_const, elem }) => {
+                let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
+                self.interner.intern(TyKind::Pointer { is_const, elem })
+            }
+            Some(TyKind::Slice { is_const, elem }) => {
+                let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
+                self.interner.intern(TyKind::Slice { is_const, elem })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
+                self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound
+                    .map(|bound| self.normalize_dynamic_trait_object_projection(candidate, bound));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.normalize_dynamic_trait_object_projection(candidate, param))
+                    .collect();
+                let return_type =
+                    self.normalize_dynamic_trait_object_projection(candidate, return_type);
+                self.interner.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
+                    .collect();
+                self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| {
+                                self.normalize_dynamic_trait_object_projection(candidate, arg)
+                            })
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_dynamic_trait_object_projection(candidate, binding.ty),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_dynamic_trait_object_projection(candidate, self_ty);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
+            }
+            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+        }
+    }
+
+    fn trait_args_match_for_dynamic_object(
+        &mut self,
+        left: &[InternedTyId],
+        right: &[InternedTyId],
+    ) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| self.types_match(*left, *right))
     }
 
     fn check_dynamic_trait_object_receiver_match(

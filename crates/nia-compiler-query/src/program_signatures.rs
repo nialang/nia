@@ -1328,18 +1328,31 @@ fn substitute_imported_type(
                 .collect();
             let associated_type_bindings = associated_type_bindings
                 .iter()
-                .map(|(name, ty)| {
-                    (
-                        name.clone(),
-                        substitute_imported_type(
-                            target_interner,
-                            module,
-                            source_interner,
-                            *ty,
-                            substitutions,
-                            projection_context,
-                        ),
-                    )
+                .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                    trait_id: binding.trait_id,
+                    trait_args: binding
+                        .trait_args
+                        .iter()
+                        .map(|arg| {
+                            substitute_imported_type(
+                                target_interner,
+                                module,
+                                source_interner,
+                                *arg,
+                                substitutions,
+                                projection_context,
+                            )
+                        })
+                        .collect(),
+                    name: binding.name.clone(),
+                    ty: substitute_imported_type(
+                        target_interner,
+                        module,
+                        source_interner,
+                        binding.ty,
+                        substitutions,
+                        projection_context,
+                    ),
                 })
                 .collect();
             target_interner.intern(TyKind::TraitObject {

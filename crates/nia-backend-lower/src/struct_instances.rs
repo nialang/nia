@@ -511,8 +511,11 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in trait_args {
                     self.collect_struct_instance_ty(arg, seen, out);
                 }
-                for (_, ty) in associated_type_bindings {
-                    self.collect_struct_instance_ty(ty, seen, out);
+                for binding in associated_type_bindings {
+                    for arg in binding.trait_args {
+                        self.collect_struct_instance_ty(arg, seen, out);
+                    }
+                    self.collect_struct_instance_ty(binding.ty, seen, out);
                 }
             }
             Some(TyKind::Projection {
@@ -911,8 +914,11 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in trait_args {
                     self.collect_union_instance_ty(arg, seen, out);
                 }
-                for (_, ty) in associated_type_bindings {
-                    self.collect_union_instance_ty(ty, seen, out);
+                for binding in associated_type_bindings {
+                    for arg in binding.trait_args {
+                        self.collect_union_instance_ty(arg, seen, out);
+                    }
+                    self.collect_union_instance_ty(binding.ty, seen, out);
                 }
             }
             Some(TyKind::Projection {
