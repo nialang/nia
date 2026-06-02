@@ -383,6 +383,7 @@ fn main() i32 {
     assert!(stdout.contains("BackendProgram"), "{stdout}");
     assert!(!stdout.contains("backend optimization report:"), "{stdout}");
     assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
     assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
     assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
@@ -460,6 +461,7 @@ fn main() i32 {
     assert!(stderr.contains("backend optimization report:"), "{stderr}");
     assert!(stderr.contains("policy level=O1"), "{stderr}");
     assert!(stderr.contains("inline=small"), "{stderr}");
+    assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
     assert!(stderr.contains("enabled_module_passes="), "{stderr}");
     assert!(stderr.contains("enabled_function_passes="), "{stderr}");
     assert!(stderr.contains("inline-leaf-functions"), "{stderr}");
