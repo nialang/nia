@@ -299,6 +299,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(ty.const_u128(*value as u128).into())
             }
             FunctionExprKind::Range(range) => self.emit_range(expr.span, expr.ty, range),
+            FunctionExprKind::RangeBound { range, bound } => {
+                self.emit_range_bound(expr.span, range, *bound)
+            }
             FunctionExprKind::InlineAsm(asm) => {
                 self.emit_inline_asm(asm)?;
                 Err(self.error(expr.span, "inline assembly does not produce a value"))
@@ -492,6 +495,39 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .into_struct_value()?;
         }
         Ok(value.into())
+    }
+
+    fn emit_range_bound(
+        &mut self,
+        span: Span,
+        range: &FunctionExpr,
+        bound: nia_function_ir::FunctionRangeBound,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let Some(TyKind::Range { kind, .. }) = self.module.ty_kind(range.ty) else {
+            return Err(self.error(span, "range bound base type is not a range"));
+        };
+        let index = match (kind, bound) {
+            (
+                nia_ty::RangeTyKind::Exclusive | nia_ty::RangeTyKind::Inclusive,
+                nia_function_ir::FunctionRangeBound::Start,
+            )
+            | (nia_ty::RangeTyKind::From, nia_function_ir::FunctionRangeBound::Start)
+            | (
+                nia_ty::RangeTyKind::To | nia_ty::RangeTyKind::ToInclusive,
+                nia_function_ir::FunctionRangeBound::End,
+            ) => 0,
+            (
+                nia_ty::RangeTyKind::Exclusive | nia_ty::RangeTyKind::Inclusive,
+                nia_function_ir::FunctionRangeBound::End,
+            ) => 1,
+            _ => {
+                return Err(self.error(span, "range type does not contain requested bound"));
+            }
+        };
+        let range = self.emit_expr(range)?.into_struct_value()?;
+        self.builder
+            .build_extract_value(range, index, "range.bound")
+            .map_err(|_| self.error(span, "failed to extract range bound"))
     }
 
     fn field_index(

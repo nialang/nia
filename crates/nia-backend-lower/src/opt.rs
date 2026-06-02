@@ -423,6 +423,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::EnumVariant(_)
         | FunctionExprKind::BuiltinValue(_) => true,
         FunctionExprKind::Discard(expr) => is_pure_discardable_expr(expr),
+        FunctionExprKind::RangeBound { range, .. } => is_pure_discardable_expr(range),
         FunctionExprKind::Range(range) => {
             range.start.as_deref().is_none_or(is_pure_discardable_expr)
                 && range.end.as_deref().is_none_or(is_pure_discardable_expr)
@@ -894,6 +895,7 @@ fn rewrite_local_copies_in_expr(
         FunctionExprKind::CStringPointer { array, .. } => {
             rewrite_local_copies_in_expr(array, copies)
         }
+        FunctionExprKind::RangeBound { range, .. } => rewrite_local_copies_in_expr(range, copies),
         FunctionExprKind::ArrayLiteral { elems } => {
             rewrite_local_copies_in_array_elements(elems, copies)
         }
@@ -1176,6 +1178,9 @@ fn rewrite_local_constants_in_expr(
         FunctionExprKind::CStringPointer { array, .. } => {
             rewrite_local_constants_in_expr(array, constants)
         }
+        FunctionExprKind::RangeBound { range, .. } => {
+            rewrite_local_constants_in_expr(range, constants)
+        }
         FunctionExprKind::ArrayLiteral { elems } => {
             rewrite_local_constants_in_array_elements(elems, constants)
         }
@@ -1425,6 +1430,7 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
         FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::TraitObjectCoercion { expr, .. }
+        | FunctionExprKind::RangeBound { range: expr, .. }
         | FunctionExprKind::CStringPointer { array: expr, .. }
         | FunctionExprKind::Field { lhs: expr, .. } => {
             changed |= simplify_constant_logical_expr(expr);
@@ -1611,6 +1617,7 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
         FunctionExprKind::CStringPointer { array, .. } => {
             collect_place_locals_in_expr(array, locals)
         }
+        FunctionExprKind::RangeBound { range, .. } => collect_place_locals_in_expr(range, locals),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_place_locals_in_array_elements(elems, locals)
         }
@@ -1808,6 +1815,7 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         FunctionExprKind::CStringPointer { array, .. } => {
             collect_read_locals_in_expr(array, locals)
         }
+        FunctionExprKind::RangeBound { range, .. } => collect_read_locals_in_expr(range, locals),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_read_locals_in_array_elements(elems, locals)
         }
@@ -2008,6 +2016,9 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         FunctionExprKind::InlineAsm(asm) => collect_referenced_locals_in_inline_asm(asm, refs),
         FunctionExprKind::CStringPointer { array, .. } => {
             collect_referenced_locals_in_expr(array, refs)
+        }
+        FunctionExprKind::RangeBound { range, .. } => {
+            collect_referenced_locals_in_expr(range, refs)
         }
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_referenced_locals_in_array_elements(elems, refs)
@@ -2268,7 +2279,8 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
-        | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+        | FunctionExprKind::TraitObjectCoercion { expr, .. }
+        | FunctionExprKind::RangeBound { range: expr, .. } => {
             simplify_same_type_casts_in_expr(expr)
         }
         FunctionExprKind::AddrOf(place) => simplify_same_type_casts_in_place(place),
@@ -2475,6 +2487,7 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::BuiltinValue(_)
         | FunctionExprKind::Discard(_)
         | FunctionExprKind::Range(_)
+        | FunctionExprKind::RangeBound { .. }
         | FunctionExprKind::ArrayLiteral { .. }
         | FunctionExprKind::StructLiteral { .. }
         | FunctionExprKind::UnionLiteral { .. }

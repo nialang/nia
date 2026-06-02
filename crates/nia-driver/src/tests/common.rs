@@ -76,6 +76,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
         | FunctionExprKind::TraitObjectCoercion { expr, .. }
+        | FunctionExprKind::RangeBound { range: expr, .. }
         | FunctionExprKind::CStringPointer { array: expr, .. } => {
             function_expr_contains_builtin_eq(expr)
         }
@@ -170,13 +171,7 @@ pub(super) fn body_contains_dynamic_trait_callee(body: &TypedBody) -> bool {
 
 fn for_iterator_contains_dynamic_trait_callee(iter: &TypedForIterator) -> bool {
     match iter {
-        TypedForIterator::Range(range) => {
-            expr_contains_dynamic_trait_callee(&range.start)
-                || range
-                    .end
-                    .as_ref()
-                    .is_some_and(expr_contains_dynamic_trait_callee)
-        }
+        TypedForIterator::Range(range) => expr_contains_dynamic_trait_callee(&range.expr),
         TypedForIterator::Expr(expr) => expr_contains_dynamic_trait_callee(expr),
     }
 }

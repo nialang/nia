@@ -199,6 +199,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
+            | FunctionExprKind::RangeBound { range: inner, .. }
             | FunctionExprKind::CStringPointer { array: inner, .. }
             | FunctionExprKind::Unary { expr: inner, .. } => {
                 self.collect_trait_object_vtables_from_expr(inner, out, seen);

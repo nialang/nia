@@ -279,6 +279,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.enqueue_function_instance(*def_id, args, seen, queue);
             }
             FunctionExprKind::Discard(inner)
+            | FunctionExprKind::RangeBound { range: inner, .. }
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
             | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {

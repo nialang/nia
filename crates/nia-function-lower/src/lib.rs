@@ -16,8 +16,8 @@ use nia_function_ir::{
     FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
     FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
     FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
-    FunctionPlaceElem, FunctionRange, FunctionScope, FunctionScopeId, FunctionSliceRange,
-    FunctionSwitchArm, FunctionTerminator,
+    FunctionPlaceElem, FunctionRange, FunctionRangeBound, FunctionScope, FunctionScopeId,
+    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
 };
 
 mod expr;
