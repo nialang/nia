@@ -1272,10 +1272,22 @@ explicitly through iterator-producing methods such as `xs.iter()` or
 The loop binding may be annotated:
 
 ```nia
-for i: usize in 0usize..len {
+for i: usize in 0..len {
     printf(&const int_fmt[0], i);
 }
 ```
+
+The annotation is the expected iterator item type. It is not an implicit
+conversion applied to each yielded value. For range iterator expressions, the
+annotation supplies the expected bound type to the range expression, so integer
+literals and other context-sensitive bounds are checked as that type. For
+example, `for i: usize in 0..len` checks the lower bound `0` as `usize`, and
+requires `len` to be compatible with `usize`.
+
+If the iterator expression already has a fixed item type, the annotation must
+match that item type. Future iterator-producing methods and user iterator
+protocols follow the same rule: the annotation constrains the produced item
+type, not the final type after conversion.
 
 Condition loop:
 
