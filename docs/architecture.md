@@ -214,9 +214,10 @@ Current Nia-owned optimization consumers:
   function bodies for every monomorphized instance. ABI parameter
   classification accepts type iterators directly, so parameter storage and call
   lowering do not need temporary vectors just to classify argument passing.
-  Regular function, function-instance, function-pointer, and dynamic trait calls
-  lower arguments directly from their backend-IR argument slices; only method
-  calls that prepend an explicit receiver build a small borrowed argument list.
+  Regular function, extern function, function-instance, function-pointer, and
+  dynamic trait calls lower arguments directly from their backend-IR argument
+  slices; only method calls that prepend an explicit receiver build a small
+  borrowed argument list.
 - `nia-codegen-llvm` performs local ABI-lowering cleanup while preserving the
   backend IR contract. Aggregate literals stored into locals, returned through
   Nia hidden out pointers, or passed as Nia indirect readonly arguments are

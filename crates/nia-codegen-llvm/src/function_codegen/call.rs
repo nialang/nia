@@ -448,8 +448,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         args: &[FunctionExpr],
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
-        let args = args.iter().collect::<Vec<_>>();
-        self.emit_c_call_args_refs(&args)
+        args.iter().map(|arg| self.emit_expr(arg)).collect()
     }
 
     fn emit_c_call_args_refs(
