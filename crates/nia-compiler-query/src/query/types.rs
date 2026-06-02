@@ -70,6 +70,21 @@ impl QueryKey<DriverContext> for TypeNormalizationQuery {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramTypeNormalizationsQuery;
+
+impl QueryKey<DriverContext> for ProgramTypeNormalizationsQuery {
+    type Value = HashMap<ModuleId, TypeNormalization>;
+
+    fn name() -> &'static str {
+        "program_type_normalizations"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.program_type_normalizations)(db)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ProgramSignatures {
     pub(super) functions: HashMap<GlobalDefId, ProgramFunctionSignature>,

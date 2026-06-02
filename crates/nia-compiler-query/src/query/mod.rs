@@ -378,6 +378,28 @@ fn main() i32 {
     }
 
     #[test]
+    fn visible_extensions_use_program_type_normalizations_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "struct S { value: i32 } extend S { pub fn make(value: i32) S { { value: value } } }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(VisibleExtensionsQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "visible_extensions"
+                && dependency.to.name == "program_type_normalizations"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_type_normalizations"
+                && dependency.to.name == "type_normalization"
+        }));
+    }
+
+    #[test]
     fn backend_lowering_uses_function_body_query() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
