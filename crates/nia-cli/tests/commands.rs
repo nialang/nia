@@ -336,6 +336,10 @@ fn main() i32 {
     assert!(stdout.contains("policy level=O2"), "{stdout}");
     assert!(stdout.contains("inline=normal"), "{stdout}");
     assert!(stdout.contains("specialize=normal"), "{stdout}");
+    assert!(
+        stdout.contains("dedup_monomorphized_instances=true"),
+        "{stdout}"
+    );
     assert!(stdout.contains("prefer_size=false"), "{stdout}");
     assert!(stdout.contains("llvm_codegen=default"), "{stdout}");
     assert!(stdout.contains("llvm_size=default"), "{stdout}");
@@ -419,6 +423,10 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&oz.stdout);
     assert!(stdout.contains("policy level=Oz"), "{stdout}");
+    assert!(
+        stdout.contains("dedup_monomorphized_instances=true"),
+        "{stdout}"
+    );
     assert!(stdout.contains("prefer_size=true"), "{stdout}");
     assert!(stdout.contains("llvm_codegen=less"), "{stdout}");
     assert!(stdout.contains("llvm_size=tiny"), "{stdout}");
@@ -438,6 +446,10 @@ fn main() i32 {
     );
     let stdout = String::from_utf8_lossy(&os.stdout);
     assert!(stdout.contains("policy level=Os"), "{stdout}");
+    assert!(
+        stdout.contains("dedup_monomorphized_instances=true"),
+        "{stdout}"
+    );
     assert!(stdout.contains("prefer_size=true"), "{stdout}");
     assert!(stdout.contains("llvm_codegen=default"), "{stdout}");
     assert!(stdout.contains("llvm_size=small"), "{stdout}");
