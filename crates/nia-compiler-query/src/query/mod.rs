@@ -294,17 +294,20 @@ fn main() i32 {
             parse_ok_module_ids: unknown_parse_ok_module,
             ..CompilerQueryProviders::default()
         };
+        let policy = NiaOptimizationLevel::Oz.policy();
         let checked = check_loaded_program_with_providers(
             loaded_program_with_modules(vec![loaded_module(
                 ModuleId(0),
                 "main.nia",
                 "fn main() i32 { 0 }",
             )]),
-            OptimizationPolicy::default(),
+            policy,
             providers,
         );
 
         assert!(checked.modules.is_empty());
+        assert_eq!(checked.optimization, policy);
+        assert_eq!(checked.backend_lowering.optimization, policy);
         assert_eq!(checked.diagnostics.len(), 1);
         assert!(
             checked.diagnostics[0]
