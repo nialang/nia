@@ -2546,6 +2546,11 @@ fn decode_byte_char_literal(text: &str) -> Option<u8> {
 fn simplify_trivial_branches(blocks: &mut [FunctionBlock]) -> bool {
     let mut changed = false;
     for block in blocks {
+        for op in &mut block.ops {
+            if let FunctionOp::Defer(body) = op {
+                changed |= simplify_trivial_branches(&mut body.blocks);
+            }
+        }
         if let FunctionTerminator::If {
             cond,
             then_target,
@@ -4325,6 +4330,73 @@ mod tests {
             }
         ));
         validate_function_body(&body).expect("trivial-branch body should remain valid");
+    }
+
+    #[test]
+    fn simplifies_same_target_if_inside_defer_bodies() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![FunctionBlock {
+            id: FunctionBlockId(0),
+            scope: FunctionScopeId(0),
+            span,
+            ops: vec![FunctionOp::Defer(nia_function_ir::FunctionDeferBody {
+                span,
+                scopes: vec![FunctionScope {
+                    id: FunctionScopeId(0),
+                    parent: None,
+                    span,
+                }],
+                blocks: vec![
+                    FunctionBlock {
+                        id: FunctionBlockId(10),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::If {
+                            cond: FunctionExpr {
+                                span,
+                                ty,
+                                kind: FunctionExprKind::Local(LocalId(0)),
+                            },
+                            then_target: FunctionBlockId(11),
+                            else_target: FunctionBlockId(11),
+                            span,
+                        },
+                    },
+                    FunctionBlock {
+                        id: FunctionBlockId(11),
+                        scope: FunctionScopeId(0),
+                        span,
+                        ops: Vec::new(),
+                        terminator: FunctionTerminator::Error { span },
+                    },
+                ],
+                entry: FunctionBlockId(10),
+            })],
+            terminator: FunctionTerminator::Return { value: None, span },
+        }]);
+        body.locals = vec![nia_function_ir::FunctionLocal {
+            id: LocalId(0),
+            name: "cond".to_string(),
+            kind: FunctionLocalKind::Binding,
+            ty,
+            span,
+        }];
+
+        assert!(simplify_trivial_branches(&mut body.blocks));
+
+        let FunctionOp::Defer(defer_body) = &body.blocks[0].ops[0] else {
+            panic!("expected defer op");
+        };
+        assert!(matches!(
+            defer_body.blocks[0].terminator,
+            FunctionTerminator::Branch {
+                target: FunctionBlockId(11),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("defer trivial-branch body should remain valid");
     }
 
     #[test]
