@@ -64,6 +64,8 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         seen: HashSet::new(),
         expanded: HashSet::new(),
         type_symbols: HashMap::new(),
+        def_names: HashMap::new(),
+        base_symbols: HashMap::new(),
         type_instantiations: HashMap::new(),
         type_substitutions: Vec::new(),
         type_substitution_ids: HashMap::new(),
@@ -93,6 +95,8 @@ struct MonoCollector<'a> {
     seen: HashSet<MonoInstanceKey>,
     expanded: HashSet<MonoInstanceKey>,
     type_symbols: HashMap<(ModuleId, InternedTyId), String>,
+    def_names: HashMap<GlobalDefId, String>,
+    base_symbols: HashMap<GlobalDefId, String>,
     type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
     type_substitutions: Vec<HashMap<String, InternedTyId>>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
@@ -475,17 +479,17 @@ impl MonoCollector<'_> {
     }
 
     fn instance_symbol(&mut self, key: &MonoInstanceKey) -> String {
-        let name = self.def_name(key.def_id);
         let args = key
             .args
             .iter()
             .map(|arg| self.type_symbol(key.arg_module_id, *arg))
             .collect::<Vec<_>>()
             .join("_");
+        let base_symbol = self.base_symbol(key.def_id);
         if args.is_empty() {
-            mangle_base_symbol(key.def_id, &name)
+            base_symbol
         } else {
-            format!("{}__inst__{}", mangle_base_symbol(key.def_id, &name), args)
+            format!("{base_symbol}__inst__{args}")
         }
     }
 
@@ -499,8 +503,23 @@ impl MonoCollector<'_> {
         format!("{}[{args}]", self.def_name(key.def_id))
     }
 
-    fn def_name(&self, def_id: GlobalDefId) -> String {
-        def_name(&self.defs_by_module, def_id)
+    fn base_symbol(&mut self, def_id: GlobalDefId) -> String {
+        if let Some(symbol) = self.base_symbols.get(&def_id) {
+            return symbol.clone();
+        }
+        let name = self.def_name(def_id);
+        let symbol = mangle_base_symbol(def_id, &name);
+        self.base_symbols.insert(def_id, symbol.clone());
+        symbol
+    }
+
+    fn def_name(&mut self, def_id: GlobalDefId) -> String {
+        if let Some(name) = self.def_names.get(&def_id) {
+            return name.clone();
+        }
+        let name = def_name(&self.defs_by_module, def_id);
+        self.def_names.insert(def_id, name.clone());
+        name
     }
 
     fn type_symbol(&mut self, module_id: ModuleId, ty: InternedTyId) -> String {
@@ -518,6 +537,7 @@ impl MonoCollector<'_> {
             return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         }
         let defs_by_module = &self.defs_by_module;
+        let def_names = &mut self.def_names;
         let comptime_by_module = &self.comptime_by_module;
         let const_exprs_by_module = &self.const_exprs_by_module;
         let missing_array_len_diagnostics = &mut self.missing_array_len_diagnostics;
@@ -525,7 +545,7 @@ impl MonoCollector<'_> {
         let symbol = mangle_type_with(
             interner,
             ty,
-            |def_id| def_name(defs_by_module, def_id),
+            |def_id| cached_def_name(defs_by_module, def_names, def_id),
             |id| {
                 array_len(
                     comptime_by_module,
@@ -573,6 +593,19 @@ fn def_name(defs_by_module: &HashMap<ModuleId, &DefCollection>, def_id: GlobalDe
         .and_then(|defs| defs.defs.get(def_id.def_id))
         .map(|def| sanitize_symbol_part(&def.name))
         .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
+}
+
+fn cached_def_name(
+    defs_by_module: &HashMap<ModuleId, &DefCollection>,
+    def_names: &mut HashMap<GlobalDefId, String>,
+    def_id: GlobalDefId,
+) -> String {
+    if let Some(name) = def_names.get(&def_id) {
+        return name.clone();
+    }
+    let name = def_name(defs_by_module, def_id);
+    def_names.insert(def_id, name.clone());
+    name
 }
 
 fn collect_instantiations_by_source(
@@ -1002,6 +1035,8 @@ fn wrap[T](value: T) T { value }
             seen: HashSet::new(),
             expanded: HashSet::new(),
             type_symbols: HashMap::new(),
+            def_names: HashMap::new(),
+            base_symbols: HashMap::new(),
             type_instantiations: HashMap::new(),
             type_substitutions: Vec::new(),
             type_substitution_ids: HashMap::new(),
