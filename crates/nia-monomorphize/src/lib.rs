@@ -53,6 +53,10 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
             .iter()
             .map(|input| (input.module_id, input.const_exprs))
             .collect(),
+        working_interners_by_module: inputs
+            .iter()
+            .map(|input| (input.module_id, input.interner.clone()))
+            .collect(),
         instantiations_by_source: collect_instantiations_by_source(inputs),
         source_instantiation_edges: collect_source_instantiation_edges(inputs),
         recorded_generics_by_def: collect_recorded_generics_by_def(inputs),
@@ -60,6 +64,9 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         seen: HashSet::new(),
         expanded: HashSet::new(),
         type_symbols: HashMap::new(),
+        type_instantiations: HashMap::new(),
+        type_substitutions: Vec::new(),
+        type_substitution_ids: HashMap::new(),
         effective_generics: HashMap::new(),
         missing_array_len_diagnostics: HashSet::new(),
         diagnostics: Vec::new(),
@@ -78,6 +85,7 @@ struct MonoCollector<'a> {
     interners_by_module: HashMap<ModuleId, &'a TyInterner>,
     comptime_by_module: HashMap<ModuleId, &'a ComptimeCheck>,
     const_exprs_by_module: HashMap<ModuleId, &'a HashMap<GlobalConstExprId, Expr>>,
+    working_interners_by_module: HashMap<ModuleId, TyInterner>,
     instantiations_by_source: HashMap<GlobalDefId, Vec<usize>>,
     source_instantiation_edges: Vec<SourceInstantiationEdge>,
     recorded_generics_by_def: HashMap<GlobalDefId, Vec<Vec<String>>>,
@@ -85,6 +93,9 @@ struct MonoCollector<'a> {
     seen: HashSet<MonoInstanceKey>,
     expanded: HashSet<MonoInstanceKey>,
     type_symbols: HashMap<(ModuleId, InternedTyId), String>,
+    type_instantiations: HashMap<TypeInstantiationKey, InternedTyId>,
+    type_substitutions: Vec<HashMap<String, InternedTyId>>,
+    type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     diagnostics: Vec<Diagnostic>,
@@ -95,6 +106,21 @@ struct MonoInstanceKey {
     def_id: GlobalDefId,
     arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TypeInstantiationKey {
+    module_id: ModuleId,
+    ty: InternedTyId,
+    substitutions: TypeSubstitutionId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct TypeSubstitutionId(usize);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TypeSubstitutionKey {
+    substitutions: Vec<(String, InternedTyId)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,7 +267,8 @@ impl MonoCollector<'_> {
             let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
                 continue;
             };
-            let args = self.instantiate_args(edge_module_id, &edge.args, &substitutions);
+            let edge_args = edge.args.clone();
+            let args = self.instantiate_args(edge_module_id, &edge_args, &substitutions);
             let edge_key = MonoInstanceKey {
                 def_id: edge_def_id,
                 arg_module_id: edge_module_id,
@@ -277,83 +304,188 @@ impl MonoCollector<'_> {
     }
 
     fn instantiate_args(
-        &self,
+        &mut self,
         module_id: ModuleId,
         args: &[InternedTyId],
         substitutions: &HashMap<String, InternedTyId>,
     ) -> Vec<InternedTyId> {
+        let substitutions = self.intern_type_substitutions(substitutions);
         args.iter()
             .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
             .collect()
     }
 
     fn instantiate_ty(
-        &self,
+        &mut self,
         module_id: ModuleId,
         ty: InternedTyId,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> InternedTyId {
-        let Some(interner) = self.interners_by_module.get(&module_id) else {
+        let key = TypeInstantiationKey {
+            module_id,
+            ty,
+            substitutions,
+        };
+        if let Some(cached) = self.type_instantiations.get(&key).copied() {
+            return cached;
+        }
+        let Some(kind) = self
+            .working_interners_by_module
+            .get(&module_id)
+            .and_then(|interner| interner.get(ty))
+            .cloned()
+        else {
             return ty;
         };
-        match interner.get(ty) {
-            Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
-            Some(TyKind::Pointer { is_const, elem }) => {
-                let elem = self.instantiate_ty(module_id, *elem, substitutions);
-                let mut interner = (*interner).clone();
-                interner.intern(TyKind::Pointer {
-                    is_const: *is_const,
-                    elem,
-                })
+        let instantiated = match kind {
+            TyKind::GenericParam(name) => self
+                .type_substitutions
+                .get(substitutions.0)
+                .and_then(|substitutions| substitutions.get(&name))
+                .copied()
+                .unwrap_or(ty),
+            TyKind::Pointer { is_const, elem } => {
+                let elem = self.instantiate_ty(module_id, elem, substitutions);
+                self.intern_working_ty(module_id, TyKind::Pointer { is_const, elem })
             }
-            Some(TyKind::Slice { is_const, elem }) => {
-                let elem = self.instantiate_ty(module_id, *elem, substitutions);
-                let mut interner = (*interner).clone();
-                interner.intern(TyKind::Slice {
-                    is_const: *is_const,
-                    elem,
-                })
+            TyKind::Slice { is_const, elem } => {
+                let elem = self.instantiate_ty(module_id, elem, substitutions);
+                self.intern_working_ty(module_id, TyKind::Slice { is_const, elem })
             }
-            Some(TyKind::Array { len, elem }) => {
-                let elem = self.instantiate_ty(module_id, *elem, substitutions);
-                let mut interner = (*interner).clone();
-                interner.intern(TyKind::Array {
-                    len: len.clone(),
-                    elem,
-                })
+            TyKind::Array { len, elem } => {
+                let elem = self.instantiate_ty(module_id, elem, substitutions);
+                self.intern_working_ty(module_id, TyKind::Array { len, elem })
             }
-            Some(TyKind::Nominal { def_id, args }) => {
+            TyKind::Nominal { def_id, args } => {
                 let args = args
                     .iter()
                     .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
                     .collect();
-                let mut interner = (*interner).clone();
-                interner.intern(TyKind::Nominal {
-                    def_id: *def_id,
-                    args,
-                })
+                self.intern_working_ty(module_id, TyKind::Nominal { def_id, args })
             }
-            Some(TyKind::Projection {
+            TyKind::Projection {
                 self_ty,
                 trait_id,
                 trait_args,
                 name,
-            }) => {
-                let self_ty = self.instantiate_ty(module_id, *self_ty, substitutions);
+            } => {
+                let self_ty = self.instantiate_ty(module_id, self_ty, substitutions);
                 let trait_args = trait_args
                     .iter()
                     .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
                     .collect();
-                let mut interner = (*interner).clone();
-                interner.intern(TyKind::Projection {
-                    self_ty,
-                    trait_id: *trait_id,
-                    trait_args,
-                    name: name.clone(),
-                })
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::Projection {
+                        self_ty,
+                        trait_id,
+                        trait_args,
+                        name,
+                    },
+                )
             }
-            _ => ty,
+            TyKind::Range { kind, bound } => {
+                let bound = bound.map(|bound| self.instantiate_ty(module_id, bound, substitutions));
+                self.intern_working_ty(module_id, TyKind::Range { kind, bound })
+            }
+            TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            } => {
+                let params = params
+                    .iter()
+                    .map(|param| self.instantiate_ty(module_id, *param, substitutions))
+                    .collect();
+                let return_type = self.instantiate_ty(module_id, return_type, substitutions);
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::FunctionPointer {
+                        params,
+                        return_type,
+                        is_variadic,
+                    },
+                )
+            }
+            TyKind::BuiltinTrait { trait_id, args } => {
+                let args = args
+                    .iter()
+                    .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
+                    .collect();
+                self.intern_working_ty(module_id, TyKind::BuiltinTrait { trait_id, args })
+            }
+            TyKind::TraitObject {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+                is_const,
+            } => {
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .iter()
+                    .map(|(name, ty)| {
+                        (
+                            name.clone(),
+                            self.instantiate_ty(module_id, *ty, substitutions),
+                        )
+                    })
+                    .collect();
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::TraitObject {
+                        trait_id,
+                        trait_args,
+                        associated_type_bindings,
+                        is_const,
+                    },
+                )
+            }
+            TyKind::Primitive(_) | TyKind::Error => ty,
+        };
+        self.type_instantiations.insert(key, instantiated);
+        instantiated
+    }
+
+    fn intern_working_ty(&mut self, module_id: ModuleId, kind: TyKind) -> InternedTyId {
+        if let Some(interner) = self.working_interners_by_module.get_mut(&module_id) {
+            return interner.intern(kind);
         }
+        let Some(interner) = self.interners_by_module.get(&module_id).cloned() else {
+            return InternedTyId::new(module_id, nia_ids::TyInternerIndex::from_interner_index(0));
+        };
+        let mut interner = interner.clone();
+        let ty = interner.intern(kind);
+        self.working_interners_by_module.insert(module_id, interner);
+        ty
+    }
+
+    fn intern_type_substitutions(
+        &mut self,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> TypeSubstitutionId {
+        let mut key = TypeSubstitutionKey {
+            substitutions: substitutions
+                .iter()
+                .map(|(name, ty)| (name.clone(), *ty))
+                .collect(),
+        };
+        key.substitutions.sort_by(|left, right| {
+            left.0.cmp(&right.0).then_with(|| {
+                (left.1.interner_id, left.1.index.index())
+                    .cmp(&(right.1.interner_id, right.1.index.index()))
+            })
+        });
+        if let Some(id) = self.type_substitution_ids.get(&key) {
+            return *id;
+        }
+        let id = TypeSubstitutionId(self.type_substitutions.len());
+        self.type_substitutions
+            .push(key.substitutions.iter().cloned().collect());
+        self.type_substitution_ids.insert(key, id);
+        id
     }
 
     fn instance_symbol(&mut self, key: &MonoInstanceKey) -> String {
@@ -389,7 +521,11 @@ impl MonoCollector<'_> {
         if let Some(symbol) = self.type_symbols.get(&(module_id, ty)) {
             return symbol.clone();
         }
-        let Some(interner) = self.interners_by_module.get(&module_id) else {
+        let Some(interner) = self
+            .working_interners_by_module
+            .get(&module_id)
+            .or_else(|| self.interners_by_module.get(&module_id).copied())
+        else {
             return format!("m{}_ty{}", ty.interner_id.0, ty.index.index());
         };
         if interner.get(ty).is_none() {
@@ -630,6 +766,76 @@ fn main() i32 { outer(1) }
     }
 
     #[test]
+    fn nested_generic_body_instantiations_reuse_working_interner() {
+        let (module, errors) = parse_module(
+            r#"
+fn inner[T](value: T) T { value }
+fn outer[T](value: &const T) &const T { inner[&const T](value) }
+fn main() i32 { 0 }
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let inner_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("inner").expect("inner def"),
+        };
+        let outer_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("outer").expect("outer def"),
+        };
+        let mut interner = TyInterner::new(ModuleId(0));
+        let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let generic_ptr = interner.intern(TyKind::Pointer {
+            is_const: true,
+            elem: generic_t,
+        });
+        let i32_ptr = interner.intern(TyKind::Pointer {
+            is_const: true,
+            elem: i32_ty,
+        });
+        let instantiations = vec![
+            GenericInstantiation {
+                def_id: inner_id,
+                args: vec![generic_ptr],
+                generics: vec!["T".to_string()],
+                span: Span::new(1, 2),
+                source_def_id: Some(outer_id),
+            },
+            GenericInstantiation {
+                def_id: outer_id,
+                args: vec![i32_ty],
+                generics: vec!["T".to_string()],
+                span: Span::new(3, 4),
+                source_def_id: None,
+            },
+        ];
+
+        let mono = collect_monomorphizations(&[MonomorphizeModuleInput {
+            module_id: ModuleId(0),
+            defs: &defs,
+            interner: &interner,
+            comptime: &ComptimeCheck::default(),
+            const_exprs: &HashMap::new(),
+            instantiations: &instantiations,
+        }]);
+
+        assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
+        assert!(
+            mono.instances
+                .iter()
+                .any(|instance| instance.def_id == inner_id && instance.args == vec![i32_ptr])
+        );
+        assert!(
+            !mono
+                .instances
+                .iter()
+                .any(|instance| instance.def_id == inner_id && instance.args == vec![generic_ptr])
+        );
+    }
+
+    #[test]
     fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
         let (module, errors) = parse_module("fn take[T](value: T) T { value }");
         assert!(errors.is_empty(), "{errors:?}");
@@ -767,7 +973,11 @@ fn wrap[T](value: T) T { value }
             seen: HashSet::new(),
             expanded: HashSet::new(),
             type_symbols: HashMap::new(),
+            type_instantiations: HashMap::new(),
+            type_substitutions: Vec::new(),
+            type_substitution_ids: HashMap::new(),
             effective_generics: HashMap::new(),
+            working_interners_by_module: HashMap::new(),
             missing_array_len_diagnostics: HashSet::new(),
             diagnostics: Vec::new(),
         };

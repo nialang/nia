@@ -350,6 +350,53 @@ fn main() i32 {
 }
 
 #[test]
+fn instantiates_nested_generic_function_instance_args_in_visible_interner() {
+    let source = r#"
+fn inner[T](value: T) T {
+    value
+}
+
+fn outer[T](value: &const T) &const T {
+    inner[&const T](value)
+}
+
+fn main() i32 {
+    var value = 1;
+    var ptr = &const value;
+    _ = outer[i32](ptr);
+    0
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let i32_ty = module.interner.primitive(nia_ty::PrimitiveTy::I32);
+    let i32_ptr = module
+        .interner
+        .iter()
+        .find_map(|(ty_id, ty)| {
+            matches!(
+                ty,
+                nia_ty::TyKind::Pointer {
+                    is_const: true,
+                    elem,
+                } if *elem == i32_ty
+            )
+            .then_some(ty_id)
+        })
+        .expect("&const i32 type");
+    let instance = module
+        .function_instances
+        .iter()
+        .find(|instance| instance.name == "inner")
+        .expect("inner instance");
+
+    assert_eq!(instance.args, vec![i32_ptr]);
+    assert_eq!(instance.params[0].ty, i32_ptr);
+    assert_eq!(instance.return_type, i32_ptr);
+    assert!(module.interner.get(instance.args[0]).is_some());
+}
+
+#[test]
 fn o1_removes_unreachable_backend_function_blocks() {
     let source = r#"
 fn main() i32 {
