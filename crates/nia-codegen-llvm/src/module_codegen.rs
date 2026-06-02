@@ -47,6 +47,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
+    mangled_types: RefCell<HashMap<InternedTyId, String>>,
     pub(super) trait_object_vtables: HashMap<(InternedTyId, InternedTyId), GlobalValue<'ctx>>,
     trait_object_vtable_lookups:
         RefCell<HashMap<(InternedTyId, InternedTyId), Option<GlobalValue<'ctx>>>>,
@@ -79,6 +80,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             globals: HashMap::new(),
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
+            mangled_types: RefCell::new(HashMap::new()),
             trait_object_vtables: HashMap::new(),
             trait_object_vtable_lookups: RefCell::new(HashMap::new()),
         })
@@ -324,10 +326,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn mangle_ty(&self, ty: InternedTyId) -> String {
+        if let Some(mangled) = self.mangled_types.borrow().get(&ty) {
+            return mangled.clone();
+        }
         let Some(owner) = self.program.module(ty.interner_id) else {
             return "ty_error".to_string();
         };
-        mangle_type_with(
+        let mangled = mangle_type_with(
             &owner.interner,
             ty,
             |def_id| {
@@ -356,7 +361,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     .unwrap_or_else(|| format!("def{}", def_id.def_id.0))
             },
             |_| Some(0),
-        )
+        );
+        self.mangled_types.borrow_mut().insert(ty, mangled.clone());
+        mangled
     }
 
     pub(super) fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {
