@@ -1499,6 +1499,34 @@ fn main() i32 {
 }
 
 #[test]
+fn exact_function_instance_keys_are_deduplicated() {
+    let source = r#"
+fn id[T](value: T) T {
+    var out = value;
+    out
+}
+
+fn main() i32 {
+    id[i32](1) + id[i32](2)
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let module = &lowering.program.modules[0];
+    let instances = module
+        .function_instances
+        .iter()
+        .filter(|instance| instance.name == "id")
+        .collect::<Vec<_>>();
+
+    assert_eq!(instances.len(), 1);
+    assert_eq!(instances[0].args.len(), 1);
+}
+
+#[test]
 fn o2_preserves_transitively_used_private_function_instances() {
     let source = r#"
 fn id[T](value: T) T {
