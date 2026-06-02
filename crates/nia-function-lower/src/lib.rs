@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::UnaryOp;
 use nia_body_ir::{
-    AsmOption, BuiltinConst, BuiltinPlaceMethod, PlaceBase, PlaceElem, TypedArrayElements,
-    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIn, TypedInlineAsm,
-    TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
-    TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
+    AsmOption, BuiltinConst, BuiltinMethod, BuiltinPlaceMethod, PlaceBase, PlaceElem,
+    TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIn,
+    TypedForIterator, TypedInlineAsm, TypedLocal, TypedLocalKind, TypedLoop, TypedPlace,
+    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
+    TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;
 
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOption, FunctionAsmOutput, FunctionBinding,
-    FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinOperator,
+    FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator,
     FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
     FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
     FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,

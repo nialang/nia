@@ -329,6 +329,11 @@ pub enum FunctionCallee {
         return_type: InternedTyId,
         receiver: Box<FunctionExpr>,
     },
+    BuiltinMethod {
+        method: FunctionBuiltinMethod,
+        self_ty: InternedTyId,
+        receiver: Box<FunctionExpr>,
+    },
     BuiltinPlaceMethod {
         trait_id: BuiltinTrait,
         method: BuiltinTraitMethod,
@@ -344,6 +349,11 @@ pub enum FunctionCallee {
 pub struct FunctionBuiltinOperator {
     pub trait_id: BuiltinTrait,
     pub op: FunctionBuiltinOperatorOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionBuiltinMethod {
+    Len,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

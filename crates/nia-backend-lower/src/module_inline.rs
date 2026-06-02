@@ -384,6 +384,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::FunctionPointer(receiver) => {
                 self.inline_leaf_calls_in_expr(receiver, function_candidates, instance_candidates);
             }
@@ -461,6 +462,7 @@ fn inline_candidate_for_callee<'a>(
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::DynamicTraitMethod { .. }
         | FunctionCallee::BuiltinPlaceMethod { .. }
+        | FunctionCallee::BuiltinMethod { .. }
         | FunctionCallee::BuiltinOperator(_)
         | FunctionCallee::FunctionPointer(_) => None,
     }

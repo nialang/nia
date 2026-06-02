@@ -384,18 +384,7 @@ impl FunctionLowerer {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) {
-        let TypedExprKind::Range(range) = &for_stmt.iter.kind else {
-            self.finish_block(
-                blocks,
-                *current,
-                scope,
-                span,
-                std::mem::take(ops),
-                FunctionTerminator::Error { span },
-            );
-            return;
-        };
-        let (Some(start), Some(end)) = (&range.start, &range.end) else {
+        let TypedForIterator::Range(range) = &for_stmt.iter else {
             self.finish_block(
                 blocks,
                 *current,
@@ -407,7 +396,7 @@ impl FunctionLowerer {
             return;
         };
 
-        let start = self.lower_value_expr(start, scope, current, ops, blocks);
+        let start = self.lower_value_expr(&range.start, scope, current, ops, blocks);
         ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: for_stmt.local_id,
             name: for_stmt.name.clone(),
@@ -436,18 +425,24 @@ impl FunctionLowerer {
             ty: for_stmt.ty,
             kind: FunctionExprKind::Local(for_stmt.local_id),
         };
-        let end = self.lower_value_expr(end, scope, &mut header_current, &mut header_ops, blocks);
-        let header = FunctionForHeader::Condition(self.builtin_binary_expr(
-            span,
-            if range.inclusive {
-                BinaryOp::Le
-            } else {
-                BinaryOp::Lt
-            },
-            local,
-            end,
-            self.bool_ty(for_stmt.ty),
-        ));
+        let header = match &range.end {
+            Some(end) => {
+                let end =
+                    self.lower_value_expr(end, scope, &mut header_current, &mut header_ops, blocks);
+                FunctionForHeader::Condition(self.builtin_binary_expr(
+                    span,
+                    if range.inclusive {
+                        BinaryOp::Le
+                    } else {
+                        BinaryOp::Lt
+                    },
+                    local,
+                    end,
+                    self.bool_ty(for_stmt.ty),
+                ))
+            }
+            None => FunctionForHeader::Infinite,
+        };
         let body_entry = self.alloc_block();
         let continue_target = self.alloc_block();
         let break_target = self.alloc_block();

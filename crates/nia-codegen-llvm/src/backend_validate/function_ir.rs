@@ -271,6 +271,12 @@ impl BackendValidator<'_> {
                 }
                 self.validate_expr(receiver);
             }
+            FunctionCallee::BuiltinMethod {
+                self_ty, receiver, ..
+            } => {
+                self.validate_type(*self_ty, span);
+                self.validate_expr(receiver);
+            }
             FunctionCallee::BuiltinPlaceMethod {
                 trait_id,
                 method,
@@ -283,10 +289,7 @@ impl BackendValidator<'_> {
                     self.validate_type(*arg, span);
                 }
                 self.validate_expr(receiver);
-                if !matches!(
-                    trait_id,
-                    BuiltinTrait::Len | BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr
-                ) {
+                if !matches!(trait_id, BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr) {
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         format!(

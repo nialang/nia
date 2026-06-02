@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::BinaryOp;
-use nia_body_ir::{TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedStmtKind};
+use nia_body_ir::{
+    TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIterator, TypedStmtKind,
+};
 use nia_function_ir::{
     FunctionCallee, FunctionExpr, FunctionExprKind, FunctionOp, FunctionTerminator,
 };
@@ -151,7 +153,7 @@ pub(super) fn body_contains_dynamic_trait_callee(body: &TypedBody) -> bool {
         | TypedStmtKind::Return(Some(expr))
         | TypedStmtKind::Defer(expr) => expr_contains_dynamic_trait_callee(expr),
         TypedStmtKind::ForIn(for_stmt) => {
-            expr_contains_dynamic_trait_callee(&for_stmt.iter)
+            for_iterator_contains_dynamic_trait_callee(&for_stmt.iter)
                 || body_contains_dynamic_trait_callee(&for_stmt.body)
         }
         TypedStmtKind::While(while_stmt) => {
@@ -164,6 +166,19 @@ pub(super) fn body_contains_dynamic_trait_callee(body: &TypedBody) -> bool {
         .tail
         .as_ref()
         .is_some_and(|tail| expr_contains_dynamic_trait_callee(tail))
+}
+
+fn for_iterator_contains_dynamic_trait_callee(iter: &TypedForIterator) -> bool {
+    match iter {
+        TypedForIterator::Range(range) => {
+            expr_contains_dynamic_trait_callee(&range.start)
+                || range
+                    .end
+                    .as_ref()
+                    .is_some_and(expr_contains_dynamic_trait_callee)
+        }
+        TypedForIterator::Expr(expr) => expr_contains_dynamic_trait_callee(expr),
+    }
 }
 
 fn expr_contains_dynamic_trait_callee(expr: &TypedExpr) -> bool {

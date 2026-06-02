@@ -519,6 +519,15 @@ impl<'a> ModuleLowerer<'a> {
                     receiver,
                 }
             }
+            FunctionCallee::BuiltinMethod {
+                method,
+                self_ty,
+                receiver,
+            } => FunctionCallee::BuiltinMethod {
+                method,
+                self_ty: self.instantiate_ty_with_id(self_ty, substitutions),
+                receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
+            },
             FunctionCallee::DynamicTraitMethod {
                 object_ty,
                 trait_id,

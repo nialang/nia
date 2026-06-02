@@ -295,6 +295,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::FunctionPointer(receiver) => {
                 self.collect_trait_object_vtables_from_expr(receiver, out, seen);
             }

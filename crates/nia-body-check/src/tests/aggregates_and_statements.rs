@@ -159,6 +159,57 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
+fn rejects_for_in_ranges_without_start_bound() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    for n in ..3 {
+        _ = n;
+    }
+    for n in ..=3 {
+        _ = n;
+    }
+    0
+}
+"#,
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic
+                .message
+                .contains("for-in range iterator requires a start bound"))
+            .count(),
+        2,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn rejects_for_in_range_values_until_iterator_methods_exist() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    var r = 0..3;
+    for n in r {
+        _ = n;
+    }
+    0
+}
+"#,
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("for-in range iterator requires a range literal")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_defer_expression_type_edges() {
     let checked = pipeline(
         r#"

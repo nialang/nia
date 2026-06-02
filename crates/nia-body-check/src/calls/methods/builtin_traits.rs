@@ -342,7 +342,6 @@ impl<'a> BodyChecker<'a> {
         trait_args: Vec<InternedTyId>,
     ) -> InternedTyId {
         match trait_id {
-            BuiltinTrait::Len => self.primitive(nia_ty::PrimitiveTy::Usize),
             BuiltinTrait::SliceConst | BuiltinTrait::Slice => {
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty,

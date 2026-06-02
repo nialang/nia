@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
-    TypedBody, TypedExpr, TypedExprKind, TypedForIn, TypedLocal, TypedLocalKind, TypedLoop,
-    TypedRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedBody, TypedExpr, TypedExprKind, TypedForIn, TypedForIterator, TypedLocal, TypedLocalKind,
+    TypedLoop, TypedRangeIterator, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
+    TypedSwitchPattern,
 };
 pub(super) use nia_function_ir::*;
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
@@ -68,15 +69,13 @@ pub(super) fn for_range_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt {
             local_id,
             name: "i".to_string(),
             ty,
-            iter: TypedExpr {
+            iter: TypedForIterator::Range(TypedRangeIterator {
                 span,
                 ty,
-                kind: TypedExprKind::Range(TypedRange {
-                    start: Some(Box::new(int_expr(0))),
-                    end: Some(Box::new(int_expr(3))),
-                    inclusive: false,
-                }),
-            },
+                start: int_expr(0),
+                end: Some(int_expr(3)),
+                inclusive: false,
+            }),
             body,
         })),
     }

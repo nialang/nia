@@ -583,6 +583,15 @@ impl FunctionLowerer {
                 return_type: *return_type,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
+            TypedCallee::BuiltinMethod {
+                method,
+                self_ty,
+                receiver,
+            } => FunctionCallee::BuiltinMethod {
+                method: Self::lower_builtin_method(*method),
+                self_ty: *self_ty,
+                receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
+            },
             TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod {
                 trait_id,
                 method,
@@ -612,6 +621,12 @@ impl FunctionLowerer {
             TypedCallee::FunctionPointer(expr) => FunctionCallee::FunctionPointer(Box::new(
                 self.lower_value_expr(expr, scope, current, ops, blocks),
             )),
+        }
+    }
+
+    fn lower_builtin_method(method: BuiltinMethod) -> FunctionBuiltinMethod {
+        match method {
+            BuiltinMethod::Len => FunctionBuiltinMethod::Len,
         }
     }
 

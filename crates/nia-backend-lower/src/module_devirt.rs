@@ -209,6 +209,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionCallee::TraitMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::FunctionPointer(receiver) => {
                 self.devirtualize_direct_trait_calls_in_expr(receiver)
             }

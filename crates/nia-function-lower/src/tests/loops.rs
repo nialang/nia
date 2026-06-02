@@ -100,13 +100,16 @@ fn lowers_for_in_range_binding_step_and_edges() {
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![for_range_stmt(LocalId(0), TypedBody {
-            span,
-            locals: Vec::new(),
-            stmts: Vec::new(),
-            tail: None,
-            ty,
-        })],
+        stmts: vec![for_range_stmt(
+            LocalId(0),
+            TypedBody {
+                span,
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                tail: None,
+                ty,
+            },
+        )],
         tail: None,
         ty,
     };
@@ -139,7 +142,10 @@ fn lowers_for_in_range_binding_step_and_edges() {
         .iter()
         .find(|block| block.id == continue_target)
         .expect("continue block");
-    assert!(matches!(continue_block.ops[0], FunctionOp::StoreLocal { .. }));
+    assert!(matches!(
+        continue_block.ops[0],
+        FunctionOp::StoreLocal { .. }
+    ));
     let step_branch = only_next_target(&function_body, continue_block.id);
     assert_eq!(
         function_body

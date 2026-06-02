@@ -786,7 +786,12 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::While(while_stmt) => {
                 let cond_ty = self.check_expr(&while_stmt.cond);
-                self.expect_type(while_stmt.cond.span, self.bool(), cond_ty, "while condition");
+                self.expect_type(
+                    while_stmt.cond.span,
+                    self.bool(),
+                    cond_ty,
+                    "while condition",
+                );
                 self.check_block(&while_stmt.body);
             }
             StmtKind::Loop(loop_stmt) => {
@@ -800,13 +805,21 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Range {
                 kind:
                     nia_ty::RangeTyKind::Exclusive
-                    | nia_ty::RangeTyKind::Inclusive,
+                    | nia_ty::RangeTyKind::Inclusive
+                    | nia_ty::RangeTyKind::From,
                 bound: Some(bound),
             }) if matches!(iter.kind, ExprKind::Range(_)) => bound,
+            Some(TyKind::Range { .. }) if !matches!(iter.kind, ExprKind::Range(_)) => {
+                self.diagnostics.push(Diagnostic::error(
+                    iter.span,
+                    "for-in range iterator requires a range literal",
+                ));
+                self.error()
+            }
             Some(TyKind::Range { bound: Some(_), .. }) => {
                 self.diagnostics.push(Diagnostic::error(
                     iter.span,
-                    "for-in range iterator requires both start and end bounds",
+                    "for-in range iterator requires a start bound",
                 ));
                 self.error()
             }

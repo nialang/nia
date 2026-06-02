@@ -1396,10 +1396,10 @@ compile-time known values and may appear in array lengths, static initializers,
 and ordinary expressions. In generic code they remain layout values until the
 generic function is instantiated.
 
-`value.len()` calls the built-in `Len` trait method. Arrays and slices have
-compiler-proven `Len` implementations: for `[N]T`, it returns `N`; for `&[T]`
-and `&const [T]`, it returns the runtime slice length. User types may implement
-`Len`, but an implementation may not overlap a compiler-proven implementation.
+`value.len()` is a compiler built-in method for arrays and slices. For `[N]T`,
+it returns `N`; for `&[T]` and `&const [T]`, it returns the runtime slice
+length. `len` is not a trait method and user types cannot implement a built-in
+`Len` capability.
 
 `slice.get_ptr_const()` and `slice.get_ptr()` call the built-in `GetPtrConst`
 and `GetPtr` trait methods. `&[T]` and `&const [T]` have compiler-proven
@@ -1728,8 +1728,8 @@ traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
 both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
 
 `Sized`, `DerefConst`, `Deref`, `IndexConst`, `Index`, `SliceConst`, `Slice`,
-`Len`, `GetPtrConst`, and `GetPtr` are also builtin capability traits. Their
-names and required members are fixed by the language:
+`GetPtrConst`, and `GetPtr` are also builtin capability traits. Their names and
+required members are fixed by the language:
 
 ```nia
 trait Sized {}
@@ -1764,10 +1764,6 @@ trait Slice[R] : SliceConst[R] {
     fn slice(&self, range: R) [Self as Slice[R]]::Output;
 }
 
-trait Len {
-    fn len(&const self) usize;
-}
-
 trait GetPtrConst {
     type Target;
     fn get_ptr_const(&const self) &const [Self as GetPtrConst]::Target;
@@ -1783,8 +1779,9 @@ The compiler proves builtin implementations for primitive operations,
 layout-known types, pointers, arrays, and slices where the operation is native
 to the language. User implementations of builtin traits are allowed when they
 do not overlap a compiler-proven implementation. For example, a custom
-container may implement `Len` or `SliceConst[..]`, but `[N]T` may not provide a
-manual `Len` implementation because array length is already compiler-proven.
+container may implement `SliceConst[..]`, but `[N]T` may not provide a manual
+`SliceConst[..]` implementation because array slicing is already
+compiler-proven. Length remains a built-in method only for arrays and slices.
 
 Index expressions lower through `IndexConst` or `Index`; slice expressions
 lower through `SliceConst` or `Slice`. Native array, pointer, and slice
