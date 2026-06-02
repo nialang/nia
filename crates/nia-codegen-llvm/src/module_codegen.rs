@@ -39,11 +39,17 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) union_instances: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, StructType<'ctx>>>,
     pub(super) union_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, StructType<'ctx>)>>,
+    struct_instance_type_lookups:
+        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<StructType<'ctx>>>>,
+    union_instance_type_lookups:
+        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<StructType<'ctx>>>>,
     pub(super) functions: HashMap<GlobalDefId, FunctionValue<'ctx>>,
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, FunctionValue<'ctx>>>,
     pub(super) function_instances_by_def:
         HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, FunctionValue<'ctx>)>>,
+    function_instance_value_lookups:
+        RefCell<HashMap<(GlobalDefId, Vec<InternedTyId>), Option<FunctionValue<'ctx>>>>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
@@ -74,9 +80,12 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             struct_instances_by_def: HashMap::new(),
             union_instances: HashMap::new(),
             union_instances_by_def: HashMap::new(),
+            struct_instance_type_lookups: RefCell::new(HashMap::new()),
+            union_instance_type_lookups: RefCell::new(HashMap::new()),
             functions: HashMap::new(),
             function_instances: HashMap::new(),
             function_instances_by_def: HashMap::new(),
+            function_instance_value_lookups: RefCell::new(HashMap::new()),
             globals: HashMap::new(),
             layouts: RefCell::new(HashMap::new()),
             same_type_cache: RefCell::new(HashMap::new()),
