@@ -655,8 +655,8 @@ visible symbol; calls whose receiver may carry runtime metadata still use the
 normal vtable dispatch ABI.
 
 The LLVM codegen optimization level and size policy reported by
-`niac check <file.nia> --emit-opt-report` and the
-`emit ... <file.nia> --emit-opt-report` commands are also backend-visible only.
+`nia check <file.nia> --opt-report` and the
+`emit ... <file.nia> --opt-report` commands are also backend-visible only.
 They may affect
 instruction selection, scheduling, register allocation, and equivalent
 object-code details after Nia lowering, but they must not reinterpret Nia layout

@@ -44,7 +44,7 @@ fn run_main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(CliAction::Version) => {
-            println!("niac {}", env!("CARGO_PKG_VERSION"));
+            println!("nia {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         Ok(CliAction::Run(cli)) => run_cli(cli),
@@ -78,25 +78,25 @@ enum CliCommand {
     },
     Check {
         path: String,
-        emit_opt_report: bool,
+        opt_report: bool,
     },
     EmitBackend {
         path: String,
-        emit_opt_report: bool,
+        opt_report: bool,
     },
     EmitLlvm {
         path: String,
-        emit_opt_report: bool,
+        opt_report: bool,
     },
     EmitObj {
         path: String,
         args: Vec<String>,
-        emit_opt_report: bool,
+        opt_report: bool,
     },
     EmitExe {
         path: String,
         args: Vec<String>,
-        emit_opt_report: bool,
+        opt_report: bool,
     },
 }
 
@@ -155,56 +155,34 @@ fn run_cli(cli: Cli) -> ExitCode {
     match cli.command {
         CliCommand::Lex { .. } => run_lex(&source),
         CliCommand::Parse { .. } => run_parse(&path, &source),
-        CliCommand::Check {
-            emit_opt_report, ..
-        } => run_check(
-            &path,
-            &source,
-            cli.module_map,
-            cli.optimization,
-            emit_opt_report,
-        ),
-        CliCommand::EmitLlvm {
-            emit_opt_report, ..
-        } => run_emit_llvm(
-            &path,
-            &source,
-            cli.module_map,
-            cli.optimization,
-            emit_opt_report,
-        ),
-        CliCommand::EmitBackend {
-            emit_opt_report, ..
-        } => run_emit_backend(
-            &path,
-            &source,
-            cli.module_map,
-            cli.optimization,
-            emit_opt_report,
-        ),
+        CliCommand::Check { opt_report, .. } => {
+            run_check(&path, &source, cli.module_map, cli.optimization, opt_report)
+        }
+        CliCommand::EmitLlvm { opt_report, .. } => {
+            run_emit_llvm(&path, &source, cli.module_map, cli.optimization, opt_report)
+        }
+        CliCommand::EmitBackend { opt_report, .. } => {
+            run_emit_backend(&path, &source, cli.module_map, cli.optimization, opt_report)
+        }
         CliCommand::EmitObj {
-            args,
-            emit_opt_report,
-            ..
+            args, opt_report, ..
         } => run_emit_obj(
             &path,
             &source,
             args,
             cli.module_map,
             cli.optimization,
-            emit_opt_report,
+            opt_report,
         ),
         CliCommand::EmitExe {
-            args,
-            emit_opt_report,
-            ..
+            args, opt_report, ..
         } => run_emit_exe(
             &path,
             &source,
             args,
             cli.module_map,
             cli.optimization,
-            emit_opt_report,
+            opt_report,
         ),
     }
 }
@@ -410,13 +388,13 @@ fn parse_source_command(
     let mut args = args.into_iter();
     let Some(path) = args.next() else {
         return Err(CliError::new(
-            format!("missing source file for `niac {command}`"),
+            format!("missing source file for `nia {command}`"),
             help,
         ));
     };
     if let Some(extra) = args.next() {
         return Err(CliError::new(
-            format!("unexpected argument `{extra}` for `niac {command}`"),
+            format!("unexpected argument `{extra}` for `nia {command}`"),
             help,
         ));
     }
@@ -428,14 +406,14 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         return Err(CliError::help(HelpTopic::Check));
     }
     let mut path = None;
-    let mut emit_opt_report = false;
+    let mut opt_report = false;
     for arg in args {
         match arg.as_str() {
-            "--emit-opt-report" => emit_opt_report = true,
+            "--opt-report" => opt_report = true,
             _ if path.is_none() => path = Some(arg),
             _ => {
                 return Err(CliError::new(
-                    format!("unexpected argument `{arg}` for `niac check`"),
+                    format!("unexpected argument `{arg}` for `nia check`"),
                     HelpTopic::Check,
                 ));
             }
@@ -443,14 +421,11 @@ fn parse_check_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     }
     let Some(path) = path else {
         return Err(CliError::new(
-            "missing source file for `niac check`",
+            "missing source file for `nia check`",
             HelpTopic::Check,
         ));
     };
-    Ok(CliCommand::Check {
-        path,
-        emit_opt_report,
-    })
+    Ok(CliCommand::Check { path, opt_report })
 }
 
 fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -481,20 +456,20 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
             "emit obj",
             rest,
             HelpTopic::EmitObj,
-            |path, args, emit_opt_report| CliCommand::EmitObj {
+            |path, args, opt_report| CliCommand::EmitObj {
                 path,
                 args,
-                emit_opt_report,
+                opt_report,
             },
         ),
         "exe" => parse_emit_with_options(
             "emit exe",
             rest,
             HelpTopic::EmitExe,
-            |path, args, emit_opt_report| CliCommand::EmitExe {
+            |path, args, opt_report| CliCommand::EmitExe {
                 path,
                 args,
-                emit_opt_report,
+                opt_report,
             },
         ),
         _ => Err(CliError::new(
@@ -509,14 +484,14 @@ fn parse_emit_backend_command(args: Vec<String>) -> Result<CliCommand, CliError>
         return Err(CliError::help(HelpTopic::EmitBackend));
     }
     let mut path = None;
-    let mut emit_opt_report = false;
+    let mut opt_report = false;
     for arg in args {
         match arg.as_str() {
-            "--emit-opt-report" => emit_opt_report = true,
+            "--opt-report" => opt_report = true,
             _ if path.is_none() => path = Some(arg),
             _ => {
                 return Err(CliError::new(
-                    format!("unexpected argument `{arg}` for `niac emit backend`"),
+                    format!("unexpected argument `{arg}` for `nia emit backend`"),
                     HelpTopic::EmitBackend,
                 ));
             }
@@ -524,14 +499,11 @@ fn parse_emit_backend_command(args: Vec<String>) -> Result<CliCommand, CliError>
     }
     let Some(path) = path else {
         return Err(CliError::new(
-            "missing source file for `niac emit backend`",
+            "missing source file for `nia emit backend`",
             HelpTopic::EmitBackend,
         ));
     };
-    Ok(CliCommand::EmitBackend {
-        path,
-        emit_opt_report,
-    })
+    Ok(CliCommand::EmitBackend { path, opt_report })
 }
 
 fn parse_emit_llvm_command(args: Vec<String>) -> Result<CliCommand, CliError> {
@@ -539,14 +511,14 @@ fn parse_emit_llvm_command(args: Vec<String>) -> Result<CliCommand, CliError> {
         return Err(CliError::help(HelpTopic::EmitLlvm));
     }
     let mut path = None;
-    let mut emit_opt_report = false;
+    let mut opt_report = false;
     for arg in args {
         match arg.as_str() {
-            "--emit-opt-report" => emit_opt_report = true,
+            "--opt-report" => opt_report = true,
             _ if path.is_none() => path = Some(arg),
             _ => {
                 return Err(CliError::new(
-                    format!("unexpected argument `{arg}` for `niac emit llvm`"),
+                    format!("unexpected argument `{arg}` for `nia emit llvm`"),
                     HelpTopic::EmitLlvm,
                 ));
             }
@@ -554,14 +526,11 @@ fn parse_emit_llvm_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     }
     let Some(path) = path else {
         return Err(CliError::new(
-            "missing source file for `niac emit llvm`",
+            "missing source file for `nia emit llvm`",
             HelpTopic::EmitLlvm,
         ));
     };
-    Ok(CliCommand::EmitLlvm {
-        path,
-        emit_opt_report,
-    })
+    Ok(CliCommand::EmitLlvm { path, opt_report })
 }
 
 fn parse_emit_with_options(
@@ -573,14 +542,14 @@ fn parse_emit_with_options(
     if has_help_flag(&args) {
         return Err(CliError::help(help));
     }
-    let mut emit_opt_report = false;
+    let mut opt_report = false;
     let mut path = None;
     let mut target_args = Vec::new();
     let mut preserve_next = false;
     for arg in args {
         if path.is_none() {
-            if arg == "--emit-opt-report" {
-                emit_opt_report = true;
+            if arg == "--opt-report" {
+                opt_report = true;
                 continue;
             }
             path = Some(arg);
@@ -591,8 +560,8 @@ fn parse_emit_with_options(
             target_args.push(arg);
             continue;
         }
-        if arg == "--emit-opt-report" {
-            emit_opt_report = true;
+        if arg == "--opt-report" {
+            opt_report = true;
             continue;
         }
         if native_emit_option_takes_path(&arg) {
@@ -602,11 +571,11 @@ fn parse_emit_with_options(
     }
     let Some(path) = path else {
         return Err(CliError::new(
-            format!("missing source file for `niac {command}`"),
+            format!("missing source file for `nia {command}`"),
             help,
         ));
     };
-    Ok(build(path, target_args, emit_opt_report))
+    Ok(build(path, target_args, opt_report))
 }
 
 fn has_help_flag(args: &[String]) -> bool {
@@ -651,14 +620,14 @@ fn run_check(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
-    emit_opt_report: bool,
+    opt_report: bool,
 ) -> ExitCode {
     let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
-    if emit_opt_report {
+    if opt_report {
         print_optimization_report(&program);
     }
     ExitCode::SUCCESS
@@ -669,14 +638,14 @@ fn run_emit_backend(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
-    emit_opt_report: bool,
+    opt_report: bool,
 ) -> ExitCode {
     let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
-    if emit_opt_report {
+    if opt_report {
         print_optimization_report_to_stderr(&program);
     }
     println!("{:#?}", program.backend_lowering.program);
@@ -688,14 +657,14 @@ fn run_emit_llvm(
     source: &str,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
-    emit_opt_report: bool,
+    opt_report: bool,
 ) -> ExitCode {
     let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
-    if emit_opt_report {
+    if opt_report {
         print_optimization_report_to_stderr(&program);
     }
     let output = nia_codegen_llvm::emit_llvm_ir_with_options(
@@ -721,7 +690,7 @@ fn run_emit_obj(
     args: Vec<String>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
-    emit_opt_report: bool,
+    opt_report: bool,
 ) -> ExitCode {
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
@@ -735,7 +704,7 @@ fn run_emit_obj(
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
-    if emit_opt_report {
+    if opt_report {
         print_optimization_report_to_stderr(&program);
     }
     let output = nia_codegen_llvm::emit_native_objects(
@@ -783,7 +752,7 @@ fn run_emit_exe(
     args: Vec<String>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
-    emit_opt_report: bool,
+    opt_report: bool,
 ) -> ExitCode {
     let output_path = match parse_emit_exe_options(path, args) {
         Ok(path) => path,
@@ -797,7 +766,7 @@ fn run_emit_exe(
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
     }
-    if emit_opt_report {
+    if opt_report {
         print_optimization_report_to_stderr(&program);
     }
     let output = nia_codegen_llvm::emit_native_objects(
@@ -892,7 +861,7 @@ fn parse_emit_obj_options(source: &str, args: Vec<String>) -> Result<EmitObjOpti
                 };
                 out_dir = Some(PathBuf::from(path));
             }
-            _ => return Err(format!("unknown `niac emit obj` option `{arg}`")),
+            _ => return Err(format!("unknown `nia emit obj` option `{arg}`")),
         }
     }
     match (output, out_dir) {
@@ -914,7 +883,7 @@ fn parse_emit_exe_options(source: &str, args: Vec<String>) -> Result<PathBuf, St
                 };
                 output = Some(PathBuf::from(path));
             }
-            _ => return Err(format!("unknown `niac emit exe` option `{arg}`")),
+            _ => return Err(format!("unknown `nia emit exe` option `{arg}`")),
         }
     }
     Ok(output.unwrap_or_else(|| default_output_path(source, env::consts::EXE_EXTENSION)))

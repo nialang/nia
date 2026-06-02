@@ -52,7 +52,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::Main => HelpDoc {
             title: "Nia compiler driver",
             about: "Compile, inspect, and check Nia source files.",
-            usage: &["niac [options] <command> [args]", "niac help [command]"],
+            usage: &["nia [options] <command> [args]", "nia help [command]"],
             commands: &[
                 HelpRow {
                     left: "lex <file.nia>",
@@ -73,39 +73,39 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             options: GLOBAL_OPTIONS,
             examples: &[
-                "niac check src/main.nia",
-                "niac -O2 emit obj src/main.nia --out-dir build/obj",
-                "niac emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
-                "niac emit exe src/main.nia -o build/main -M share=share/share.nia",
+                "nia check src/main.nia",
+                "nia -O2 emit obj src/main.nia --out-dir build/obj",
+                "nia emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
+                "nia emit exe src/main.nia -o build/main -M share=share/share.nia",
             ],
-            notes: &["Use `niac help <command>` for command-specific details."],
+            notes: &["Use `nia help <command>` for command-specific details."],
         },
         HelpTopic::Lex => HelpDoc {
-            title: "niac lex",
+            title: "nia lex",
             about: "Tokenize a source file and print token kinds with byte spans.",
-            usage: &["niac lex <file.nia> [options]"],
+            usage: &["nia lex <file.nia> [options]"],
             commands: &[],
             options: GLOBAL_OPTIONS,
-            examples: &["niac lex src/main.nia"],
+            examples: &["nia lex src/main.nia"],
             notes: &[],
         },
         HelpTopic::Parse => HelpDoc {
-            title: "niac parse",
+            title: "nia parse",
             about: "Parse a source file and print the AST.",
-            usage: &["niac parse <file.nia> [options]"],
+            usage: &["nia parse <file.nia> [options]"],
             commands: &[],
             options: GLOBAL_OPTIONS,
-            examples: &["niac parse src/main.nia"],
+            examples: &["nia parse src/main.nia"],
             notes: &["Parse diagnostics are rendered after the AST."],
         },
         HelpTopic::Check => HelpDoc {
-            title: "niac check",
+            title: "nia check",
             about: "Run the frontend and semantic checking pipeline.",
-            usage: &["niac check <file.nia> [--emit-opt-report] [options]"],
+            usage: &["nia check <file.nia> [--opt-report] [options]"],
             commands: &[],
             options: &[
                 HelpRow {
-                    left: "--emit-opt-report",
+                    left: "--opt-report",
                     right: "print backend optimization policy, enabled passes, change count, and changes",
                 },
                 HelpRow {
@@ -122,16 +122,16 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
             ],
             examples: &[
-                "niac check src/main.nia",
-                "niac -O1 check src/main.nia --emit-opt-report",
-                "niac check src/main.nia -M std=/usr/share/nia/std.nia",
+                "nia check src/main.nia",
+                "nia -O1 check src/main.nia --opt-report",
+                "nia check src/main.nia -M std=/usr/share/nia/std.nia",
             ],
             notes: &[],
         },
         HelpTopic::Emit => HelpDoc {
-            title: "niac emit",
+            title: "nia emit",
             about: "Run checking and write compiler output.",
-            usage: &["niac emit <target> <file.nia> [options]"],
+            usage: &["nia emit <target> <file.nia> [options]"],
             commands: &[
                 HelpRow {
                     left: "backend <file.nia>",
@@ -152,21 +152,21 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             options: GLOBAL_OPTIONS,
             examples: &[
-                "niac emit backend src/main.nia",
-                "niac emit llvm src/main.nia",
-                "niac emit obj src/main.nia --out-dir build/obj",
-                "niac emit exe src/main.nia -o build/main",
+                "nia emit backend src/main.nia",
+                "nia emit llvm src/main.nia",
+                "nia emit obj src/main.nia --out-dir build/obj",
+                "nia emit exe src/main.nia -o build/main",
             ],
-            notes: &["Use `niac help emit <target>` for target-specific options."],
+            notes: &["Use `nia help emit <target>` for target-specific options."],
         },
         HelpTopic::EmitBackend => HelpDoc {
-            title: "niac emit backend",
+            title: "nia emit backend",
             about: "Run checking and write optimized backend IR to stdout.",
-            usage: &["niac emit backend <file.nia> [--emit-opt-report] [options]"],
+            usage: &["nia emit backend <file.nia> [--opt-report] [options]"],
             commands: &[],
             options: &[
                 HelpRow {
-                    left: "--emit-opt-report",
+                    left: "--opt-report",
                     right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
                 },
                 HelpRow {
@@ -183,19 +183,19 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
             ],
             examples: &[
-                "niac emit backend src/main.nia",
-                "niac -O2 emit backend src/main.nia --emit-opt-report",
+                "nia emit backend src/main.nia",
+                "nia -O2 emit backend src/main.nia --opt-report",
             ],
             notes: &["The optimization report is written to stderr so stdout remains backend IR."],
         },
         HelpTopic::EmitLlvm => HelpDoc {
-            title: "niac emit llvm",
+            title: "nia emit llvm",
             about: "Run checking and write LLVM IR for all codegen units to stdout.",
-            usage: &["niac emit llvm <file.nia> [--emit-opt-report] [options]"],
+            usage: &["nia emit llvm <file.nia> [--opt-report] [options]"],
             commands: &[],
             options: &[
                 HelpRow {
-                    left: "--emit-opt-report",
+                    left: "--opt-report",
                     right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
                 },
                 HelpRow {
@@ -212,21 +212,21 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
             ],
             examples: &[
-                "niac emit llvm src/main.nia",
-                "niac -O2 emit llvm src/main.nia --emit-opt-report",
+                "nia emit llvm src/main.nia",
+                "nia -O2 emit llvm src/main.nia --opt-report",
             ],
             notes: &["The optimization report is written to stderr so stdout remains LLVM IR."],
         },
         HelpTopic::EmitObj => HelpDoc {
-            title: "niac emit obj",
+            title: "nia emit obj",
             about: "Run checking and write native object output.",
             usage: &[
-                "niac emit obj <file.nia> [-o <file.o> | --out-dir <dir>] [--emit-opt-report] [options]",
+                "nia emit obj <file.nia> [-o <file.o> | --out-dir <dir>] [--opt-report] [options]",
             ],
             commands: &[],
             options: &[
                 HelpRow {
-                    left: "--emit-opt-report",
+                    left: "--opt-report",
                     right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
                 },
                 HelpRow {
@@ -251,9 +251,9 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
             ],
             examples: &[
-                "niac emit obj src/main.nia -o build/main.o",
-                "niac -Os emit obj src/main.nia -o build/main.o --emit-opt-report",
-                "niac emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
+                "nia emit obj src/main.nia -o build/main.o",
+                "nia -Os emit obj src/main.nia -o build/main.o --opt-report",
+                "nia emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
             ],
             notes: &[
                 "The optimization report is written to stderr so object output remains file-only.",
@@ -262,13 +262,13 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
         },
         HelpTopic::EmitExe => HelpDoc {
-            title: "niac emit exe",
+            title: "nia emit exe",
             about: "Write native objects to a temporary directory, then invoke the host C linker.",
-            usage: &["niac emit exe <file.nia> [-o <executable>] [--emit-opt-report] [options]"],
+            usage: &["nia emit exe <file.nia> [-o <executable>] [--opt-report] [options]"],
             commands: &[],
             options: &[
                 HelpRow {
-                    left: "--emit-opt-report",
+                    left: "--opt-report",
                     right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
                 },
                 HelpRow {
@@ -289,9 +289,9 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
             ],
             examples: &[
-                "niac emit exe src/main.nia -o build/main",
-                "niac -Oz emit exe src/main.nia -o build/main --emit-opt-report",
-                "niac emit exe src/main.nia -M share=share/share.nia",
+                "nia emit exe src/main.nia -o build/main",
+                "nia -Oz emit exe src/main.nia -o build/main --opt-report",
+                "nia emit exe src/main.nia -M share=share/share.nia",
             ],
             notes: &[
                 "The optimization report is written to stderr so the executable path remains the only file output.",

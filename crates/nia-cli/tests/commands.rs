@@ -2,18 +2,18 @@
 use std::process::Command;
 
 #[test]
-fn help_and_version_use_niac_command_name() {
-    let help = Command::new(env!("CARGO_BIN_EXE_niac"))
+fn help_and_version_use_nia_command_name() {
+    let help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--help")
         .output()
-        .expect("run niac --help");
+        .expect("run nia --help");
     assert!(
         help.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&help.stderr)
     );
     let help_stdout = String::from_utf8_lossy(&help.stdout);
-    assert!(help_stdout.contains("Usage:\n  niac"), "{help_stdout}");
+    assert!(help_stdout.contains("Usage:\n  nia"), "{help_stdout}");
     assert!(
         help_stdout.contains("emit <target> <file.nia>"),
         "{help_stdout}"
@@ -26,18 +26,18 @@ fn help_and_version_use_niac_command_name() {
         assert!(help_stdout.contains(level), "{help_stdout}");
     }
 
-    let check_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let check_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("check")
         .output()
-        .expect("run niac help check");
+        .expect("run nia help check");
     assert!(
         check_help.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&check_help.stderr)
     );
     let check_stdout = String::from_utf8_lossy(&check_help.stdout);
-    assert!(check_stdout.contains("--emit-opt-report"), "{check_stdout}");
+    assert!(check_stdout.contains("--opt-report"), "{check_stdout}");
     assert!(
         check_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
         "{check_stdout}"
@@ -47,11 +47,11 @@ fn help_and_version_use_niac_command_name() {
         "{check_stdout}"
     );
 
-    let emit_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let emit_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("emit")
         .output()
-        .expect("run niac help emit");
+        .expect("run nia help emit");
     assert!(
         emit_help.status.success(),
         "stderr:\n{}",
@@ -60,12 +60,12 @@ fn help_and_version_use_niac_command_name() {
     let emit_stdout = String::from_utf8_lossy(&emit_help.stdout);
     assert!(emit_stdout.contains("backend <file.nia>"), "{emit_stdout}");
 
-    let emit_backend_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let emit_backend_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("emit")
         .arg("backend")
         .output()
-        .expect("run niac help emit backend");
+        .expect("run nia help emit backend");
     assert!(
         emit_backend_help.status.success(),
         "stderr:\n{}",
@@ -73,11 +73,11 @@ fn help_and_version_use_niac_command_name() {
     );
     let emit_backend_stdout = String::from_utf8_lossy(&emit_backend_help.stdout);
     assert!(
-        emit_backend_stdout.contains("niac emit backend <file.nia>"),
+        emit_backend_stdout.contains("nia emit backend <file.nia>"),
         "{emit_backend_stdout}"
     );
     assert!(
-        emit_backend_stdout.contains("--emit-opt-report"),
+        emit_backend_stdout.contains("--opt-report"),
         "{emit_backend_stdout}"
     );
     assert!(
@@ -86,12 +86,12 @@ fn help_and_version_use_niac_command_name() {
         "{emit_backend_stdout}"
     );
 
-    let emit_llvm_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let emit_llvm_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("emit")
         .arg("llvm")
         .output()
-        .expect("run niac help emit llvm");
+        .expect("run nia help emit llvm");
     assert!(
         emit_llvm_help.status.success(),
         "stderr:\n{}",
@@ -99,7 +99,7 @@ fn help_and_version_use_niac_command_name() {
     );
     let emit_llvm_stdout = String::from_utf8_lossy(&emit_llvm_help.stdout);
     assert!(
-        emit_llvm_stdout.contains("niac emit llvm <file.nia>"),
+        emit_llvm_stdout.contains("nia emit llvm <file.nia>"),
         "{emit_llvm_stdout}"
     );
     assert!(
@@ -108,12 +108,12 @@ fn help_and_version_use_niac_command_name() {
         "{emit_llvm_stdout}"
     );
 
-    let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let emit_obj_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("emit")
         .arg("obj")
         .output()
-        .expect("run niac help emit obj");
+        .expect("run nia help emit obj");
     assert!(
         emit_obj_help.status.success(),
         "stderr:\n{}",
@@ -121,7 +121,7 @@ fn help_and_version_use_niac_command_name() {
     );
     let emit_obj_stdout = String::from_utf8_lossy(&emit_obj_help.stdout);
     assert!(
-        emit_obj_stdout.contains("niac emit obj <file.nia>"),
+        emit_obj_stdout.contains("nia emit obj <file.nia>"),
         "{emit_obj_stdout}"
     );
     assert!(
@@ -129,19 +129,19 @@ fn help_and_version_use_niac_command_name() {
         "{emit_obj_stdout}"
     );
     assert!(
-        emit_obj_stdout.contains("--emit-opt-report"),
+        emit_obj_stdout.contains("--opt-report"),
         "{emit_obj_stdout}"
     );
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
         assert!(emit_obj_stdout.contains(level), "{emit_obj_stdout}");
     }
 
-    let emit_exe_help = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let emit_exe_help = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("help")
         .arg("emit")
         .arg("exe")
         .output()
-        .expect("run niac help emit exe");
+        .expect("run nia help emit exe");
     assert!(
         emit_exe_help.status.success(),
         "stderr:\n{}",
@@ -149,7 +149,7 @@ fn help_and_version_use_niac_command_name() {
     );
     let emit_exe_stdout = String::from_utf8_lossy(&emit_exe_help.stdout);
     assert!(
-        emit_exe_stdout.contains("niac emit exe <file.nia>"),
+        emit_exe_stdout.contains("nia emit exe <file.nia>"),
         "{emit_exe_stdout}"
     );
     assert!(
@@ -157,21 +157,21 @@ fn help_and_version_use_niac_command_name() {
         "{emit_exe_stdout}"
     );
     assert!(
-        emit_exe_stdout.contains("--emit-opt-report"),
+        emit_exe_stdout.contains("--opt-report"),
         "{emit_exe_stdout}"
     );
 
-    let version = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let version = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("--version")
         .output()
-        .expect("run niac --version");
+        .expect("run nia --version");
     assert!(
         version.status.success(),
         "stderr:\n{}",
         String::from_utf8_lossy(&version.stderr)
     );
     let version_stdout = String::from_utf8_lossy(&version.stdout);
-    assert!(version_stdout.starts_with("niac "), "{version_stdout}");
+    assert!(version_stdout.starts_with("nia "), "{version_stdout}");
 }
 
 #[test]
@@ -188,13 +188,13 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O2")
         .arg("emit")
         .arg("llvm")
         .arg(&main)
         .output()
-        .expect("run niac -O2 emit llvm");
+        .expect("run nia -O2 emit llvm");
 
     assert!(
         output.status.success(),
@@ -219,13 +219,13 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
         .arg(&main)
         .arg("-Oz")
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac check main.nia -Oz --emit-opt-report");
+        .expect("run nia check main.nia -Oz --opt-report");
 
     assert!(
         output.status.success(),
@@ -252,13 +252,13 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O")
         .arg("check")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac -O check --emit-opt-report");
+        .expect("run nia -O check --opt-report");
 
     assert!(
         output.status.success(),
@@ -275,12 +275,12 @@ fn main() i32 {
 
 #[test]
 fn invalid_optimization_option_reports_expected_levels() {
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O9")
         .arg("check")
         .arg("main.nia")
         .output()
-        .expect("run niac with invalid optimization option");
+        .expect("run nia with invalid optimization option");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -315,13 +315,13 @@ pub comptime answer: i32 = 42;
     )
     .expect("write mapped source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("check")
         .arg(&main)
         .arg("-M")
         .arg(format!("share={}", mapped.display()))
         .output()
-        .expect("run niac check with trailing -M");
+        .expect("run nia check with trailing -M");
 
     assert!(
         output.status.success(),
@@ -347,13 +347,13 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O2")
         .arg("check")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac check --emit-opt-report");
+        .expect("run nia check --opt-report");
 
     assert!(
         output.status.success(),
@@ -385,13 +385,13 @@ fn main() i32 {
     assert!(stdout.contains("remove-unused-local-bindings"), "{stdout}");
     assert!(stdout.contains("global simplify-static-init"), "{stdout}");
 
-    let o0 = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let o0 = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O0")
         .arg("check")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac -O0 check --emit-opt-report");
+        .expect("run nia -O0 check --opt-report");
 
     assert!(
         o0.status.success(),
@@ -410,13 +410,13 @@ fn main() i32 {
     assert!(stdout.contains("changes=0"), "{stdout}");
     assert!(stdout.contains("no changes"), "{stdout}");
 
-    let o3 = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let o3 = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O3")
         .arg("check")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac -O3 check --emit-opt-report");
+        .expect("run nia -O3 check --opt-report");
 
     assert!(
         o3.status.success(),
@@ -437,13 +437,13 @@ fn main() i32 {
         "{stdout}"
     );
 
-    let oz = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let oz = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Oz")
         .arg("check")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac -Oz check --emit-opt-report");
+        .expect("run nia -Oz check --opt-report");
 
     assert!(
         oz.status.success(),
@@ -460,13 +460,13 @@ fn main() i32 {
     assert!(stdout.contains("llvm_codegen=less"), "{stdout}");
     assert!(stdout.contains("llvm_size=tiny"), "{stdout}");
 
-    let os = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let os = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Os")
         .arg("check")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac -Os check --emit-opt-report");
+        .expect("run nia -Os check --opt-report");
 
     assert!(
         os.status.success(),
@@ -498,12 +498,12 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
         .arg("backend")
         .arg(&main)
         .output()
-        .expect("run niac emit backend");
+        .expect("run nia emit backend");
 
     assert!(
         output.status.success(),
@@ -534,14 +534,14 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O1")
         .arg("emit")
         .arg("backend")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac emit backend --emit-opt-report");
+        .expect("run nia emit backend --opt-report");
 
     assert!(
         output.status.success(),
@@ -577,12 +577,12 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
         .arg("llvm")
         .arg(&main)
         .output()
-        .expect("run niac emit llvm");
+        .expect("run nia emit llvm");
 
     assert!(
         output.status.success(),
@@ -612,14 +612,14 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-O1")
         .arg("emit")
         .arg("llvm")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac emit llvm --emit-opt-report");
+        .expect("run nia emit llvm --opt-report");
 
     assert!(
         output.status.success(),
@@ -657,14 +657,14 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
         .arg("obj")
         .arg(&main)
         .arg("-o")
         .arg(&object)
         .output()
-        .expect("run niac emit obj");
+        .expect("run nia emit obj");
 
     assert!(
         output.status.success(),
@@ -691,7 +691,7 @@ fn main() i32 {
 
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz", "-O"] {
         let object = root.join(format!("main_{}.o", level.trim_start_matches('-')));
-        let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg(level)
             .arg("emit")
             .arg("obj")
@@ -699,7 +699,7 @@ fn main() i32 {
             .arg("-o")
             .arg(&object)
             .output()
-            .unwrap_or_else(|error| panic!("run niac {level} emit obj: {error}"));
+            .unwrap_or_else(|error| panic!("run nia {level} emit obj: {error}"));
 
         assert!(
             output.status.success(),
@@ -726,7 +726,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
         .arg("obj")
@@ -734,7 +734,7 @@ fn main() i32 {
         .arg("-o")
         .arg("-Oartifact.o")
         .output()
-        .expect("run niac emit obj -o -Oartifact.o");
+        .expect("run nia emit obj -o -Oartifact.o");
 
     assert!(
         output.status.success(),
@@ -744,15 +744,15 @@ fn main() i32 {
     let metadata = std::fs::metadata(root.join("-Oartifact.o")).expect("object metadata");
     assert!(metadata.len() > 0);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
         .arg("obj")
         .arg(&main)
         .arg("-o")
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac emit obj -o --emit-opt-report");
+        .expect("run nia emit obj -o --opt-report");
 
     assert!(
         output.status.success(),
@@ -763,10 +763,10 @@ fn main() i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!stdout.contains("backend optimization report:"), "{stdout}");
     assert!(!stderr.contains("backend optimization report:"), "{stderr}");
-    let metadata = std::fs::metadata(root.join("--emit-opt-report")).expect("object metadata");
+    let metadata = std::fs::metadata(root.join("--opt-report")).expect("object metadata");
     assert!(metadata.len() > 0);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
         .arg("obj")
@@ -774,7 +774,7 @@ fn main() i32 {
         .arg("--out-dir")
         .arg("-Oobjects")
         .output()
-        .expect("run niac emit obj --out-dir -Oobjects");
+        .expect("run nia emit obj --out-dir -Oobjects");
 
     assert!(
         output.status.success(),
@@ -810,16 +810,16 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Os")
         .arg("emit")
         .arg("obj")
         .arg(&main)
         .arg("-o")
         .arg(&object)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac emit obj --emit-opt-report");
+        .expect("run nia emit obj --opt-report");
 
     assert!(
         output.status.success(),
@@ -837,16 +837,16 @@ fn main() i32 {
     let metadata = std::fs::metadata(&object).expect("object metadata");
     assert!(metadata.len() > 0);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Os")
         .arg("emit")
         .arg("obj")
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .arg(&main)
         .arg("-o")
         .arg(&object_before_source)
         .output()
-        .expect("run niac emit obj --emit-opt-report before source");
+        .expect("run nia emit obj --opt-report before source");
 
     assert!(
         output.status.success(),
@@ -858,16 +858,16 @@ fn main() i32 {
     let metadata = std::fs::metadata(&object_before_source).expect("object metadata before source");
     assert!(metadata.len() > 0);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Os")
         .arg("emit")
         .arg("obj")
         .arg(&main)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .arg("-o")
         .arg(&object_before_output_flag)
         .output()
-        .expect("run niac emit obj --emit-opt-report before -o");
+        .expect("run nia emit obj --opt-report before -o");
 
     assert!(
         output.status.success(),
@@ -896,14 +896,14 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("emit")
         .arg("exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
         .output()
-        .expect("run niac emit exe");
+        .expect("run nia emit exe");
 
     assert!(
         output.status.success(),
@@ -931,7 +931,7 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
         .arg("exe")
@@ -939,7 +939,7 @@ fn main() i32 {
         .arg("-o")
         .arg(&exe_name)
         .output()
-        .expect("run niac emit exe -o -Orunnable");
+        .expect("run nia emit exe -o -Orunnable");
 
     assert!(
         output.status.success(),
@@ -950,9 +950,9 @@ fn main() i32 {
     let status = Command::new(&exe).status().expect("run emitted executable");
     assert_eq!(status.code(), Some(9));
 
-    let report_name = format!("--emit-opt-report{}", std::env::consts::EXE_SUFFIX);
+    let report_name = format!("--opt-report{}", std::env::consts::EXE_SUFFIX);
     let report_path = root.join(&report_name);
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .current_dir(&root)
         .arg("emit")
         .arg("exe")
@@ -960,7 +960,7 @@ fn main() i32 {
         .arg("-o")
         .arg(&report_name)
         .output()
-        .expect("run niac emit exe -o --emit-opt-report");
+        .expect("run nia emit exe -o --opt-report");
 
     assert!(
         output.status.success(),
@@ -974,7 +974,7 @@ fn main() i32 {
 
     let status = Command::new(&report_path)
         .status()
-        .expect("run emitted executable named --emit-opt-report");
+        .expect("run emitted executable named --opt-report");
     assert_eq!(status.code(), Some(9));
 }
 
@@ -993,16 +993,16 @@ fn main() i32 {
     )
     .expect("write test source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
         .arg("-Oz")
         .arg("emit")
         .arg("exe")
         .arg(&main)
         .arg("-o")
         .arg(&exe)
-        .arg("--emit-opt-report")
+        .arg("--opt-report")
         .output()
-        .expect("run niac emit exe --emit-opt-report");
+        .expect("run nia emit exe --opt-report");
 
     assert!(
         output.status.success(),
@@ -1067,7 +1067,7 @@ fn main() i32 {
             std::env::consts::EXE_SUFFIX
         );
         let exe = root.join(exe_name);
-        let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        let output = Command::new(env!("CARGO_BIN_EXE_nia"))
             .arg(level)
             .arg("emit")
             .arg("exe")
@@ -1075,7 +1075,7 @@ fn main() i32 {
             .arg("-o")
             .arg(&exe)
             .output()
-            .unwrap_or_else(|error| panic!("run niac {level} emit exe: {error}"));
+            .unwrap_or_else(|error| panic!("run nia {level} emit exe: {error}"));
 
         assert!(
             output.status.success(),

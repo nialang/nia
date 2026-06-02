@@ -10,20 +10,20 @@ documented support guarantee.
 
 Platform support has two separate meanings:
 
-- host platform: where `niac` itself runs;
+- host platform: where `nia` itself runs;
 - target platform: where generated LLVM IR, object files, or executables are
   expected to run.
 
 Nia should eventually support both hosted and bare workflows, but these are
-different promises. A host platform can run `niac` without being a supported
-target, and a target can be emitted as object code without `niac` providing a
+different promises. A host platform can run `nia` without being a supported
+target, and a target can be emitted as object code without `nia` providing a
 full executable or linking workflow for it.
 
 ## Current Status
 
 Current support is intentionally narrow:
 
-- `niac` is primarily tested in the maintainer's local Linux environment;
+- `nia` is primarily tested in the maintainer's local Linux environment;
 - LLVM is required through the Rust `llvm-sys` dependency;
 - hosted executable emission relies on the system C toolchain and currently
   invokes `cc`;

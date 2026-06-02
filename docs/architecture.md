@@ -193,16 +193,16 @@ Current Nia-owned optimization consumers:
   including whether a function body was a monomorphized instance. This is the
   stable observability hook for reviewing pass behavior without embedding full
   before/after IR snapshots in normal compiler output.
-  `niac check <file.nia> --emit-opt-report` prints this report for direct CLI
-  inspection. `niac emit backend <file.nia> --emit-opt-report`,
-  `niac emit llvm <file.nia> --emit-opt-report`,
-  `niac emit obj <file.nia> --emit-opt-report`, and
-  `niac emit exe <file.nia> --emit-opt-report` write the same report to stderr
+  `nia check <file.nia> --opt-report` prints this report for direct CLI
+  inspection. `nia emit backend <file.nia> --opt-report`,
+  `nia emit llvm <file.nia> --opt-report`,
+  `nia emit obj <file.nia> --opt-report`, and
+  `nia emit exe <file.nia> --opt-report` write the same report to stderr
   so stdout remains machine-readable backend IR or LLVM IR and native emit
   targets keep object/executable output file-only.
   Dedicated `--emit-*-before-opt` / `--emit-*-after-opt` snapshots are not
   implemented yet; reviewers should currently use `emit backend` for the final
-  optimized backend IR and `--emit-opt-report` for pass inventory and change
+  optimized backend IR and `--opt-report` for pass inventory and change
   attribution.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
@@ -357,7 +357,7 @@ errors.
 The lexer does not know semantic meaning. It should not resolve types, evaluate
 constants, or classify identifiers beyond keyword recognition.
 
-The lexer also remains available for CLI/debug tooling such as `niac lex`.
+The lexer also remains available for CLI/debug tooling such as `nia lex`.
 Parser lowering does not depend on lexer token vectors.
 
 ### 4.2 `nia-syntax`
@@ -768,18 +768,18 @@ It should not parse AST or make frontend semantic decisions.
 
 ### 13.1 `nia-cli`
 
-The package is `nia-cli`. The installed binary name is `niac`.
+The package is `nia-cli`. The installed binary name is `nia`.
 
 The CLI supports:
 
 ```text
-niac lex <file.nia>
-niac parse <file.nia>
-niac check <file.nia> [--emit-opt-report]
-niac emit backend <file.nia> [--emit-opt-report]
-niac emit llvm <file.nia> [--emit-opt-report]
-niac emit obj <file.nia> [-o file.o | --out-dir dir] [--emit-opt-report]
-niac emit exe <file.nia> [-o executable] [--emit-opt-report]
+nia lex <file.nia>
+nia parse <file.nia>
+nia check <file.nia> [--opt-report]
+nia emit backend <file.nia> [--opt-report]
+nia emit llvm <file.nia> [--opt-report]
+nia emit obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
+nia emit exe <file.nia> [-o executable] [--opt-report]
 ```
 
 Global module-map options:
@@ -801,21 +801,21 @@ Global optimization options are listed explicitly in CLI help:
 -Oz
 ```
 
-`niac check <file.nia> --emit-opt-report` prints the active optimization
+`nia check <file.nia> --opt-report` prints the active optimization
 policy, LLVM codegen optimization level, enabled backend module/function/global
 pass inventories, the backend optimization change count, and backend
 optimization changes to stdout.
-`niac emit backend` prints the optimized backend IR to stdout for pass review.
-`niac emit backend <file.nia> --emit-opt-report`,
-`niac emit llvm <file.nia> --emit-opt-report`,
-`niac emit obj <file.nia> --emit-opt-report`, and
-`niac emit exe <file.nia> --emit-opt-report` print the report to stderr while
+`nia emit backend` prints the optimized backend IR to stdout for pass review.
+`nia emit backend <file.nia> --opt-report`,
+`nia emit llvm <file.nia> --opt-report`,
+`nia emit obj <file.nia> --opt-report`, and
+`nia emit exe <file.nia> --opt-report` print the report to stderr while
 leaving stdout as backend IR or LLVM IR, and while keeping native
 object/executable output file-only. This is useful when reviewing pass behavior
 next to emitted code or native codegen artifacts.
 The CLI does not yet expose separate before/after backend optimization snapshots;
 `emit backend` is the post-lowering optimized backend IR, and
-`--emit-opt-report` is the stable pass-observability interface.
+`--opt-report` is the stable pass-observability interface.
 The CLI regression fixture emits and runs the same program at `-O0`, `-O1`,
 `-O2`, `-O3`, `-Os`, `-Oz`, and `-O`; it exercises constant leaf inlining,
 generic instance calls, local cleanup, and size-safe forwarding wrappers while

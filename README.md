@@ -2,7 +2,7 @@
 
 **A tiny language that can actually work.**
 
-Nia is a small systems programming language and `niac` is its compiler. The
+Nia is a small systems programming language and `nia` is its compiler. The
 project is intentionally narrow: the main repository contains the compiler
 implementation and the language documentation. The standard library, package
 manager, and build system are expected to live as separate projects.
@@ -32,8 +32,8 @@ compatibility with earlier experimental syntax.
 - [docs/ai-usage.md](docs/ai-usage.md): AI-assisted work policy.
 - [docs/platform-support.md](docs/platform-support.md): current platform
   support status.
-- [crates/nia-cli](crates/nia-cli): the `niac` command-line compiler frontend.
-- `crates/nia-*`: compiler libraries used by `niac`.
+- [crates/nia-cli](crates/nia-cli): the `nia` command-line compiler frontend.
+- `crates/nia-*`: compiler libraries used by `nia`.
 
 Documentation file names are not versioned. Release history and versioned
 language states are tracked through Git tags.
@@ -52,7 +52,7 @@ Run the compiler from the workspace with:
 cargo run -p nia-cli -- --help
 ```
 
-The compiler binary is named `niac`.
+The compiler binary is named `nia`.
 
 ## Platform Status
 
@@ -64,23 +64,23 @@ See [docs/platform-support.md](docs/platform-support.md).
 
 ## Compiler Commands
 
-`niac` supports the core compiler pipeline commands:
+`nia` supports the core compiler pipeline commands:
 
 ```text
-niac lex <file.nia>
-niac parse <file.nia>
-niac check <file.nia> [--emit-opt-report]
-niac emit backend <file.nia> [--emit-opt-report]
-niac emit llvm <file.nia> [--emit-opt-report]
-niac emit obj <file.nia> [-o file.o | --out-dir dir] [--emit-opt-report]
-niac emit exe <file.nia> [-o executable] [--emit-opt-report]
+nia lex <file.nia>
+nia parse <file.nia>
+nia check <file.nia> [--opt-report]
+nia emit backend <file.nia> [--opt-report]
+nia emit llvm <file.nia> [--opt-report]
+nia emit obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
+nia emit exe <file.nia> [-o executable] [--opt-report]
 ```
 
 Module aliases can be supplied with `-M name=path`.
 Optimization levels are `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, and `-Oz`; `-O`
-means `-O2`. `niac check <file.nia> --emit-opt-report` prints the active
+means `-O2`. `nia check <file.nia> --opt-report` prints the active
 optimization policy to stdout. Emit commands write the same report to stderr
-when `--emit-opt-report` is supplied.
+when `--opt-report` is supplied.
 
 ## Testing
 
@@ -103,6 +103,6 @@ cargo run -p nia-cli -- --version
 
 ## License
 
-The `niac` compiler implementation in this repository is licensed under
+The `nia` compiler implementation in this repository is licensed under
 `GPL-3.0-or-later`. See [LICENSE.md](LICENSE.md) for the exact repository
 license scope.

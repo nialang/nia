@@ -6,7 +6,7 @@ same license.
 
 ## Compiler Implementation
 
-The `niac` compiler implementation is licensed under `GPL-3.0-or-later`.
+The `nia` compiler implementation is licensed under `GPL-3.0-or-later`.
 
 This covers:
 
@@ -33,8 +33,8 @@ without changing the compiler license.
 
 ## User Programs and Future Projects
 
-Nia programs compiled with `niac` are not covered by the compiler license merely
-because they were compiled with `niac`.
+Nia programs compiled with `nia` are not covered by the compiler license merely
+because they were compiled with `nia`.
 
 Future Nia standard library, package manager, build system, or ecosystem
 repositories are separate projects and should declare their own licenses.
