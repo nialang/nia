@@ -640,7 +640,10 @@ source-shaped body IR that currently feeds it.
 
 Collects concrete generic function and method instances required by the checked
 program. It deduplicates exact instance keys for symbol uniqueness and uses
-recursive-expansion guards to diagnose cycles.
+recursive-expansion guards to diagnose cycles. This exact-key deduplication is
+a required correctness invariant at every optimization level; the
+`dedup_monomorphized_instances` policy switch keeps the boundary visible for
+future stronger size-oriented cross-instance deduplication.
 
 ### 10.2 `nia-mangle`
 
