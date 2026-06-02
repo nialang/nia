@@ -982,6 +982,65 @@ fn main() char {
 }
 
 #[test]
+fn size_levels_simplify_static_initializers_for_size() {
+    let source = r#"
+const zeroes: [4]i32 = [0, 0, 0, 0];
+const values: [3]i32 = [7, 7, 7];
+
+fn main() i32 {
+    zeroes[0] + values[0]
+}
+"#;
+
+    for level in [
+        nia_opt::NiaOptimizationLevel::Os,
+        nia_opt::NiaOptimizationLevel::Oz,
+    ] {
+        let lowering =
+            lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
+        let module = &lowering.program.modules[0];
+        let zeroes = module
+            .globals
+            .iter()
+            .find(|global| global.name == "zeroes")
+            .expect("zeroes global");
+        let values = module
+            .globals
+            .iter()
+            .find(|global| global.name == "values")
+            .expect("values global");
+
+        assert!(matches!(zeroes.init, Some(StaticInit::Zero)), "{level:?}");
+        assert!(
+            matches!(
+                values.init,
+                Some(StaticInit::Repeat {
+                    ref value,
+                    count: 3
+                }) if matches!(**value, StaticInit::Int(7))
+            ),
+            "{level:?}"
+        );
+        assert!(
+            lowering
+                .optimization_report
+                .changed_passes
+                .iter()
+                .filter(|change| matches!(
+                    change,
+                    BackendOptimizationChange::Global {
+                        pass: "simplify-static-init",
+                        ..
+                    }
+                ))
+                .count()
+                >= 2,
+            "{level:?}"
+        );
+    }
+}
+
+#[test]
 fn o1_preserves_zero_static_initializers() {
     let source = r#"
 const zeroes: [4]i32 = [0; 4];
