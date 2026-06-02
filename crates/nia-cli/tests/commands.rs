@@ -128,6 +128,10 @@ fn help_and_version_use_niac_command_name() {
         emit_obj_stdout.contains("--out-dir <dir>"),
         "{emit_obj_stdout}"
     );
+    assert!(
+        emit_obj_stdout.contains("--emit-opt-report"),
+        "{emit_obj_stdout}"
+    );
     for level in ["-O0", "-O1", "-O2", "-O3", "-Os", "-Oz"] {
         assert!(emit_obj_stdout.contains(level), "{emit_obj_stdout}");
     }
@@ -150,6 +154,10 @@ fn help_and_version_use_niac_command_name() {
     );
     assert!(
         emit_exe_stdout.contains("-O, -O0, -O1, -O2, -O3, -Os, -Oz"),
+        "{emit_exe_stdout}"
+    );
+    assert!(
+        emit_exe_stdout.contains("--emit-opt-report"),
         "{emit_exe_stdout}"
     );
 
@@ -705,6 +713,53 @@ fn main() i32 {
 }
 
 #[test]
+fn emit_obj_can_emit_optimization_report_to_stderr() {
+    let root = temp_dir("emit_obj_can_emit_optimization_report_to_stderr");
+    let main = root.join("main.nia");
+    let object = root.join("main.o");
+    std::fs::write(
+        &main,
+        r#"
+fn answer() i32 {
+    42
+}
+
+fn main() i32 {
+    answer()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-Os")
+        .arg("emit")
+        .arg("obj")
+        .arg(&main)
+        .arg("-o")
+        .arg(&object)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac emit obj --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    assert!(stderr.contains("policy level=Os"), "{stderr}");
+    assert!(stderr.contains("llvm_codegen=default"), "{stderr}");
+    assert!(stderr.contains("llvm_size=small"), "{stderr}");
+    let metadata = std::fs::metadata(&object).expect("object metadata");
+    assert!(metadata.len() > 0);
+}
+
+#[test]
 fn emit_exe_links_hosted_executable() {
     let root = temp_dir("emit_exe_links_hosted_executable");
     let main = root.join("main.nia");
@@ -736,6 +791,50 @@ fn main() i32 {
 
     let status = Command::new(&exe).status().expect("run emitted executable");
     assert_eq!(status.code(), Some(7));
+}
+
+#[test]
+fn emit_exe_can_emit_optimization_report_to_stderr() {
+    let root = temp_dir("emit_exe_can_emit_optimization_report_to_stderr");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    5
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("-Oz")
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac emit exe --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(stderr.contains("backend optimization report:"), "{stderr}");
+    assert!(stderr.contains("policy level=Oz"), "{stderr}");
+    assert!(stderr.contains("llvm_codegen=less"), "{stderr}");
+    assert!(stderr.contains("llvm_size=tiny"), "{stderr}");
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(5));
 }
 
 #[test]
