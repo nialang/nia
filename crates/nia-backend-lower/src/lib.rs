@@ -17,7 +17,7 @@ use nia_body_check::BodyCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature, ProgramTraitSignature,
 };
@@ -157,6 +157,8 @@ pub(crate) struct ModuleLowerer<'a> {
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
+    extension_trait_method_candidates:
+        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
@@ -176,6 +178,20 @@ pub(crate) struct ModuleLowerer<'a> {
 pub(crate) struct BuiltinTraitGoalKey {
     self_ty: InternedTyId,
     trait_id: nia_ids::BuiltinTrait,
+    trait_args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ExtensionTraitMethodKey {
+    trait_id: TraitId,
+    method_name: String,
+    trait_arg_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExtensionTraitMethodCandidate {
+    target_ty: InternedTyId,
+    method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
 }
 
@@ -208,6 +224,9 @@ impl<'a> ModuleLowerer<'a> {
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
             extension_targets_by_method: index_extension_targets_by_method(input.extensions),
+            extension_trait_method_candidates: index_extension_trait_method_candidates(
+                input.extensions,
+            ),
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
             ),
@@ -514,6 +533,33 @@ fn index_extension_targets_by_method(
         }
     }
     targets_by_method
+}
+
+fn index_extension_trait_method_candidates(
+    extensions: &VisibleExtensionMethods,
+) -> HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> {
+    let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
+        HashMap::new();
+    for target in extensions.targets() {
+        for method in &target.methods {
+            let Some(trait_id) = method.trait_id else {
+                continue;
+            };
+            candidates
+                .entry(ExtensionTraitMethodKey {
+                    trait_id,
+                    method_name: method.name.clone(),
+                    trait_arg_count: method.trait_args.len(),
+                })
+                .or_default()
+                .push(ExtensionTraitMethodCandidate {
+                    target_ty: target.target_ty,
+                    method_def_id: method.def_id,
+                    trait_args: method.trait_args.clone(),
+                });
+        }
+    }
+    candidates
 }
 
 fn index_trait_methods_with_defaults(input: &BackendLowerModuleInput<'_>) -> HashSet<GlobalDefId> {

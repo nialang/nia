@@ -1,32 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use crate::BuiltinTraitGoalKey;
+use crate::{BuiltinTraitGoalKey, ExtensionTraitMethodCandidate, ExtensionTraitMethodKey};
 
 impl<'a> ModuleLowerer<'a> {
-    pub(super) fn trait_impl_method_for_target(
+    pub(super) fn trait_impl_method_for_candidate(
         &mut self,
-        target: &VisibleExtensionTarget,
-        trait_id: GlobalDefId,
+        candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
-        method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let method_def_id = self.match_extension_trait_method(
-            target,
-            Some(TraitId::Source(trait_id)),
-            trait_args,
-            method_name,
-        )?;
+        if !self.extension_trait_args_match(candidate, trait_args) {
+            return None;
+        }
         let mut substitutions = HashMap::new();
-        if !self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions) {
+        if !self.match_extension_type_pattern(candidate.target_ty, self_ty, &mut substitutions) {
             return None;
         }
         let args = self
-            .generic_params_in_extension_ty(target.target_ty)
+            .generic_params_in_extension_ty(candidate.target_ty)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
-        Some((method_def_id, args))
+        Some((candidate.method_def_id, args))
     }
 
     pub(super) fn resolve_builtin_place_method_impl(
@@ -36,19 +31,20 @@ impl<'a> ModuleLowerer<'a> {
         method: BuiltinTraitMethod,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let key = ExtensionTraitMethodKey {
+            trait_id: TraitId::Builtin(trait_id),
+            method_name: method.name().to_string(),
+            trait_arg_count: trait_args.len(),
+        };
         let candidates = self
-            .input
-            .extensions
-            .targets()
+            .extension_trait_method_candidates
+            .get(&key)
+            .cloned()
+            .unwrap_or_default();
+        let candidates = candidates
             .iter()
-            .filter_map(|target| {
-                self.builtin_place_impl_method_for_target(
-                    target,
-                    trait_id,
-                    trait_args,
-                    method.name(),
-                    self_ty,
-                )
+            .filter_map(|candidate| {
+                self.builtin_place_impl_method_for_candidate(candidate, trait_args, self_ty)
             })
             .collect::<Vec<_>>();
         match candidates.as_slice() {
@@ -57,59 +53,40 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    pub(super) fn builtin_place_impl_method_for_target(
+    pub(super) fn builtin_place_impl_method_for_candidate(
         &mut self,
-        target: &VisibleExtensionTarget,
-        trait_id: BuiltinTrait,
+        candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
-        method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        let method_def_id = self.match_extension_trait_method(
-            target,
-            Some(TraitId::Builtin(trait_id)),
-            trait_args,
-            method_name,
-        )?;
+        if !self.extension_trait_args_match(candidate, trait_args) {
+            return None;
+        }
         let mut substitutions = HashMap::new();
-        if !self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions) {
+        if !self.match_extension_type_pattern(candidate.target_ty, self_ty, &mut substitutions) {
             return None;
         }
         let args = self
-            .generic_params_in_extension_ty(target.target_ty)
+            .generic_params_in_extension_ty(candidate.target_ty)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
-        Some((method_def_id, args))
+        Some((candidate.method_def_id, args))
     }
 
-    fn match_extension_trait_method(
+    fn extension_trait_args_match(
         &mut self,
-        target: &VisibleExtensionTarget,
-        trait_id: Option<TraitId>,
+        candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
-        method_name: &str,
-    ) -> Option<GlobalDefId> {
-        target
-            .methods
+    ) -> bool {
+        candidate
+            .trait_args
             .iter()
-            .find(|method| {
-                if method.name != method_name
-                    || method.trait_id != trait_id
-                    || method.trait_args.len() != trait_args.len()
-                {
-                    return false;
-                }
-                method
-                    .trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| {
-                        let actual = self.import_extension_type(*actual);
-                        self.types_match(actual, *expected)
-                    })
+            .zip(trait_args)
+            .all(|(actual, expected)| {
+                let actual = self.import_extension_type(*actual);
+                self.types_match(actual, *expected)
             })
-            .map(|method| method.def_id)
     }
 
     pub(super) fn lower_intrinsic_builtin_place_method_call(
