@@ -213,8 +213,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let llvm_args = if function_item.is_extern {
                     self.emit_c_call_args(args)?
                 } else {
-                    let call_args = args.iter().collect::<Vec<_>>();
-                    self.emit_call_args(expr.span, &call_args, out_ptr)?
+                    self.emit_call_args(expr.span, args, out_ptr)?
                 };
                 self.builder
                     .build_call(function, &llvm_args, "calltmp")
@@ -230,8 +229,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let llvm_args = if instance.is_extern {
                     self.emit_c_call_args(args)?
                 } else {
-                    let call_args = args.iter().collect::<Vec<_>>();
-                    self.emit_call_args(expr.span, &call_args, out_ptr)?
+                    self.emit_call_args(expr.span, args, out_ptr)?
                 };
                 self.builder
                     .build_call(
@@ -276,7 +274,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let llvm_args = if is_extern {
                     self.emit_c_call_args_refs(&call_args)?
                 } else {
-                    self.emit_call_args(expr.span, &call_args, out_ptr)?
+                    self.emit_call_arg_refs(expr.span, &call_args, out_ptr)?
                 };
                 self.builder
                     .build_call(function, &llvm_args, "calltmp")
@@ -333,8 +331,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     callee.span,
                 )?;
                 let function_pointer = self.emit_expr(callee)?.into_pointer_value()?;
-                let call_args = args.iter().collect::<Vec<_>>();
-                let llvm_args = self.emit_call_args(expr.span, &call_args, out_ptr)?;
+                let llvm_args = self.emit_call_args(expr.span, args, out_ptr)?;
                 self.builder
                     .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build indirect call"))
@@ -391,14 +388,38 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             llvm_args.push(out_ptr.into());
         }
         llvm_args.push(object_ptr);
-        let arg_refs = call.args.iter().collect::<Vec<_>>();
-        llvm_args.extend(self.emit_call_args(call.expr.span, &arg_refs, None)?);
+        llvm_args.extend(self.emit_call_args(call.expr.span, call.args, None)?);
         self.builder
             .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
             .map_err(|_| self.error(call.expr.span, "failed to build dynamic trait call"))
     }
 
     fn emit_call_args(
+        &mut self,
+        span: Span,
+        args: &[FunctionExpr],
+        out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
+    ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
+        let mut llvm_args = Vec::new();
+        if let Some(out_ptr) = out_ptr {
+            llvm_args.push(out_ptr.into());
+        }
+        for (arg, classification) in args.iter().zip(
+            self.module
+                .classify_function_params(args.iter().map(|arg| arg.ty)),
+        ) {
+            match classification {
+                AbiParam::Direct(_) => llvm_args.push(self.emit_expr(arg)?),
+                AbiParam::IndirectReadonly(_) => {
+                    llvm_args.push(self.emit_arg_address(span, arg)?.into())
+                }
+                AbiParam::Omit => self.emit_effect_expr(arg)?,
+            }
+        }
+        Ok(llvm_args)
+    }
+
+    fn emit_call_arg_refs(
         &mut self,
         span: Span,
         args: &[&FunctionExpr],
