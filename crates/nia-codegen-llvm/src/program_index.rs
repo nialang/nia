@@ -227,6 +227,33 @@ impl<'a> ProgramIndex<'a> {
             .copied()
     }
 
+    pub(super) fn struct_instance(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<&'a nia_backend_ir::BackendStructInstance> {
+        self.struct_instances.get(&(def_id, args.to_vec())).copied()
+    }
+
+    pub(super) fn union_instance(
+        &self,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+    ) -> Option<&'a nia_backend_ir::BackendUnionInstance> {
+        self.union_instances.get(&(def_id, args.to_vec())).copied()
+    }
+
+    pub(super) fn function_instance(
+        &self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: &[InternedTyId],
+    ) -> Option<&'a BackendFunctionInstance> {
+        self.function_instances
+            .get(&(def_id, arg_module_id, args.to_vec()))
+            .copied()
+    }
+
     pub(super) fn struct_instance_layouts(
         &self,
         def_id: GlobalDefId,

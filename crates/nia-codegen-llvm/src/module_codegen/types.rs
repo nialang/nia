@@ -757,6 +757,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&BackendStructInstance> {
+        if let Some(item) = self.program.struct_instance(def_id, args) {
+            return Some(item);
+        }
         self.program
             .struct_instances_by_def
             .get(&def_id)
@@ -793,6 +796,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&BackendUnionInstance> {
+        if let Some(item) = self.program.union_instance(def_id, args) {
+            return Some(item);
+        }
         self.program
             .union_instances_by_def
             .get(&def_id)
@@ -815,6 +821,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&'a BackendFunctionInstance> {
+        if let Some(item) = self.program.function_instance(def_id, self.source.id, args) {
+            return Some(item);
+        }
         self.program
             .function_instances_by_def
             .get(&def_id)
