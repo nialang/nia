@@ -180,6 +180,10 @@ Current Nia-owned optimization consumers:
   and `niac emit backend --emit-opt-report` or
   `niac emit llvm --emit-opt-report` writes the same report to stderr so stdout
   remains machine-readable backend IR or LLVM IR.
+  Dedicated `--emit-*-before-opt` / `--emit-*-after-opt` snapshots are not
+  implemented yet; reviewers should currently use `emit backend` for the final
+  optimized backend IR and `--emit-opt-report` for pass inventory and change
+  attribution.
 - `nia-backend-lower` also owns compiler-throughput caches that are independent
   of the user optimization level. Repeated builtin trait-goal resolution during
   function-body instantiation is cached per module lowerer, because array,
@@ -772,6 +776,9 @@ inventories, and backend optimization changes to stdout.
 `niac emit llvm --emit-opt-report` print the report to stderr while leaving
 stdout as backend IR or LLVM IR, which is useful when reviewing pass behavior
 next to emitted code.
+The CLI does not yet expose separate before/after backend optimization snapshots;
+`emit backend` is the post-lowering optimized backend IR, and
+`--emit-opt-report` is the stable pass-observability interface.
 The CLI regression fixture emits and runs the same program at `-O0`, `-O1`,
 `-O2`, `-O3`, `-Os`, `-Oz`, and `-O`; it exercises constant leaf inlining,
 generic instance calls, local cleanup, and size-safe forwarding wrappers while
