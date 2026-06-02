@@ -469,8 +469,15 @@ impl<'a> LocalResolver<'a> {
             ExprKind::Switch(switch) => {
                 self.resolve_expr(&switch.target);
                 for arm in &switch.arms {
-                    if let SwitchPattern::Expr(pattern) = &arm.pattern {
-                        self.resolve_expr(pattern);
+                    for pattern in &arm.patterns {
+                        match pattern {
+                            SwitchPattern::Default => {}
+                            SwitchPattern::Expr(pattern) => self.resolve_expr(pattern),
+                            SwitchPattern::Range { start, end, .. } => {
+                                self.resolve_expr(start);
+                                self.resolve_expr(end);
+                            }
+                        }
                     }
                     match &arm.body {
                         SwitchArmBody::Expr(expr) => self.resolve_expr(expr),

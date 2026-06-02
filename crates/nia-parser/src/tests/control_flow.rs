@@ -152,3 +152,66 @@ fn main(state: i32) i32 {
         SwitchArmBody::Stmt(stmt) if matches!(stmt.kind, StmtKind::Break)
     ));
 }
+
+#[test]
+fn parses_switch_arm_pattern_lists_and_ranges() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(state: i32) i32 {
+    switch state {
+        0, 1 => 10,
+        2..5 => 20,
+        5..=7 => 30,
+        _ => 40,
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let expr = body.tail.as_ref().expect("expected switch tail");
+    let ExprKind::Switch(switch) = &expr.kind else {
+        panic!("expected switch expression");
+    };
+    assert_eq!(switch.arms[0].patterns.len(), 2);
+    assert!(matches!(switch.arms[0].patterns[0], SwitchPattern::Expr(_)));
+    assert!(matches!(switch.arms[0].patterns[1], SwitchPattern::Expr(_)));
+    assert!(matches!(
+        switch.arms[1].patterns[0],
+        SwitchPattern::Range {
+            inclusive: false,
+            ..
+        }
+    ));
+    assert!(matches!(
+        switch.arms[2].patterns[0],
+        SwitchPattern::Range {
+            inclusive: true,
+            ..
+        }
+    ));
+    assert!(matches!(switch.arms[3].patterns[0], SwitchPattern::Default));
+}
+
+#[test]
+fn rejects_open_ended_switch_range_patterns() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main(state: i32) i32 {
+    switch state {
+        1.. => 10,
+        _ => 20,
+    }
+}
+"#,
+    );
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("open-ended switch range patterns are not supported")),
+        "{errors:?}"
+    );
+}

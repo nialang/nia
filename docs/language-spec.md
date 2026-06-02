@@ -893,6 +893,22 @@ switch code {
 }
 ```
 
+An arm may list multiple patterns separated by commas. Integer switches also
+support closed range patterns with both endpoints present:
+
+```nia
+switch value {
+    0, 1 => return 0;
+    2..5 => return 1;   // 2, 3, 4
+    5..=7 => return 2;  // 5, 6, 7
+    _ => return 3;
+}
+```
+
+Open-ended switch range patterns are not supported; use `_` for the fallback
+case. Range pattern endpoints must be compile-time integer constants. Empty
+ranges and overlapping integer patterns are rejected.
+
 Switch expression arms must produce compatible value types unless an arm exits
 through `return`, `break`, or `continue`. Switches over closed enums must cover
 all variants or provide `_`. Switches over open enums must provide `_`, even if

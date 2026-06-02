@@ -79,7 +79,7 @@ pub struct SwitchStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SwitchArm {
-    pub pattern: SwitchPattern,
+    pub patterns: Vec<SwitchPattern>,
     pub body: SwitchArmBody,
     pub span: Span,
 }
@@ -88,6 +88,12 @@ pub struct SwitchArm {
 pub enum SwitchPattern {
     Default,
     Expr(Expr),
+    Range {
+        start: Expr,
+        end: Expr,
+        inclusive: bool,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

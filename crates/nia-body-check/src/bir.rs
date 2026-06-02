@@ -218,16 +218,32 @@ impl<'a> BodyChecker<'a> {
     fn lower_switch(&mut self, switch: &nia_ast::SwitchStmt) -> TypedSwitch {
         TypedSwitch {
             target: self.lower_expr(&switch.target),
+            bool_ty: self.bool(),
             arms: switch
                 .arms
                 .iter()
                 .map(|arm| TypedSwitchArm {
-                    pattern: match &arm.pattern {
-                        SwitchPattern::Default => TypedSwitchPattern::Default,
-                        SwitchPattern::Expr(expr) => {
-                            TypedSwitchPattern::Expr(self.lower_expr(expr))
-                        }
-                    },
+                    patterns: arm
+                        .patterns
+                        .iter()
+                        .map(|pattern| match pattern {
+                            SwitchPattern::Default => TypedSwitchPattern::Default,
+                            SwitchPattern::Expr(expr) => {
+                                TypedSwitchPattern::Expr(self.lower_expr(expr))
+                            }
+                            SwitchPattern::Range {
+                                start,
+                                end,
+                                inclusive,
+                                span,
+                            } => TypedSwitchPattern::Range {
+                                start: self.lower_expr(start),
+                                end: self.lower_expr(end),
+                                inclusive: *inclusive,
+                                span: *span,
+                            },
+                        })
+                        .collect(),
                     body: match &arm.body {
                         SwitchArmBody::Expr(expr) => {
                             TypedSwitchArmBody::Expr(self.lower_expr(expr))

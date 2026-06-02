@@ -237,12 +237,13 @@ pub struct TypedLoop {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedSwitch {
     pub target: TypedExpr,
+    pub bool_ty: InternedTyId,
     pub arms: Vec<TypedSwitchArm>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedSwitchArm {
-    pub pattern: TypedSwitchPattern,
+    pub patterns: Vec<TypedSwitchPattern>,
     pub body: TypedSwitchArmBody,
     pub span: Span,
 }
@@ -251,6 +252,12 @@ pub struct TypedSwitchArm {
 pub enum TypedSwitchPattern {
     Default,
     Expr(TypedExpr),
+    Range {
+        start: TypedExpr,
+        end: TypedExpr,
+        inclusive: bool,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
