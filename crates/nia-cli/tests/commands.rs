@@ -35,7 +35,7 @@ fn help_and_version_use_niac_command_name() {
     let check_stdout = String::from_utf8_lossy(&check_help.stdout);
     assert!(check_stdout.contains("--emit-opt-report"), "{check_stdout}");
     assert!(
-        check_stdout.contains("optimization policy, enabled passes, and changes"),
+        check_stdout.contains("optimization policy, enabled passes, change count, and changes"),
         "{check_stdout}"
     );
 
@@ -73,7 +73,8 @@ fn help_and_version_use_niac_command_name() {
         "{emit_backend_stdout}"
     );
     assert!(
-        emit_backend_stdout.contains("optimization policy, enabled passes, and changes to stderr"),
+        emit_backend_stdout
+            .contains("optimization policy, enabled passes, change count, and changes to stderr"),
         "{emit_backend_stdout}"
     );
 
@@ -94,7 +95,8 @@ fn help_and_version_use_niac_command_name() {
         "{emit_llvm_stdout}"
     );
     assert!(
-        emit_llvm_stdout.contains("optimization policy, enabled passes, and changes to stderr"),
+        emit_llvm_stdout
+            .contains("optimization policy, enabled passes, change count, and changes to stderr"),
         "{emit_llvm_stdout}"
     );
 
