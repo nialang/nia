@@ -631,7 +631,9 @@ size must not create a new ABI variant. They may prefer deduplication, smaller
 inlining thresholds, less specialization, wrapper/thunk merging, repeated
 constant merging, static initializer simplification, or vtable data
 deduplication only when the resulting program still exposes the same ABI
-surface defined by this document.
+surface defined by this document. Trivial single-parameter forwarding wrapper
+inlining is ABI-neutral because it removes only the local call wrapper and keeps
+the argument expression's evaluation as the resulting value.
 
 The LLVM codegen optimization level reported by `niac --emit-opt-report` is also
 backend-visible only. It may affect instruction selection, scheduling, register

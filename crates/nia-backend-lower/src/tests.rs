@@ -1564,6 +1564,104 @@ fn main() i32 {
 }
 
 #[test]
+fn size_levels_inline_single_param_forwarding_wrappers() {
+    let source = r#"
+fn identity(value: i32) i32 {
+    value
+}
+
+fn main() i32 {
+    identity(7)
+}
+"#;
+
+    for level in [
+        nia_opt::NiaOptimizationLevel::Os,
+        nia_opt::NiaOptimizationLevel::Oz,
+    ] {
+        let lowering =
+            lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
+        let main = lowering.program.modules[0]
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .expect("main function");
+        let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+        assert!(
+            matches!(value.kind, FunctionExprKind::Integer(ref text) if text == "7"),
+            "{level:?}"
+        );
+        assert!(
+            lowering
+                .optimization_report
+                .changed_passes
+                .iter()
+                .any(|change| matches!(
+                    change,
+                    BackendOptimizationChange::Function {
+                        pass: "inline-leaf-functions",
+                        is_instance: false,
+                        ..
+                    }
+                )),
+            "{level:?}"
+        );
+    }
+}
+
+#[test]
+fn size_levels_preserve_multi_param_forwarding_wrappers() {
+    let source = r#"
+fn first(left: i32, right: i32) i32 {
+    left
+}
+
+fn effect() i32 {
+    var value = 1;
+    value
+}
+
+fn main() i32 {
+    first(7, effect())
+}
+"#;
+
+    for level in [
+        nia_opt::NiaOptimizationLevel::Os,
+        nia_opt::NiaOptimizationLevel::Oz,
+    ] {
+        let lowering =
+            lower_source_with_body_mutation_and_optimization(source, |_| {}, level.policy());
+        let main = lowering.program.modules[0]
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .expect("main function");
+        let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+        assert!(
+            matches!(value.kind, FunctionExprKind::Call { .. }),
+            "{level:?}"
+        );
+        assert!(
+            lowering
+                .optimization_report
+                .changed_passes
+                .iter()
+                .all(|change| !matches!(
+                    change,
+                    BackendOptimizationChange::Function {
+                        pass: "inline-leaf-functions",
+                        ..
+                    }
+                )),
+            "{level:?}"
+        );
+    }
+}
+
+#[test]
 fn o3_inlines_larger_pure_leaf_function_calls_than_o2() {
     let source = r#"
 fn values() [5]i32 {
@@ -1666,6 +1764,46 @@ fn main() i32 {
                     pass: "inline-leaf-functions",
                     is_instance: true,
                     type_arg_count: 1,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o1_preserves_forwarding_function_instance_calls_with_params() {
+    let source = r#"
+fn identity[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    identity[i32](7)
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let main = lowering.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let value = first_terminal_value(main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(value.kind, FunctionExprKind::Call { .. }));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "inline-leaf-functions",
+                    is_instance: true,
                     ..
                 }
             ))
