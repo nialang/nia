@@ -115,9 +115,11 @@ Current Nia-owned optimization consumers:
   effective generic lists and mangled type symbols during collection so
   repeated generic-instance discovery does not rebuild the same symbol inputs
   or clone whole definition maps. The policy keeps monomorphized instance
-  deduplication visible at this boundary; exact-key deduplication is required
-  for symbol uniqueness, while size-oriented levels may later add stronger
-  cross-instance deduplication. Nested type arguments discovered while
+  deduplication visible at this boundary; the current implementation always
+  performs exact-key deduplication as a correctness invariant for symbol
+  uniqueness. `Os`/`Oz` therefore do not disable or reinterpret exact-key
+  deduplication; they reserve the policy boundary for future stronger
+  size-oriented cross-instance deduplication. Nested type arguments discovered while
   expanding generic bodies are substituted through a per-module working
   interner and a substitution-id cache, so recursive pointer, slice, array,
   nominal, and projection shapes are instantiated once for a given substitution
@@ -643,8 +645,10 @@ Collects concrete generic function and method instances required by the checked
 program. It deduplicates exact instance keys for symbol uniqueness and uses
 recursive-expansion guards to diagnose cycles. This exact-key deduplication is
 a required correctness invariant at every optimization level; the
-`dedup_monomorphized_instances` policy switch keeps the boundary visible for
-future stronger size-oriented cross-instance deduplication.
+`dedup_monomorphized_instances` policy switch reports that the monomorphization
+boundary participates in size policy, but it does not make exact-key
+deduplication optional. Future size-oriented passes may use this boundary for
+stronger cross-instance deduplication that preserves symbol identity.
 
 ### 10.2 `nia-mangle`
 
