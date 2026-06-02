@@ -584,18 +584,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn trait_method_has_default(&self, method_id: GlobalDefId) -> bool {
-        self.input
-            .signatures
-            .traits
-            .values()
-            .flat_map(|signature| signature.methods.iter())
-            .any(|method| {
-                GlobalDefId {
-                    module_id: self.input.module_id,
-                    def_id: method.def_id,
-                } == method_id
-                    && method.has_default
-            })
+        self.trait_methods_with_defaults.contains(&method_id)
     }
 
     pub(crate) fn resolve_trait_method_impl(
