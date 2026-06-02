@@ -408,11 +408,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if let Some(out_ptr) = out_ptr {
             llvm_args.push(out_ptr.into());
         }
-        let arg_tys = args.iter().map(|arg| arg.ty).collect::<Vec<_>>();
-        for (arg, classification) in args
-            .iter()
-            .zip(self.module.classify_function_params(&arg_tys))
-        {
+        for (arg, classification) in args.iter().zip(
+            self.module
+                .classify_function_params(args.iter().map(|arg| arg.ty)),
+        ) {
             match classification {
                 AbiParam::Direct(_) => llvm_args.push(self.emit_expr(arg)?),
                 AbiParam::IndirectReadonly(_) => {

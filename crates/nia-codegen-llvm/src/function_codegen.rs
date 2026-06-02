@@ -106,14 +106,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     }
 
     fn store_params(&mut self) -> Result<(), Diagnostic> {
-        let classifications = self.module.classify_function_params(
-            &self
-                .function
-                .params
-                .iter()
-                .map(|param| param.ty)
-                .collect::<Vec<_>>(),
-        );
+        let classifications = self
+            .module
+            .classify_function_params(self.function.params.iter().map(|param| param.ty));
         let mut llvm_index = usize::from(matches!(
             self.module
                 .classify_function_return(self.function.return_type),
