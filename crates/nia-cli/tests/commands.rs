@@ -713,6 +713,61 @@ fn main() i32 {
 }
 
 #[test]
+fn emit_obj_preserves_output_paths_that_look_like_optimization_flags() {
+    let root = temp_dir("emit_obj_preserves_output_paths_that_look_like_optimization_flags");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .current_dir(&root)
+        .arg("emit")
+        .arg("obj")
+        .arg(&main)
+        .arg("-o")
+        .arg("-Oartifact.o")
+        .output()
+        .expect("run niac emit obj -o -Oartifact.o");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let metadata = std::fs::metadata(root.join("-Oartifact.o")).expect("object metadata");
+    assert!(metadata.len() > 0);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .current_dir(&root)
+        .arg("emit")
+        .arg("obj")
+        .arg(&main)
+        .arg("--out-dir")
+        .arg("-Oobjects")
+        .output()
+        .expect("run niac emit obj --out-dir -Oobjects");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let object_count = std::fs::read_dir(root.join("-Oobjects"))
+        .expect("read object dir")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "o"))
+        .count();
+    assert_eq!(object_count, 1);
+}
+
+#[test]
 fn emit_obj_can_emit_optimization_report_to_stderr() {
     let root = temp_dir("emit_obj_can_emit_optimization_report_to_stderr");
     let main = root.join("main.nia");

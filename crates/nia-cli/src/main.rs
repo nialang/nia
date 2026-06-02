@@ -267,7 +267,13 @@ fn extract_global_options(
     let mut optimization = NiaOptimizationLevel::default();
     let mut remaining = Vec::new();
     let mut iter = args.into_iter();
+    let mut preserve_next = false;
     while let Some(arg) = iter.next() {
+        if preserve_next {
+            preserve_next = false;
+            remaining.push(arg);
+            continue;
+        }
         if let Some(payload) = module_payload_from_short(&arg) {
             let payload = match payload {
                 Some(payload) => payload,
@@ -292,6 +298,11 @@ fn extract_global_options(
                 .map_err(|message| CliError::new(message, help))?;
             continue;
         }
+        if native_emit_option_takes_path(&arg) {
+            preserve_next = true;
+            remaining.push(arg);
+            continue;
+        }
         if let Some(level) = parse_optimization_flag(&arg) {
             optimization = level.map_err(|message| CliError::new(message, help))?;
             continue;
@@ -305,6 +316,10 @@ fn extract_global_options(
             optimization,
         },
     ))
+}
+
+fn native_emit_option_takes_path(arg: &str) -> bool {
+    arg == "-o" || arg == "--out-dir"
 }
 
 fn module_payload_from_short(arg: &str) -> Option<Option<String>> {
