@@ -864,9 +864,6 @@ fn rewrite_local_copies_in_terminator(
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => rewrite_local_copies_in_expr(cond, copies),
-            FunctionForHeader::CStyle { cond } => cond
-                .as_deref_mut()
-                .is_some_and(|cond| rewrite_local_copies_in_expr(cond, copies)),
             FunctionForHeader::Infinite => false,
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
@@ -1148,9 +1145,6 @@ fn rewrite_local_constants_in_terminator(
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => rewrite_local_constants_in_expr(cond, constants),
-            FunctionForHeader::CStyle { cond } => cond
-                .as_deref_mut()
-                .is_some_and(|cond| rewrite_local_constants_in_expr(cond, constants)),
             FunctionForHeader::Infinite => false,
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
@@ -1355,9 +1349,6 @@ fn simplify_constant_logical_exprs_in_terminator(terminator: &mut FunctionTermin
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Infinite => false,
             FunctionForHeader::Condition(cond) => simplify_constant_logical_expr(cond),
-            FunctionForHeader::CStyle { cond } => cond
-                .as_mut()
-                .is_some_and(|cond| simplify_constant_logical_expr(cond)),
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             value.as_mut().is_some_and(simplify_constant_logical_expr)
@@ -1597,11 +1588,6 @@ fn collect_place_locals_in_terminator(
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => collect_place_locals_in_expr(cond, locals),
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    collect_place_locals_in_expr(cond, locals);
-                }
-            }
             FunctionForHeader::Infinite => {}
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
@@ -1795,11 +1781,6 @@ fn collect_read_locals_in_terminator(
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => collect_read_locals_in_expr(cond, locals),
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    collect_read_locals_in_expr(cond, locals);
-                }
-            }
             FunctionForHeader::Infinite => {}
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
@@ -2000,11 +1981,6 @@ fn collect_referenced_locals_in_terminator(
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => collect_referenced_locals_in_expr(cond, refs),
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    collect_referenced_locals_in_expr(cond, refs);
-                }
-            }
             FunctionForHeader::Infinite => {}
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
@@ -2222,13 +2198,6 @@ fn simplify_same_type_casts_in_terminator(terminator: &mut FunctionTerminator) -
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => simplify_same_type_casts_in_expr(cond),
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    simplify_same_type_casts_in_expr(cond)
-                } else {
-                    false
-                }
-            }
             FunctionForHeader::Infinite => false,
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {

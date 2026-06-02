@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, ArrayLen, Block, Expr, ExprKind, ForHeader, ForInit, FunctionItem, IndexArg,
-    Item, ItemKind, Module, Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind,
-    TypeRef, WhereClause,
+    ArrayElements, ArrayLen, Block, Expr, ExprKind, FunctionItem, IndexArg, Item, ItemKind, Module,
+    Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef, WhereClause,
 };
 
 pub trait Visitor<'ast> {
@@ -209,38 +208,18 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
             }
         }
         StmtKind::Break | StmtKind::Continue => {}
-        StmtKind::For(for_stmt) => {
-            match &for_stmt.header {
-                ForHeader::Infinite => {}
-                ForHeader::Condition(cond) => visitor.visit_expr(cond),
-                ForHeader::CStyle { init, cond, step } => {
-                    if let Some(init) = init {
-                        walk_for_init(visitor, init);
-                    }
-                    if let Some(cond) = cond {
-                        visitor.visit_expr(cond);
-                    }
-                    if let Some(step) = step {
-                        visitor.visit_expr(step);
-                    }
-                }
-            }
-            visitor.visit_block(&for_stmt.body);
-        }
-    }
-}
-
-pub fn walk_for_init<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, init: &'ast ForInit) {
-    match init {
-        ForInit::Binding { binding, .. } => {
-            if let Some(ty) = &binding.ty {
+        StmtKind::ForIn(for_stmt) => {
+            if let Some(ty) = &for_stmt.binding.ty {
                 visitor.visit_type(ty);
             }
-            if let Some(value) = &binding.value {
-                visitor.visit_expr(value);
-            }
+            visitor.visit_expr(&for_stmt.iter);
+            visitor.visit_block(&for_stmt.body);
         }
-        ForInit::Expr(expr) => visitor.visit_expr(expr),
+        StmtKind::While(while_stmt) => {
+            visitor.visit_expr(&while_stmt.cond);
+            visitor.visit_block(&while_stmt.body);
+        }
+        StmtKind::Loop(loop_stmt) => visitor.visit_block(&loop_stmt.body),
     }
 }
 

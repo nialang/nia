@@ -294,11 +294,6 @@ fn collect_function_refs_from_terminator(terminator: &FunctionTerminator, refs: 
         }
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(expr) => collect_function_refs_from_expr(expr, refs),
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    collect_function_refs_from_expr(cond, refs);
-                }
-            }
             FunctionForHeader::Infinite => {}
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {

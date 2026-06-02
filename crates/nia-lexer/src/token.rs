@@ -48,6 +48,8 @@ pub enum TokenKind {
     For,
     If,
     Import,
+    In,
+    Loop,
     Mut,
     Or,
     Pub,
@@ -63,6 +65,7 @@ pub enum TokenKind {
     Var,
     Void,
     Where,
+    While,
 
     LParen,
     RParen,

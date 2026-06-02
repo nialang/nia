@@ -22,23 +22,11 @@ pub extern union Bits[T] {
 }
 
 #[test]
-fn parses_c_style_for_header_with_parenthesized_block_expressions() {
+fn parses_for_in_binding_with_range_iterator() {
     let (module, errors) = parse_module(
         r#"
 fn main() {
-    var i = 0;
-    for ({
-        var a = 1;
-        var b = 3;
-        {
-            var c = 0;
-            c + a + b
-        }
-    }); ({
-        var d = 0;
-        d < 4;
-        true
-    }); i += 1 {
+    for i: i32 in 0..10 {
         _ = i;
     }
 }
@@ -49,45 +37,27 @@ fn main() {
         panic!("expected function");
     };
     let body = function.body.as_ref().expect("expected body");
-    let StmtKind::For(for_stmt) = &body.stmts[1].kind else {
-        panic!("expected for statement");
+    let StmtKind::ForIn(for_stmt) = &body.stmts[0].kind else {
+        panic!("expected for-in statement");
     };
-    let ForHeader::CStyle { init, cond, step } = &for_stmt.header else {
-        panic!("expected C-style for header");
-    };
-    assert!(matches!(
-        init.as_deref(),
-        Some(ForInit::Expr(expr)) if matches!(expr.kind, ExprKind::Block(_))
-    ));
-    assert!(matches!(
-        cond.as_deref().map(|expr| &expr.kind),
-        Some(ExprKind::Block(_))
-    ));
-    assert!(matches!(
-        step.as_deref().map(|expr| &expr.kind),
-        Some(ExprKind::Assign { .. })
-    ));
+    assert_eq!(for_stmt.binding.name, "i");
+    assert!(for_stmt.binding.ty.is_some());
+    assert!(matches!(for_stmt.iter.kind, ExprKind::Range(_)));
 }
 
 #[test]
-fn reports_ambiguous_block_as_first_for_header_expression() {
+fn rejects_var_in_for_in_binding() {
     let (_module, errors) = parse_module(
         r#"
 fn main() {
-    var i = 0;
-    for {
-        var a = 1;
-        a
-    }; true; i += 1 {
-        _ = i;
-    }
+    for var i in 0..10 {}
 }
 "#,
     );
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("expected expression")),
+            .any(|error| error.message.contains("var` is not allowed")),
         "{errors:?}"
     );
 }
@@ -144,7 +114,7 @@ fn parses_switch_arm_expression_statement_and_block_bodies() {
 fn cleanup() {}
 
 fn main(state: i32) i32 {
-    for {
+    loop {
         switch state {
             0 => cleanup(),
             1 => defer cleanup(),
@@ -164,10 +134,10 @@ fn main(state: i32) i32 {
         panic!("expected function");
     };
     let body = function.body.as_ref().expect("expected body");
-    let StmtKind::For(for_stmt) = &body.stmts[0].kind else {
-        panic!("expected for statement");
+    let StmtKind::Loop(loop_stmt) = &body.stmts[0].kind else {
+        panic!("expected loop statement");
     };
-    let expr = for_stmt.body.tail.as_ref().expect("expected switch tail");
+    let expr = loop_stmt.body.tail.as_ref().expect("expected switch tail");
     let ExprKind::Switch(switch) = &expr.kind else {
         panic!("expected switch expression");
     };

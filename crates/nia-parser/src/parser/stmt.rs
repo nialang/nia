@@ -60,7 +60,21 @@ impl Parser {
             let for_stmt = self.parse_for_stmt()?;
             return Some(self.make_stmt(
                 Span::new(start, for_stmt.body.span.end),
-                StmtKind::For(Box::new(for_stmt)),
+                StmtKind::ForIn(Box::new(for_stmt)),
+            ));
+        }
+        if self.at(TokenKind::While) {
+            let while_stmt = self.parse_while_stmt()?;
+            return Some(self.make_stmt(
+                Span::new(start, while_stmt.body.span.end),
+                StmtKind::While(Box::new(while_stmt)),
+            ));
+        }
+        if self.at(TokenKind::Loop) {
+            let loop_stmt = self.parse_loop_stmt()?;
+            return Some(self.make_stmt(
+                Span::new(start, loop_stmt.body.span.end),
+                StmtKind::Loop(Box::new(loop_stmt)),
             ));
         }
         None
@@ -105,62 +119,49 @@ impl Parser {
         })
     }
 
-    fn parse_for_stmt(&mut self) -> Option<ForStmt> {
+    fn parse_for_stmt(&mut self) -> Option<ForInStmt> {
         self.expect(TokenKind::For, "expected `for`")?;
-        let header = if self.at(TokenKind::LBrace) {
-            ForHeader::Infinite
+        let binding_start = self.peek().span.start;
+        let is_const = self.eat(TokenKind::Const).is_some();
+        if self.eat(TokenKind::Var).is_some() {
+            self.error_here("`var` is not allowed in for-in bindings; write `for name in iter`");
+        }
+        let name = self.expect_text(TokenKind::Ident, "expected for binding name")?;
+        let ty = if self.eat(TokenKind::Colon).is_some() {
+            Some(self.parse_type_until(&[TokenKind::In])?)
         } else {
-            let header_start = self.peek().span.start;
-            if self.has_top_level_semicolon_before_lbrace() {
-                let init = if self.at(TokenKind::Semicolon) {
-                    None
-                } else if self.at(TokenKind::Comptime)
-                    || self.at(TokenKind::Var)
-                    || self.at(TokenKind::Const)
-                {
-                    let init_start = self.peek().span.start;
-                    let binding = self.parse_binding_stmt()?;
-                    Some(ForInit::Binding {
-                        span: Span::new(init_start, self.previous_end()),
-                        binding,
-                    })
-                } else {
-                    let expr = self.parse_expr_until(&[TokenKind::Semicolon])?;
-                    self.expect(TokenKind::Semicolon, "expected `;` in for header")?;
-                    Some(ForInit::Expr(expr))
-                };
-                if init.is_none() {
-                    self.expect(TokenKind::Semicolon, "expected `;` in for header")?;
-                }
-                let cond = if self.at(TokenKind::Semicolon) {
-                    None
-                } else {
-                    Some(self.parse_expr_until(&[TokenKind::Semicolon])?)
-                };
-                self.expect(TokenKind::Semicolon, "expected second `;` in for header")?;
-                let step = if self.at(TokenKind::LBrace) {
-                    None
-                } else {
-                    Some(self.parse_expr_until(&[TokenKind::LBrace])?)
-                };
-                ForHeader::CStyle {
-                    init: init.map(Box::new),
-                    cond: cond.map(Box::new),
-                    step: step.map(Box::new),
-                }
-            } else {
-                let cond = self.parse_expr().or_else(|| {
-                    let span = self.collect_until(&[TokenKind::LBrace])?;
-                    Some(self.make_expr(span, ExprKind::Raw(self.source_text(span))))
-                })?;
-                if cond.span.start < header_start {
-                    self.error_here("invalid for condition");
-                }
-                ForHeader::Condition(cond)
-            }
+            None
         };
+        let binding_end = ty
+            .as_ref()
+            .map(|ty| ty.span.end)
+            .unwrap_or_else(|| self.previous_end());
+        self.expect(TokenKind::In, "expected `in` after for binding")?;
+        let iter = self.parse_expr_until(&[TokenKind::LBrace])?;
         let body = self.parse_block()?;
-        Some(ForStmt { header, body })
+        Some(ForInStmt {
+            binding: ForBinding {
+                span: Span::new(binding_start, binding_end),
+                name,
+                ty,
+                is_const,
+            },
+            iter,
+            body,
+        })
+    }
+
+    fn parse_while_stmt(&mut self) -> Option<WhileStmt> {
+        self.expect(TokenKind::While, "expected `while`")?;
+        let cond = self.parse_expr_until(&[TokenKind::LBrace])?;
+        let body = self.parse_block()?;
+        Some(WhileStmt { cond, body })
+    }
+
+    fn parse_loop_stmt(&mut self) -> Option<LoopStmt> {
+        self.expect(TokenKind::Loop, "expected `loop`")?;
+        let body = self.parse_block()?;
+        Some(LoopStmt { body })
     }
 
     pub(super) fn parse_switch_expr(&mut self) -> Option<Expr> {
@@ -254,6 +255,8 @@ impl Parser {
                 | TokenKind::Continue
                 | TokenKind::Defer
                 | TokenKind::For
+                | TokenKind::While
+                | TokenKind::Loop
                 | TokenKind::Using
         )
     }

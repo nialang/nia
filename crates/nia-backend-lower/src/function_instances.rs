@@ -234,11 +234,6 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionForHeader::Condition(expr) => {
                     self.enqueue_function_instances_from_expr(expr, seen, queue);
                 }
-                FunctionForHeader::CStyle { cond } => {
-                    if let Some(cond) = cond {
-                        self.enqueue_function_instances_from_expr(cond, seen, queue);
-                    }
-                }
                 FunctionForHeader::Infinite => {}
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {

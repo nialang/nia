@@ -8,22 +8,16 @@ fn resolves_break_to_loop_exit_branch() {
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![TypedStmt {
+        stmts: vec![loop_stmt(TypedBody {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::Infinite,
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: vec![TypedStmt {
-                        span,
-                        kind: TypedStmtKind::Break,
-                    }],
-                    tail: None,
-                    ty,
-                },
-            })),
-        }],
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Break,
+            }],
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };
@@ -60,22 +54,16 @@ fn resolves_continue_to_loop_continue_branch() {
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![TypedStmt {
+        stmts: vec![loop_stmt(TypedBody {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::Infinite,
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: vec![TypedStmt {
-                        span,
-                        kind: TypedStmtKind::Continue,
-                    }],
-                    tail: None,
-                    ty,
-                },
-            })),
-        }],
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Continue,
+            }],
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };
@@ -106,34 +94,19 @@ fn resolves_continue_to_loop_continue_branch() {
 }
 
 #[test]
-fn lowers_c_style_for_init_step_and_edges() {
+fn lowers_for_in_range_binding_step_and_edges() {
     let span = Span::default();
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
-    let expr = TypedExpr {
-        span,
-        ty,
-        kind: TypedExprKind::Integer("1".to_string()),
-    };
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![TypedStmt {
+        stmts: vec![for_range_stmt(LocalId(0), TypedBody {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::CStyle {
-                    init: Some(Box::new(TypedForInit::Expr(expr.clone()))),
-                    cond: Some(Box::new(expr.clone())),
-                    step: Some(Box::new(expr)),
-                },
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: Vec::new(),
-                    tail: None,
-                    ty,
-                },
-            })),
-        }],
+            locals: Vec::new(),
+            stmts: Vec::new(),
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };
@@ -142,7 +115,7 @@ fn lowers_c_style_for_init_step_and_edges() {
 
     assert!(matches!(
         function_body.blocks[0].ops[0],
-        FunctionOp::Expr(_)
+        FunctionOp::Binding(_)
     ));
     assert!(matches!(
         function_body.blocks[0].terminator,
@@ -166,7 +139,7 @@ fn lowers_c_style_for_init_step_and_edges() {
         .iter()
         .find(|block| block.id == continue_target)
         .expect("continue block");
-    assert!(matches!(continue_block.ops[0], FunctionOp::Expr(_)));
+    assert!(matches!(continue_block.ops[0], FunctionOp::StoreLocal { .. }));
     let step_branch = only_next_target(&function_body, continue_block.id);
     assert_eq!(
         function_body
@@ -185,19 +158,13 @@ fn loop_body_gets_child_scope_with_parent_loop_edges() {
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![TypedStmt {
+        stmts: vec![loop_stmt(TypedBody {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::Infinite,
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: Vec::new(),
-                    tail: None,
-                    ty,
-                },
-            })),
-        }],
+            locals: Vec::new(),
+            stmts: Vec::new(),
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };
@@ -267,19 +234,13 @@ fn preserves_unique_locals_from_flattened_loop_bodies() {
     let body = TypedBody {
         span,
         locals: vec![outer_local, inner_local.clone()],
-        stmts: vec![TypedStmt {
+        stmts: vec![loop_stmt(TypedBody {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::Infinite,
-                body: TypedBody {
-                    span,
-                    locals: vec![inner_local],
-                    stmts: Vec::new(),
-                    tail: None,
-                    ty,
-                },
-            })),
-        }],
+            locals: vec![inner_local],
+            stmts: Vec::new(),
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };
@@ -300,54 +261,36 @@ fn preserves_unique_locals_from_flattened_loop_bodies() {
 fn nested_loops_resolve_break_and_continue_to_nearest_loop() {
     let span = Span::default();
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
-    let inner_continue_loop = TypedStmt {
-        span,
-        kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-            header: TypedForHeader::Infinite,
-            body: TypedBody {
-                span,
-                locals: Vec::new(),
-                stmts: vec![TypedStmt {
-                    span,
-                    kind: TypedStmtKind::Continue,
-                }],
-                tail: None,
-                ty,
-            },
-        })),
-    };
-    let inner_break_loop = TypedStmt {
-        span,
-        kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-            header: TypedForHeader::Infinite,
-            body: TypedBody {
-                span,
-                locals: Vec::new(),
-                stmts: vec![TypedStmt {
-                    span,
-                    kind: TypedStmtKind::Break,
-                }],
-                tail: None,
-                ty,
-            },
-        })),
-    };
-    let body = TypedBody {
+    let inner_continue_loop = loop_stmt(TypedBody {
         span,
         locals: Vec::new(),
         stmts: vec![TypedStmt {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::Infinite,
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: vec![inner_continue_loop, inner_break_loop],
-                    tail: None,
-                    ty,
-                },
-            })),
+            kind: TypedStmtKind::Continue,
         }],
+        tail: None,
+        ty,
+    });
+    let inner_break_loop = loop_stmt(TypedBody {
+        span,
+        locals: Vec::new(),
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Break,
+        }],
+        tail: None,
+        ty,
+    });
+    let body = TypedBody {
+        span,
+        locals: Vec::new(),
+        stmts: vec![loop_stmt(TypedBody {
+            span,
+            locals: Vec::new(),
+            stmts: vec![inner_continue_loop, inner_break_loop],
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };
@@ -417,31 +360,19 @@ fn nested_loop_scopes_preserve_parent_chain() {
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![TypedStmt {
+        stmts: vec![loop_stmt(TypedBody {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::Infinite,
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: vec![TypedStmt {
-                        span,
-                        kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                            header: TypedForHeader::Infinite,
-                            body: TypedBody {
-                                span,
-                                locals: Vec::new(),
-                                stmts: Vec::new(),
-                                tail: None,
-                                ty,
-                            },
-                        })),
-                    }],
-                    tail: None,
-                    ty,
-                },
-            })),
-        }],
+            locals: Vec::new(),
+            stmts: vec![loop_stmt(TypedBody {
+                span,
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                tail: None,
+                ty,
+            })],
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };

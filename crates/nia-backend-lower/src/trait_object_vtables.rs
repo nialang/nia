@@ -159,11 +159,6 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionForHeader::Condition(cond) => {
                     self.collect_trait_object_vtables_from_expr(cond, out, seen);
                 }
-                FunctionForHeader::CStyle { cond } => {
-                    if let Some(cond) = cond {
-                        self.collect_trait_object_vtables_from_expr(cond, out, seen);
-                    }
-                }
                 FunctionForHeader::Infinite => {}
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {

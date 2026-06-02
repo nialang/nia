@@ -15,9 +15,7 @@ mod type_support;
 
 pub use nia_ty::import_type_into;
 
-use nia_ast::{
-    BindingStmt, Block, Expr, ExprKind, ForInit, FunctionItem, ItemKind, Module, Stmt, StmtKind,
-};
+use nia_ast::{BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, Stmt, StmtKind};
 use nia_body_ir::{
     ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
     FunctionReference, GenericInstantiation, ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
@@ -716,9 +714,12 @@ impl<'a> BodyChecker<'a> {
                 .expr_types
                 .get(&expr.span)
                 .is_some_and(|ty| self.is_never(*ty)),
-            StmtKind::Binding(_) | StmtKind::Using(_) | StmtKind::Defer(_) | StmtKind::For(_) => {
-                false
-            }
+            StmtKind::Binding(_)
+            | StmtKind::Using(_)
+            | StmtKind::Defer(_)
+            | StmtKind::ForIn(_)
+            | StmtKind::While(_)
+            | StmtKind::Loop(_) => false,
         }
     }
 
@@ -767,36 +768,61 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             StmtKind::Break | StmtKind::Continue => {}
-            StmtKind::For(for_stmt) => {
-                match &for_stmt.header {
-                    nia_ast::ForHeader::Infinite => {}
-                    nia_ast::ForHeader::Condition(cond) => {
-                        let cond_ty = self.check_expr(cond);
-                        self.expect_type(cond.span, self.bool(), cond_ty, "for condition");
-                    }
-                    nia_ast::ForHeader::CStyle { init, cond, step } => {
-                        if let Some(init) = init {
-                            self.check_for_init(init);
-                        }
-                        if let Some(cond) = cond {
-                            let cond_ty = self.check_expr(cond);
-                            self.expect_type(cond.span, self.bool(), cond_ty, "for condition");
-                        }
-                        if let Some(step) = step {
-                            self.check_expr(step);
-                        }
-                    }
+            StmtKind::ForIn(for_stmt) => {
+                let iter_ty = self.check_expr(&for_stmt.iter);
+                let item_ty = self.for_iterator_item_type(&for_stmt.iter, iter_ty);
+                let binding_ty = if let Some(explicit) = &for_stmt.binding.ty {
+                    let explicit_ty = self.ty_for_span(explicit.span);
+                    self.expect_type(for_stmt.binding.span, explicit_ty, item_ty, "for binding");
+                    explicit_ty
+                } else {
+                    item_ty
+                };
+                if let Some(local_id) = self.locals.local_defs.get(&for_stmt.binding.span).copied()
+                {
+                    self.local_types.insert(local_id, binding_ty);
                 }
                 self.check_block(&for_stmt.body);
+            }
+            StmtKind::While(while_stmt) => {
+                let cond_ty = self.check_expr(&while_stmt.cond);
+                self.expect_type(while_stmt.cond.span, self.bool(), cond_ty, "while condition");
+                self.check_block(&while_stmt.body);
+            }
+            StmtKind::Loop(loop_stmt) => {
+                self.check_block(&loop_stmt.body);
             }
         }
     }
 
-    fn check_for_init(&mut self, init: &ForInit) {
-        match init {
-            ForInit::Binding { span, binding } => self.check_local_binding(*span, binding),
-            ForInit::Expr(expr) => {
-                self.check_expr(expr);
+    fn for_iterator_item_type(&mut self, iter: &Expr, iter_ty: InternedTyId) -> InternedTyId {
+        match self.interner.get(iter_ty).cloned() {
+            Some(TyKind::Range {
+                kind:
+                    nia_ty::RangeTyKind::Exclusive
+                    | nia_ty::RangeTyKind::Inclusive,
+                bound: Some(bound),
+            }) if matches!(iter.kind, ExprKind::Range(_)) => bound,
+            Some(TyKind::Range { bound: Some(_), .. }) => {
+                self.diagnostics.push(Diagnostic::error(
+                    iter.span,
+                    "for-in range iterator requires both start and end bounds",
+                ));
+                self.error()
+            }
+            Some(TyKind::Range { bound: None, .. }) => {
+                self.diagnostics.push(Diagnostic::error(
+                    iter.span,
+                    "unbounded range cannot be used as a for iterator",
+                ));
+                self.error()
+            }
+            Some(_) | None => {
+                self.diagnostics.push(Diagnostic::error(
+                    iter.span,
+                    "for-in expects an iterator expression; only bounded ranges are supported currently",
+                ));
+                self.error()
             }
         }
     }

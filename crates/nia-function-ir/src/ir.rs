@@ -134,7 +134,6 @@ pub struct FunctionSwitchArm {
 pub enum FunctionForHeader {
     Infinite,
     Condition(FunctionExpr),
-    CStyle { cond: Option<Box<FunctionExpr>> },
 }
 
 #[derive(Debug, Clone, PartialEq)]

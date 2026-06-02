@@ -109,15 +109,15 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
-fn emits_for_header_value_flow_from_function_ir() {
-    let root = temp_dir("emits_for_header_value_flow_from_function_ir");
+fn emits_while_condition_value_flow_from_function_ir() {
+    let root = temp_dir("emits_while_condition_value_flow_from_function_ir");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
         r#"
 fn main() i32 {
     var i = 0;
-    for ; { i < 2 }; i += if i == 0 { 1 } else { 2 } {
+    while { i < 2 } {
         i += 1;
     }
     i
@@ -250,7 +250,7 @@ extend S {
 fn build() T {
     var t: T = { xs: [S::make(0); 4] };
 
-    for var i: u16 = 0; i < 4; i += 1 {
+    for i: u16 in 0u16..4u16 {
         t.xs[i as usize] = S::make(i as i32);
     }
 
@@ -299,7 +299,7 @@ extend S {
 fn build() T {
     var t: T = { xs: [S::make(0); 4] };
 
-    for var i: u16 = 0; i < 4; i += 1 {
+    for i: u16 in 0u16..4u16 {
         t.xs[i as usize] = S::make(7);
     }
 

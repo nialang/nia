@@ -260,13 +260,6 @@ fn propagate_cross_function_constants_in_terminator(
                 function_constants,
                 instance_constants,
             ),
-            FunctionForHeader::CStyle { cond } => cond.as_deref_mut().is_some_and(|cond| {
-                propagate_cross_function_constants_in_expr(
-                    cond,
-                    function_constants,
-                    instance_constants,
-                )
-            }),
             FunctionForHeader::Infinite => false,
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {

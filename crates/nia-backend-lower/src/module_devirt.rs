@@ -91,9 +91,6 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionForHeader::Condition(cond) => {
                     self.devirtualize_direct_trait_calls_in_expr(cond)
                 }
-                FunctionForHeader::CStyle { cond } => cond
-                    .as_deref_mut()
-                    .is_some_and(|cond| self.devirtualize_direct_trait_calls_in_expr(cond)),
                 FunctionForHeader::Infinite => false,
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {

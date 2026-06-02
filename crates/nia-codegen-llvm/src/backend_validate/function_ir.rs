@@ -77,11 +77,6 @@ impl BackendValidator<'_> {
             FunctionTerminator::Loop { header, .. } => match header {
                 nia_function_ir::FunctionForHeader::Infinite => {}
                 nia_function_ir::FunctionForHeader::Condition(expr) => self.validate_expr(expr),
-                nia_function_ir::FunctionForHeader::CStyle { cond } => {
-                    if let Some(cond) = cond {
-                        self.validate_expr(cond);
-                    }
-                }
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {

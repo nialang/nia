@@ -145,9 +145,6 @@ impl<'a> ModuleLowerer<'a> {
             FunctionForHeader::Condition(expr) => {
                 FunctionForHeader::Condition(self.instantiate_expr(expr, substitutions))
             }
-            FunctionForHeader::CStyle { cond } => FunctionForHeader::CStyle {
-                cond: cond.map(|cond| Box::new(self.instantiate_expr(*cond, substitutions))),
-            },
         }
     }
 

@@ -325,20 +325,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         break_block: BasicBlock<'ctx>,
     ) -> Result<(), Diagnostic> {
         match header {
-            FunctionForHeader::Infinite | FunctionForHeader::CStyle { cond: None, .. } => {
+            FunctionForHeader::Infinite => {
                 self.builder
                     .build_unconditional_branch(body_block)
                     .map_err(|_| self.error(span, "failed to build function loop branch"))?;
             }
             FunctionForHeader::Condition(cond) => {
-                let cond = self.emit_expr(cond)?.into_int_value()?;
-                self.builder
-                    .build_conditional_branch(cond, body_block, break_block)
-                    .map_err(|_| self.error(span, "failed to build function loop branch"))?;
-            }
-            FunctionForHeader::CStyle {
-                cond: Some(cond), ..
-            } => {
                 let cond = self.emit_expr(cond)?.into_int_value()?;
                 self.builder
                     .build_conditional_branch(cond, body_block, break_block)

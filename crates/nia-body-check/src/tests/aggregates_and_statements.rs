@@ -111,32 +111,26 @@ fn main() i32 {
 }
 
 #[test]
-fn checks_complex_for_header_expression_types() {
+fn checks_new_loop_expression_type_edges() {
     let checked = pipeline(
         r#"
 fn main(flag: bool) i32 {
     var i = 0;
-    for ({
-        var a = 1;
-        _ = a;
-    }); ({
-        var d = 0;
-        _ = d;
-        flag
-    }); i += 1 {
-        if i == 3 {
-            break;
-        }
-    }
-
-    for _ = i; ({
-        var c = 1;
-        c
-    }); _ = i {
+    while flag {
+        _ = i;
         break;
     }
 
-    for ; true; 1 + 2 {
+    while i {
+        break;
+    }
+
+    for n in 0..3 {
+        _ = n;
+    }
+
+    loop {
+        _ = i;
         break;
     }
 
@@ -148,7 +142,7 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("for condition"))
+            .filter(|diagnostic| diagnostic.message.contains("while condition"))
             .count(),
         1,
         "{:?}",

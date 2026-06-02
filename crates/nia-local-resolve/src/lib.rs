@@ -2,8 +2,8 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    ArrayLen, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, FunctionItem, IndexArg,
-    ItemKind, Module, Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef,
+    ArrayLen, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Stmt,
+    StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
@@ -255,33 +255,31 @@ impl<'a> LocalResolver<'a> {
                 }
             }
             StmtKind::Break | StmtKind::Continue => {}
-            StmtKind::For(for_stmt) => {
+            StmtKind::ForIn(for_stmt) => {
+                self.resolve_expr(&for_stmt.iter);
                 self.push_scope();
-                match &for_stmt.header {
-                    ForHeader::Infinite => {}
-                    ForHeader::Condition(cond) => self.resolve_expr(cond),
-                    ForHeader::CStyle { init, cond, step } => {
-                        if let Some(init) = init {
-                            self.resolve_for_init(init);
-                        }
-                        if let Some(cond) = cond {
-                            self.resolve_expr(cond);
-                        }
-                        if let Some(step) = step {
-                            self.resolve_expr(step);
-                        }
-                    }
+                if let Some(ty) = &for_stmt.binding.ty {
+                    self.resolve_type(ty);
                 }
+                self.define(
+                    &for_stmt.binding.name,
+                    if for_stmt.binding.is_const {
+                        LocalKind::ConstBinding
+                    } else {
+                        LocalKind::Binding
+                    },
+                    for_stmt.binding.span,
+                    SyntaxKind::Stmt,
+                    "duplicate local binding",
+                );
                 self.resolve_block(&for_stmt.body);
                 self.pop_scope();
             }
-        }
-    }
-
-    fn resolve_for_init(&mut self, init: &ForInit) {
-        match init {
-            ForInit::Binding { span, binding } => self.resolve_binding(*span, binding),
-            ForInit::Expr(expr) => self.resolve_expr(expr),
+            StmtKind::While(while_stmt) => {
+                self.resolve_expr(&while_stmt.cond);
+                self.resolve_block(&while_stmt.body);
+            }
+            StmtKind::Loop(loop_stmt) => self.resolve_block(&loop_stmt.body),
         }
     }
 
@@ -937,7 +935,7 @@ struct T {
 
 fn main() i32 {
     var t: T = { xs: [{ x: 0 }; 4] };
-    for var i: u16 = 0; i < 4; i += 1 {
+    for i: u16 in 0u16..4u16 {
         t.xs[i as usize] = { x: i as i32 };
     }
     t.xs[2].x

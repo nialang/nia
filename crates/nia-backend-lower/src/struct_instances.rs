@@ -255,11 +255,6 @@ impl<'a> ModuleLowerer<'a> {
             FunctionForHeader::Condition(expr) => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    self.collect_struct_instances_expr(cond, seen, out);
-                }
-            }
         }
     }
 
@@ -652,11 +647,6 @@ impl<'a> ModuleLowerer<'a> {
             FunctionForHeader::Infinite => {}
             FunctionForHeader::Condition(expr) => {
                 self.collect_union_instances_expr(expr, seen, out);
-            }
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    self.collect_union_instances_expr(cond, seen, out);
-                }
             }
         }
     }

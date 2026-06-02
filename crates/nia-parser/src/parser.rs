@@ -2,11 +2,12 @@
 use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, BinaryOp, BindingItem, BindingStmt, Block, BracketArg,
     EnumItem, EnumVariant, Expr, ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit,
-    ForHeader, ForInit, ForStmt, FunctionItem, ImportItem, ImportPath, ImportPathKind, Item,
-    ItemKind, Module, Param, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm,
+    ForBinding, ForInStmt, FunctionItem, ImportItem, ImportPath, ImportPathKind, Item, ItemKind,
+    LoopStmt, Module, Param, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm,
     SwitchArmBody, SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
     TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
     UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
+    WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};
@@ -150,25 +151,6 @@ impl Parser {
     fn make_stmt(&mut self, span: Span, kind: StmtKind) -> Stmt {
         self.record_origin(NodeSyntaxKind::Stmt, span);
         Stmt { span, kind }
-    }
-
-    fn has_top_level_semicolon_before_lbrace(&self) -> bool {
-        let mut depth = 0usize;
-        let mut index = 0usize;
-        while let Some(token) = self.tokens.nth(index) {
-            match token.kind {
-                TokenKind::LBrace if depth == 0 => return false,
-                TokenKind::Semicolon if depth == 0 => return true,
-                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
-                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
-                    depth = depth.saturating_sub(1);
-                }
-                TokenKind::Eof => return false,
-                _ => {}
-            }
-            index += 1;
-        }
-        false
     }
 
     fn parse_expr_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
