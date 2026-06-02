@@ -749,7 +749,10 @@ LLVM object emission maps the Nia optimization level to LLVM's codegen
 optimization level and a reported codegen size policy. Size-oriented levels
 (`-Os` and `-Oz`) also remain visible in the Nia policy so monomorphization,
 inlining, specialization, and deduplication can make size-aware decisions before
-LLVM sees the program.
+LLVM sees the program. Today the native LLVM target machine is configured with
+the mapped codegen optimization level; the size policy is reported and preserved
+at the Nia/codegen boundary for size-aware Nia lowering and future target-option
+plumbing rather than being a separate LLVM target-machine knob.
 
 It should not parse AST or make frontend semantic decisions.
 
