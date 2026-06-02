@@ -253,6 +253,7 @@ impl MonoCollector<'_> {
             return;
         };
         let substitutions = self.generic_substitutions_for_instance(&key);
+        let substitution_id = self.intern_ordered_type_substitutions(substitutions);
         stack.push(key.clone());
         for edge_index in edge_indices {
             let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
@@ -268,7 +269,7 @@ impl MonoCollector<'_> {
                 continue;
             };
             let edge_args = edge.args.clone();
-            let args = self.instantiate_args(edge_module_id, &edge_args, &substitutions);
+            let args = self.instantiate_args(edge_module_id, &edge_args, substitution_id);
             let edge_key = MonoInstanceKey {
                 def_id: edge_def_id,
                 arg_module_id: edge_module_id,
@@ -295,7 +296,7 @@ impl MonoCollector<'_> {
     fn generic_substitutions_for_instance(
         &mut self,
         key: &MonoInstanceKey,
-    ) -> HashMap<String, InternedTyId> {
+    ) -> Vec<(String, InternedTyId)> {
         self.effective_generics_for(key.def_id)
             .iter()
             .cloned()
@@ -307,9 +308,8 @@ impl MonoCollector<'_> {
         &mut self,
         module_id: ModuleId,
         args: &[InternedTyId],
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> Vec<InternedTyId> {
-        let substitutions = self.intern_type_substitutions(substitutions);
         args.iter()
             .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
             .collect()
@@ -462,22 +462,14 @@ impl MonoCollector<'_> {
         ty
     }
 
-    fn intern_type_substitutions(
+    fn intern_ordered_type_substitutions(
         &mut self,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: Vec<(String, InternedTyId)>,
     ) -> TypeSubstitutionId {
-        let mut key = TypeSubstitutionKey {
-            substitutions: substitutions
-                .iter()
-                .map(|(name, ty)| (name.clone(), *ty))
-                .collect(),
-        };
-        key.substitutions.sort_by(|left, right| {
-            left.0.cmp(&right.0).then_with(|| {
-                (left.1.interner_id, left.1.index.index())
-                    .cmp(&(right.1.interner_id, right.1.index.index()))
-            })
-        });
+        self.intern_type_substitution_key(TypeSubstitutionKey { substitutions })
+    }
+
+    fn intern_type_substitution_key(&mut self, key: TypeSubstitutionKey) -> TypeSubstitutionId {
         if let Some(id) = self.type_substitution_ids.get(&key) {
             return *id;
         }
@@ -958,29 +950,11 @@ fn wrap[T](value: T) T { value }
             module_id: ModuleId(0),
             def_id: nia_ids::DefId(0),
         };
-        let mut collector = MonoCollector {
-            defs_by_module: HashMap::new(),
-            interners_by_module: HashMap::new(),
-            comptime_by_module: HashMap::new(),
-            const_exprs_by_module: HashMap::new(),
-            instantiations_by_source: HashMap::new(),
-            source_instantiation_edges: Vec::new(),
-            recorded_generics_by_def: HashMap::from([(
-                def_id,
-                vec![Vec::new(), vec!["T".to_string(), "U".to_string()]],
-            )]),
-            instances: Vec::new(),
-            seen: HashSet::new(),
-            expanded: HashSet::new(),
-            type_symbols: HashMap::new(),
-            type_instantiations: HashMap::new(),
-            type_substitutions: Vec::new(),
-            type_substitution_ids: HashMap::new(),
-            effective_generics: HashMap::new(),
-            working_interners_by_module: HashMap::new(),
-            missing_array_len_diagnostics: HashSet::new(),
-            diagnostics: Vec::new(),
-        };
+        let mut collector = empty_collector();
+        collector.recorded_generics_by_def.insert(
+            def_id,
+            vec![Vec::new(), vec!["T".to_string(), "U".to_string()]],
+        );
 
         assert_eq!(
             collector.effective_generics_for(def_id),
@@ -991,5 +965,57 @@ fn wrap[T](value: T) T { value }
             collector.effective_generics_for(def_id),
             &["T".to_string(), "U".to_string()]
         );
+    }
+
+    #[test]
+    fn ordered_type_substitutions_reuse_existing_ids() {
+        let mut collector = empty_collector();
+        let i32_ty = InternedTyId::new(
+            ModuleId(0),
+            nia_ids::TyInternerIndex::from_interner_index(1),
+        );
+        let bool_ty = InternedTyId::new(
+            ModuleId(0),
+            nia_ids::TyInternerIndex::from_interner_index(2),
+        );
+
+        let first = collector.intern_ordered_type_substitutions(vec![
+            ("T".to_string(), i32_ty),
+            ("U".to_string(), bool_ty),
+        ]);
+        let second = collector.intern_ordered_type_substitutions(vec![
+            ("T".to_string(), i32_ty),
+            ("U".to_string(), bool_ty),
+        ]);
+
+        assert_eq!(first, second);
+        assert_eq!(collector.type_substitutions.len(), 1);
+        assert_eq!(
+            collector.type_substitutions[first.0],
+            HashMap::from([("T".to_string(), i32_ty), ("U".to_string(), bool_ty)])
+        );
+    }
+
+    fn empty_collector() -> MonoCollector<'static> {
+        MonoCollector {
+            defs_by_module: HashMap::new(),
+            interners_by_module: HashMap::new(),
+            comptime_by_module: HashMap::new(),
+            const_exprs_by_module: HashMap::new(),
+            working_interners_by_module: HashMap::new(),
+            instantiations_by_source: HashMap::new(),
+            source_instantiation_edges: Vec::new(),
+            recorded_generics_by_def: HashMap::new(),
+            instances: Vec::new(),
+            seen: HashSet::new(),
+            expanded: HashSet::new(),
+            type_symbols: HashMap::new(),
+            type_instantiations: HashMap::new(),
+            type_substitutions: Vec::new(),
+            type_substitution_ids: HashMap::new(),
+            effective_generics: HashMap::new(),
+            missing_array_len_diagnostics: HashSet::new(),
+            diagnostics: Vec::new(),
+        }
     }
 }
