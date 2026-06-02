@@ -14,20 +14,12 @@ impl<'a> ModuleLowerer<'a> {
         if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
             return None;
         }
-        let method = target.methods.iter().find(|method| {
-            let method_trait_args = method
-                .trait_args
-                .iter()
-                .map(|arg| self.import_extension_type(*arg))
-                .collect::<Vec<_>>();
-            method.name == method_name
-                && method.trait_id == Some(TraitId::Source(trait_id))
-                && method_trait_args.len() == trait_args.len()
-                && method_trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| self.types_match(*actual, *expected))
-        })?;
+        let method_def_id = self.match_extension_trait_method(
+            target,
+            Some(TraitId::Source(trait_id)),
+            trait_args,
+            method_name,
+        )?;
         let mut substitutions = HashMap::new();
         self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
             .then(|| {
@@ -36,7 +28,7 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .filter_map(|generic| substitutions.get(generic).copied())
                     .collect::<Vec<_>>();
-                (method.def_id, args)
+                (method_def_id, args)
             })
     }
 
@@ -79,20 +71,12 @@ impl<'a> ModuleLowerer<'a> {
         if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
             return None;
         }
-        let method = target.methods.iter().find(|method| {
-            let method_trait_args = method
-                .trait_args
-                .iter()
-                .map(|arg| self.import_extension_type(*arg))
-                .collect::<Vec<_>>();
-            method.name == method_name
-                && method.trait_id == Some(TraitId::Builtin(trait_id))
-                && method_trait_args.len() == trait_args.len()
-                && method_trait_args
-                    .iter()
-                    .zip(trait_args)
-                    .all(|(actual, expected)| self.types_match(*actual, *expected))
-        })?;
+        let method_def_id = self.match_extension_trait_method(
+            target,
+            Some(TraitId::Builtin(trait_id)),
+            trait_args,
+            method_name,
+        )?;
         let mut substitutions = HashMap::new();
         self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
             .then(|| {
@@ -101,8 +85,37 @@ impl<'a> ModuleLowerer<'a> {
                     .iter()
                     .filter_map(|generic| substitutions.get(generic).copied())
                     .collect::<Vec<_>>();
-                (method.def_id, args)
+                (method_def_id, args)
             })
+    }
+
+    fn match_extension_trait_method(
+        &mut self,
+        target: &VisibleExtensionTarget,
+        trait_id: Option<TraitId>,
+        trait_args: &[InternedTyId],
+        method_name: &str,
+    ) -> Option<GlobalDefId> {
+        target
+            .methods
+            .iter()
+            .find(|method| {
+                if method.name != method_name
+                    || method.trait_id != trait_id
+                    || method.trait_args.len() != trait_args.len()
+                {
+                    return false;
+                }
+                method
+                    .trait_args
+                    .iter()
+                    .zip(trait_args)
+                    .all(|(actual, expected)| {
+                        let actual = self.import_extension_type(*actual);
+                        self.types_match(actual, *expected)
+                    })
+            })
+            .map(|method| method.def_id)
     }
 
     pub(super) fn lower_intrinsic_builtin_place_method_call(
