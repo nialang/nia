@@ -586,12 +586,24 @@ fn pick(flag: bool, a: i32, b: i32) i32 {
     }
 }
 
+fn answer() i32 {
+    40
+}
+
+fn identity[T](value: T) T {
+    value
+}
+
+fn plus_two(value: i32) i32 {
+    value + 2
+}
+
 fn main() i32 {
-    var x = 39;
+    var x = answer();
     var y = x;
-    y = y + 1;
-    var unused = 99;
-    pick(true, y + 2, unused)
+    y = identity[i32](y);
+    var unused = plus_two(99);
+    pick(true, plus_two(y), unused)
 }
 "#,
     )
