@@ -633,6 +633,14 @@ constant merging, static initializer simplification, or vtable data
 deduplication only when the resulting program still exposes the same ABI
 surface defined by this document.
 
+The LLVM codegen optimization level reported by `niac --emit-opt-report` is also
+backend-visible only. It may affect instruction selection, scheduling, register
+allocation, and equivalent object-code details after Nia lowering, but it must
+not reinterpret Nia layout metadata, symbol identity, function ABI
+classification, static data meaning, or field offsets. `Os` and `Oz` still rely
+on the Nia optimization policy for size-aware monomorphization, inlining,
+specialization, and deduplication before LLVM sees the lowered program.
+
 Static initializer simplification is representation-preserving. For example, a
 repeated zero array may be emitted as an equivalent backend `zeroinitializer`,
 but the global's type, layout, addressability, and element values remain the same
