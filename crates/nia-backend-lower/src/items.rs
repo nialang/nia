@@ -214,6 +214,13 @@ fn simplify_static_init(init: StaticInit) -> StaticInit {
                 .collect::<Vec<_>>();
             if elems.iter().all(is_zero_static_init) {
                 StaticInit::Zero
+            } else if let Some(first) = elems.first()
+                && elems.iter().all(|elem| elem == first)
+            {
+                StaticInit::Repeat {
+                    value: Box::new(first.clone()),
+                    count: elems.len() as u64,
+                }
             } else {
                 StaticInit::Array(elems)
             }
