@@ -774,9 +774,9 @@ The CLI supports:
 ```text
 niac lex <file.nia>
 niac parse <file.nia>
-niac check <file.nia>
-niac emit backend <file.nia>
-niac emit llvm <file.nia>
+niac check <file.nia> [--emit-opt-report]
+niac emit backend <file.nia> [--emit-opt-report]
+niac emit llvm <file.nia> [--emit-opt-report]
 niac emit obj <file.nia> [-o file.o | --out-dir dir] [--emit-opt-report]
 niac emit exe <file.nia> [-o executable] [--emit-opt-report]
 ```
