@@ -509,6 +509,55 @@ fn main() i32 {
 }
 
 #[test]
+fn size_levels_emit_repeated_byte_static_initializers_as_strings() {
+    let root = temp_dir("size_levels_emit_repeated_byte_static_initializers_as_strings");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+const bytes: [4]u8 = b"aaaa";
+
+fn main() i32 {
+    bytes[0] as i32
+}
+"#,
+    )
+    .expect("write test source");
+
+    for level in [
+        nia_driver::NiaOptimizationLevel::Os,
+        nia_driver::NiaOptimizationLevel::Oz,
+    ] {
+        let checked =
+            nia_driver::check_program_with_options(main.to_string_lossy().into_owned(), level);
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{level:?}: {:?}",
+            checked.diagnostics
+        );
+        let output = emit_llvm_ir_with_options(
+            &checked.backend_lowering.program,
+            LlvmCodegenOptions {
+                root_module: Some(checked.graph.root()),
+                hosted_entry: false,
+                optimization: checked.optimization,
+            },
+        );
+        assert!(
+            output.diagnostics.is_empty(),
+            "{level:?}: {:?}",
+            output.diagnostics
+        );
+        let ir = &output.modules[0].ir;
+
+        assert!(
+            ir.contains("@nia__m0__d0__bytes = constant [4 x i8] c\"aaaa\""),
+            "{level:?}\n{ir}"
+        );
+    }
+}
+
+#[test]
 fn emits_adjacent_string_literal_concatenation() {
     let root = temp_dir("emits_adjacent_string_literal_concatenation");
     let main = root.join("main.nia");
