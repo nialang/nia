@@ -169,6 +169,39 @@ fn main() i32 {
 }
 
 #[test]
+fn optimization_option_can_follow_command_arguments() {
+    let root = temp_dir("optimization_option_can_follow_command_arguments");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .arg("check")
+        .arg(&main)
+        .arg("-Oz")
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac check main.nia -Oz --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("policy level=Oz"), "{stdout}");
+    assert!(stdout.contains("prefer_size=true"), "{stdout}");
+    assert!(stdout.contains("llvm_size=tiny"), "{stdout}");
+}
+
+#[test]
 fn invalid_optimization_option_reports_expected_levels() {
     let output = Command::new(env!("CARGO_BIN_EXE_niac"))
         .arg("-O9")
