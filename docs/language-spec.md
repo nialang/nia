@@ -2030,7 +2030,7 @@ resolved through an external module map. The CLI registers map entries with
 after the command:
 
 ```bash
-niac check src/main.nia -M std=/usr/share/nia/std.nia
+nia check src/main.nia -M std=/usr/share/nia/std.nia
 ```
 
 ```nia
@@ -2310,13 +2310,13 @@ A conforming Nia compiler supports:
 The CLI surface is:
 
 ```text
-niac lex <file.nia>
-niac parse <file.nia>
-niac check <file.nia> [--emit-opt-report]
-niac emit backend <file.nia> [--emit-opt-report]
-niac emit llvm <file.nia> [--emit-opt-report]
-niac emit obj <file.nia> [-o file.o | --out-dir dir] [--emit-opt-report]
-niac emit exe <file.nia> [-o executable] [--emit-opt-report]
+nia lex <file.nia>
+nia parse <file.nia>
+nia check <file.nia> [--opt-report]
+nia emit backend <file.nia> [--opt-report]
+nia emit llvm <file.nia> [--opt-report]
+nia emit obj <file.nia> [-o file.o | --out-dir dir] [--opt-report]
+nia emit exe <file.nia> [-o executable] [--opt-report]
 ```
 
 Module-map options are accepted before or after the command:
@@ -2338,9 +2338,9 @@ Optimization options are accepted before or after the command:
 -Oz
 ```
 
-`-O` means `-O2`. `niac check <file.nia> --emit-opt-report` prints the active
+`-O` means `-O2`. `nia check <file.nia> --opt-report` prints the active
 optimization policy and backend optimization report to stdout. Emit commands
-write the same report to stderr when `--emit-opt-report` is supplied, so stdout
+write the same report to stderr when `--opt-report` is supplied, so stdout
 remains backend IR or LLVM IR and native emit targets remain file-only.
 
 `emit obj` writes one object per backend codegen unit. `-o` is only valid for a

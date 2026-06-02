@@ -18,5 +18,5 @@ nia-parser.workspace = true
 nia-source.workspace = true
 
 [[bin]]
-name = "niac"
+name = "nia"
 path = "src/main.rs"
