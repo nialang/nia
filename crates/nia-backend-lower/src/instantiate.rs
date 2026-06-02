@@ -527,14 +527,6 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    pub(crate) fn extension_type_pattern_matches(
-        &self,
-        pattern: InternedTyId,
-        actual: InternedTyId,
-    ) -> bool {
-        self.match_extension_type_pattern(pattern, actual, &mut HashMap::new())
-    }
-
     fn extension_ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.input
             .extension_interner

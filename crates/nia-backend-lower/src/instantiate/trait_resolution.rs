@@ -11,9 +11,6 @@ impl<'a> ModuleLowerer<'a> {
         method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
-            return None;
-        }
         let method_def_id = self.match_extension_trait_method(
             target,
             Some(TraitId::Source(trait_id)),
@@ -21,15 +18,15 @@ impl<'a> ModuleLowerer<'a> {
             method_name,
         )?;
         let mut substitutions = HashMap::new();
-        self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
-            .then(|| {
-                let args = self
-                    .generic_params_in_extension_ty(target.target_ty)
-                    .iter()
-                    .filter_map(|generic| substitutions.get(generic).copied())
-                    .collect::<Vec<_>>();
-                (method_def_id, args)
-            })
+        if !self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions) {
+            return None;
+        }
+        let args = self
+            .generic_params_in_extension_ty(target.target_ty)
+            .iter()
+            .filter_map(|generic| substitutions.get(generic).copied())
+            .collect::<Vec<_>>();
+        Some((method_def_id, args))
     }
 
     pub(super) fn resolve_builtin_place_method_impl(
@@ -68,9 +65,6 @@ impl<'a> ModuleLowerer<'a> {
         method_name: &str,
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if !self.extension_type_pattern_matches(target.target_ty, self_ty) {
-            return None;
-        }
         let method_def_id = self.match_extension_trait_method(
             target,
             Some(TraitId::Builtin(trait_id)),
@@ -78,15 +72,15 @@ impl<'a> ModuleLowerer<'a> {
             method_name,
         )?;
         let mut substitutions = HashMap::new();
-        self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions)
-            .then(|| {
-                let args = self
-                    .generic_params_in_extension_ty(target.target_ty)
-                    .iter()
-                    .filter_map(|generic| substitutions.get(generic).copied())
-                    .collect::<Vec<_>>();
-                (method_def_id, args)
-            })
+        if !self.match_extension_type_pattern(target.target_ty, self_ty, &mut substitutions) {
+            return None;
+        }
+        let args = self
+            .generic_params_in_extension_ty(target.target_ty)
+            .iter()
+            .filter_map(|generic| substitutions.get(generic).copied())
+            .collect::<Vec<_>>();
+        Some((method_def_id, args))
     }
 
     fn match_extension_trait_method(
