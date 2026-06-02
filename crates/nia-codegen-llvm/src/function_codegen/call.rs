@@ -69,6 +69,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 nia_function_ir::FunctionBuiltinMethod::Len => {
                     self.emit_builtin_len_method(expr.span, *self_ty, receiver)
                 }
+                nia_function_ir::FunctionBuiltinMethod::RangeIter => self.emit_expr(receiver),
             };
         }
         if let FunctionCallee::BuiltinPlaceMethod {

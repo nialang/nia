@@ -475,6 +475,7 @@ pub struct BuiltinOperator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinMethod {
     Len,
+    RangeIter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
