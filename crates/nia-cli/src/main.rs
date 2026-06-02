@@ -70,13 +70,34 @@ struct Cli {
 
 #[derive(Debug)]
 enum CliCommand {
-    Lex { path: String },
-    Parse { path: String },
-    Check { path: String, emit_opt_report: bool },
-    EmitBackend { path: String, emit_opt_report: bool },
-    EmitLlvm { path: String, emit_opt_report: bool },
-    EmitObj { path: String, args: Vec<String> },
-    EmitExe { path: String, args: Vec<String> },
+    Lex {
+        path: String,
+    },
+    Parse {
+        path: String,
+    },
+    Check {
+        path: String,
+        emit_opt_report: bool,
+    },
+    EmitBackend {
+        path: String,
+        emit_opt_report: bool,
+    },
+    EmitLlvm {
+        path: String,
+        emit_opt_report: bool,
+    },
+    EmitObj {
+        path: String,
+        args: Vec<String>,
+        emit_opt_report: bool,
+    },
+    EmitExe {
+        path: String,
+        args: Vec<String>,
+        emit_opt_report: bool,
+    },
 }
 
 enum CliAction {
@@ -161,12 +182,30 @@ fn run_cli(cli: Cli) -> ExitCode {
             cli.optimization,
             emit_opt_report,
         ),
-        CliCommand::EmitObj { args, .. } => {
-            run_emit_obj(&path, &source, args, cli.module_map, cli.optimization)
-        }
-        CliCommand::EmitExe { args, .. } => {
-            run_emit_exe(&path, &source, args, cli.module_map, cli.optimization)
-        }
+        CliCommand::EmitObj {
+            args,
+            emit_opt_report,
+            ..
+        } => run_emit_obj(
+            &path,
+            &source,
+            args,
+            cli.module_map,
+            cli.optimization,
+            emit_opt_report,
+        ),
+        CliCommand::EmitExe {
+            args,
+            emit_opt_report,
+            ..
+        } => run_emit_exe(
+            &path,
+            &source,
+            args,
+            cli.module_map,
+            cli.optimization,
+            emit_opt_report,
+        ),
     }
 }
 
@@ -423,12 +462,26 @@ fn parse_emit_command(args: Vec<String>) -> Result<CliCommand, CliError> {
     match target.as_str() {
         "backend" => parse_emit_backend_command(rest),
         "llvm" => parse_emit_llvm_command(rest),
-        "obj" => parse_emit_with_options("emit obj", rest, HelpTopic::EmitObj, |path, args| {
-            CliCommand::EmitObj { path, args }
-        }),
-        "exe" => parse_emit_with_options("emit exe", rest, HelpTopic::EmitExe, |path, args| {
-            CliCommand::EmitExe { path, args }
-        }),
+        "obj" => parse_emit_with_options(
+            "emit obj",
+            rest,
+            HelpTopic::EmitObj,
+            |path, args, emit_opt_report| CliCommand::EmitObj {
+                path,
+                args,
+                emit_opt_report,
+            },
+        ),
+        "exe" => parse_emit_with_options(
+            "emit exe",
+            rest,
+            HelpTopic::EmitExe,
+            |path, args, emit_opt_report| CliCommand::EmitExe {
+                path,
+                args,
+                emit_opt_report,
+            },
+        ),
         _ => Err(CliError::new(
             format!("unknown emit target `{target}`"),
             HelpTopic::Emit,
@@ -500,19 +553,31 @@ fn parse_emit_with_options(
     command: &str,
     args: Vec<String>,
     help: HelpTopic,
-    build: impl FnOnce(String, Vec<String>) -> CliCommand,
+    build: impl FnOnce(String, Vec<String>, bool) -> CliCommand,
 ) -> Result<CliCommand, CliError> {
     if has_help_flag(&args) {
         return Err(CliError::help(help));
     }
-    let mut args = args.into_iter();
+    let mut emit_opt_report = false;
+    let mut args = args
+        .into_iter()
+        .filter(|arg| {
+            if arg == "--emit-opt-report" {
+                emit_opt_report = true;
+                false
+            } else {
+                true
+            }
+        })
+        .collect::<Vec<_>>()
+        .into_iter();
     let Some(path) = args.next() else {
         return Err(CliError::new(
             format!("missing source file for `niac {command}`"),
             help,
         ));
     };
-    Ok(build(path, args.collect()))
+    Ok(build(path, args.collect(), emit_opt_report))
 }
 
 fn has_help_flag(args: &[String]) -> bool {
@@ -627,6 +692,7 @@ fn run_emit_obj(
     args: Vec<String>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    emit_opt_report: bool,
 ) -> ExitCode {
     let options = match parse_emit_obj_options(path, args) {
         Ok(options) => options,
@@ -639,6 +705,9 @@ fn run_emit_obj(
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
+    }
+    if emit_opt_report {
+        print_optimization_report_to_stderr(&program);
     }
     let output = nia_codegen_llvm::emit_native_objects(
         &program.backend_lowering.program,
@@ -685,6 +754,7 @@ fn run_emit_exe(
     args: Vec<String>,
     module_map: ModuleMap,
     optimization: NiaOptimizationLevel,
+    emit_opt_report: bool,
 ) -> ExitCode {
     let output_path = match parse_emit_exe_options(path, args) {
         Ok(path) => path,
@@ -697,6 +767,9 @@ fn run_emit_exe(
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
+    }
+    if emit_opt_report {
+        print_optimization_report_to_stderr(&program);
     }
     let output = nia_codegen_llvm::emit_native_objects(
         &program.backend_lowering.program,

@@ -220,9 +220,15 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::EmitObj => HelpDoc {
             title: "niac emit obj",
             about: "Run checking and write native object output.",
-            usage: &["niac emit obj <file.nia> [-o <file.o> | --out-dir <dir>] [options]"],
+            usage: &[
+                "niac emit obj <file.nia> [-o <file.o> | --out-dir <dir>] [--emit-opt-report] [options]",
+            ],
             commands: &[],
             options: &[
+                HelpRow {
+                    left: "--emit-opt-report",
+                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
+                },
                 HelpRow {
                     left: "-o <file.o>",
                     right: "write a single object file",
@@ -246,9 +252,11 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             examples: &[
                 "niac emit obj src/main.nia -o build/main.o",
+                "niac -Os emit obj src/main.nia -o build/main.o --emit-opt-report",
                 "niac emit obj src/main.nia --out-dir build/obj -M std=/usr/share/nia/std.nia",
             ],
             notes: &[
+                "The optimization report is written to stderr so object output remains file-only.",
                 "Use --out-dir when a program emits multiple codegen units.",
                 "-o is accepted only when one object file is produced.",
             ],
@@ -256,9 +264,13 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         HelpTopic::EmitExe => HelpDoc {
             title: "niac emit exe",
             about: "Write native objects to a temporary directory, then invoke the host C linker.",
-            usage: &["niac emit exe <file.nia> [-o <executable>] [options]"],
+            usage: &["niac emit exe <file.nia> [-o <executable>] [--emit-opt-report] [options]"],
             commands: &[],
             options: &[
+                HelpRow {
+                    left: "--emit-opt-report",
+                    right: "print backend optimization policy, enabled passes, change count, and changes to stderr",
+                },
                 HelpRow {
                     left: "-o <executable>",
                     right: "write executable to this path",
@@ -278,9 +290,13 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             examples: &[
                 "niac emit exe src/main.nia -o build/main",
+                "niac -Oz emit exe src/main.nia -o build/main --emit-opt-report",
                 "niac emit exe src/main.nia -M share=share/share.nia",
             ],
-            notes: &["The linker is selected with CC, or `cc` when CC is not set."],
+            notes: &[
+                "The optimization report is written to stderr so the executable path remains the only file output.",
+                "The linker is selected with CC, or `cc` when CC is not set.",
+            ],
         },
     }
 }
