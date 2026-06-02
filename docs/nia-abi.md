@@ -654,7 +654,10 @@ object-code details after Nia lowering, but they must not reinterpret Nia layout
 metadata, symbol identity, function ABI classification, static data meaning, or
 field offsets. `Os` and `Oz` still rely on the Nia optimization policy for
 size-aware monomorphization, inlining, specialization, and deduplication before
-LLVM sees the lowered program.
+LLVM sees the lowered program. The current native LLVM target-machine setup
+uses the mapped LLVM codegen optimization level; the reported size policy
+records the Nia/codegen size boundary and is not an ABI-visible target-machine
+setting.
 The optimization report is an observability tool, not an ABI contract. It may
 list enabled passes and changed backend IR contexts, but ABI compatibility is
 defined by the representation and calling-convention rules in this document.
