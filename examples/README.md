@@ -35,8 +35,9 @@ while still making emitted executables observable.
   strings, C strings, pointers.
 - `03_structs_unions_enums.nia`: aggregates, enum switches, switch pattern
   lists, switch ranges, typed struct literals, and temporary references.
-- `04_control_flow_defer.nia`: blocks, `if`, loops, `break`, `continue`,
-  `defer`.
+- `04_control_flow_defer.nia`: `if` expressions, block expressions, `for`
+  ranges, typed loop bindings, `while`, `loop`, `break`, `continue`, `return`,
+  `switch`, and `defer` cleanup order.
 - `05_functions_pointers_extern.nia`: function items, function pointers,
   `extern`.
 - `06_generics_methods.nia`: generic functions, generic structs, typed generic
