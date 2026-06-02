@@ -184,10 +184,13 @@ Current Nia-owned optimization consumers:
   already-discovered instances. Generic type instantiation interns the active
   substitution map once and keys recursive type-instantiation cache entries by
   that compact substitution id, avoiding repeated clone-and-sort work while
-  expanding nested generic types. Module-level DCE also builds per-pass indexes
+  expanding nested generic types. Extension trait-method resolution filters by
+  method name, trait id, and trait-argument arity before importing extension
+  trait arguments for structural matching, avoiding repeated temporary argument
+  lists for unrelated methods. Module-level DCE also builds per-pass indexes
   from function ids and instance refs to bodies, then walks transitive
-  reachability with queues instead of repeatedly scanning every lowered
-  function for each discovered reference.
+  reachability with queues instead of repeatedly scanning every lowered function
+  for each discovered reference.
 - `nia-codegen-llvm` maps the Nia level to LLVM's codegen optimization level.
   Size-oriented policy remains visible outside LLVM for future Nia-level
   decisions that affect code size before LLVM emission.
