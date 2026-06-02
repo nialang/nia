@@ -181,7 +181,6 @@ where
                 self.can_be_array_pointer_or_slice(self_ty, true)
                     && self.can_be_usize_range(range_ty)
             }
-            BuiltinTrait::Len => self.can_be_array_or_slice(self_ty),
             BuiltinTrait::GetPtrConst => self.can_be_slice(self_ty, false),
             BuiltinTrait::GetPtr => self.can_be_slice(self_ty, true),
         }
@@ -340,13 +339,6 @@ where
             }
             _ => false,
         }
-    }
-
-    fn can_be_array_or_slice(&self, ty: InternedTyId) -> bool {
-        matches!(
-            self.interner.get(self.normalize(ty)),
-            Some(TyKind::GenericParam(_)) | Some(TyKind::Array { .. } | TyKind::Slice { .. })
-        )
     }
 
     fn can_be_slice(&self, ty: InternedTyId, mutable: bool) -> bool {
@@ -531,9 +523,6 @@ where
                 };
                 self.is_usize_range(*range_ty)
                     && self.intrinsic_slice_output_ty(self_ty, true).is_some()
-            }
-            BuiltinTrait::Len => {
-                goal.trait_args.is_empty() && self.intrinsic_len_output_ty(self_ty).is_some()
             }
             BuiltinTrait::GetPtrConst => {
                 goal.trait_args.is_empty()
@@ -722,14 +711,6 @@ where
             })),
             _ => None,
         }
-    }
-
-    pub fn intrinsic_len_output_ty(&mut self, self_ty: InternedTyId) -> Option<InternedTyId> {
-        matches!(
-            self.kind(self_ty),
-            Some(TyKind::Array { .. } | TyKind::Slice { .. })
-        )
-        .then_some(self.usize())
     }
 
     pub fn intrinsic_get_ptr_target_ty(

@@ -271,8 +271,7 @@ impl Analyzer<'_> {
                     }
                 }
                 nia_ast::StmtKind::While(while_stmt) => {
-                    if let Some(value) =
-                        self.local_initializer_in_block(local_id, &while_stmt.body)
+                    if let Some(value) = self.local_initializer_in_block(local_id, &while_stmt.body)
                     {
                         return Some(value);
                     }

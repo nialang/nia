@@ -2,8 +2,8 @@
 use std::collections::HashSet;
 
 use nia_ast::{
-    Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Stmt, StmtKind,
-    SwitchArmBody, SwitchPattern,
+    Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Stmt, StmtKind, SwitchArmBody,
+    SwitchPattern,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_signatures::{FunctionSignature, ItemSignatures};

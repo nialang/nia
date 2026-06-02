@@ -349,6 +349,7 @@ impl<'a> FunctionIrValidator<'a> {
         match callee {
             FunctionCallee::Method { receiver, .. }
             | FunctionCallee::TraitMethod { receiver, .. }
+            | FunctionCallee::BuiltinMethod { receiver, .. }
             | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
             | FunctionCallee::DynamicTraitMethod { receiver, .. }
             | FunctionCallee::FunctionPointer(receiver) => self.validate_expr(receiver),

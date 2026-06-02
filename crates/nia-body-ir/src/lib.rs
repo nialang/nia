@@ -119,6 +119,10 @@ pub enum ResolvedCall {
         trait_id: BuiltinTrait,
         op: BuiltinOperatorOp,
     },
+    BuiltinMethod {
+        method: BuiltinMethod,
+        self_ty: InternedTyId,
+    },
     BuiltinPlaceMethod {
         trait_id: BuiltinTrait,
         method: BuiltinTraitMethod,
@@ -192,8 +196,23 @@ pub struct TypedForIn {
     pub local_id: LocalId,
     pub name: String,
     pub ty: InternedTyId,
-    pub iter: TypedExpr,
+    pub iter: TypedForIterator,
     pub body: TypedBody,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedForIterator {
+    Range(TypedRangeIterator),
+    Expr(TypedExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedRangeIterator {
+    pub span: Span,
+    pub ty: InternedTyId,
+    pub start: TypedExpr,
+    pub end: Option<TypedExpr>,
+    pub inclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -429,6 +448,11 @@ pub enum TypedCallee {
         return_type: InternedTyId,
         receiver: Box<TypedExpr>,
     },
+    BuiltinMethod {
+        method: BuiltinMethod,
+        self_ty: InternedTyId,
+        receiver: Box<TypedExpr>,
+    },
     BuiltinOperator(BuiltinOperator),
     BuiltinPlaceMethod(BuiltinPlaceMethod),
     FunctionPointer(Box<TypedExpr>),
@@ -438,6 +462,11 @@ pub enum TypedCallee {
 pub struct BuiltinOperator {
     pub trait_id: BuiltinTrait,
     pub op: BuiltinOperatorOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinMethod {
+    Len,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -532,7 +561,6 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::Index
             | BuiltinTraitMethod::SliceConst
             | BuiltinTraitMethod::Slice
-            | BuiltinTraitMethod::Len
             | BuiltinTraitMethod::GetPtrConst
             | BuiltinTraitMethod::GetPtr => None,
         }

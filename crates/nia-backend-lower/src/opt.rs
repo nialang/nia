@@ -986,6 +986,7 @@ fn rewrite_local_copies_in_callee(
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => {
             rewrite_local_copies_in_expr(receiver, copies)
         }
@@ -1271,6 +1272,7 @@ fn rewrite_local_constants_in_callee(
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => {
             rewrite_local_constants_in_expr(receiver, constants)
         }
@@ -1499,6 +1501,7 @@ fn simplify_constant_logical_exprs_in_callee(callee: &mut FunctionCallee) -> boo
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => simplify_constant_logical_expr(receiver),
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }
@@ -1692,6 +1695,7 @@ fn collect_place_locals_in_callee(callee: &FunctionCallee, locals: &mut HashSet<
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => {
             collect_place_locals_in_expr(receiver, locals)
         }
@@ -1887,6 +1891,7 @@ fn collect_read_locals_in_callee(callee: &FunctionCallee, locals: &mut HashSet<L
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => {
             collect_read_locals_in_expr(receiver, locals)
         }
@@ -2099,6 +2104,7 @@ fn collect_referenced_locals_in_callee(
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => {
             collect_referenced_locals_in_expr(receiver, refs);
         }
@@ -2323,6 +2329,7 @@ fn simplify_same_type_casts_in_callee(callee: &mut FunctionCallee) -> bool {
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => simplify_same_type_casts_in_expr(receiver),
         FunctionCallee::Function(_)
         | FunctionCallee::FunctionInstance { .. }

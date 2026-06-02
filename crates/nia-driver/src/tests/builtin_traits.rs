@@ -355,16 +355,11 @@ fn main(ptr: &i32, ro: &const [i32], rw: &[i32]) i32 {
 }
 
 #[test]
-fn builtin_len_and_get_ptr_traits_model_arrays_and_slices() {
-    let root = temp_dir("builtin_len_and_get_ptr_traits_model_arrays_and_slices");
+fn builtin_len_method_and_get_ptr_traits_model_arrays_and_slices() {
+    let root = temp_dir("builtin_len_method_and_get_ptr_traits_model_arrays_and_slices");
     write(
         &root.join("main.nia"),
         r##"
-fn len_of[T](value: T) usize
-where T: Len {
-    value.len()
-}
-
 fn ptr_const_value[S](slice: S) [S as GetPtrConst]::Target
 where S: GetPtrConst {
     var ptr = slice.get_ptr_const();
@@ -379,9 +374,9 @@ where S: GetPtr {
 
 fn main(slice_const: &const [usize], slice_mut: &[usize]) usize {
     var array: [4]i32 = [1, 2, 3, 4];
-    len_of(array)
-        + len_of(slice_const)
-        + len_of(slice_mut)
+    array.len()
+        + slice_const.len()
+        + slice_mut.len()
         + ptr_const_value(slice_const)
         + ptr_value(slice_mut)
 }
@@ -683,12 +678,6 @@ fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
     write(
         &root.join("main.nia"),
         r#"
-type Array4 = [4]i32;
-
-extend Array4 : Len {
-    fn len(&const self) usize { 4usize }
-}
-
 extend[T] &[T] : GetPtrConst {
     type Target = T;
 
@@ -720,7 +709,36 @@ fn main() i32 { 0 }
                 .contains("overlaps a compiler-proven implementation")
         })
         .count();
-    assert!(overlap_count >= 3, "{:?}", program.diagnostics);
+    assert!(overlap_count >= 2, "{:?}", program.diagnostics);
+}
+
+#[test]
+fn len_is_not_a_builtin_trait() {
+    let root = temp_dir("len_is_not_a_builtin_trait");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn len_of[T](value: T) usize
+where T: Len {
+    value.len()
+}
+
+fn main() usize {
+    var array = [1usize, 2usize, 3usize, 4usize];
+    len_of(array)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.diagnostic.message.contains("unknown type `Len`") }),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

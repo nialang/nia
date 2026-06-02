@@ -154,9 +154,7 @@ impl FunctionLowerer {
     ) {
         for stmt in &body.stmts {
             match &stmt.kind {
-                TypedStmtKind::ForIn(for_stmt) => {
-                    self.collect_body_locals(&for_stmt.body, locals)
-                }
+                TypedStmtKind::ForIn(for_stmt) => self.collect_body_locals(&for_stmt.body, locals),
                 TypedStmtKind::While(while_stmt) => {
                     self.collect_body_locals(&while_stmt.body, locals)
                 }
@@ -266,7 +264,7 @@ impl FunctionLowerer {
                 match &stmt.kind {
                     TypedStmtKind::ForIn(for_stmt) => {
                         *max_id = (*max_id).max(for_stmt.local_id.0.saturating_add(1));
-                        visit_expr(&for_stmt.iter, max_id);
+                        visit_for_iterator(&for_stmt.iter, max_id);
                         visit_body(&for_stmt.body, max_id);
                     }
                     TypedStmtKind::While(while_stmt) => {
@@ -384,9 +382,8 @@ impl FunctionLowerer {
                                     }
                                 }
                                 TypedStmtKind::ForIn(for_stmt) => {
-                                    *max_id =
-                                        (*max_id).max(for_stmt.local_id.0.saturating_add(1));
-                                    visit_expr(&for_stmt.iter, max_id);
+                                    *max_id = (*max_id).max(for_stmt.local_id.0.saturating_add(1));
+                                    visit_for_iterator(&for_stmt.iter, max_id);
                                     visit_body(&for_stmt.body, max_id);
                                 }
                                 TypedStmtKind::While(while_stmt) => {
@@ -428,11 +425,24 @@ impl FunctionLowerer {
             }
         }
 
+        pub(super) fn visit_for_iterator(iter: &TypedForIterator, max_id: &mut u32) {
+            match iter {
+                TypedForIterator::Range(range) => {
+                    visit_expr(&range.start, max_id);
+                    if let Some(end) = &range.end {
+                        visit_expr(end, max_id);
+                    }
+                }
+                TypedForIterator::Expr(expr) => visit_expr(expr, max_id),
+            }
+        }
+
         pub(super) fn visit_callee(callee: &TypedCallee, max_id: &mut u32) {
             match callee {
                 TypedCallee::Method { receiver, .. }
                 | TypedCallee::TraitMethod { receiver, .. }
                 | TypedCallee::DynamicTraitMethod { receiver, .. }
+                | TypedCallee::BuiltinMethod { receiver, .. }
                 | TypedCallee::BuiltinPlaceMethod(BuiltinPlaceMethod { receiver, .. })
                 | TypedCallee::FunctionPointer(receiver) => {
                     visit_expr(receiver, max_id);

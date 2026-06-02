@@ -3,12 +3,12 @@ use std::collections::HashMap;
 
 use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
-use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp, ResolvedCall};
+use nia_body_ir::{BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, ResolvedCall};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::FunctionSignature;
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, BuiltinTrait, TyKind};
+use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TyKind};
 
 pub(super) struct MethodCall<'a> {
     pub(super) span: Span,
@@ -71,16 +71,23 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
-        if candidates.is_empty()
-            && self
-                .trait_method_candidates_for_receiver(receiver_ty, name)
-                .is_empty()
-            && self
-                .dynamic_trait_method_candidates_for_receiver(receiver_ty, name)
-                .is_empty()
-            && BuiltinTraitMethod::from_name(name).is_none()
-        {
-            return None;
+        let trait_candidates = self.trait_method_candidates_for_receiver(receiver_ty, name);
+        let dynamic_candidates =
+            self.dynamic_trait_method_candidates_for_receiver(receiver_ty, name);
+        if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
+            if let Some(output) = self.check_builtin_method_call_with_receiver_ty(
+                span,
+                receiver,
+                receiver_ty,
+                name,
+                args,
+                expected,
+            ) {
+                return Some(output);
+            }
+            if BuiltinTraitMethod::from_name(name).is_none() {
+                return None;
+            }
         }
         if !candidates.is_empty() {
             self.single_method_candidate(span, name, candidates)?;
@@ -94,6 +101,50 @@ impl<'a> BodyChecker<'a> {
             args,
             expected,
         })
+    }
+
+    fn check_builtin_method_call_with_receiver_ty(
+        &mut self,
+        span: Span,
+        receiver: &Expr,
+        receiver_ty: InternedTyId,
+        name: &str,
+        args: &[Expr],
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let method = match name {
+            "len" => BuiltinMethod::Len,
+            _ => return None,
+        };
+        self.check_call_arg_count(span, args.len(), 0, false);
+        if !args.is_empty() {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        }
+        let output = match method {
+            BuiltinMethod::Len => {
+                match self.interner.get(self.normalization.normalize(receiver_ty)) {
+                    Some(TyKind::Array { .. }) | Some(TyKind::Slice { .. }) => {
+                        self.primitive(PrimitiveTy::Usize)
+                    }
+                    _ => return None,
+                }
+            }
+        };
+        self.check_receiver_match(receiver, receiver_ty, ReceiverKind::RefConst);
+        if let Some(expected) = expected {
+            self.expect_type(span, expected, output, "builtin method call");
+        }
+        self.record_resolved_call(
+            span,
+            ResolvedCall::BuiltinMethod {
+                method,
+                self_ty: receiver_ty,
+            },
+        );
+        Some(output)
     }
 
     pub(super) fn check_explicit_generic_field_method_call(

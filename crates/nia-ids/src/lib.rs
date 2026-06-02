@@ -79,7 +79,6 @@ pub enum BuiltinTrait {
     Index,
     SliceConst,
     Slice,
-    Len,
     GetPtrConst,
     GetPtr,
 }
@@ -134,7 +133,6 @@ pub enum BuiltinTraitMethod {
     Index,
     SliceConst,
     Slice,
-    Len,
     GetPtrConst,
     GetPtr,
 }
@@ -203,7 +201,6 @@ impl BuiltinTraitMethod {
             "index" => Some(Self::Index),
             "slice_const" => Some(Self::SliceConst),
             "slice" => Some(Self::Slice),
-            "len" => Some(Self::Len),
             "get_ptr_const" => Some(Self::GetPtrConst),
             "get_ptr" => Some(Self::GetPtr),
             _ => None,
@@ -237,7 +234,6 @@ impl BuiltinTraitMethod {
             Self::Index => "index",
             Self::SliceConst => "slice_const",
             Self::Slice => "slice",
-            Self::Len => "len",
             Self::GetPtrConst => "get_ptr_const",
             Self::GetPtr => "get_ptr",
         }
@@ -250,7 +246,6 @@ impl BuiltinTraitMethod {
             | Self::BitNot
             | Self::DerefConst
             | Self::Deref
-            | Self::Len
             | Self::GetPtrConst
             | Self::GetPtr => 1,
             Self::SliceConst | Self::Slice => 2,
@@ -260,11 +255,9 @@ impl BuiltinTraitMethod {
 
     pub fn receiver_kind(self) -> BuiltinReceiverKind {
         match self {
-            Self::DerefConst
-            | Self::IndexConst
-            | Self::SliceConst
-            | Self::Len
-            | Self::GetPtrConst => BuiltinReceiverKind::RefConst,
+            Self::DerefConst | Self::IndexConst | Self::SliceConst | Self::GetPtrConst => {
+                BuiltinReceiverKind::RefConst
+            }
             Self::Slice | Self::GetPtr => BuiltinReceiverKind::Ref,
             _ => BuiltinReceiverKind::Value,
         }
@@ -301,7 +294,6 @@ impl BuiltinTraitMethod {
             Self::Index => BuiltinTrait::Index,
             Self::SliceConst => BuiltinTrait::SliceConst,
             Self::Slice => BuiltinTrait::Slice,
-            Self::Len => BuiltinTrait::Len,
             Self::GetPtrConst => BuiltinTrait::GetPtrConst,
             Self::GetPtr => BuiltinTrait::GetPtr,
         }
@@ -335,7 +327,7 @@ impl BuiltinTraitMethod {
     pub fn is_place_method(self) -> bool {
         matches!(
             self,
-            Self::Len | Self::SliceConst | Self::Slice | Self::GetPtrConst | Self::GetPtr
+            Self::SliceConst | Self::Slice | Self::GetPtrConst | Self::GetPtr
         )
     }
 }
@@ -371,7 +363,6 @@ impl BuiltinTrait {
     const INDEX_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Index];
     const SLICE_CONST_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceConst];
     const SLICE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Slice];
-    const LEN_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Len];
     const GET_PTR_CONST_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtrConst];
     const GET_PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtr];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
@@ -395,7 +386,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 24] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -418,7 +409,6 @@ impl BuiltinTrait {
         Self::Index,
         Self::SliceConst,
         Self::Slice,
-        Self::Len,
         Self::GetPtrConst,
         Self::GetPtr,
     ];
@@ -447,7 +437,6 @@ impl BuiltinTrait {
             "Index" => Some(Self::Index),
             "SliceConst" => Some(Self::SliceConst),
             "Slice" => Some(Self::Slice),
-            "Len" => Some(Self::Len),
             "GetPtrConst" => Some(Self::GetPtrConst),
             "GetPtr" => Some(Self::GetPtr),
             _ => None,
@@ -478,7 +467,6 @@ impl BuiltinTrait {
             Self::Index => "Index",
             Self::SliceConst => "SliceConst",
             Self::Slice => "Slice",
-            Self::Len => "Len",
             Self::GetPtrConst => "GetPtrConst",
             Self::GetPtr => "GetPtr",
         }
@@ -508,7 +496,6 @@ impl BuiltinTrait {
             | Self::Sized
             | Self::DerefConst
             | Self::Deref
-            | Self::Len
             | Self::GetPtrConst
             | Self::GetPtr => 0,
         }
@@ -541,7 +528,7 @@ impl BuiltinTrait {
             Self::DerefConst | Self::Deref | Self::GetPtrConst | Self::GetPtr => {
                 &Self::TARGET_ASSOC_TYPES
             }
-            Self::Not | Self::Eq | Self::Ord | Self::Sized | Self::Len => &Self::NO_ASSOC_TYPES,
+            Self::Not | Self::Eq | Self::Ord | Self::Sized => &Self::NO_ASSOC_TYPES,
         }
     }
 
@@ -569,7 +556,6 @@ impl BuiltinTrait {
             Self::Index => &Self::INDEX_METHODS,
             Self::SliceConst => &Self::SLICE_CONST_METHODS,
             Self::Slice => &Self::SLICE_METHODS,
-            Self::Len => &Self::LEN_METHODS,
             Self::GetPtrConst => &Self::GET_PTR_CONST_METHODS,
             Self::GetPtr => &Self::GET_PTR_METHODS,
         }

@@ -428,6 +428,7 @@ fn collect_function_refs_from_callee(callee: &FunctionCallee, refs: &mut Functio
         }
         FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => {
             collect_function_refs_from_expr(receiver, refs);
         }

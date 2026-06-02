@@ -7,9 +7,9 @@ use nia_ast::{
 use nia_body_ir::{
     BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinOperatorOp, BuiltinPlaceMethod,
     BuiltinValue, PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements, TypedBinding, TypedBody,
-    TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedLocal,
-    TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
-    TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
+    TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedForIterator,
+    TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
+    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -125,7 +125,7 @@ impl<'a> BodyChecker<'a> {
                         .get(&local_id)
                         .copied()
                         .unwrap_or_else(|| self.error()),
-                    iter: self.lower_expr(&for_stmt.iter),
+                    iter: self.lower_for_iterator(&for_stmt.iter),
                     body: self.lower_body(&for_stmt.body),
                 }))
             }
@@ -141,6 +141,28 @@ impl<'a> BodyChecker<'a> {
             span: stmt.span,
             kind,
         }
+    }
+
+    fn lower_for_iterator(&mut self, iter: &Expr) -> TypedForIterator {
+        if let ExprKind::Range(range) = &iter.kind {
+            let ty = self
+                .expr_types
+                .get(&iter.span)
+                .copied()
+                .unwrap_or_else(|| self.error());
+            if let Some(start) = &range.start
+                && (range.end.is_some() || !range.inclusive)
+            {
+                return TypedForIterator::Range(nia_body_ir::TypedRangeIterator {
+                    span: iter.span,
+                    ty,
+                    start: self.lower_expr(start),
+                    end: range.end.as_ref().map(|end| self.lower_expr(end)),
+                    inclusive: range.inclusive,
+                });
+            }
+        }
+        TypedForIterator::Expr(self.lower_expr(iter))
     }
 
     fn lower_binding_stmt(&mut self, span: Span, binding: &BindingStmt) -> Option<TypedBinding> {
@@ -552,6 +574,20 @@ impl<'a> BodyChecker<'a> {
                                 &receiver, self_ty, method,
                             )),
                         }),
+                        args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
+                    }
+                } else if let Some(ResolvedCall::BuiltinMethod { method, self_ty }) =
+                    self.resolved_calls.get(&expr.span).cloned()
+                {
+                    let receiver = self
+                        .lower_receiver_expr(callee)
+                        .unwrap_or_else(|| self.lower_expr(callee));
+                    TypedExprKind::Call {
+                        callee: TypedCallee::BuiltinMethod {
+                            method,
+                            self_ty,
+                            receiver: Box::new(receiver),
+                        },
                         args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
                     }
                 } else if let Some(ResolvedCall::BuiltinTraitMethod { trait_id, op }) =
@@ -1009,6 +1045,16 @@ impl<'a> BodyChecker<'a> {
             },
             ResolvedCall::BuiltinTraitMethod { trait_id, op } => {
                 TypedCallee::BuiltinOperator(BuiltinOperator { trait_id, op })
+            }
+            ResolvedCall::BuiltinMethod { method, self_ty } => {
+                let receiver = self
+                    .lower_receiver_expr(callee)
+                    .unwrap_or_else(|| self.lower_expr(callee));
+                TypedCallee::BuiltinMethod {
+                    method,
+                    self_ty,
+                    receiver: Box::new(receiver),
+                }
             }
             ResolvedCall::BuiltinPlaceMethod {
                 trait_id,

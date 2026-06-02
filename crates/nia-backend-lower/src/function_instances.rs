@@ -393,7 +393,8 @@ impl<'a> ModuleLowerer<'a> {
                 instance_args.extend(args.iter().copied());
                 self.enqueue_function_instance(*method_id, &instance_args, seen, queue);
             }
-            FunctionCallee::BuiltinPlaceMethod { receiver, .. } => {
+            FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+            | FunctionCallee::BuiltinMethod { receiver, .. } => {
                 self.enqueue_function_instances_from_expr(receiver, seen, queue);
             }
             FunctionCallee::DynamicTraitMethod { receiver, .. } => {

@@ -59,6 +59,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         callee: &FunctionCallee,
         args: &[FunctionExpr],
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        if let FunctionCallee::BuiltinMethod {
+            method,
+            self_ty,
+            receiver,
+        } = callee
+        {
+            return match method {
+                nia_function_ir::FunctionBuiltinMethod::Len => {
+                    self.emit_builtin_len_method(expr.span, *self_ty, receiver)
+                }
+            };
+        }
         if let FunctionCallee::BuiltinPlaceMethod {
             trait_id,
             self_ty,
@@ -67,7 +79,6 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         } = callee
         {
             return match trait_id {
-                BuiltinTrait::Len => self.emit_builtin_len_method(expr.span, *self_ty, receiver),
                 BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr => {
                     self.emit_builtin_get_ptr_method(expr.span, *self_ty, receiver)
                 }
@@ -143,7 +154,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.extract_slice_len(span, slice.into_struct_value()?)
                     .map(Into::into)
             }
-            _ => Err(self.error(span, "`Len.len` requires an array or slice")),
+            _ => Err(self.error(span, "`len` requires an array or slice")),
         }
     }
 
@@ -309,6 +320,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 expr.span,
                 "unresolved builtin place method call reached LLVM codegen",
             )),
+            FunctionCallee::BuiltinMethod { .. } => {
+                Err(self.error(expr.span, "builtin method cannot be emitted as a raw call"))
+            }
             FunctionCallee::BuiltinOperator(_) => Err(self.error(
                 expr.span,
                 "builtin operator cannot be emitted as a raw call",

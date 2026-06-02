@@ -413,6 +413,12 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_struct_instances_expr(receiver, seen, out);
             }
+            FunctionCallee::BuiltinMethod {
+                self_ty, receiver, ..
+            } => {
+                self.collect_struct_instance_ty(*self_ty, seen, out);
+                self.collect_struct_instances_expr(receiver, seen, out);
+            }
             FunctionCallee::DynamicTraitMethod {
                 object_ty,
                 trait_args,
@@ -804,6 +810,12 @@ impl<'a> ModuleLowerer<'a> {
                 for arg in trait_args {
                     self.collect_union_instance_ty(*arg, seen, out);
                 }
+                self.collect_union_instances_expr(receiver, seen, out);
+            }
+            FunctionCallee::BuiltinMethod {
+                self_ty, receiver, ..
+            } => {
+                self.collect_union_instance_ty(*self_ty, seen, out);
                 self.collect_union_instances_expr(receiver, seen, out);
             }
             FunctionCallee::DynamicTraitMethod {

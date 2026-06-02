@@ -476,6 +476,7 @@ fn propagate_cross_function_constants_in_callee(
         | FunctionCallee::TraitMethod { receiver, .. }
         | FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
+        | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => propagate_cross_function_constants_in_expr(
             receiver,
             function_constants,
@@ -552,6 +553,7 @@ fn cross_function_constant_for_callee<'a>(
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::DynamicTraitMethod { .. }
         | FunctionCallee::BuiltinPlaceMethod { .. }
+        | FunctionCallee::BuiltinMethod { .. }
         | FunctionCallee::BuiltinOperator(_)
         | FunctionCallee::FunctionPointer(_) => None,
     }

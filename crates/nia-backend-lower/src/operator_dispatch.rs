@@ -384,6 +384,15 @@ impl<'a> ModuleLowerer<'a> {
                 args,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
+            FunctionCallee::BuiltinMethod {
+                method,
+                self_ty,
+                receiver,
+            } => FunctionCallee::BuiltinMethod {
+                method,
+                self_ty,
+                receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
+            },
             FunctionCallee::BuiltinPlaceMethod {
                 trait_id,
                 method,
