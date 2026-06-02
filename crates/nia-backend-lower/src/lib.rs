@@ -165,6 +165,7 @@ pub(crate) struct ModuleLowerer<'a> {
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
     extension_ty_generics: HashMap<InternedTyId, Vec<String>>,
+    generic_param_presence: HashMap<InternedTyId, bool>,
     def_names: HashMap<GlobalDefId, String>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
 }
@@ -217,6 +218,7 @@ impl<'a> ModuleLowerer<'a> {
             type_substitution_ids: HashMap::new(),
             effective_generics: HashMap::new(),
             extension_ty_generics: HashMap::new(),
+            generic_param_presence: HashMap::new(),
             def_names: HashMap::new(),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
         }
