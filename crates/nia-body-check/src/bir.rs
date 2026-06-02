@@ -8,14 +8,15 @@ use nia_body_ir::{
     BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinOperatorOp, BuiltinPlaceMethod,
     BuiltinValue, PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements, TypedBinding, TypedBody,
     TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedForIterator,
-    TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
-    TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
+    TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedRangeIteratorKind,
+    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
+    TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
 use nia_span::Span;
 use nia_trait_solve::TraitResolution;
-use nia_ty::{BuiltinTrait, TyKind};
+use nia_ty::{BuiltinTrait, RangeTyKind, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::{
@@ -144,23 +145,32 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_for_iterator(&mut self, iter: &Expr) -> TypedForIterator {
-        if let ExprKind::Range(range) = &iter.kind {
-            let ty = self
-                .expr_types
-                .get(&iter.span)
-                .copied()
-                .unwrap_or_else(|| self.error());
-            if let Some(start) = &range.start
-                && (range.end.is_some() || !range.inclusive)
-            {
-                return TypedForIterator::Range(nia_body_ir::TypedRangeIterator {
-                    span: iter.span,
-                    ty,
-                    start: self.lower_expr(start),
-                    end: range.end.as_ref().map(|end| self.lower_expr(end)),
-                    inclusive: range.inclusive,
-                });
-            }
+        let ty = self
+            .expr_types
+            .get(&iter.span)
+            .copied()
+            .unwrap_or_else(|| self.error());
+        if let Some(TyKind::Range { kind, .. }) =
+            self.interner.get(self.normalization.normalize(ty)).cloned()
+            && matches!(
+                kind,
+                RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From
+            )
+        {
+            let iterator_kind = match kind {
+                RangeTyKind::Exclusive => TypedRangeIteratorKind::Exclusive,
+                RangeTyKind::Inclusive => TypedRangeIteratorKind::Inclusive,
+                RangeTyKind::From => TypedRangeIteratorKind::From,
+                _ => unreachable!("range iterator kind checked above"),
+            };
+            return TypedForIterator::Range(nia_body_ir::TypedRangeIterator {
+                span: iter.span,
+                ty,
+                expr: self.lower_expr(iter),
+                kind: iterator_kind,
+                has_end: kind != RangeTyKind::From,
+                inclusive: kind == RangeTyKind::Inclusive,
+            });
         }
         TypedForIterator::Expr(self.lower_expr(iter))
     }

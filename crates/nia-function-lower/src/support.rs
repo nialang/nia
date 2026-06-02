@@ -428,10 +428,7 @@ impl FunctionLowerer {
         pub(super) fn visit_for_iterator(iter: &TypedForIterator, max_id: &mut u32) {
             match iter {
                 TypedForIterator::Range(range) => {
-                    visit_expr(&range.start, max_id);
-                    if let Some(end) = &range.end {
-                        visit_expr(end, max_id);
-                    }
+                    visit_expr(&range.expr, max_id);
                 }
                 TypedForIterator::Expr(expr) => visit_expr(expr, max_id),
             }

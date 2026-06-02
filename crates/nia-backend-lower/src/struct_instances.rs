@@ -287,7 +287,8 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Unary { expr, .. }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
-            | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+            | FunctionExprKind::TraitObjectCoercion { expr, .. }
+            | FunctionExprKind::RangeBound { range: expr, .. } => {
                 self.collect_struct_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {
@@ -686,7 +687,8 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Unary { expr, .. }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
-            | FunctionExprKind::TraitObjectCoercion { expr, .. } => {
+            | FunctionExprKind::TraitObjectCoercion { expr, .. }
+            | FunctionExprKind::RangeBound { range: expr, .. } => {
                 self.collect_union_instances_expr(expr, seen, out);
             }
             FunctionExprKind::AddrOf(place) => {

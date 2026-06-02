@@ -396,7 +396,26 @@ impl FunctionLowerer {
             return;
         };
 
-        let start = self.lower_value_expr(&range.start, scope, current, ops, blocks);
+        let range_value = self.lower_value_expr(&range.expr, scope, current, ops, blocks);
+        let range_local = self.alloc_temp_local(range.span, range.ty);
+        ops.push(FunctionOp::Binding(FunctionBinding {
+            local_id: range_local,
+            name: "__for_range".to_string(),
+            ty: range.ty,
+            value: Some(range_value),
+            is_const: true,
+        }));
+        let range_expr = FunctionExpr {
+            span: range.span,
+            ty: range.ty,
+            kind: FunctionExprKind::Local(range_local),
+        };
+        let start = self.range_bound_expr(
+            range.span,
+            for_stmt.ty,
+            range_expr.clone(),
+            FunctionRangeBound::Start,
+        );
         ops.push(FunctionOp::Binding(FunctionBinding {
             local_id: for_stmt.local_id,
             name: for_stmt.name.clone(),
@@ -418,30 +437,29 @@ impl FunctionLowerer {
             },
         );
 
-        let mut header_ops = Vec::new();
-        let mut header_current = loop_header;
+        let header_ops = Vec::new();
+        let header_current = loop_header;
         let local = FunctionExpr {
             span,
             ty: for_stmt.ty,
             kind: FunctionExprKind::Local(for_stmt.local_id),
         };
-        let header = match &range.end {
-            Some(end) => {
-                let end =
-                    self.lower_value_expr(end, scope, &mut header_current, &mut header_ops, blocks);
-                FunctionForHeader::Condition(self.builtin_binary_expr(
-                    span,
-                    if range.inclusive {
-                        BinaryOp::Le
-                    } else {
-                        BinaryOp::Lt
-                    },
-                    local,
-                    end,
-                    self.bool_ty(for_stmt.ty),
-                ))
-            }
-            None => FunctionForHeader::Infinite,
+        let header = if !range.has_end {
+            FunctionForHeader::Infinite
+        } else {
+            let end =
+                self.range_bound_expr(range.span, for_stmt.ty, range_expr, FunctionRangeBound::End);
+            FunctionForHeader::Condition(self.builtin_binary_expr(
+                span,
+                if range.inclusive {
+                    BinaryOp::Le
+                } else {
+                    BinaryOp::Lt
+                },
+                local,
+                end,
+                self.bool_ty(for_stmt.ty),
+            ))
         };
         let body_entry = self.alloc_block();
         let continue_target = self.alloc_block();
@@ -502,6 +520,23 @@ impl FunctionLowerer {
             },
         );
         *current = break_target;
+    }
+
+    fn range_bound_expr(
+        &self,
+        span: Span,
+        ty: nia_ids::InternedTyId,
+        range: FunctionExpr,
+        bound: FunctionRangeBound,
+    ) -> FunctionExpr {
+        FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::RangeBound {
+                range: Box::new(range),
+                bound,
+            },
+        }
     }
 
     pub(super) fn lower_while_stmt(

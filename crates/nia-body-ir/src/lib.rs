@@ -210,9 +210,17 @@ pub enum TypedForIterator {
 pub struct TypedRangeIterator {
     pub span: Span,
     pub ty: InternedTyId,
-    pub start: TypedExpr,
-    pub end: Option<TypedExpr>,
+    pub expr: TypedExpr,
+    pub kind: TypedRangeIteratorKind,
+    pub has_end: bool,
     pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedRangeIteratorKind {
+    Exclusive,
+    Inclusive,
+    From,
 }
 
 #[derive(Debug, Clone, PartialEq)]

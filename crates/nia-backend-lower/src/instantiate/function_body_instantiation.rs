@@ -184,6 +184,10 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Range(range) => {
                     FunctionExprKind::Range(self.instantiate_range(range, substitutions))
                 }
+                FunctionExprKind::RangeBound { range, bound } => FunctionExprKind::RangeBound {
+                    range: Box::new(self.instantiate_expr(*range, substitutions)),
+                    bound,
+                },
                 FunctionExprKind::InlineAsm(asm) => {
                     FunctionExprKind::InlineAsm(FunctionInlineAsm {
                         code: asm.code,

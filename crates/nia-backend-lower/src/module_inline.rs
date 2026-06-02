@@ -292,6 +292,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.inline_leaf_calls_in_inline_asm(asm, function_candidates, instance_candidates);
             }
             FunctionExprKind::CStringPointer { array, .. }
+            | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
@@ -743,7 +744,8 @@ fn substitute_inline_locals(
         }
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Discard(expr)
-        | FunctionExprKind::Cast { expr, .. } => {
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::RangeBound { range: expr, .. } => {
             substitute_inline_locals(expr, substitutions, require_local_match)?;
         }
         FunctionExprKind::Binary { lhs, rhs, .. } => {
@@ -867,7 +869,8 @@ fn small_pure_inline_expr_cost_with_local(
         }
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Discard(expr)
-        | FunctionExprKind::Cast { expr, .. } => {
+        | FunctionExprKind::Cast { expr, .. }
+        | FunctionExprKind::RangeBound { range: expr, .. } => {
             1 + small_pure_inline_expr_cost_with_local(expr, budget, local_allowed)?
         }
         FunctionExprKind::Binary { lhs, rhs, .. } => {

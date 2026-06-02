@@ -280,6 +280,7 @@ impl<'a> FunctionIrValidator<'a> {
                     self.validate_expr(end)?;
                 }
             }
+            FunctionExprKind::RangeBound { range, .. } => self.validate_expr(range)?,
             FunctionExprKind::AddrOf(place) => self.validate_place(place)?,
             FunctionExprKind::ArrayLiteral { elems } => match elems {
                 FunctionArrayElements::List(elems) => {

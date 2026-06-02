@@ -188,7 +188,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_for_in_range_values_until_iterator_methods_exist() {
+fn accepts_for_in_range_values() {
     let checked = pipeline(
         r#"
 fn main() i32 {
@@ -200,13 +200,7 @@ fn main() i32 {
 }
 "#,
     );
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("for-in range iterator requires a range literal")),
-        "{:?}",
-        checked.diagnostics
-    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]

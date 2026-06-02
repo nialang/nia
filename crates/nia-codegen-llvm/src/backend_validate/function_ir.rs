@@ -123,6 +123,7 @@ impl BackendValidator<'_> {
                     self.validate_expr(end);
                 }
             }
+            FunctionExprKind::RangeBound { range, .. } => self.validate_expr(range),
             FunctionExprKind::InlineAsm(asm) => {
                 for input in &asm.inputs {
                     self.validate_expr(&input.value);

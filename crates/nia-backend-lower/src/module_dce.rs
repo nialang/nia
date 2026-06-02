@@ -328,6 +328,7 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs)
         }
         FunctionExprKind::InlineAsm(asm) => collect_function_refs_from_inline_asm(asm, refs),
         FunctionExprKind::CStringPointer { array, .. }
+        | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. }

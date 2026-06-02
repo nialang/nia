@@ -133,6 +133,7 @@ impl<'a> ModuleLowerer<'a> {
                 changed |= self.devirtualize_direct_trait_calls_in_inline_asm(asm);
             }
             FunctionExprKind::CStringPointer { array, .. }
+            | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }

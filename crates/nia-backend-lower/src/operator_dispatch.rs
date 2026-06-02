@@ -205,6 +205,10 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Range(range) => {
                     FunctionExprKind::Range(self.resolve_builtin_operator_calls_in_range(range))
                 }
+                FunctionExprKind::RangeBound { range, bound } => FunctionExprKind::RangeBound {
+                    range: Box::new(self.resolve_builtin_operator_calls_in_expr(*range)),
+                    bound,
+                },
                 FunctionExprKind::InlineAsm(asm) => {
                     FunctionExprKind::InlineAsm(FunctionInlineAsm {
                         code: asm.code,

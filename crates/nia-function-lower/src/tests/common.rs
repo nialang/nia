@@ -2,8 +2,8 @@
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
     TypedBody, TypedExpr, TypedExprKind, TypedForIn, TypedForIterator, TypedLocal, TypedLocalKind,
-    TypedLoop, TypedRangeIterator, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
-    TypedSwitchPattern,
+    TypedLoop, TypedRangeIterator, TypedRangeIteratorKind, TypedStmt, TypedStmtKind, TypedSwitch,
+    TypedSwitchArmBody, TypedSwitchPattern,
 };
 pub(super) use nia_function_ir::*;
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
@@ -72,8 +72,17 @@ pub(super) fn for_range_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt {
             iter: TypedForIterator::Range(TypedRangeIterator {
                 span,
                 ty,
-                start: int_expr(0),
-                end: Some(int_expr(3)),
+                expr: TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Range(TypedRange {
+                        start: Some(Box::new(int_expr(0))),
+                        end: Some(Box::new(int_expr(3))),
+                        inclusive: false,
+                    }),
+                },
+                kind: TypedRangeIteratorKind::Exclusive,
+                has_end: true,
                 inclusive: false,
             }),
             body,

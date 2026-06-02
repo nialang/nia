@@ -808,14 +808,7 @@ impl<'a> BodyChecker<'a> {
                     | nia_ty::RangeTyKind::Inclusive
                     | nia_ty::RangeTyKind::From,
                 bound: Some(bound),
-            }) if matches!(iter.kind, ExprKind::Range(_)) => bound,
-            Some(TyKind::Range { .. }) if !matches!(iter.kind, ExprKind::Range(_)) => {
-                self.diagnostics.push(Diagnostic::error(
-                    iter.span,
-                    "for-in range iterator requires a range literal",
-                ));
-                self.error()
-            }
+            }) => bound,
             Some(TyKind::Range { bound: Some(_), .. }) => {
                 self.diagnostics.push(Diagnostic::error(
                     iter.span,

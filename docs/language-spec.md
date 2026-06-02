@@ -1144,7 +1144,8 @@ for i in 0..10 {
 
 `for name in expr` requires `expr` to be an iterator expression. The loop does
 not implicitly call `.iter()` or `.iter_const()` and does not infer mutable
-iteration from the source expression. Ranges are iterable directly. Collection
+iteration from the source expression. Ranges with a start bound are iterable
+directly, whether written inline or stored in a range-typed value. Collection
 iteration should be written explicitly through iterator-producing methods such
 as `xs.iter()` or `xs.iter_const()` once those methods are provided.
 
