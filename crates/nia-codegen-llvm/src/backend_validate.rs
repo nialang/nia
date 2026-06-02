@@ -26,6 +26,7 @@ pub(super) fn validate_backend_program(
         diagnostics: Vec::new(),
         seen_types: HashSet::new(),
         layout_cache: RefCell::new(HashMap::new()),
+        same_type_cache: RefCell::new(HashMap::new()),
         local_tys: Vec::new(),
     };
     for module in &program.modules {
@@ -39,6 +40,7 @@ pub(super) struct BackendValidator<'a> {
     diagnostics: Vec<Diagnostic>,
     seen_types: HashSet<InternedTyId>,
     layout_cache: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
+    same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
     local_tys: Vec<HashMap<LocalId, InternedTyId>>,
 }
 
