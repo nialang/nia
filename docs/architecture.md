@@ -211,7 +211,9 @@ Current Nia-owned optimization consumers:
   do not need to construct temporary backend function bodies or clone instance
   bodies. Function-instance body emission also uses a borrowed codegen signature
   view, avoiding temporary `BackendFunction` construction and cloned params or
-  function bodies for every monomorphized instance.
+  function bodies for every monomorphized instance. ABI parameter
+  classification accepts type iterators directly, so parameter storage and call
+  lowering do not need temporary vectors just to classify argument passing.
 - `nia-codegen-llvm` performs local ABI-lowering cleanup while preserving the
   backend IR contract. Aggregate literals stored into locals, returned through
   Nia hidden out pointers, or passed as Nia indirect readonly arguments are

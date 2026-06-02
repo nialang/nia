@@ -179,7 +179,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             )?);
         }
         llvm_params.push(self.context.ptr_type(Default::default()).into());
-        for param in self.classify_function_params(params) {
+        for param in self.classify_function_params(params.iter().copied()) {
             match param {
                 AbiParam::Direct(ty) => {
                     llvm_params.push(self.llvm_basic_type(ty, span)?);
@@ -205,12 +205,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    pub(crate) fn classify_function_params(&self, params: &[InternedTyId]) -> Vec<AbiParam> {
-        self.classify_params_in(
-            params.iter().copied(),
-            self.interner(),
-            &self.source.layouts,
-        )
+    pub(crate) fn classify_function_params(
+        &self,
+        params: impl IntoIterator<Item = InternedTyId>,
+    ) -> Vec<AbiParam> {
+        self.classify_params_in(params, self.interner(), &self.source.layouts)
     }
 
     pub(crate) fn classify_function_return(&self, ty: InternedTyId) -> AbiReturn {
