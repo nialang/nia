@@ -749,6 +749,28 @@ fn main() i32 {
         .arg("emit")
         .arg("obj")
         .arg(&main)
+        .arg("-o")
+        .arg("--emit-opt-report")
+        .output()
+        .expect("run niac emit obj -o --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(!stderr.contains("backend optimization report:"), "{stderr}");
+    let metadata = std::fs::metadata(root.join("--emit-opt-report")).expect("object metadata");
+    assert!(metadata.len() > 0);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .current_dir(&root)
+        .arg("emit")
+        .arg("obj")
+        .arg(&main)
         .arg("--out-dir")
         .arg("-Oobjects")
         .output()
@@ -926,6 +948,33 @@ fn main() i32 {
     );
 
     let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(9));
+
+    let report_name = format!("--emit-opt-report{}", std::env::consts::EXE_SUFFIX);
+    let report_path = root.join(&report_name);
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .current_dir(&root)
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&report_name)
+        .output()
+        .expect("run niac emit exe -o --emit-opt-report");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stdout.contains("backend optimization report:"), "{stdout}");
+    assert!(!stderr.contains("backend optimization report:"), "{stderr}");
+
+    let status = Command::new(&report_path)
+        .status()
+        .expect("run emitted executable named --emit-opt-report");
     assert_eq!(status.code(), Some(9));
 }
 

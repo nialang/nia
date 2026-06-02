@@ -574,25 +574,39 @@ fn parse_emit_with_options(
         return Err(CliError::help(help));
     }
     let mut emit_opt_report = false;
-    let mut args = args
-        .into_iter()
-        .filter(|arg| {
+    let mut path = None;
+    let mut target_args = Vec::new();
+    let mut preserve_next = false;
+    for arg in args {
+        if path.is_none() {
             if arg == "--emit-opt-report" {
                 emit_opt_report = true;
-                false
-            } else {
-                true
+                continue;
             }
-        })
-        .collect::<Vec<_>>()
-        .into_iter();
-    let Some(path) = args.next() else {
+            path = Some(arg);
+            continue;
+        }
+        if preserve_next {
+            preserve_next = false;
+            target_args.push(arg);
+            continue;
+        }
+        if arg == "--emit-opt-report" {
+            emit_opt_report = true;
+            continue;
+        }
+        if native_emit_option_takes_path(&arg) {
+            preserve_next = true;
+        }
+        target_args.push(arg);
+    }
+    let Some(path) = path else {
         return Err(CliError::new(
             format!("missing source file for `niac {command}`"),
             help,
         ));
     };
-    Ok(build(path, args.collect(), emit_opt_report))
+    Ok(build(path, target_args, emit_opt_report))
 }
 
 fn has_help_flag(args: &[String]) -> bool {
