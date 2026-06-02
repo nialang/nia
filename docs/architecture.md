@@ -199,10 +199,13 @@ Current Nia-owned optimization consumers:
   variants are indexed with their owning enum and ordinal for emission, trait
   object vtables are indexed both by exact object type and by object trait for
   bounded cross-interner fallback, and type-layout lookup is served directly
-  from the index. Structural type-argument matching is retained as a fallback
-  for cross-interner cases. Function-instance declarations derive their LLVM
-  function type directly from the signature helper, so declarations do not need
-  to construct temporary backend function bodies or clone instance bodies.
+  from the index. Module codegen also memoizes trait-object vtable global
+  lookup results after the exact key fast path, so repeated coercions avoid
+  rescanning declared vtables. Structural type-argument matching is retained as
+  a fallback for cross-interner cases. Function-instance declarations derive
+  their LLVM function type directly from the signature helper, so declarations
+  do not need to construct temporary backend function bodies or clone instance
+  bodies.
 - `nia-codegen-llvm` performs local ABI-lowering cleanup while preserving the
   backend IR contract. Aggregate literals stored into locals, returned through
   Nia hidden out pointers, or passed as Nia indirect readonly arguments are
