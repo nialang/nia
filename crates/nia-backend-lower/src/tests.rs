@@ -1230,6 +1230,7 @@ fn main() i32 {
     let lowering = lower_source_with_body_check_mutation_and_optimization(
         source,
         |_| {},
+        |_, _, _, _| {},
         |_, _| {},
         |body_check, _, defs, _| {
             let values = global_def_id_by_name(defs, "values");
@@ -2007,6 +2008,173 @@ fn main() [5]i32 {
                 change,
                 BackendOptimizationChange::Function {
                     pass: "inline-leaf-functions",
+                    is_instance: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o3_devirtualizes_direct_trait_object_calls() {
+    let source = r#"
+trait Source {
+    fn add(&const self, rhs: i32) i32;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    fn add(&const self, rhs: i32) i32 {
+        rhs
+    }
+}
+
+fn main() i32 {
+    0
+}
+"#;
+    let counter = std::cell::Cell::new(None);
+    let source_trait = std::cell::Cell::new(None);
+    let add_method = std::cell::Cell::new(None);
+    let counter_ty = std::cell::Cell::new(None);
+    let source_object_ty = std::cell::Cell::new(None);
+    let i32_ty = std::cell::Cell::new(None);
+    let build_dynamic_call = |body: &mut nia_function_ir::FunctionBody| {
+        let Some(counter) = counter.get() else {
+            return;
+        };
+        let Some(source_trait) = source_trait.get() else {
+            return;
+        };
+        let Some(add_method) = add_method.get() else {
+            return;
+        };
+        let Some(counter_ty) = counter_ty.get() else {
+            return;
+        };
+        let Some(source_object_ty) = source_object_ty.get() else {
+            return;
+        };
+        let Some(i32_ty) = i32_ty.get() else {
+            return;
+        };
+        let value = first_terminal_value_mut(body);
+        let span = value.span;
+        value.kind = FunctionExprKind::Call {
+            callee: nia_function_ir::FunctionCallee::DynamicTraitMethod {
+                object_ty: source_object_ty,
+                trait_id: nia_ids::TraitId::Source(source_trait),
+                method_id: add_method,
+                method_name: "add".to_string(),
+                trait_args: Vec::new(),
+                slot: 0,
+                params: vec![i32_ty],
+                return_type: i32_ty,
+                receiver: Box::new(FunctionExpr {
+                    span,
+                    ty: source_object_ty,
+                    kind: FunctionExprKind::TraitObjectCoercion {
+                        expr: Box::new(FunctionExpr {
+                            span,
+                            ty: counter_ty,
+                            kind: FunctionExprKind::StructLiteral {
+                                def_id: counter,
+                                fields: Vec::new(),
+                            },
+                        }),
+                        target_ty: source_object_ty,
+                        self_ty: counter_ty,
+                    },
+                }),
+            },
+            args: vec![FunctionExpr {
+                span,
+                ty: i32_ty,
+                kind: FunctionExprKind::Integer("4".to_string()),
+            }],
+        };
+    };
+    let setup_extensions = |extensions: &mut VisibleExtensionMethods,
+                            defs: &nia_defs::DefCollection,
+                            type_lowering: &TypeLowering,
+                            _signatures: &ItemSignatures| {
+        let counter_id = global_def_id_by_name(defs, "Counter");
+        let source_id = global_def_id_by_name(defs, "Source");
+        let add_id = global_def_id_by_name(defs, "add");
+        let counter_type = nominal_type_by_def(&type_lowering.interner, counter_id);
+        let source_object = nominal_type_by_def(&type_lowering.interner, source_id);
+        counter.set(Some(counter_id));
+        source_trait.set(Some(source_id));
+        add_method.set(Some(add_id));
+        counter_ty.set(Some(counter_type));
+        source_object_ty.set(Some(source_object));
+        i32_ty.set(Some(
+            type_lowering.interner.primitive(nia_ty::PrimitiveTy::I32),
+        ));
+        extensions.insert(
+            counter_type,
+            VisibleExtensionMethod {
+                name: "add".to_string(),
+                def_id: add_id,
+                trait_id: Some(nia_ids::TraitId::Source(source_id)),
+                trait_args: Vec::new(),
+            },
+        );
+    };
+    let o2 = lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+        source,
+        build_dynamic_call,
+        setup_extensions,
+        |_, _| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let o2_main = o2.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let o2_value = first_terminal_value(o2_main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(
+        o2_value.kind,
+        FunctionExprKind::Call {
+            callee: nia_function_ir::FunctionCallee::DynamicTraitMethod { .. },
+            ..
+        }
+    ));
+
+    let o3 = lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+        source,
+        build_dynamic_call,
+        setup_extensions,
+        |_, _| {},
+        nia_opt::NiaOptimizationLevel::O3.policy(),
+    );
+    let o3_main = o3.program.modules[0]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .expect("main function");
+    let o3_value = first_terminal_value(o3_main.function_body.as_ref().expect("main body"));
+
+    assert!(matches!(
+        o3_value.kind,
+        FunctionExprKind::Call {
+            callee: nia_function_ir::FunctionCallee::Method { .. },
+            ..
+        }
+    ));
+    assert!(
+        o3.optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Function {
+                    pass: "devirtualize-direct-trait-calls",
                     is_instance: false,
                     ..
                 }
@@ -3297,9 +3465,10 @@ fn lower_source_with_body_mutation_and_optimization(
     mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
     optimization: nia_opt::OptimizationPolicy,
 ) -> BackendLowering {
-    lower_source_with_body_mutation_comptime_mutation_and_optimization(
+    lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
         source,
         mutate_body,
+        |_, _, _, _| {},
         |_, _| {},
         optimization,
     )
@@ -3311,9 +3480,31 @@ fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
     mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
     optimization: nia_opt::OptimizationPolicy,
 ) -> BackendLowering {
+    lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+        source,
+        mutate_body,
+        |_, _, _, _| {},
+        mutate_comptime,
+        optimization,
+    )
+}
+
+fn lower_source_with_body_mutation_extensions_comptime_mutation_and_optimization(
+    source: &str,
+    mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
+    mutate_extensions: impl FnOnce(
+        &mut VisibleExtensionMethods,
+        &nia_defs::DefCollection,
+        &TypeLowering,
+        &ItemSignatures,
+    ),
+    mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
+    optimization: nia_opt::OptimizationPolicy,
+) -> BackendLowering {
     lower_source_with_body_check_mutation_and_optimization(
         source,
         mutate_body,
+        mutate_extensions,
         mutate_comptime,
         |_, _, _, _| {},
         optimization,
@@ -3323,6 +3514,12 @@ fn lower_source_with_body_mutation_comptime_mutation_and_optimization(
 fn lower_source_with_body_check_mutation_and_optimization(
     source: &str,
     mut mutate_body: impl FnMut(&mut nia_function_ir::FunctionBody),
+    mutate_extensions: impl FnOnce(
+        &mut VisibleExtensionMethods,
+        &nia_defs::DefCollection,
+        &TypeLowering,
+        &ItemSignatures,
+    ),
     mutate_comptime: impl FnOnce(&mut nia_comptime_check::ComptimeCheck, &TypeLowering),
     mutate_body_check: impl FnOnce(
         &mut nia_body_check::BodyCheck,
@@ -3359,7 +3556,8 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &comptime,
         nia_layout::TargetDataLayout::LP64,
     );
-    let extensions = VisibleExtensionMethods::default();
+    let mut extensions = VisibleExtensionMethods::default();
+    mutate_extensions(&mut extensions, &defs, &type_lowering, &signatures);
     let origins = NodeOriginTable::default();
     let mut body_check = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
@@ -3456,6 +3654,22 @@ fn global_def_id_by_name(defs: &nia_defs::DefCollection, name: &str) -> GlobalDe
             })
         })
         .unwrap_or_else(|| panic!("missing def `{name}`"))
+}
+
+fn nominal_type_by_def(interner: &nia_ty::TyInterner, target: GlobalDefId) -> InternedTyId {
+    interner
+        .iter()
+        .find_map(|(ty, kind)| {
+            matches!(
+                kind,
+                nia_ty::TyKind::Nominal {
+                    def_id,
+                    args
+                } if *def_id == target && args.is_empty()
+            )
+            .then_some(ty)
+        })
+        .unwrap_or_else(|| panic!("missing nominal type {target:?}"))
 }
 
 fn first_terminal_value(body: &nia_function_ir::FunctionBody) -> &nia_function_ir::FunctionExpr {
