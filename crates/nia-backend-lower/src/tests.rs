@@ -881,6 +881,49 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_simplifies_repeated_static_array_initializers() {
+    let source = r#"
+const values: [3]i32 = [7, 7, 7];
+
+fn main() i32 {
+    values[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let values = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "values")
+        .expect("values global");
+
+    assert!(matches!(
+        values.init,
+        Some(StaticInit::Repeat {
+            ref value,
+            count: 3
+        }) if matches!(**value, StaticInit::Int(7))
+    ));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .any(|change| matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    global,
+                    pass: "simplify-static-init",
+                    ..
+                } if *global == values.def_id
+            ))
+    );
+}
+
+#[test]
 fn o1_preserves_zero_static_initializers() {
     let source = r#"
 const zeroes: [4]i32 = [0; 4];
@@ -940,6 +983,42 @@ fn main() i32 {
         .expect("zeroes global");
 
     assert!(matches!(zeroes.init, Some(StaticInit::Array(_))));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    pass: "simplify-static-init",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o1_preserves_repeated_static_array_initializers() {
+    let source = r#"
+const values: [3]i32 = [7, 7, 7];
+
+fn main() i32 {
+    values[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let values = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "values")
+        .expect("values global");
+
+    assert!(matches!(values.init, Some(StaticInit::Array(_))));
     assert!(
         lowering
             .optimization_report
