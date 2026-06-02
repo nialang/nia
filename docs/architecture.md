@@ -356,8 +356,9 @@ source versions where source text matters, and `nia-query` tracks in-memory
 dependencies and invalidation. Public-surface computation builds a temporary
 `ModuleId` index over definition collections, so repeated pub-using expansion
 and enum namespace validation do not rescan the module list for every segment.
-Visible-extension queries depend on a program-level type-normalization map query,
-so per-module visibility filtering does not rebuild the same normalization map.
+Extension-method collection and visible-extension queries depend on a
+program-level type-normalization map query, so extension discovery and
+per-module visibility filtering do not rebuild the same normalization map.
 Comptime and body-check providers also depend on program-level module/definition
 map queries, so they do not rebuild identical cross-module context maps for each
 module.

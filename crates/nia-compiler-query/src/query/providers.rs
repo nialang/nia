@@ -302,24 +302,22 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
         .copied()
         .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
         .collect::<Vec<_>>();
-    let normalizations = module_ids
-        .iter()
-        .copied()
-        .map(|module_id| db.query(TypeNormalizationQuery(module_id)))
-        .collect::<Vec<_>>();
+    let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let inputs = modules
         .iter()
         .zip(defs.iter())
         .zip(type_lowerings.iter())
         .zip(item_signatures.iter())
-        .zip(normalizations.iter())
+        .zip(module_ids.iter())
         .map(
-            |((((module, defs), lowering), signatures), normalization)| ExtensionModuleInput {
+            |((((module, defs), lowering), signatures), module_id)| ExtensionModuleInput {
                 module,
                 defs,
                 lowering,
                 signatures,
-                normalization,
+                normalization: normalizations
+                    .get(module_id)
+                    .expect("missing type normalization"),
             },
         )
         .collect::<Vec<_>>();

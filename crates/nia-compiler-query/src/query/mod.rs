@@ -374,6 +374,10 @@ fn main() i32 {
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "extension_methods"
+                && dependency.to.name == "program_type_normalizations"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "program_type_normalizations"
                 && dependency.to.name == "type_normalization"
         }));
     }
