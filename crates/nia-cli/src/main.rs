@@ -953,6 +953,7 @@ fn print_optimization_report_with(
         "  enabled_global_passes={}",
         enabled_passes_name(&report.enabled_global_passes)
     ));
+    print_line(format!("  changes={}", report.changed_passes.len()));
     if report.changed_passes.is_empty() {
         print_line("  no changes".to_string());
         return;
