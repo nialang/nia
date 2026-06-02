@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
 pub(super) use nia_body_ir::{
-    TypedBody, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit, TypedLocal, TypedLocalKind,
-    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedBody, TypedExpr, TypedExprKind, TypedForIn, TypedLocal, TypedLocalKind, TypedLoop,
+    TypedRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
 };
 pub(super) use nia_function_ir::*;
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
@@ -49,6 +49,36 @@ pub(super) fn empty_body(ty: InternedTyId) -> TypedBody {
         stmts: Vec::new(),
         tail: None,
         ty,
+    }
+}
+
+pub(super) fn loop_stmt(body: TypedBody) -> TypedStmt {
+    TypedStmt {
+        span: Span::default(),
+        kind: TypedStmtKind::Loop(Box::new(TypedLoop { body })),
+    }
+}
+
+pub(super) fn for_range_stmt(local_id: LocalId, body: TypedBody) -> TypedStmt {
+    let span = Span::default();
+    let ty = test_ty();
+    TypedStmt {
+        span,
+        kind: TypedStmtKind::ForIn(Box::new(TypedForIn {
+            local_id,
+            name: "i".to_string(),
+            ty,
+            iter: TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Range(TypedRange {
+                    start: Some(Box::new(int_expr(0))),
+                    end: Some(Box::new(int_expr(3))),
+                    inclusive: false,
+                }),
+            },
+            body,
+        })),
     }
 }
 

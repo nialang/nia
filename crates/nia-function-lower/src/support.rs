@@ -154,7 +154,13 @@ impl FunctionLowerer {
     ) {
         for stmt in &body.stmts {
             match &stmt.kind {
-                TypedStmtKind::For(for_stmt) => self.collect_body_locals(&for_stmt.body, locals),
+                TypedStmtKind::ForIn(for_stmt) => {
+                    self.collect_body_locals(&for_stmt.body, locals)
+                }
+                TypedStmtKind::While(while_stmt) => {
+                    self.collect_body_locals(&while_stmt.body, locals)
+                }
+                TypedStmtKind::Loop(loop_stmt) => self.collect_body_locals(&loop_stmt.body, locals),
                 TypedStmtKind::Expr(expr) => self.collect_expr_locals(expr, locals),
                 TypedStmtKind::Return(Some(expr)) | TypedStmtKind::Defer(expr) => {
                     self.collect_expr_locals(expr, locals)
@@ -258,7 +264,16 @@ impl FunctionLowerer {
             }
             for stmt in &body.stmts {
                 match &stmt.kind {
-                    TypedStmtKind::For(for_stmt) => visit_body(&for_stmt.body, max_id),
+                    TypedStmtKind::ForIn(for_stmt) => {
+                        *max_id = (*max_id).max(for_stmt.local_id.0.saturating_add(1));
+                        visit_expr(&for_stmt.iter, max_id);
+                        visit_body(&for_stmt.body, max_id);
+                    }
+                    TypedStmtKind::While(while_stmt) => {
+                        visit_expr(&while_stmt.cond, max_id);
+                        visit_body(&while_stmt.body, max_id);
+                    }
+                    TypedStmtKind::Loop(loop_stmt) => visit_body(&loop_stmt.body, max_id),
                     TypedStmtKind::Expr(expr)
                     | TypedStmtKind::Return(Some(expr))
                     | TypedStmtKind::Defer(expr) => visit_expr(expr, max_id),
@@ -368,7 +383,19 @@ impl FunctionLowerer {
                                         visit_expr(value, max_id);
                                     }
                                 }
-                                TypedStmtKind::For(for_stmt) => visit_body(&for_stmt.body, max_id),
+                                TypedStmtKind::ForIn(for_stmt) => {
+                                    *max_id =
+                                        (*max_id).max(for_stmt.local_id.0.saturating_add(1));
+                                    visit_expr(&for_stmt.iter, max_id);
+                                    visit_body(&for_stmt.body, max_id);
+                                }
+                                TypedStmtKind::While(while_stmt) => {
+                                    visit_expr(&while_stmt.cond, max_id);
+                                    visit_body(&while_stmt.body, max_id);
+                                }
+                                TypedStmtKind::Loop(loop_stmt) => {
+                                    visit_body(&loop_stmt.body, max_id)
+                                }
                                 TypedStmtKind::Return(None)
                                 | TypedStmtKind::Break
                                 | TypedStmtKind::Continue => {}

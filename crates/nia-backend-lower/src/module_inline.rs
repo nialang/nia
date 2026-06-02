@@ -247,15 +247,6 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionForHeader::Condition(expr) => {
                     self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
                 }
-                FunctionForHeader::CStyle { cond } => {
-                    if let Some(cond) = cond {
-                        self.inline_leaf_calls_in_expr(
-                            cond,
-                            function_candidates,
-                            instance_candidates,
-                        );
-                    }
-                }
                 FunctionForHeader::Infinite => {}
             },
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {

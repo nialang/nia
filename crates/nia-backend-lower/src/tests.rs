@@ -286,7 +286,7 @@ fn main() i32 {
 fn lowers_loop_break_and_continue_to_function_ir_branches() {
     let source = r#"
 fn main() i32 {
-    for {
+    loop {
         continue;
         break;
     }

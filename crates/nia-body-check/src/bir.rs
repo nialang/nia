@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::{
-    ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, ForHeader, ForInit, IndexArg,
-    SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
+    ArrayElements, AssignOp, BindingStmt, Block, Expr, ExprKind, IndexArg, SliceRange, Stmt,
+    StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_body_ir::{
     BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinOperatorOp, BuiltinPlaceMethod,
     BuiltinValue, PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements, TypedBinding, TypedBody,
-    TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedFor, TypedForHeader, TypedForInit,
-    TypedLocal, TypedLocalKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
-    TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedLocal,
+    TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
+    TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -110,9 +110,31 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Break => TypedStmtKind::Break,
             StmtKind::Continue => TypedStmtKind::Continue,
             StmtKind::Defer(expr) => TypedStmtKind::Defer(self.lower_expr(expr)),
-            StmtKind::For(for_stmt) => TypedStmtKind::For(Box::new(TypedFor {
-                header: self.lower_for_header(&for_stmt.header),
-                body: self.lower_body(&for_stmt.body),
+            StmtKind::ForIn(for_stmt) => {
+                let local_id = self
+                    .locals
+                    .local_defs
+                    .get(&for_stmt.binding.span)
+                    .copied()
+                    .unwrap_or(nia_ids::LocalId(u32::MAX));
+                TypedStmtKind::ForIn(Box::new(TypedForIn {
+                    local_id,
+                    name: for_stmt.binding.name.clone(),
+                    ty: self
+                        .local_types
+                        .get(&local_id)
+                        .copied()
+                        .unwrap_or_else(|| self.error()),
+                    iter: self.lower_expr(&for_stmt.iter),
+                    body: self.lower_body(&for_stmt.body),
+                }))
+            }
+            StmtKind::While(while_stmt) => TypedStmtKind::While(Box::new(TypedWhile {
+                cond: self.lower_expr(&while_stmt.cond),
+                body: self.lower_body(&while_stmt.body),
+            })),
+            StmtKind::Loop(loop_stmt) => TypedStmtKind::Loop(Box::new(TypedLoop {
+                body: self.lower_body(&loop_stmt.body),
             })),
         };
         TypedStmt {
@@ -158,35 +180,6 @@ impl<'a> BodyChecker<'a> {
             span,
             ty: self.error(),
             kind: TypedExprKind::Error,
-        }
-    }
-
-    fn lower_for_header(&mut self, header: &ForHeader) -> TypedForHeader {
-        match header {
-            ForHeader::Infinite => TypedForHeader::Infinite,
-            ForHeader::Condition(cond) => TypedForHeader::Condition(self.lower_expr(cond)),
-            ForHeader::CStyle { init, cond, step } => TypedForHeader::CStyle {
-                init: init.as_ref().map(|init| {
-                    Box::new(match &**init {
-                        ForInit::Binding { span, binding } => {
-                            if binding.is_comptime {
-                                TypedForInit::Expr(TypedExpr {
-                                    span: *span,
-                                    ty: self.void(),
-                                    kind: TypedExprKind::Error,
-                                })
-                            } else {
-                                self.lower_binding_stmt(*span, binding)
-                                    .map(TypedForInit::Binding)
-                                    .unwrap_or_else(|| TypedForInit::Expr(self.error_expr(*span)))
-                            }
-                        }
-                        ForInit::Expr(expr) => TypedForInit::Expr(self.lower_expr(expr)),
-                    })
-                }),
-                cond: cond.as_ref().map(|cond| Box::new(self.lower_expr(cond))),
-                step: step.as_ref().map(|step| Box::new(self.lower_expr(step))),
-            },
         }
     }
 

@@ -178,9 +178,6 @@ impl<'a> ModuleLowerer<'a> {
             FunctionForHeader::Condition(expr) => {
                 FunctionForHeader::Condition(self.resolve_builtin_operator_calls_in_expr(expr))
             }
-            FunctionForHeader::CStyle { cond } => FunctionForHeader::CStyle {
-                cond: cond.map(|cond| Box::new(self.resolve_builtin_operator_calls_in_expr(*cond))),
-            },
         }
     }
 

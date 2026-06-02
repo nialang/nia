@@ -265,15 +265,21 @@ impl Analyzer<'_> {
                 {
                     return binding.value.clone();
                 }
-                nia_ast::StmtKind::For(for_stmt) => {
-                    if let nia_ast::ForHeader::CStyle { init, .. } = &for_stmt.header
-                        && let Some(init) = init
-                        && let nia_ast::ForInit::Binding { span, binding } = &**init
-                        && self.input.locals.local_defs.get(span).copied() == Some(local_id)
-                    {
-                        return binding.value.clone();
-                    }
+                nia_ast::StmtKind::ForIn(for_stmt) => {
                     if let Some(value) = self.local_initializer_in_block(local_id, &for_stmt.body) {
+                        return Some(value);
+                    }
+                }
+                nia_ast::StmtKind::While(while_stmt) => {
+                    if let Some(value) =
+                        self.local_initializer_in_block(local_id, &while_stmt.body)
+                    {
+                        return Some(value);
+                    }
+                }
+                nia_ast::StmtKind::Loop(loop_stmt) => {
+                    if let Some(value) = self.local_initializer_in_block(local_id, &loop_stmt.body)
+                    {
                         return Some(value);
                     }
                 }

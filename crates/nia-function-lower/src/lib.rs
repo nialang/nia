@@ -2,9 +2,9 @@
 use nia_ast::UnaryOp;
 use nia_body_ir::{
     AsmOption, BuiltinConst, BuiltinPlaceMethod, PlaceBase, PlaceElem, TypedArrayElements,
-    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForHeader, TypedForInit,
-    TypedInlineAsm, TypedLocal, TypedLocalKind, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
-    TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIn, TypedInlineAsm,
+    TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedSliceRange, TypedStmt,
+    TypedStmtKind, TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;

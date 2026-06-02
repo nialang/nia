@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_ast::BinaryOp;
+use nia_body_ir::BuiltinOperatorOp;
+use nia_ids::TyInternerIndex;
 
 impl FunctionLowerer {
     pub(super) fn lower_body_into(
@@ -111,8 +114,14 @@ impl FunctionLowerer {
                 );
                 return true;
             }
-            TypedStmtKind::For(for_stmt) => {
-                self.lower_for_stmt(stmt.span, for_stmt, scope, current, ops, blocks);
+            TypedStmtKind::ForIn(for_stmt) => {
+                self.lower_for_in_stmt(stmt.span, for_stmt, scope, current, ops, blocks);
+            }
+            TypedStmtKind::While(while_stmt) => {
+                self.lower_while_stmt(stmt.span, while_stmt, scope, current, ops, blocks);
+            }
+            TypedStmtKind::Loop(loop_stmt) => {
+                self.lower_loop_stmt(stmt.span, loop_stmt, scope, current, ops, blocks);
             }
         }
         false
@@ -366,16 +375,47 @@ impl FunctionLowerer {
         }
     }
 
-    pub(super) fn lower_for_stmt(
+    pub(super) fn lower_for_in_stmt(
         &mut self,
         span: Span,
-        for_stmt: &nia_body_ir::TypedFor,
+        for_stmt: &TypedForIn,
         scope: FunctionScopeId,
         current: &mut FunctionBlockId,
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) {
-        self.push_for_init_ops(&for_stmt.header, scope, current, ops, blocks);
+        let TypedExprKind::Range(range) = &for_stmt.iter.kind else {
+            self.finish_block(
+                blocks,
+                *current,
+                scope,
+                span,
+                std::mem::take(ops),
+                FunctionTerminator::Error { span },
+            );
+            return;
+        };
+        let (Some(start), Some(end)) = (&range.start, &range.end) else {
+            self.finish_block(
+                blocks,
+                *current,
+                scope,
+                span,
+                std::mem::take(ops),
+                FunctionTerminator::Error { span },
+            );
+            return;
+        };
+
+        let start = self.lower_value_expr(start, scope, current, ops, blocks);
+        ops.push(FunctionOp::Binding(FunctionBinding {
+            local_id: for_stmt.local_id,
+            name: for_stmt.name.clone(),
+            ty: for_stmt.ty,
+            value: Some(start),
+            is_const: false,
+        }));
+
         let loop_header = self.alloc_block();
         self.finish_block(
             blocks,
@@ -391,13 +431,23 @@ impl FunctionLowerer {
 
         let mut header_ops = Vec::new();
         let mut header_current = loop_header;
-        let header = self.lower_loop_header(
-            &for_stmt.header,
-            scope,
-            &mut header_current,
-            &mut header_ops,
-            blocks,
-        );
+        let local = FunctionExpr {
+            span,
+            ty: for_stmt.ty,
+            kind: FunctionExprKind::Local(for_stmt.local_id),
+        };
+        let end = self.lower_value_expr(end, scope, &mut header_current, &mut header_ops, blocks);
+        let header = FunctionForHeader::Condition(self.builtin_binary_expr(
+            span,
+            if range.inclusive {
+                BinaryOp::Le
+            } else {
+                BinaryOp::Lt
+            },
+            local,
+            end,
+            self.bool_ty(for_stmt.ty),
+        ));
         let body_entry = self.alloc_block();
         let continue_target = self.alloc_block();
         let break_target = self.alloc_block();
@@ -430,14 +480,155 @@ impl FunctionLowerer {
         );
         self.loop_targets.pop();
 
-        self.lower_for_step(
-            &for_stmt.header,
-            scope,
-            continue_target,
-            loop_header,
+        let local = FunctionExpr {
             span,
+            ty: for_stmt.ty,
+            kind: FunctionExprKind::Local(for_stmt.local_id),
+        };
+        let one = FunctionExpr {
+            span,
+            ty: for_stmt.ty,
+            kind: FunctionExprKind::Integer("1".to_string()),
+        };
+        let value = self.builtin_binary_expr(span, BinaryOp::Add, local, one, for_stmt.ty);
+        self.finish_block(
             blocks,
+            continue_target,
+            scope,
+            span,
+            vec![FunctionOp::StoreLocal {
+                local_id: for_stmt.local_id,
+                value,
+                span,
+            }],
+            FunctionTerminator::Branch {
+                target: loop_header,
+                span,
+            },
         );
+        *current = break_target;
+    }
+
+    pub(super) fn lower_while_stmt(
+        &mut self,
+        span: Span,
+        while_stmt: &TypedWhile,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) {
+        let loop_header = self.alloc_block();
+        self.finish_block(
+            blocks,
+            *current,
+            scope,
+            span,
+            std::mem::take(ops),
+            FunctionTerminator::Next {
+                target: loop_header,
+                span,
+            },
+        );
+
+        let mut header_ops = Vec::new();
+        let mut header_current = loop_header;
+        let header = FunctionForHeader::Condition(self.lower_value_expr(
+            &while_stmt.cond,
+            scope,
+            &mut header_current,
+            &mut header_ops,
+            blocks,
+        ));
+        let body_entry = self.alloc_block();
+        let continue_target = loop_header;
+        let break_target = self.alloc_block();
+        self.finish_block(
+            blocks,
+            header_current,
+            scope,
+            span,
+            header_ops,
+            FunctionTerminator::Loop {
+                header,
+                body: body_entry,
+                continue_target,
+                break_target,
+                span,
+            },
+        );
+
+        self.loop_targets.push(LoopTargetIds {
+            break_target,
+            continue_target,
+        });
+        let body_scope = self.alloc_scope(Some(scope), while_stmt.body.span);
+        self.lower_body_into(
+            &while_stmt.body,
+            body_entry,
+            body_scope,
+            blocks,
+            Fallthrough::Branch(continue_target),
+        );
+        self.loop_targets.pop();
+
+        *current = break_target;
+    }
+
+    pub(super) fn lower_loop_stmt(
+        &mut self,
+        span: Span,
+        loop_stmt: &TypedLoop,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) {
+        let loop_header = self.alloc_block();
+        self.finish_block(
+            blocks,
+            *current,
+            scope,
+            span,
+            std::mem::take(ops),
+            FunctionTerminator::Next {
+                target: loop_header,
+                span,
+            },
+        );
+
+        let body_entry = self.alloc_block();
+        let continue_target = loop_header;
+        let break_target = self.alloc_block();
+        self.finish_block(
+            blocks,
+            loop_header,
+            scope,
+            span,
+            Vec::new(),
+            FunctionTerminator::Loop {
+                header: FunctionForHeader::Infinite,
+                body: body_entry,
+                continue_target,
+                break_target,
+                span,
+            },
+        );
+
+        self.loop_targets.push(LoopTargetIds {
+            break_target,
+            continue_target,
+        });
+        let body_scope = self.alloc_scope(Some(scope), loop_stmt.body.span);
+        self.lower_body_into(
+            &loop_stmt.body,
+            body_entry,
+            body_scope,
+            blocks,
+            Fallthrough::Branch(continue_target),
+        );
+        self.loop_targets.pop();
+
         *current = break_target;
     }
 
@@ -524,80 +715,31 @@ impl FunctionLowerer {
         self.finish_block(blocks, current, scope, span, ops, terminator);
     }
 
-    pub(super) fn push_for_init_ops(
-        &mut self,
-        header: &TypedForHeader,
-        scope: FunctionScopeId,
-        current: &mut FunctionBlockId,
-        ops: &mut Vec<FunctionOp>,
-        blocks: &mut Vec<FunctionBlock>,
-    ) {
-        if let TypedForHeader::CStyle {
-            init: Some(init), ..
-        } = header
-        {
-            match &**init {
-                TypedForInit::Binding(binding) => {
-                    let binding = self.lower_binding(binding, scope, current, ops, blocks);
-                    ops.push(FunctionOp::Binding(binding));
-                }
-                TypedForInit::Expr(expr) => {
-                    let expr = self.lower_value_expr(expr, scope, current, ops, blocks);
-                    ops.push(FunctionOp::Expr(expr));
-                }
-            }
-        }
-    }
-
-    pub(super) fn lower_for_step(
-        &mut self,
-        header: &TypedForHeader,
-        scope: FunctionScopeId,
-        entry: FunctionBlockId,
-        loop_header: FunctionBlockId,
+    fn builtin_binary_expr(
+        &self,
         span: Span,
-        blocks: &mut Vec<FunctionBlock>,
-    ) {
-        let mut current = entry;
-        let mut ops = Vec::new();
-        if let TypedForHeader::CStyle {
-            step: Some(step), ..
-        } = header
-        {
-            let step = self.lower_value_expr(step, scope, &mut current, &mut ops, blocks);
-            ops.push(FunctionOp::Expr(step));
-        }
-        self.finish_block(
-            blocks,
-            current,
-            scope,
+        op: BinaryOp,
+        lhs: FunctionExpr,
+        rhs: FunctionExpr,
+        ty: InternedTyId,
+    ) -> FunctionExpr {
+        let trait_id = BuiltinOperatorOp::Binary(op)
+            .trait_id()
+            .expect("for-in synthesized operator must have a builtin trait");
+        FunctionExpr {
             span,
-            ops,
-            FunctionTerminator::Branch {
-                target: loop_header,
-                span,
+            ty,
+            kind: FunctionExprKind::Call {
+                callee: FunctionCallee::BuiltinOperator(FunctionBuiltinOperator {
+                    trait_id,
+                    op: FunctionBuiltinOperatorOp::Binary(op),
+                }),
+                args: vec![lhs, rhs],
             },
-        );
+        }
     }
 
-    pub(super) fn lower_loop_header(
-        &mut self,
-        header: &TypedForHeader,
-        scope: FunctionScopeId,
-        current: &mut FunctionBlockId,
-        ops: &mut Vec<FunctionOp>,
-        blocks: &mut Vec<FunctionBlock>,
-    ) -> FunctionForHeader {
-        match header {
-            TypedForHeader::Infinite => FunctionForHeader::Infinite,
-            TypedForHeader::Condition(cond) => FunctionForHeader::Condition(
-                self.lower_value_expr(cond, scope, current, ops, blocks),
-            ),
-            TypedForHeader::CStyle { cond, .. } => FunctionForHeader::CStyle {
-                cond: cond
-                    .as_ref()
-                    .map(|cond| Box::new(self.lower_value_expr(cond, scope, current, ops, blocks))),
-            },
-        }
+    fn bool_ty(&self, ty: InternedTyId) -> InternedTyId {
+        InternedTyId::new(ty.interner_id, TyInternerIndex::from_interner_index(15))
     }
 }

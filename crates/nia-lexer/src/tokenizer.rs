@@ -220,6 +220,8 @@ impl<'a> Tokenizer<'a> {
             "for" => TokenKind::For,
             "if" => TokenKind::If,
             "import" => TokenKind::Import,
+            "in" => TokenKind::In,
+            "loop" => TokenKind::Loop,
             "mut" => TokenKind::Mut,
             "or" => TokenKind::Or,
             "pub" => TokenKind::Pub,
@@ -235,6 +237,7 @@ impl<'a> Tokenizer<'a> {
             "var" => TokenKind::Var,
             "void" => TokenKind::Void,
             "where" => TokenKind::Where,
+            "while" => TokenKind::While,
             _ => TokenKind::Ident,
         };
         self.token(kind, start, self.pos)

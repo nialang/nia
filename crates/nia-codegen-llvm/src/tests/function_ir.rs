@@ -239,7 +239,7 @@ fn emits_statement_loop_from_function_ir_with_defer_cleanup() {
 extern fn log(x: i32);
 
 fn main() i32 {
-    for {
+    loop {
         defer log(1);
         break;
     }

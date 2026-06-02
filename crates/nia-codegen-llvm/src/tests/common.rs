@@ -57,7 +57,7 @@ fn classify(state: State) i32 {
 
 fn main() i32 {
     var total = 0;
-    for var i = 0; i < 4; i += 1 {
+    for i in 0..4 {
         defer log(i);
         if i == 1 {
             continue;
@@ -155,7 +155,7 @@ fn main() i32 {
                 r#"
 fn sum(xs: &const [i32]) i32 {
     var out = 0;
-    for var i: usize = 0; i < xs.len(); i += 1usize {
+    for i in 0usize..xs.len() {
         out += xs[i];
     }
     out

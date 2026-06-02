@@ -31,7 +31,9 @@ pub enum StmtKind {
     Break,
     Continue,
     Defer(Expr),
-    For(Box<ForStmt>),
+    ForIn(Box<ForInStmt>),
+    While(Box<WhileStmt>),
+    Loop(Box<LoopStmt>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,26 +46,29 @@ pub struct BindingStmt {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ForStmt {
-    pub header: ForHeader,
+pub struct ForInStmt {
+    pub binding: ForBinding,
+    pub iter: Expr,
     pub body: Block,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ForHeader {
-    Infinite,
-    Condition(Expr),
-    CStyle {
-        init: Option<Box<ForInit>>,
-        cond: Option<Box<Expr>>,
-        step: Option<Box<Expr>>,
-    },
+pub struct ForBinding {
+    pub span: Span,
+    pub name: String,
+    pub ty: Option<TypeRef>,
+    pub is_const: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ForInit {
-    Binding { span: Span, binding: BindingStmt },
-    Expr(Expr),
+pub struct WhileStmt {
+    pub cond: Expr,
+    pub body: Block,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoopStmt {
+    pub body: Block,
 }
 
 #[derive(Debug, Clone, PartialEq)]

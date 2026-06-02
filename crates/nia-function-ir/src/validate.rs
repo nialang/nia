@@ -256,12 +256,6 @@ impl<'a> FunctionIrValidator<'a> {
         match header {
             FunctionForHeader::Infinite => Ok(()),
             FunctionForHeader::Condition(cond) => self.validate_expr(cond),
-            FunctionForHeader::CStyle { cond } => {
-                if let Some(cond) = cond {
-                    self.validate_expr(cond)?;
-                }
-                Ok(())
-            }
         }
     }
 

@@ -2,7 +2,7 @@
 use std::collections::HashSet;
 
 use nia_ast::{
-    Block, Expr, ExprKind, ForHeader, FunctionItem, IndexArg, ItemKind, Module, Stmt, StmtKind,
+    Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Stmt, StmtKind,
     SwitchArmBody, SwitchPattern,
 };
 use nia_diagnostic::Diagnostic;
@@ -215,19 +215,27 @@ impl FlowChecker<'_> {
                     falls_through: false,
                 }
             }
-            StmtKind::For(for_stmt) => {
-                if let ForHeader::CStyle { init, .. } = &for_stmt.header
-                    && let Some(init) = init
-                    && let nia_ast::ForInit::Binding { binding, .. } = &**init
-                    && binding.value.is_none()
-                {
-                    self.diagnostics.push(Diagnostic::error(
-                        stmt.span,
-                        "for init binding declaration requires an initializer",
-                    ));
-                }
+            StmtKind::ForIn(for_stmt) => {
+                self.check_expr_flow(&for_stmt.iter);
                 self.loop_depth += 1;
                 self.check_block(&for_stmt.body);
+                self.loop_depth -= 1;
+                Flow {
+                    falls_through: true,
+                }
+            }
+            StmtKind::While(while_stmt) => {
+                self.check_expr_flow(&while_stmt.cond);
+                self.loop_depth += 1;
+                self.check_block(&while_stmt.body);
+                self.loop_depth -= 1;
+                Flow {
+                    falls_through: true,
+                }
+            }
+            StmtKind::Loop(loop_stmt) => {
+                self.loop_depth += 1;
+                self.check_block(&loop_stmt.body);
                 self.loop_depth -= 1;
                 Flow {
                     falls_through: true,
@@ -537,30 +545,16 @@ impl FlowChecker<'_> {
                     stmt.span,
                     "`continue` is not allowed inside deferred expressions",
                 )),
-                StmtKind::For(for_stmt) => {
-                    if let ForHeader::CStyle { init, cond, step } = &for_stmt.header {
-                        if let Some(init) = init {
-                            match &**init {
-                                nia_ast::ForInit::Binding { binding, .. } => {
-                                    if let Some(value) = &binding.value {
-                                        self.check_no_deferred_control_flow(value);
-                                    }
-                                }
-                                nia_ast::ForInit::Expr(expr) => {
-                                    self.check_no_deferred_control_flow(expr);
-                                }
-                            }
-                        }
-                        if let Some(cond) = cond {
-                            self.check_no_deferred_control_flow(cond);
-                        }
-                        if let Some(step) = step {
-                            self.check_no_deferred_control_flow(step);
-                        }
-                    } else if let ForHeader::Condition(cond) = &for_stmt.header {
-                        self.check_no_deferred_control_flow(cond);
-                    }
+                StmtKind::ForIn(for_stmt) => {
+                    self.check_no_deferred_control_flow(&for_stmt.iter);
                     self.check_no_deferred_control_flow_in_block(&for_stmt.body);
+                }
+                StmtKind::While(while_stmt) => {
+                    self.check_no_deferred_control_flow(&while_stmt.cond);
+                    self.check_no_deferred_control_flow_in_block(&while_stmt.body);
+                }
+                StmtKind::Loop(loop_stmt) => {
+                    self.check_no_deferred_control_flow_in_block(&loop_stmt.body);
                 }
             }
         }
@@ -817,7 +811,7 @@ fn main() {
             return;
         }
     };
-    for {
+    loop {
         defer {
             break;
         };
@@ -869,7 +863,7 @@ fn cleanup() {}
 
 fn main(flag: bool) {
     defer if flag {
-        for {
+        loop {
             continue;
         }
     } else {
@@ -879,7 +873,7 @@ fn main(flag: bool) {
     defer {
         switch 1 {
             0 => {
-                for {
+                loop {
                     break;
                 }
             },
@@ -912,12 +906,11 @@ fn main(flag: bool) {
         let checked = pipeline(
             r#"
 fn main(limit: i32) {
-    var i = 0;
-    for ; i < limit; i += 1 {
+    for i in 0..limit {
         if i == 1 {
             continue;
         }
-        for {
+        loop {
             break;
         }
     }

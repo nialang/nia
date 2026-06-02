@@ -39,7 +39,7 @@ fn emits_for_break_and_continue() {
         r#"
 fn main() i32 {
     var sum = 0;
-    for var i = 0; i < 10; i += 1 {
+    for i in 0..10 {
         if i == 3 {
             continue;
         }
@@ -276,7 +276,7 @@ extern fn log(x: i32);
 
 fn main() i32 {
     var i = 0;
-    for {
+    loop {
         defer log(20);
         if i == 0 {
             defer log(21);

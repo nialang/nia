@@ -1130,14 +1130,28 @@ When an `if` expression is used as a value, it must have both branches and the
 branches must have compatible types. When `if` is used only for control flow,
 `else` may be omitted and the expression type is `void`.
 
-### 8.3 For
+### 8.3 Loops
 
-Nia has one loop keyword: `for`.
+Nia has three loop forms: `for-in`, `while`, and `loop`.
 
-Three-part loop:
+Iterator loop:
 
 ```nia
-for var i = 0; i < 10; i += 1 {
+for i in 0..10 {
+    printf(&const int_fmt[0], i);
+}
+```
+
+`for name in expr` requires `expr` to be an iterator expression. The loop does
+not implicitly call `.iter()` or `.iter_const()` and does not infer mutable
+iteration from the source expression. Ranges are iterable directly. Collection
+iteration should be written explicitly through iterator-producing methods such
+as `xs.iter()` or `xs.iter_const()` once those methods are provided.
+
+The loop binding may be annotated:
+
+```nia
+for i: usize in 0usize..len {
     printf(&const int_fmt[0], i);
 }
 ```
@@ -1145,7 +1159,7 @@ for var i = 0; i < 10; i += 1 {
 Condition loop:
 
 ```nia
-for a > b {
+while a > b {
     a -= 1;
 }
 ```
@@ -1153,15 +1167,14 @@ for a > b {
 Infinite loop:
 
 ```nia
-for {
+loop {
     // work
 }
 ```
 
-`break` exits the nearest loop. `continue` jumps to the continuation step; if
-there is no continuation step, it starts the next iteration.
+`break` exits the nearest loop. `continue` starts the next iteration.
 
-`for` is a statement and does not produce a value.
+Loops are statements and do not produce values.
 
 ### 8.4 Defer
 

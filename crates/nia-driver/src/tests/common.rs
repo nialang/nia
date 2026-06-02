@@ -150,7 +150,15 @@ pub(super) fn body_contains_dynamic_trait_callee(body: &TypedBody) -> bool {
         TypedStmtKind::Expr(expr)
         | TypedStmtKind::Return(Some(expr))
         | TypedStmtKind::Defer(expr) => expr_contains_dynamic_trait_callee(expr),
-        TypedStmtKind::For(for_stmt) => body_contains_dynamic_trait_callee(&for_stmt.body),
+        TypedStmtKind::ForIn(for_stmt) => {
+            expr_contains_dynamic_trait_callee(&for_stmt.iter)
+                || body_contains_dynamic_trait_callee(&for_stmt.body)
+        }
+        TypedStmtKind::While(while_stmt) => {
+            expr_contains_dynamic_trait_callee(&while_stmt.cond)
+                || body_contains_dynamic_trait_callee(&while_stmt.body)
+        }
+        TypedStmtKind::Loop(loop_stmt) => body_contains_dynamic_trait_callee(&loop_stmt.body),
         _ => false,
     }) || body
         .tail

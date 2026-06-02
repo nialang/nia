@@ -173,7 +173,9 @@ pub enum TypedStmtKind {
     Break,
     Continue,
     Defer(TypedExpr),
-    For(Box<TypedFor>),
+    ForIn(Box<TypedForIn>),
+    While(Box<TypedWhile>),
+    Loop(Box<TypedLoop>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -186,26 +188,23 @@ pub struct TypedBinding {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TypedFor {
-    pub header: TypedForHeader,
+pub struct TypedForIn {
+    pub local_id: LocalId,
+    pub name: String,
+    pub ty: InternedTyId,
+    pub iter: TypedExpr,
     pub body: TypedBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TypedForHeader {
-    Infinite,
-    Condition(TypedExpr),
-    CStyle {
-        init: Option<Box<TypedForInit>>,
-        cond: Option<Box<TypedExpr>>,
-        step: Option<Box<TypedExpr>>,
-    },
+pub struct TypedWhile {
+    pub cond: TypedExpr,
+    pub body: TypedBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TypedForInit {
-    Binding(TypedBinding),
-    Expr(TypedExpr),
+pub struct TypedLoop {
+    pub body: TypedBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -36,22 +36,16 @@ fn loop_body_break_edge_exits_loop_scope() {
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![TypedStmt {
+        stmts: vec![loop_stmt(TypedBody {
             span,
-            kind: TypedStmtKind::For(Box::new(nia_body_ir::TypedFor {
-                header: TypedForHeader::Infinite,
-                body: TypedBody {
-                    span,
-                    locals: Vec::new(),
-                    stmts: vec![TypedStmt {
-                        span,
-                        kind: TypedStmtKind::Break,
-                    }],
-                    tail: None,
-                    ty,
-                },
-            })),
-        }],
+            locals: Vec::new(),
+            stmts: vec![TypedStmt {
+                span,
+                kind: TypedStmtKind::Break,
+            }],
+            tail: None,
+            ty,
+        })],
         tail: None,
         ty,
     };

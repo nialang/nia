@@ -11,7 +11,7 @@ fn main() i32 {
     if x > 3 {
         x = x + 1;
     }
-    for var i = 0; i < 3; i += 1 {
+    for i in 0..3 {
         x += i;
         x >>= 1;
     }
@@ -32,7 +32,7 @@ fn main() i32 {
     assert!(matches!(body.stmts[0].kind, StmtKind::Binding(_)));
     assert!(matches!(body.stmts[1].kind, StmtKind::Defer(_)));
     assert!(matches!(body.stmts[2].kind, StmtKind::Expr(_)));
-    assert!(matches!(body.stmts[3].kind, StmtKind::For(_)));
+    assert!(matches!(body.stmts[3].kind, StmtKind::ForIn(_)));
     let StmtKind::Expr(expr) = &body.stmts[4].kind else {
         panic!("expected switch");
     };
