@@ -192,6 +192,7 @@ impl<'a> ModuleLowerer<'a> {
         function: &BackendFunction,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> Vec<BackendParam> {
+        let substitutions = self.intern_type_substitutions(substitutions);
         function
             .params
             .iter()
@@ -199,7 +200,7 @@ impl<'a> ModuleLowerer<'a> {
                 local_id: param.local_id,
                 name: param.name.clone(),
                 receiver: param.receiver,
-                ty: self.instantiate_ty(param.ty, substitutions),
+                ty: self.instantiate_ty_with_id(param.ty, substitutions),
                 span: param.span,
             })
             .collect()
@@ -212,6 +213,7 @@ impl<'a> ModuleLowerer<'a> {
         body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionBody {
+        let substitutions = self.intern_type_substitutions(substitutions);
         let body = FunctionBody {
             span: body.span,
             locals: body
@@ -221,7 +223,7 @@ impl<'a> ModuleLowerer<'a> {
                     id: local.id,
                     name: local.name,
                     kind: local.kind,
-                    ty: self.instantiate_ty(local.ty, substitutions),
+                    ty: self.instantiate_ty_with_id(local.ty, substitutions),
                     span: local.span,
                 })
                 .collect(),
@@ -242,7 +244,7 @@ impl<'a> ModuleLowerer<'a> {
                 })
                 .collect(),
             entry: body.entry,
-            ty: self.instantiate_ty(body.ty, substitutions),
+            ty: self.instantiate_ty_with_id(body.ty, substitutions),
         };
         let body = self.resolve_builtin_operator_calls_in_body(body);
         self.optimize_function_body(function, true, type_arg_count, body)

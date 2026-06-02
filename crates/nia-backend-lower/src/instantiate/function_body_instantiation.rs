@@ -5,7 +5,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_defer_body(
         &mut self,
         body: FunctionDeferBody,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionDeferBody {
         FunctionDeferBody {
             span: body.span,
@@ -32,7 +32,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_op(
         &mut self,
         op: FunctionOp,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionOp {
         match op {
             FunctionOp::Binding(binding) => {
@@ -57,12 +57,12 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_binding(
         &mut self,
         binding: FunctionBinding,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionBinding {
         FunctionBinding {
             local_id: binding.local_id,
             name: binding.name,
-            ty: self.instantiate_ty(binding.ty, substitutions),
+            ty: self.instantiate_ty_with_id(binding.ty, substitutions),
             value: binding
                 .value
                 .map(|value| self.instantiate_expr(value, substitutions)),
@@ -73,7 +73,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_terminator(
         &mut self,
         terminator: FunctionTerminator,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionTerminator {
         match terminator {
             FunctionTerminator::Error { span } => FunctionTerminator::Error { span },
@@ -138,7 +138,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_for_header(
         &mut self,
         header: FunctionForHeader,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionForHeader {
         match header {
             FunctionForHeader::Infinite => FunctionForHeader::Infinite,
@@ -154,11 +154,11 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_expr(
         &mut self,
         expr: FunctionExpr,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionExpr {
         FunctionExpr {
             span: expr.span,
-            ty: self.instantiate_ty(expr.ty, substitutions),
+            ty: self.instantiate_ty_with_id(expr.ty, substitutions),
             kind: match expr.kind {
                 FunctionExprKind::Error => FunctionExprKind::Error,
                 FunctionExprKind::Integer(text) => FunctionExprKind::Integer(text),
@@ -176,7 +176,7 @@ impl<'a> ModuleLowerer<'a> {
                         def_id,
                         args: args
                             .into_iter()
-                            .map(|arg| self.instantiate_ty(arg, substitutions))
+                            .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                             .collect(),
                     }
                 }
@@ -268,7 +268,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 FunctionExprKind::Cast { expr, ty } => FunctionExprKind::Cast {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
-                    ty: self.instantiate_ty(ty, substitutions),
+                    ty: self.instantiate_ty_with_id(ty, substitutions),
                 },
                 FunctionExprKind::TraitObjectUpcast {
                     expr,
@@ -276,8 +276,8 @@ impl<'a> ModuleLowerer<'a> {
                     target_ty,
                 } => FunctionExprKind::TraitObjectUpcast {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
-                    source_ty: self.instantiate_ty(source_ty, substitutions),
-                    target_ty: self.instantiate_ty(target_ty, substitutions),
+                    source_ty: self.instantiate_ty_with_id(source_ty, substitutions),
+                    target_ty: self.instantiate_ty_with_id(target_ty, substitutions),
                 },
                 FunctionExprKind::TraitObjectCoercion {
                     expr,
@@ -285,8 +285,8 @@ impl<'a> ModuleLowerer<'a> {
                     self_ty,
                 } => FunctionExprKind::TraitObjectCoercion {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
-                    target_ty: self.instantiate_ty(target_ty, substitutions),
-                    self_ty: self.instantiate_ty(self_ty, substitutions),
+                    target_ty: self.instantiate_ty_with_id(target_ty, substitutions),
+                    self_ty: self.instantiate_ty_with_id(self_ty, substitutions),
                 },
                 FunctionExprKind::Call { callee, args } => {
                     let args = args
@@ -420,7 +420,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_callee(
         &mut self,
         callee: FunctionCallee,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionCallee {
         match callee {
             FunctionCallee::Function(def_id) => FunctionCallee::Function(def_id),
@@ -428,7 +428,7 @@ impl<'a> ModuleLowerer<'a> {
                 def_id,
                 args: args
                     .into_iter()
-                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect(),
             },
             FunctionCallee::Method {
@@ -439,7 +439,7 @@ impl<'a> ModuleLowerer<'a> {
                 def_id,
                 args: args
                     .into_iter()
-                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect(),
                 receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
             },
@@ -452,14 +452,14 @@ impl<'a> ModuleLowerer<'a> {
                 args,
                 receiver,
             } => {
-                let self_ty = self.instantiate_ty(self_ty, substitutions);
+                let self_ty = self.instantiate_ty_with_id(self_ty, substitutions);
                 let trait_args = trait_args
                     .into_iter()
-                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
                 let args = args
                     .into_iter()
-                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
                 let receiver = Box::new(self.instantiate_expr(*receiver, substitutions));
                 if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
@@ -508,10 +508,10 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args,
                 receiver,
             } => {
-                let self_ty = self.instantiate_ty(self_ty, substitutions);
+                let self_ty = self.instantiate_ty_with_id(self_ty, substitutions);
                 let trait_args = trait_args
                     .into_iter()
-                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
                 let receiver = Box::new(self.instantiate_expr(*receiver, substitutions));
                 FunctionCallee::BuiltinPlaceMethod {
@@ -533,20 +533,20 @@ impl<'a> ModuleLowerer<'a> {
                 return_type,
                 receiver,
             } => FunctionCallee::DynamicTraitMethod {
-                object_ty: self.instantiate_ty(object_ty, substitutions),
+                object_ty: self.instantiate_ty_with_id(object_ty, substitutions),
                 trait_id,
                 method_id,
                 method_name,
                 trait_args: trait_args
                     .into_iter()
-                    .map(|arg| self.instantiate_ty(arg, substitutions))
+                    .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect(),
                 slot,
                 params: params
                     .into_iter()
-                    .map(|param| self.instantiate_ty(param, substitutions))
+                    .map(|param| self.instantiate_ty_with_id(param, substitutions))
                     .collect(),
-                return_type: self.instantiate_ty(return_type, substitutions),
+                return_type: self.instantiate_ty_with_id(return_type, substitutions),
                 receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
             },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),
@@ -559,11 +559,11 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_builtin_value(
         &mut self,
         value: nia_function_ir::FunctionBuiltinValue,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> nia_function_ir::FunctionBuiltinValue {
         match value {
             nia_function_ir::FunctionBuiltinValue::Layout { builtin, ty } => {
-                let ty = self.instantiate_ty(ty, substitutions);
+                let ty = self.instantiate_ty_with_id(ty, substitutions);
                 if let Some(layout) = self.layout_of(ty) {
                     let value = match builtin {
                         LayoutBuiltin::Size => layout.size,
@@ -647,11 +647,11 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_place(
         &mut self,
         place: FunctionPlace,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionPlace {
         FunctionPlace {
             span: place.span,
-            ty: self.instantiate_ty(place.ty, substitutions),
+            ty: self.instantiate_ty_with_id(place.ty, substitutions),
             base: match place.base {
                 FunctionPlaceBase::Local(local_id) => FunctionPlaceBase::Local(local_id),
                 FunctionPlaceBase::Global(def_id) => FunctionPlaceBase::Global(def_id),
@@ -677,7 +677,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_slice_range(
         &mut self,
         range: FunctionSliceRange,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionSliceRange {
         FunctionSliceRange {
             start: range
@@ -693,7 +693,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_range(
         &mut self,
         range: FunctionRange,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionRange {
         FunctionRange {
             start: range
@@ -709,7 +709,7 @@ impl<'a> ModuleLowerer<'a> {
     pub(super) fn instantiate_array_elements(
         &mut self,
         elems: FunctionArrayElements,
-        substitutions: &HashMap<String, InternedTyId>,
+        substitutions: TypeSubstitutionId,
     ) -> FunctionArrayElements {
         match elems {
             FunctionArrayElements::List(elems) => FunctionArrayElements::List(
