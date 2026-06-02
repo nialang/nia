@@ -16,6 +16,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
     pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
     pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
+    pub(super) program_type_normalizations:
+        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, TypeNormalization>,
     pub(super) program_signatures: fn(&QueryDb<DriverContext>) -> ProgramSignatures,
     pub(super) extension_methods: fn(&QueryDb<DriverContext>) -> ExtensionMethodsQueryValue,
     pub(super) visible_extensions:
@@ -55,6 +57,7 @@ impl Default for CompilerQueryProviders {
             type_lowering: provide_type_lowering,
             item_signatures: provide_item_signatures,
             type_normalization: provide_type_normalization,
+            program_type_normalizations: provide_program_type_normalizations,
             program_signatures: provide_program_signatures,
             extension_methods: provide_extension_methods,
             visible_extensions: provide_visible_extensions,
@@ -208,6 +211,15 @@ pub(super) fn provide_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
+pub(super) fn provide_program_type_normalizations(
+    db: &QueryDb<DriverContext>,
+) -> HashMap<ModuleId, TypeNormalization> {
+    db.query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
+        .collect()
+}
+
 pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> ProgramSignatures {
     let module_ids = db.query(ParseOkModuleIdsQuery);
     let type_lowerings = module_ids
@@ -299,11 +311,7 @@ pub(super) fn provide_visible_extensions(
 ) -> VisibleExtensionsForModule {
     let imports = db.query(ImportAliasMapQuery);
     let defs = defs_by_module_id(db);
-    let normalizations = db
-        .query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| (module_id, db.query(TypeNormalizationQuery(module_id))))
-        .collect::<HashMap<_, _>>();
+    let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     visible_extensions_for_module(
         module_id,
