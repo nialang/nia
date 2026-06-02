@@ -924,6 +924,64 @@ fn main() i32 {
 }
 
 #[test]
+fn o2_simplifies_repeated_byte_static_initializers() {
+    let source = r#"
+const bytes: [3]u8 = b"aaa";
+
+fn main() u8 {
+    bytes[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let bytes = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "bytes")
+        .expect("bytes global");
+
+    assert!(matches!(
+        bytes.init,
+        Some(StaticInit::Repeat {
+            ref value,
+            count: 3
+        }) if matches!(**value, StaticInit::Byte(b'a'))
+    ));
+}
+
+#[test]
+fn o2_simplifies_repeated_char_static_initializers() {
+    let source = r#"
+const text: [3]char = "aaa";
+
+fn main() char {
+    text[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O2.policy(),
+    );
+    let text = lowering.program.modules[0]
+        .globals
+        .iter()
+        .find(|global| global.name == "text")
+        .expect("text global");
+
+    assert!(matches!(
+        text.init,
+        Some(StaticInit::Repeat {
+            ref value,
+            count: 3
+        }) if matches!(**value, StaticInit::Char(value) if value == 'a' as u32)
+    ));
+}
+
+#[test]
 fn o1_preserves_zero_static_initializers() {
     let source = r#"
 const zeroes: [4]i32 = [0; 4];
@@ -1019,6 +1077,50 @@ fn main() i32 {
         .expect("values global");
 
     assert!(matches!(values.init, Some(StaticInit::Array(_))));
+    assert!(
+        lowering
+            .optimization_report
+            .changed_passes
+            .iter()
+            .all(|change| !matches!(
+                change,
+                BackendOptimizationChange::Global {
+                    pass: "simplify-static-init",
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn o1_preserves_repeated_string_static_initializers() {
+    let source = r#"
+const bytes: [3]u8 = b"aaa";
+const text: [3]char = "aaa";
+
+fn main() u8 {
+    bytes[0]
+}
+"#;
+    let lowering = lower_source_with_body_mutation_and_optimization(
+        source,
+        |_| {},
+        nia_opt::NiaOptimizationLevel::O1.policy(),
+    );
+    let module = &lowering.program.modules[0];
+    let bytes = module
+        .globals
+        .iter()
+        .find(|global| global.name == "bytes")
+        .expect("bytes global");
+    let text = module
+        .globals
+        .iter()
+        .find(|global| global.name == "text")
+        .expect("text global");
+
+    assert!(matches!(bytes.init, Some(StaticInit::Bytes(_))));
+    assert!(matches!(text.init, Some(StaticInit::Chars(_))));
     assert!(
         lowering
             .optimization_report

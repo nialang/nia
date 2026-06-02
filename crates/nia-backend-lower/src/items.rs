@@ -251,7 +251,13 @@ fn simplify_static_init(init: StaticInit) -> StaticInit {
             }
         }
         StaticInit::Chars(scalars) if scalars.iter().all(|scalar| *scalar == 0) => StaticInit::Zero,
+        StaticInit::Chars(scalars) => {
+            repeated_static_init(scalars, StaticInit::Char).unwrap_or_else(StaticInit::Chars)
+        }
         StaticInit::Bytes(bytes) if bytes.iter().all(|byte| *byte == 0) => StaticInit::Zero,
+        StaticInit::Bytes(bytes) => {
+            repeated_static_init(bytes, StaticInit::Byte).unwrap_or_else(StaticInit::Bytes)
+        }
         StaticInit::Float(text) if is_zero_float_static_init(&text) => StaticInit::Zero,
         StaticInit::Int(0)
         | StaticInit::Bool(false)
@@ -283,6 +289,26 @@ fn is_zero_static_init(init: &StaticInit) -> bool {
         | StaticInit::Byte(_)
         | StaticInit::AddrOfGlobal { .. }
         | StaticInit::AddrOfFunction { .. } => false,
+    }
+}
+
+fn repeated_static_init<T>(
+    elems: Vec<T>,
+    init: impl FnOnce(T) -> StaticInit + Copy,
+) -> Result<StaticInit, Vec<T>>
+where
+    T: Copy + PartialEq,
+{
+    let Some(first) = elems.first().copied() else {
+        return Err(elems);
+    };
+    if elems.iter().all(|elem| *elem == first) {
+        Ok(StaticInit::Repeat {
+            value: Box::new(init(first)),
+            count: elems.len() as u64,
+        })
+    } else {
+        Err(elems)
     }
 }
 
