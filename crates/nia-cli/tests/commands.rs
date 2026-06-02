@@ -894,6 +894,42 @@ fn main() i32 {
 }
 
 #[test]
+fn emit_exe_preserves_output_paths_that_look_like_optimization_flags() {
+    let root = temp_dir("emit_exe_preserves_output_paths_that_look_like_optimization_flags");
+    let main = root.join("main.nia");
+    let exe_name = format!("-Orunnable{}", std::env::consts::EXE_SUFFIX);
+    let exe = root.join(&exe_name);
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    9
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_niac"))
+        .current_dir(&root)
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe_name)
+        .output()
+        .expect("run niac emit exe -o -Orunnable");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(9));
+}
+
+#[test]
 fn emit_exe_can_emit_optimization_report_to_stderr() {
     let root = temp_dir("emit_exe_can_emit_optimization_report_to_stderr");
     let main = root.join("main.nia");
