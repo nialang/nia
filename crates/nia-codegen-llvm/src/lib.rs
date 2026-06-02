@@ -163,6 +163,23 @@ impl LlvmCodegenOptimizationLevel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LlvmCodegenSizePolicy {
+    Default,
+    Small,
+    Tiny,
+}
+
+impl LlvmCodegenSizePolicy {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Small => "small",
+            Self::Tiny => "tiny",
+        }
+    }
+}
+
 pub fn llvm_codegen_optimization_level(
     level: NiaOptimizationLevel,
 ) -> LlvmCodegenOptimizationLevel {
@@ -174,6 +191,17 @@ pub fn llvm_codegen_optimization_level(
         }
         NiaOptimizationLevel::O3 => LlvmCodegenOptimizationLevel::Aggressive,
         NiaOptimizationLevel::Oz => LlvmCodegenOptimizationLevel::Less,
+    }
+}
+
+pub fn llvm_codegen_size_policy(level: NiaOptimizationLevel) -> LlvmCodegenSizePolicy {
+    match level {
+        NiaOptimizationLevel::O0
+        | NiaOptimizationLevel::O1
+        | NiaOptimizationLevel::O2
+        | NiaOptimizationLevel::O3 => LlvmCodegenSizePolicy::Default,
+        NiaOptimizationLevel::Os => LlvmCodegenSizePolicy::Small,
+        NiaOptimizationLevel::Oz => LlvmCodegenSizePolicy::Tiny,
     }
 }
 
@@ -230,5 +258,36 @@ mod optimization_tests {
             LlvmCodegenOptimizationLevel::Aggressive.name(),
             "aggressive"
         );
+    }
+
+    #[test]
+    fn maps_nia_size_levels_to_llvm_codegen_size_policy() {
+        for level in [
+            NiaOptimizationLevel::O0,
+            NiaOptimizationLevel::O1,
+            NiaOptimizationLevel::O2,
+            NiaOptimizationLevel::O3,
+        ] {
+            assert_eq!(
+                llvm_codegen_size_policy(level),
+                LlvmCodegenSizePolicy::Default,
+                "{level:?}"
+            );
+        }
+        assert_eq!(
+            llvm_codegen_size_policy(NiaOptimizationLevel::Os),
+            LlvmCodegenSizePolicy::Small
+        );
+        assert_eq!(
+            llvm_codegen_size_policy(NiaOptimizationLevel::Oz),
+            LlvmCodegenSizePolicy::Tiny
+        );
+    }
+
+    #[test]
+    fn llvm_codegen_size_policy_names_are_stable_for_reports() {
+        assert_eq!(LlvmCodegenSizePolicy::Default.name(), "default");
+        assert_eq!(LlvmCodegenSizePolicy::Small.name(), "small");
+        assert_eq!(LlvmCodegenSizePolicy::Tiny.name(), "tiny");
     }
 }

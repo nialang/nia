@@ -72,6 +72,9 @@ lowered into a Nia `OptimizationPolicy` before query execution. The policy is
 threaded through compiler-query, backend lowering, and LLVM codegen even when a
 phase has no optimization pass yet. This keeps future Nia IR passes from
 depending directly on LLVM's smaller codegen-only optimization enum.
+LLVM codegen separately reports both an optimization level and a size policy:
+`Os` maps to LLVM's default codegen level with a small-size policy, while `Oz`
+maps to LLVM's less-aggressive codegen level with a tiny-size policy.
 
 ### 2.1 Optimization Levels And Policy
 
@@ -734,9 +737,10 @@ module codegen, keeping generic instance validation from repeatedly comparing
 the same cross-interner type arguments.
 
 LLVM object emission maps the Nia optimization level to LLVM's codegen
-optimization level. Size-oriented levels (`-Os` and `-Oz`) also remain visible in
-the Nia policy so monomorphization, inlining, specialization, and deduplication
-can make size-aware decisions before LLVM sees the program.
+optimization level and a reported codegen size policy. Size-oriented levels
+(`-Os` and `-Oz`) also remain visible in the Nia policy so monomorphization,
+inlining, specialization, and deduplication can make size-aware decisions before
+LLVM sees the program.
 
 It should not parse AST or make frontend semantic decisions.
 
