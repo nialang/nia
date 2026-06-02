@@ -309,3 +309,175 @@ impl<'a> ProgramIndex<'a> {
             .copied()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_backend_ir::{
+        BackendFunctionInstance, BackendGenericInstantiation, BackendLayouts, BackendModule,
+        BackendParam, BackendProgram, BackendStructInstance, BackendTraitObjectVtable,
+        BackendTraitObjectVtableKey,
+    };
+    use nia_comptime_check::ComptimeCheck;
+    use nia_ids::{DefId, ModuleId};
+    use nia_layout::{StructLayout, TypeLayout};
+    use nia_span::Span;
+    use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+
+    #[test]
+    fn indexes_codegen_lookup_tables_by_exact_keys_and_fallback_groups() {
+        let module_id = ModuleId(0);
+        let mut interner = TyInterner::new(module_id);
+        let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let function_def = global(module_id, 1);
+        let struct_def = global(module_id, 2);
+        let enum_def = global(module_id, 3);
+        let first_variant = global(module_id, 4);
+        let second_variant = global(module_id, 5);
+        let trait_def = global(module_id, 6);
+        let object_ty = interner.intern(TyKind::TraitObject {
+            is_const: true,
+            trait_id: TraitId::Source(trait_def),
+            trait_args: vec![i32_ty],
+            associated_type_bindings: Vec::new(),
+        });
+        let struct_key = BackendStructInstanceKey {
+            def_id: struct_def,
+            args: vec![i32_ty],
+        };
+        let struct_layout = StructLayout {
+            layout: TypeLayout { size: 4, align: 4 },
+            fields: Vec::new(),
+        };
+        let function_instance = BackendFunctionInstance {
+            def_id: function_def,
+            name: "id".to_string(),
+            arg_module_id: module_id,
+            args: vec![i32_ty],
+            symbol: "id_i32".to_string(),
+            params: vec![BackendParam {
+                local_id: None,
+                name: Some("value".to_string()),
+                receiver: None,
+                ty: i32_ty,
+                span: Span::default(),
+            }],
+            return_type: i32_ty,
+            is_extern: false,
+            is_variadic: false,
+            function_body: None,
+            span: Span::default(),
+        };
+        let vtable = BackendTraitObjectVtable {
+            key: BackendTraitObjectVtableKey {
+                self_ty: i32_ty,
+                object_ty,
+            },
+            trait_id: TraitId::Source(trait_def),
+            trait_args: vec![i32_ty],
+            entries: Vec::new(),
+            span: Span::default(),
+        };
+        let program = BackendProgram {
+            modules: vec![BackendModule {
+                id: module_id,
+                name: "main".to_string(),
+                interner,
+                comptime: ComptimeCheck::default(),
+                layouts: BackendLayouts {
+                    types: vec![
+                        (i32_ty, TypeLayout { size: 4, align: 4 }),
+                        (object_ty, TypeLayout { size: 16, align: 8 }),
+                    ],
+                    structs: Vec::new(),
+                    unions: Vec::new(),
+                    struct_instances: vec![(struct_key.clone(), struct_layout.clone())],
+                    union_instances: Vec::new(),
+                },
+                structs: Vec::new(),
+                unions: Vec::new(),
+                struct_instances: vec![BackendStructInstance {
+                    def_id: struct_def,
+                    name: "Box".to_string(),
+                    args: vec![i32_ty],
+                    symbol: "Box_i32".to_string(),
+                    fields: Vec::new(),
+                    is_extern: false,
+                    span: Span::default(),
+                }],
+                union_instances: Vec::new(),
+                enums: vec![BackendEnum {
+                    def_id: enum_def,
+                    name: "Choice".to_string(),
+                    backing_type: i32_ty,
+                    variants: vec![
+                        BackendEnumVariant {
+                            def_id: first_variant,
+                            name: "First".to_string(),
+                            value: None,
+                            span: Span::default(),
+                        },
+                        BackendEnumVariant {
+                            def_id: second_variant,
+                            name: "Second".to_string(),
+                            value: Some(7),
+                            span: Span::default(),
+                        },
+                    ],
+                    span: Span::default(),
+                }],
+                globals: Vec::new(),
+                functions: Vec::new(),
+                function_instances: vec![function_instance],
+                trait_object_vtables: vec![vtable],
+                generic_instantiations: Vec::<BackendGenericInstantiation>::new(),
+            }],
+        };
+
+        let index = ProgramIndex::new(&program);
+
+        assert!(index.module(module_id).is_some());
+        assert_eq!(
+            index.type_layout(i32_ty),
+            Some(&TypeLayout { size: 4, align: 4 })
+        );
+        assert_eq!(
+            index.struct_instance_layout(struct_def, &[i32_ty]),
+            Some(&struct_layout)
+        );
+        assert!(index.struct_instance(struct_def, &[i32_ty]).is_some());
+        assert!(
+            index
+                .function_instance(function_def, module_id, &[i32_ty])
+                .is_some()
+        );
+        let variant_info = index
+            .enum_variant_infos
+            .get(&second_variant)
+            .expect("second enum variant info");
+        assert_eq!(variant_info.owner.def_id, enum_def);
+        assert_eq!(variant_info.variant.def_id, second_variant);
+        assert_eq!(variant_info.index, 1);
+        assert_eq!(
+            index
+                .trait_object_vtables_for_object_ty(object_ty)
+                .map(|vtable| vtable.key.self_ty)
+                .collect::<Vec<_>>(),
+            vec![i32_ty]
+        );
+        assert_eq!(
+            index
+                .trait_object_vtables_for_trait(TraitId::Source(trait_def))
+                .map(|vtable| vtable.key.object_ty)
+                .collect::<Vec<_>>(),
+            vec![object_ty]
+        );
+    }
+
+    fn global(module_id: ModuleId, def_id: u32) -> GlobalDefId {
+        GlobalDefId {
+            module_id,
+            def_id: DefId(def_id),
+        }
+    }
+}
