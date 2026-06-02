@@ -254,6 +254,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-ids",
  "nia-item-signatures",
+ "nia-layout",
  "nia-local-resolve",
  "nia-parser",
  "nia-span",
@@ -269,6 +270,7 @@ version = "0.3.1"
 dependencies = [
  "nia-ast",
  "nia-diagnostic",
+ "nia-ids",
  "nia-parser",
  "nia-span",
 ]

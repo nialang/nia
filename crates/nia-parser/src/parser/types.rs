@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
+use nia_ast::AssocBindingKey;
 
 impl Parser {
     pub(super) fn parse_generic_params(&mut self) -> Vec<String> {
@@ -293,24 +294,42 @@ impl Parser {
                 }
                 continue;
             }
-            if self.at(TokenKind::Ident) {
-                let name_token = self.bump();
-                if self.eat(TokenKind::Eq).is_some() {
-                    let Some(ty) = self.parse_type() else {
-                        self.error_here("expected associated type binding value");
-                        break;
-                    };
-                    args.push(TypeArg::AssocBinding {
-                        name: self.token_text(&name_token).to_string(),
-                        span: Span::new(name_token.span.start, ty.span.end),
-                        ty,
-                    });
-                    if self.eat(TokenKind::Comma).is_none() {
-                        break;
+            if self.type_can_start() {
+                let checkpoint_before_key = self.tokens.checkpoint();
+                let errors_before_key = self.errors.len();
+                if let Some(key_ty) = self.parse_type() {
+                    if self.eat(TokenKind::Eq).is_some() {
+                        let key_start = key_ty.span.start;
+                        let Some(ty) = self.parse_type() else {
+                            self.error_here("expected associated type binding value");
+                            break;
+                        };
+                        let key = match &key_ty.kind {
+                            TypeKind::Path { segments } if segments.len() == 1 => {
+                                AssocBindingKey::Name(segments[0].name.clone())
+                            }
+                            TypeKind::Projection { .. } => AssocBindingKey::Projection(key_ty),
+                            _ => {
+                                self.error_at(
+                                    key_ty.span,
+                                    "associated type binding key must be a name or projection",
+                                );
+                                AssocBindingKey::Projection(key_ty)
+                            }
+                        };
+                        args.push(TypeArg::AssocBinding {
+                            key,
+                            span: Span::new(key_start, ty.span.end),
+                            ty,
+                        });
+                        if self.eat(TokenKind::Comma).is_none() {
+                            break;
+                        }
+                        continue;
                     }
-                    continue;
                 }
-                self.tokens.rewind(checkpoint);
+                self.tokens.rewind(checkpoint_before_key);
+                self.errors.truncate(errors_before_key);
             }
             if let Some(ty) = self.parse_type() {
                 args.push(TypeArg::Type(ty));

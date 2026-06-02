@@ -331,7 +331,10 @@ where T: Mapper[A, B, C = i32, D = bool] {
     assert_eq!(segments[0].args.len(), 2);
     assert!(matches!(
         segments[0].args[1],
-        TypeArg::AssocBinding { ref name, .. } if name == "Output"
+        TypeArg::AssocBinding {
+            key: nia_ast::AssocBindingKey::Name(ref name),
+            ..
+        } if name == "Output"
     ));
     let ItemKind::Function(mapped) = &module.items[3].kind else {
         panic!("expected function");
@@ -343,11 +346,17 @@ where T: Mapper[A, B, C = i32, D = bool] {
     assert_eq!(segments[0].args.len(), 4);
     assert!(matches!(
         segments[0].args[2],
-        TypeArg::AssocBinding { ref name, .. } if name == "C"
+        TypeArg::AssocBinding {
+            key: nia_ast::AssocBindingKey::Name(ref name),
+            ..
+        } if name == "C"
     ));
     assert!(matches!(
         segments[0].args[3],
-        TypeArg::AssocBinding { ref name, .. } if name == "D"
+        TypeArg::AssocBinding {
+            key: nia_ast::AssocBindingKey::Name(ref name),
+            ..
+        } if name == "D"
     ));
 }
 

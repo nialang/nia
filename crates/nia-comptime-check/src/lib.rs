@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{Expr, ItemKind, Module};
+use nia_ast::{Expr, ItemKind, Module, TypeRef};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalConstExprId, GlobalDefId, LocalId, ModuleId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, LayoutBuiltin, LocalId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
@@ -36,6 +36,8 @@ pub struct ComptimeInput<'a> {
     pub locals: &'a LocalResolution,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
+    pub type_uses: &'a HashMap<Span, nia_ids::InternedTyId>,
+    pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
     pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
     pub program: ComptimeProgramContext<'a>,
 }
@@ -330,6 +332,48 @@ impl Analyzer<'_> {
             def_id,
         }
     }
+
+    fn ty_for_span(&self, span: Span) -> Option<nia_ids::InternedTyId> {
+        self.input.type_uses.get(&span).copied()
+    }
+
+    fn resolve_layout_builtin_for_ty(
+        &self,
+        span: Span,
+        builtin: LayoutBuiltin,
+        ty: nia_ids::InternedTyId,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let current_lengths = ComptimeCheck {
+            values: self.values.clone(),
+            enum_values: self.enum_values.clone(),
+            array_lengths: self.array_lengths.clone(),
+            diagnostics: Vec::new(),
+        };
+        let array_lengths = |id| current_lengths.array_lengths.get(&id).copied();
+        let layouts = nia_layout::compute_layouts_with_normalized_types(
+            self.input.defs,
+            self.input.interner,
+            self.input.signatures,
+            self.input.normalized,
+            &array_lengths,
+            nia_layout::TargetDataLayout::LP64,
+        );
+        let ty = self.input.normalized.get(&ty).copied().unwrap_or(ty);
+        let Some(layout) = layouts.types.get(&ty) else {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "cannot compute layout for comptime builtin `@{}`",
+                    builtin.name()
+                ),
+            });
+        };
+        let value = match builtin {
+            LayoutBuiltin::Size => layout.size,
+            LayoutBuiltin::Align => layout.align,
+        };
+        Ok(ComptimeValue::Int(value as i128))
+    }
 }
 
 impl ComptimeEnv for Analyzer<'_> {
@@ -348,6 +392,24 @@ impl ComptimeEnv for Analyzer<'_> {
             span,
             message: format!("failed to evaluate comptime value `{name}`"),
         })
+    }
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        builtin: LayoutBuiltin,
+        ty: &TypeRef,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let Some(ty_id) = self.ty_for_span(ty.span) else {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "cannot resolve type argument for comptime builtin `@{}`",
+                    builtin.name()
+                ),
+            });
+        };
+        self.resolve_layout_builtin_for_ty(span, builtin, ty_id)
     }
 }
 

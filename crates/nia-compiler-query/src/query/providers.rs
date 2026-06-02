@@ -401,6 +401,8 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
         locals: &locals,
         signatures: &item_signatures,
         interner: &type_normalization.interner,
+        type_uses: &type_lowering.type_uses,
+        normalized: &type_normalization.normalized,
         const_exprs: &type_lowering.const_exprs,
         program: nia_comptime_check::ComptimeProgramContext {
             modules: Some(&program_modules),
@@ -426,17 +428,21 @@ pub(super) fn provide_layouts(
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     let comptime = db.query(ComptimeQuery(module_id));
     let layout_query = |module_id| Some(db.query(LayoutsQuery(module_id)));
-    let comptime_query = |module_id| Some(db.query(ComptimeQuery(module_id)));
+    let local_array_lengths = |id| comptime.array_lengths.get(&id).copied();
+    let program_array_lengths = |id: nia_ids::GlobalConstExprId| {
+        Some(db.query(ComptimeQuery(id.module_id)))
+            .and_then(|comptime| comptime.array_lengths.get(&id).copied())
+    };
     nia_layout::compute_layouts_with_program_context(
         &defs,
         &type_normalization.interner,
         &item_signatures,
         &type_normalization.normalized,
-        &comptime,
+        &local_array_lengths,
         nia_layout::TargetDataLayout::LP64,
         nia_layout::ProgramLayoutContext {
             layouts: Some(&layout_query),
-            comptimes: Some(&comptime_query),
+            array_lengths: Some(&program_array_lengths),
         },
     )
 }

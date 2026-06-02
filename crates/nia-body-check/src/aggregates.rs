@@ -2,11 +2,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
-use nia_ast::{Expr, ExprKind};
+use nia_ast::{Expr, ExprKind, TypeRef};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyKind};
@@ -640,6 +640,29 @@ impl ComptimeEnv for BodyChecker<'_> {
             span,
             message: format!("comptime expression can only use comptime bindings: `{name}`"),
         })
+    }
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        builtin: LayoutBuiltin,
+        ty: &TypeRef,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let ty_id = self.ty_for_span(ty.span);
+        let Some(layout) = self.layout_of(ty_id) else {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "cannot compute layout for comptime builtin `@{}`",
+                    builtin.name()
+                ),
+            });
+        };
+        let value = match builtin {
+            LayoutBuiltin::Size => layout.size,
+            LayoutBuiltin::Align => layout.align,
+        };
+        Ok(ComptimeValue::Int(value as i128))
     }
 }
 

@@ -87,6 +87,31 @@ pub comptime width: usize = 4;
 }
 
 #[test]
+fn layout_builtins_are_comptime_values_for_concrete_types() {
+    let root = temp_dir("layout_builtins_are_comptime_values_for_concrete_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair {
+    a: u8,
+    b: i32,
+}
+
+comptime pair_size: usize = @size[Pair]();
+comptime pair_align: usize = @align[Pair]();
+
+fn main() i32 {
+    var bytes: [pair_size]u8 = [0; pair_size];
+    bytes.len() as i32 + pair_align as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_struct_field_array_length_accepts_literal_repeat_count() {
     let root = temp_dir("imported_struct_field_array_length_accepts_literal_repeat_count");
     write(

@@ -9,7 +9,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{mangle_base_symbol, mangle_type_with, sanitize_symbol_part};
 use nia_span::Span;
-use nia_ty::{TyInterner, TyKind};
+use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Monomorphization {
@@ -424,11 +424,15 @@ impl MonoCollector<'_> {
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .iter()
-                    .map(|(name, ty)| {
-                        (
-                            name.clone(),
-                            self.instantiate_ty(module_id, *ty, substitutions),
-                        )
+                    .map(|binding| AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .iter()
+                            .map(|arg| self.instantiate_ty(module_id, *arg, substitutions))
+                            .collect(),
+                        name: binding.name.clone(),
+                        ty: self.instantiate_ty(module_id, binding.ty, substitutions),
                     })
                     .collect();
                 self.intern_working_ty(

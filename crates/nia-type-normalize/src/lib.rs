@@ -119,7 +119,16 @@ impl<'a> TypeNormalizer<'a> {
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
-                    .map(|(name, ty)| (name, self.normalize_ty(ty, stack)))
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.normalize_ty(arg, stack))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_ty(binding.ty, stack),
+                    })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_const,
@@ -267,11 +276,17 @@ impl<'a> TypeNormalizer<'a> {
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
-                    .map(|(name, ty)| {
-                        (
-                            name,
-                            self.normalize_ty_with_substitutions(ty, substitutions, stack),
-                        )
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| {
+                                self.normalize_ty_with_substitutions(arg, substitutions, stack)
+                            })
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_ty_with_substitutions(binding.ty, substitutions, stack),
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {

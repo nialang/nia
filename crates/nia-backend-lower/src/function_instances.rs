@@ -524,9 +524,13 @@ pub(crate) fn contains_generic_param(
             trait_args
                 .iter()
                 .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
-                || associated_type_bindings
-                    .iter()
-                    .any(|(_, ty)| contains_generic_param(*ty, ty_kind, cache.as_deref_mut()))
+                || associated_type_bindings.iter().any(|binding| {
+                    binding
+                        .trait_args
+                        .iter()
+                        .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
+                        || contains_generic_param(binding.ty, ty_kind, cache.as_deref_mut())
+                })
         }
         Some(TyKind::Projection {
             self_ty,

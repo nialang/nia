@@ -108,6 +108,181 @@ fn main() i32 {
 }
 
 #[test]
+fn trait_object_methods_may_return_bound_associated_types() {
+    let root = temp_dir("trait_object_methods_may_return_bound_associated_types");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+
+    fn get(&const self) [Self as Source]::Item;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    type Item = i32;
+
+    fn get(&const self) i32 {
+        self.value
+    }
+}
+
+fn read(source: &const Source[Item = i32]) i32 {
+    source.get()
+}
+
+fn main() i32 {
+    var counter: Counter = { value: 42 };
+    read(&const counter)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        module
+            .body_check
+            .ir
+            .function_bodies
+            .values()
+            .any(body_contains_dynamic_trait_callee)
+    }));
+}
+
+#[test]
+fn trait_object_upcast_matches_explicit_supertrait_associated_type_bindings() {
+    let root = temp_dir("trait_object_upcast_matches_explicit_supertrait_associated_type_bindings");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait FatherA {
+    type Item;
+
+    fn a(&const self) [Self as FatherA]::Item;
+}
+
+trait FatherB {
+    type Item;
+
+    fn b(&const self) [Self as FatherB]::Item;
+}
+
+trait Child : FatherA + FatherB {
+    fn child(&const self) i32;
+}
+
+struct Both {
+    value: i32,
+}
+
+extend Both : FatherA {
+    type Item = i32;
+
+    fn a(&const self) i32 {
+        self.value
+    }
+}
+
+extend Both : FatherB {
+    type Item = usize;
+
+    fn b(&const self) usize {
+        1usize
+    }
+}
+
+extend Both : Child {
+    fn child(&const self) i32 {
+        self.value + 1
+    }
+}
+
+fn read_a(parent: &const FatherA[Item = i32]) i32 {
+    parent.a()
+}
+
+fn read_b(parent: &const FatherB[Item = usize]) usize {
+    parent.b()
+}
+
+fn from_child(child: &const Child[
+    [Self as FatherA]::Item = i32,
+    [Self as FatherB]::Item = usize,
+]) i32 {
+    read_a(child) + read_b(child) as i32
+}
+
+fn main() i32 {
+    var both: Both = { value: 41 };
+    from_child(&const both)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        module.body_check.ir.trait_object_upcasts.len() >= 2
+            && module
+                .body_check
+                .ir
+                .function_bodies
+                .values()
+                .any(body_contains_dynamic_trait_callee)
+    }));
+}
+
+#[test]
+fn trait_object_upcast_rejects_unbound_supertrait_associated_type_fakeref() {
+    let root = temp_dir("trait_object_upcast_rejects_unbound_supertrait_associated_type_fakeref");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait FatherA {
+    type Item;
+
+    fn a(&const self) [Self as FatherA]::Item;
+}
+
+trait FatherB {
+    type Item;
+
+    fn b(&const self) [Self as FatherB]::Item;
+}
+
+trait Child : FatherA + FatherB {
+    fn child(&const self) i32;
+}
+
+fn read_b(parent: &const FatherB[Item = usize]) usize {
+    parent.b()
+}
+
+fn forged(child: &const Child[[Self as FatherA]::Item = i32]) usize {
+    read_b(child)
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn trait_object_rejects_non_receiver_methods() {
     let root = temp_dir("trait_object_rejects_non_receiver_methods");
     write(

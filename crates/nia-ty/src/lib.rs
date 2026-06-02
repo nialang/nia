@@ -41,7 +41,7 @@ pub enum TyKind {
         is_const: bool,
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
-        associated_type_bindings: Vec<(String, InternedTyId)>,
+        associated_type_bindings: Vec<AssociatedTypeBindingTy>,
     },
     Projection {
         self_ty: InternedTyId,
@@ -50,6 +50,14 @@ pub enum TyKind {
         name: String,
     },
     GenericParam(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AssociatedTypeBindingTy {
+    pub trait_id: Option<TraitId>,
+    pub trait_args: Vec<InternedTyId>,
+    pub name: String,
+    pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -269,7 +277,16 @@ pub fn import_type_into(
                 .collect();
             let associated_type_bindings = associated_type_bindings
                 .iter()
-                .map(|(name, ty)| (name.clone(), import_type_into(target, source, *ty)))
+                .map(|binding| AssociatedTypeBindingTy {
+                    trait_id: binding.trait_id,
+                    trait_args: binding
+                        .trait_args
+                        .iter()
+                        .map(|arg| import_type_into(target, source, *arg))
+                        .collect(),
+                    name: binding.name.clone(),
+                    ty: import_type_into(target, source, binding.ty),
+                })
                 .collect();
             target.intern(TyKind::TraitObject {
                 is_const: *is_const,

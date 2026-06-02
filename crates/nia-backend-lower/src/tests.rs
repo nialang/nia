@@ -58,6 +58,8 @@ fn main() i32 {
         locals: &locals,
         signatures: &signatures,
         interner: &normalization.interner,
+        type_uses: &type_lowering.type_uses,
+        normalized: &normalization.normalized,
         const_exprs: &type_lowering.const_exprs,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
@@ -66,7 +68,7 @@ fn main() i32 {
         &normalization.interner,
         &signatures,
         &normalization.normalized,
-        &comptime,
+        &|id| comptime.array_lengths.get(&id).copied(),
         nia_layout::TargetDataLayout::LP64,
     );
     let _abi = check_module_abi(&defs, &type_lowering.interner, &signatures);
@@ -4262,6 +4264,8 @@ fn lower_source_with_body_check_mutation_and_optimization(
         locals: &locals,
         signatures: &signatures,
         interner: &normalization.interner,
+        type_uses: &type_lowering.type_uses,
+        normalized: &normalization.normalized,
         const_exprs: &type_lowering.const_exprs,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
@@ -4270,7 +4274,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         &normalization.interner,
         &signatures,
         &normalization.normalized,
-        &comptime,
+        &|id| comptime.array_lengths.get(&id).copied(),
         nia_layout::TargetDataLayout::LP64,
     );
     let mut extensions = VisibleExtensionMethods::default();

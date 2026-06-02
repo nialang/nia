@@ -4,6 +4,7 @@ use super::*;
 struct DynamicTraitMethodSearch<'a> {
     candidates: &'a mut Vec<DynamicTraitMethodCandidate>,
     object_ty: InternedTyId,
+    associated_type_bindings: Vec<nia_ty::AssociatedTypeBindingTy>,
     name: &'a str,
     // Vtable slots are assigned by walking the object trait and its
     // supertraits in declaration order. This counter must be shared across the
@@ -161,12 +162,18 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::TraitObject {
             trait_id,
             trait_args,
+            associated_type_bindings,
             ..
         }) = self.interner.get(receiver_ty).cloned()
         else {
             return Vec::new();
         };
-        if !self.is_object_safe_trait_object(Span::new(0, 0), trait_id, &trait_args) {
+        if !self.is_object_safe_trait_object(
+            Span::new(0, 0),
+            trait_id,
+            &trait_args,
+            &associated_type_bindings,
+        ) {
             return Vec::new();
         }
         let mut candidates = Vec::new();
@@ -176,6 +183,7 @@ impl<'a> BodyChecker<'a> {
             &mut DynamicTraitMethodSearch {
                 candidates: &mut candidates,
                 object_ty: receiver_ty,
+                associated_type_bindings,
                 name,
                 next_slot: &mut next_slot,
                 visiting: &mut visiting,
@@ -219,6 +227,7 @@ impl<'a> BodyChecker<'a> {
                 },
                 trait_generics: trait_signature.generics.clone(),
                 trait_args: trait_args.clone(),
+                associated_type_bindings: search.associated_type_bindings.clone(),
                 signature: method.signature.clone(),
                 slot,
             });
@@ -534,14 +543,30 @@ impl<'a> BodyChecker<'a> {
                         .all(|(general, specific)| {
                             self.pattern_subsumes_inner(*general, *specific, substitutions)
                         })
-                        && general_bindings.iter().all(|(general_name, general_ty)| {
+                        && general_bindings.iter().all(|general_binding| {
                             specific_bindings
                                 .iter()
-                                .find(|(specific_name, _)| specific_name == general_name)
-                                .is_some_and(|(_, specific_ty)| {
+                                .find(|specific_binding| {
+                                    general_binding.name == specific_binding.name
+                                        && general_binding.trait_id == specific_binding.trait_id
+                                        && general_binding.trait_args.len()
+                                            == specific_binding.trait_args.len()
+                                        && general_binding
+                                            .trait_args
+                                            .iter()
+                                            .zip(&specific_binding.trait_args)
+                                            .all(|(general, specific)| {
+                                                self.pattern_subsumes_inner(
+                                                    *general,
+                                                    *specific,
+                                                    substitutions,
+                                                )
+                                            })
+                                })
+                                .is_some_and(|specific_binding| {
                                     self.pattern_subsumes_inner(
-                                        *general_ty,
-                                        *specific_ty,
+                                        general_binding.ty,
+                                        specific_binding.ty,
                                         substitutions,
                                     )
                                 })
@@ -809,12 +834,32 @@ impl<'a> BodyChecker<'a> {
                         .all(|(pattern, actual)| {
                             self.match_type_pattern(*pattern, *actual, substitutions)
                         })
-                        && pattern_bindings.iter().all(|(pattern_name, pattern_ty)| {
+                        && pattern_bindings.iter().all(|pattern_binding| {
                             associated_type_bindings
                                 .iter()
-                                .find(|(name, _)| name == pattern_name)
-                                .is_some_and(|(_, actual_ty)| {
-                                    self.match_type_pattern(*pattern_ty, *actual_ty, substitutions)
+                                .find(|actual_binding| {
+                                    pattern_binding.name == actual_binding.name
+                                        && pattern_binding.trait_id == actual_binding.trait_id
+                                        && pattern_binding.trait_args.len()
+                                            == actual_binding.trait_args.len()
+                                        && pattern_binding
+                                            .trait_args
+                                            .iter()
+                                            .zip(&actual_binding.trait_args)
+                                            .all(|(pattern, actual)| {
+                                                self.match_type_pattern(
+                                                    *pattern,
+                                                    *actual,
+                                                    substitutions,
+                                                )
+                                            })
+                                })
+                                .is_some_and(|actual_binding| {
+                                    self.match_type_pattern(
+                                        pattern_binding.ty,
+                                        actual_binding.ty,
+                                        substitutions,
+                                    )
                                 })
                         })
                 }

@@ -191,11 +191,27 @@ where
                 .join("__");
             let assoc_bindings = associated_type_bindings
                 .iter()
-                .map(|(name, ty)| {
+                .map(|binding| {
+                    let trait_part = binding
+                        .trait_id
+                        .map(|trait_id| match trait_id {
+                            TraitId::Source(def_id) => nominal_name(def_id),
+                            TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
+                        })
+                        .unwrap_or_else(|| "self".to_string());
+                    let trait_args = binding
+                        .trait_args
+                        .iter()
+                        .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                        .collect::<Vec<_>>()
+                        .join("__");
                     format!(
-                        "{}__{}",
-                        sanitize_symbol_part(name),
-                        mangle_type_inner(interner, *ty, nominal_name, array_len)
+                        "{}__argc{}__{}__{}__{}",
+                        trait_part,
+                        binding.trait_args.len(),
+                        trait_args,
+                        sanitize_symbol_part(&binding.name),
+                        mangle_type_inner(interner, binding.ty, nominal_name, array_len)
                     )
                 })
                 .collect::<Vec<_>>()

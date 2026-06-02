@@ -43,6 +43,8 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         locals: &locals,
         signatures: &signatures,
         interner: &lowered.interner,
+        type_uses: &lowered.type_uses,
+        normalized: &std::collections::HashMap::new(),
         const_exprs: &lowered.const_exprs,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });

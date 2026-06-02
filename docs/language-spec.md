@@ -16,7 +16,7 @@ Nia provides:
 
 - a small statically typed language for systems programming;
 - direct memory-oriented types: integers, booleans, arrays, pointers, slices,
-  structs, function pointers, and C-style enums;
+  structs, unions, function pointers, and C-style enums;
 - simple type generics for functions, structs, and methods, implemented by
   monomorphization;
 - methods declared in `extend` blocks;
@@ -669,7 +669,60 @@ extern struct CPoint {
 }
 ```
 
-### 4.6 Function Types
+### 4.6 Unions
+
+Union declaration:
+
+```nia
+union Bits {
+    i: i32,
+    f: f32,
+}
+```
+
+Union value construction uses the same aggregate literal syntax as structs, but
+exactly one field must be initialized:
+
+```nia
+var bits: Bits = { i: 42 };
+```
+
+Union field access is explicit:
+
+```nia
+var n = bits.i;
+bits.f = 1.0;
+```
+
+Reading a union field other than the field most recently written is a low-level
+reinterpretation operation. The programmer is responsible for ensuring that the
+active field and access type are meaningful for the target ABI and program
+invariants.
+
+Generic unions are allowed:
+
+```nia
+union Slot[T] {
+    value: T,
+    empty: u8,
+}
+```
+
+Ordinary `union` uses Nia layout rules. `extern union` uses C ABI-visible union
+layout for C interop:
+
+```nia
+extern union CValue {
+    i: i32,
+    f: f32,
+}
+```
+
+Union size is the maximum field size rounded up to the maximum field alignment.
+Every field has offset zero. See `docs/nia-abi.md` for ABI details and C interop
+restrictions.
+
+### 4.7 Function Types
 
 Function declaration:
 
@@ -2020,9 +2073,19 @@ fn use_child(child: &const Child) void {
 ```
 
 The compiler records this as a trait-object upcast, not as a plain bitcast, and
-remaps metadata to the target supertrait's vtable region. This version only
-supports supertrait object upcasts without associated type bindings on either
-object type.
+remaps metadata to the target supertrait's vtable region. When the target
+supertrait object binds associated types, the source object type must carry
+matching bindings. Bindings for non-primary supertraits use explicit projection
+keys:
+
+```nia
+fn use_child(
+    child: &const Child[
+        [Self as FatherA]::Item = i32,
+        [Self as FatherB]::Item = usize,
+    ],
+) void {}
+```
 
 ## 12. Modules
 
@@ -2321,7 +2384,7 @@ A conforming Nia compiler supports:
 - lexing and parsing `.nia` files;
 - source-span diagnostics;
 - primitive type checking;
-- arrays, slices, pointers, structs, C-style enums, and function types;
+- arrays, slices, pointers, structs, unions, C-style enums, and function types;
 - `var`, `const`, and `comptime` bindings;
 - expression blocks and tail expressions;
 - `if` expressions;
@@ -2378,7 +2441,11 @@ remains backend IR or LLVM IR and native emit targets remain file-only.
 
 `emit obj` writes one object per backend codegen unit. `-o` is only valid for a
 single-unit program. Multi-unit output uses `--out-dir`. `emit exe` writes
-temporary objects and invokes the host C linker.
+temporary objects and invokes the host C linker. Native emit commands create
+missing output directories: `emit obj -o build/main.o`, `emit obj --out-dir
+build/obj`, and `emit exe -o build/main` all create `build` or `build/obj` when
+needed. This applies only to compiler output paths, not to input source files or
+module-map paths.
 
 `build` is reserved for an external build system. The current CLI does not
 provide `run`; use `emit exe` and execute the result.

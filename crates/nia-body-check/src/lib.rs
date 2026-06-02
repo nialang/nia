@@ -191,7 +191,7 @@ pub fn check_module_bodies_with_program_signatures(
         &input.normalization.interner,
         input.signatures,
         &input.normalization.normalized,
-        input.comptime,
+        &|id| input.comptime.array_lengths.get(&id).copied(),
         nia_layout::TargetDataLayout::LP64,
     );
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {

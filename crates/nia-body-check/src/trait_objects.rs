@@ -6,7 +6,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
-use nia_ty::{TraitId, TyKind};
+use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};
 
 struct ObjectSafetyCheck<'a> {
     span: Span,
@@ -14,6 +14,9 @@ struct ObjectSafetyCheck<'a> {
     // receiver Self in parameter and return positions after generic
     // substitution, without coupling the check to source spelling.
     self_ty: InternedTyId,
+    object_trait_id: nia_ty::TraitId,
+    object_trait_args: Vec<InternedTyId>,
+    associated_type_bindings: Vec<AssociatedTypeBindingTy>,
     visiting: &'a mut Vec<nia_ids::GlobalDefId>,
     ok: &'a mut bool,
 }
@@ -47,8 +50,12 @@ impl<'a> BodyChecker<'a> {
         };
         if self.types_match(expected, actual)
             || expected_const != actual_const
-            || !expected_bindings.is_empty()
-            || !actual_bindings.is_empty()
+            || !self.trait_object_upcast_bindings_match(
+                expected_trait,
+                &expected_args,
+                &expected_bindings,
+                &actual_bindings,
+            )
             || !self.trait_object_has_supertrait(
                 actual_trait,
                 &actual_args,
@@ -66,6 +73,36 @@ impl<'a> BodyChecker<'a> {
             },
         );
         Some(expected)
+    }
+
+    fn trait_object_upcast_bindings_match(
+        &mut self,
+        target_trait: TraitId,
+        target_args: &[InternedTyId],
+        target_bindings: &[AssociatedTypeBindingTy],
+        source_bindings: &[AssociatedTypeBindingTy],
+    ) -> bool {
+        target_bindings.iter().all(|target_binding| {
+            let effective_target_trait = target_binding.trait_id.unwrap_or(target_trait);
+            let effective_target_args = if target_binding.trait_id.is_some() {
+                &target_binding.trait_args
+            } else {
+                target_args
+            };
+            source_bindings.iter().any(|source_binding| {
+                source_binding.name == target_binding.name
+                    && source_binding.trait_id.unwrap_or(target_trait) == effective_target_trait
+                    && self.trait_args_match(
+                        if source_binding.trait_id.is_some() {
+                            &source_binding.trait_args
+                        } else {
+                            target_args
+                        },
+                        effective_target_args,
+                    )
+                    && self.types_match(source_binding.ty, target_binding.ty)
+            })
+        })
     }
 
     pub(crate) fn coerce_pointer_to_trait_object(
@@ -95,7 +132,12 @@ impl<'a> BodyChecker<'a> {
         if !expected_const && actual_const {
             return None;
         }
-        if !self.is_object_safe_trait_object(expr.span, trait_id, &trait_args) {
+        if !self.is_object_safe_trait_object(
+            expr.span,
+            trait_id,
+            &trait_args,
+            &associated_type_bindings,
+        ) {
             return None;
         }
         if !self.trait_object_bindings_match_impl(
@@ -132,7 +174,7 @@ impl<'a> BodyChecker<'a> {
         self_ty: InternedTyId,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
-        associated_type_bindings: &[(String, InternedTyId)],
+        associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
         let assumptions = self.current_trait_goals();
         let context = TraitSolverContext {
@@ -154,9 +196,20 @@ impl<'a> BodyChecker<'a> {
         if !proven {
             return false;
         }
-        associated_type_bindings.iter().all(|(name, expected)| {
-            self.resolve_associated_type_projection(self_ty, trait_id, trait_args, name)
-                .is_some_and(|actual| self.types_match(actual, *expected))
+        associated_type_bindings.iter().all(|binding| {
+            let binding_trait_id = binding.trait_id.unwrap_or(trait_id);
+            let binding_trait_args = if binding.trait_id.is_some() {
+                &binding.trait_args
+            } else {
+                trait_args
+            };
+            self.resolve_associated_type_projection(
+                self_ty,
+                binding_trait_id,
+                binding_trait_args,
+                &binding.name,
+            )
+            .is_some_and(|actual| self.types_match(actual, binding.ty))
         })
     }
 
@@ -165,6 +218,7 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         trait_id: nia_ty::TraitId,
         trait_args: &[InternedTyId],
+        associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
         let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
             self.diagnostics.push(Diagnostic::error(
@@ -189,6 +243,9 @@ impl<'a> BodyChecker<'a> {
             &mut ObjectSafetyCheck {
                 span,
                 self_ty,
+                object_trait_id: trait_id,
+                object_trait_args: trait_args.to_vec(),
+                associated_type_bindings: associated_type_bindings.to_vec(),
                 visiting: &mut visiting,
                 ok: &mut ok,
             },
@@ -232,12 +289,20 @@ impl<'a> BodyChecker<'a> {
                 associated_type_bindings,
                 ..
             }) => {
-                self.is_object_safe_trait_object(span, trait_id, &trait_args);
+                self.is_object_safe_trait_object(
+                    span,
+                    trait_id,
+                    &trait_args,
+                    &associated_type_bindings,
+                );
                 for arg in trait_args {
                     self.check_object_safe_type(span, arg);
                 }
-                for (_, ty) in associated_type_bindings {
-                    self.check_object_safe_type(span, ty);
+                for binding in associated_type_bindings {
+                    for arg in binding.trait_args {
+                        self.check_object_safe_type(span, arg);
+                    }
+                    self.check_object_safe_type(span, binding.ty);
                 }
             }
             Some(TyKind::Projection {
@@ -312,6 +377,7 @@ impl<'a> BodyChecker<'a> {
             let substitutions = self.generic_substitutions(&trait_signature.generics, trait_args);
             for param in method.signature.params.iter().skip(1) {
                 let ty = self.substitute_generics(param.ty, &substitutions);
+                let ty = self.object_safe_ty(check, ty);
                 if self.type_mentions_self(ty, check.self_ty) {
                     self.diagnostics.push(Diagnostic::error(
                         check.span,
@@ -326,6 +392,7 @@ impl<'a> BodyChecker<'a> {
             }
             let return_type =
                 self.substitute_generics(method.signature.return_type, &substitutions);
+            let return_type = self.object_safe_ty(check, return_type);
             if self.type_mentions_self(return_type, check.self_ty) {
                 self.diagnostics.push(Diagnostic::error(
                     check.span,
@@ -364,6 +431,137 @@ impl<'a> BodyChecker<'a> {
         check.visiting.pop();
     }
 
+    fn object_safe_ty(&mut self, check: &ObjectSafetyCheck<'_>, ty: InternedTyId) -> InternedTyId {
+        let ty = self.normalization.normalize(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) if self_ty == check.self_ty => check
+                .associated_type_bindings
+                .iter()
+                .find_map(|binding| {
+                    let binding_trait_id = binding.trait_id.unwrap_or(check.object_trait_id);
+                    let binding_trait_args = if binding.trait_id.is_some() {
+                        &binding.trait_args
+                    } else {
+                        &check.object_trait_args
+                    };
+                    (binding.name == name
+                        && binding_trait_id == trait_id
+                        && self.trait_args_match(binding_trait_args, &trait_args))
+                    .then_some(binding.ty)
+                })
+                .unwrap_or(ty),
+            Some(TyKind::Pointer { is_const, elem }) => {
+                let elem = self.object_safe_ty(check, elem);
+                self.interner.intern(TyKind::Pointer { is_const, elem })
+            }
+            Some(TyKind::Slice { is_const, elem }) => {
+                let elem = self.object_safe_ty(check, elem);
+                self.interner.intern(TyKind::Slice { is_const, elem })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let elem = self.object_safe_ty(check, elem);
+                self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.object_safe_ty(check, bound));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.object_safe_ty(check, param))
+                    .collect();
+                let return_type = self.object_safe_ty(check, return_type);
+                self.interner.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.object_safe_ty(check, arg))
+                    .collect();
+                self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.object_safe_ty(check, arg))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_const,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.object_safe_ty(check, arg))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.object_safe_ty(check, arg))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.object_safe_ty(check, binding.ty),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_const,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.object_safe_ty(check, self_ty);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.object_safe_ty(check, arg))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
+            }
+            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+        }
+    }
+
+    fn trait_args_match(&mut self, left: &[InternedTyId], right: &[InternedTyId]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(left, right)| self.types_match(*left, *right))
+    }
+
     fn type_mentions_self(&mut self, ty: InternedTyId, self_ty: InternedTyId) -> bool {
         let ty = self.normalization.normalize(ty);
         if ty == self_ty {
@@ -400,7 +598,7 @@ impl<'a> BodyChecker<'a> {
                     .any(|arg| self.type_mentions_self(arg, self_ty))
                     || associated_type_bindings
                         .into_iter()
-                        .any(|(_, ty)| self.type_mentions_self(ty, self_ty))
+                        .any(|binding| self.type_mentions_self(binding.ty, self_ty))
             }
             Some(TyKind::Projection {
                 self_ty: projection_self,

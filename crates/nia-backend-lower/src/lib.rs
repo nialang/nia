@@ -396,7 +396,7 @@ impl<'a> ModuleLowerer<'a> {
             &self.interner,
             self.input.signatures,
             &self.input.type_normalization.normalized,
-            self.input.comptime,
+            &|id| self.input.comptime.array_lengths.get(&id).copied(),
             self.input.layouts.target,
         );
         append_missing_layout_instances(

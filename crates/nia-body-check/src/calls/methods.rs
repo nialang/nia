@@ -45,6 +45,7 @@ pub(super) struct DynamicTraitMethodCandidate {
     pub(super) method_id: GlobalDefId,
     pub(super) trait_generics: Vec<String>,
     pub(super) trait_args: Vec<InternedTyId>,
+    pub(super) associated_type_bindings: Vec<nia_ty::AssociatedTypeBindingTy>,
     pub(super) signature: FunctionSignature,
     pub(super) slot: usize,
 }

@@ -325,6 +325,83 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_trait_object_upcast_to_second_supertrait_with_assoc_bindings() {
+    let root = temp_dir("emits_trait_object_upcast_to_second_supertrait_with_assoc_bindings");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait FatherA {
+    type Item;
+
+    fn a(&const self) [Self as FatherA]::Item;
+}
+
+trait FatherB {
+    type Item;
+
+    fn b(&const self) [Self as FatherB]::Item;
+}
+
+trait Child : FatherA + FatherB {
+    fn child(&const self) i32;
+}
+
+struct Both {
+    value: i32,
+}
+
+extend Both : FatherA {
+    type Item = i32;
+
+    fn a(&const self) i32 {
+        self.value
+    }
+}
+
+extend Both : FatherB {
+    type Item = usize;
+
+    fn b(&const self) usize {
+        2usize
+    }
+}
+
+extend Both : Child {
+    fn child(&const self) i32 {
+        self.value
+    }
+}
+
+fn as_b(child: &const Child[
+    [Self as FatherA]::Item = i32,
+    [Self as FatherB]::Item = usize,
+]) &const FatherB[Item = usize] {
+    child
+}
+
+fn main() usize {
+    var both: Both = { value: 8 };
+    var child: &const Child[
+        [Self as FatherA]::Item = i32,
+        [Self as FatherB]::Item = usize,
+    ] = &const both;
+    as_b(child).b()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("traitobj.upcast.metadata.offset"), "{ir}");
+    assert!(ir.contains("vtable.fn"), "{ir}");
+}
+
+#[test]
 fn emits_trait_bound_generic_method_calls() {
     let root = temp_dir("emits_trait_bound_generic_method_calls");
     let main = root.join("main.nia");
