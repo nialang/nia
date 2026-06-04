@@ -27,6 +27,7 @@ pub struct BodyFacts {
     pub comptime_if_selections: HashMap<Span, ComptimeIfSelection>,
     pub builtin_values: HashMap<Span, BuiltinValue>,
     pub array_repeat_counts: HashMap<Span, u64>,
+    pub switch_pattern_values: HashMap<Span, i128>,
     pub resolved_calls: HashMap<Span, ResolvedCall>,
     pub function_references: HashMap<Span, FunctionReference>,
     pub generic_instantiations: Vec<GenericInstantiation>,

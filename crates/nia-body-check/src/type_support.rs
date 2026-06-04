@@ -714,6 +714,7 @@ impl<'a> BodyChecker<'a> {
             trait_object_upcasts: HashMap::new(),
             builtin_values: HashMap::new(),
             array_repeat_counts: HashMap::new(),
+            switch_pattern_values: HashMap::new(),
             resolved_calls: HashMap::new(),
             function_references: HashMap::new(),
             node_expr_types: HashMap::new(),

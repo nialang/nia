@@ -283,6 +283,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         trait_object_upcasts: HashMap::new(),
         builtin_values: HashMap::new(),
         array_repeat_counts: HashMap::new(),
+        switch_pattern_values: HashMap::new(),
         resolved_calls: HashMap::new(),
         function_references: HashMap::new(),
         node_expr_types: HashMap::new(),
@@ -327,6 +328,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             comptime_if_selections: checker.comptime_if_selections,
             builtin_values: checker.builtin_values,
             array_repeat_counts: checker.array_repeat_counts,
+            switch_pattern_values: checker.switch_pattern_values,
             resolved_calls: checker.resolved_calls,
             function_references: checker.function_references,
             generic_instantiations: checker.generic_instantiations,
@@ -379,6 +381,7 @@ struct BodyChecker<'a> {
     trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     builtin_values: HashMap<Span, BuiltinValue>,
     array_repeat_counts: HashMap<Span, u64>,
+    switch_pattern_values: HashMap<Span, i128>,
     resolved_calls: HashMap<Span, ResolvedCall>,
     function_references: HashMap<Span, FunctionReference>,
     node_expr_types: HashMap<NodeKey, InternedTyId>,
@@ -1430,24 +1433,27 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn switch_pattern_int_value(&mut self, expr: &Expr) -> Option<i128> {
-        if let ExprKind::Bool(value) = expr.kind {
-            return Some(if value { 1 } else { 0 });
-        }
-        match self
-            .with_comptime_context(|this| {
-                let expr = this.lower_comptime_expr(expr).map_err(|err| {
-                    nia_comptime_engine::ComptimeError {
-                        span: err.span,
-                        message: err.message,
-                    }
-                })?;
-                nia_comptime_engine::eval_comptime_expr(&expr, this)
-            })
-            .ok()?
-        {
-            nia_comptime_engine::ComptimeValue::Int(value) => Some(value),
-            _ => None,
-        }
+        let value = if let ExprKind::Bool(value) = expr.kind {
+            if value { 1 } else { 0 }
+        } else {
+            match self
+                .with_comptime_context(|this| {
+                    let expr = this.lower_comptime_expr(expr).map_err(|err| {
+                        nia_comptime_engine::ComptimeError {
+                            span: err.span,
+                            message: err.message,
+                        }
+                    })?;
+                    nia_comptime_engine::eval_comptime_expr(&expr, this)
+                })
+                .ok()?
+            {
+                nia_comptime_engine::ComptimeValue::Int(value) => value,
+                _ => return None,
+            }
+        };
+        self.switch_pattern_values.insert(expr.span, value);
+        Some(value)
     }
 
     fn check_switch_interval_overlap(
