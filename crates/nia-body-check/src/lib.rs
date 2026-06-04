@@ -68,11 +68,19 @@ pub struct ProgramComptimeMaps<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct BodyProgramContext<'a> {
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
+    pub type_normalizations: Option<&'a HashMap<ModuleId, TypeNormalization>>,
+    pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
     pub fn empty() -> Self {
-        Self { defs: None }
+        Self {
+            defs: None,
+            type_lowerings: None,
+            type_normalizations: None,
+            signatures: None,
+        }
     }
 }
 

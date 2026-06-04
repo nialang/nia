@@ -681,11 +681,14 @@ may execute lowered `nia-comptime-ir` expressions while checking body-local
 comptime-call instantiation is delegated back to `nia-comptime-check`'s typed
 query surface. Body checking provides a typed comptime frame containing local
 binding value types, name aliases, active comptime function type substitutions,
-and the current target; the comptime checker uses that frame with the same
-typed expression inference used for top-level comptime values. This lets
-function-local structural comptime values, imported `comptime fn` calls, and
-ordinary `@builtin()` field values infer generic arguments without growing a
-second type-inference implementation in body checking.
+the current target, and the same program-level type lowering, normalization,
+signature, definition, and comptime-module context available to top-level
+comptime checking. The comptime checker uses that frame and program context
+with the same typed expression inference used for top-level comptime values.
+This lets function-local structural comptime values, imported `comptime fn`
+calls, imported structural comptime fields, and ordinary `@builtin()` field
+values infer generic arguments without growing a second type-inference
+implementation in body checking.
 
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
