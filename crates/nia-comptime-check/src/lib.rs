@@ -1780,6 +1780,9 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeExprKind::ByteChar(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::U8),
             )),
+            nia_comptime_engine::ComptimeExprKind::String(literal) => {
+                self.comptime_string_literal_type(literal)
+            }
             nia_comptime_engine::ComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),
@@ -2763,6 +2766,24 @@ impl Analyzer<'_> {
         self.source_interner_for_module(self.current_execution_module_id())
             .unwrap_or(self.input.interner)
             .primitive(primitive)
+    }
+
+    fn comptime_string_literal_type(
+        &mut self,
+        literal: &nia_ast::StringLiteral,
+    ) -> Option<ComptimeValueType> {
+        let len = nia_comptime_engine::eval_string_literal(literal)?
+            .chars()
+            .count() as u64;
+        self.comptime_runtime_type(
+            self.current_runtime_primitive_type(PrimitiveTy::Char),
+            |elem| TyKind::Array {
+                len: ArrayLenTy::ConstValue(len),
+                elem,
+            },
+            self.current_execution_module_id(),
+        )
+        .map(ComptimeValueType::Runtime)
     }
 
     fn is_integer_runtime_type(&self, ty: InternedTyId) -> bool {

@@ -273,7 +273,7 @@ fn eval_comptime_expr_flow(
         match &expr.kind {
             ComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
             ComptimeExprKind::Null => ComptimeValue::Optional(None),
-            ComptimeExprKind::String(literal) => literal_string(literal)
+            ComptimeExprKind::String(literal) => eval_string_literal(literal)
                 .map(ComptimeValue::String)
                 .ok_or_else(|| ComptimeError {
                     span: expr.span,
@@ -1784,7 +1784,7 @@ fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
     }
 }
 
-fn literal_string(literal: &nia_ast::StringLiteral) -> Option<String> {
+pub fn eval_string_literal(literal: &nia_ast::StringLiteral) -> Option<String> {
     if literal.parts.len() != 1 {
         return None;
     }
