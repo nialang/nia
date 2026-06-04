@@ -278,6 +278,11 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.check_object_safe_type(span, return_type);
             }
+            Some(TyKind::Optional { elem }) => self.check_object_safe_type(span, elem),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.check_object_safe_type(span, error);
+                self.check_object_safe_type(span, value);
+            }
             Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => {
                 for arg in args {
                     self.check_object_safe_type(span, arg);
@@ -487,6 +492,15 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.object_safe_ty(check, elem);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.object_safe_ty(check, error);
+                let value = self.object_safe_ty(check, value);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
             Some(TyKind::Nominal { def_id, args }) => {
                 let args = args
                     .into_iter()
@@ -584,6 +598,10 @@ impl<'a> BodyChecker<'a> {
                     .into_iter()
                     .any(|param| self.type_mentions_self(param, self_ty))
                     || self.type_mentions_self(return_type, self_ty)
+            }
+            Some(TyKind::Optional { elem }) => self.type_mentions_self(elem, self_ty),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.type_mentions_self(error, self_ty) || self.type_mentions_self(value, self_ty)
             }
             Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
                 .into_iter()

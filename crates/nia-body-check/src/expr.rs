@@ -42,6 +42,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Char(_) => self.primitive(PrimitiveTy::Char),
             ExprKind::ByteChar(_) => self.primitive(PrimitiveTy::U8),
             ExprKind::Bool(_) => self.bool(),
+            ExprKind::Null => self.check_null_expr(expr.span, expected),
             ExprKind::Underscore => self.error(),
             ExprKind::Ident(_) => self.ident_type(expr.span),
             ExprKind::Builtin { name, type_arg } => self.check_builtin(expr.span, name, type_arg),
@@ -146,6 +147,12 @@ impl<'a> BodyChecker<'a> {
                     UnaryOp::Deref => self.deref_result_type(expr.span, inner_ty),
                 }
             }
+            ExprKind::OptionalSome { expr: inner } => {
+                self.check_optional_some_expr(inner, expected)
+            }
+            ExprKind::ErrorOk { expr: inner } => self.check_error_ok_expr(inner, expected),
+            ExprKind::ErrorErr { expr: inner } => self.check_error_err_expr(inner, expected),
+            ExprKind::Try { expr: inner } => self.check_try_expr(expr.span, inner),
             ExprKind::Binary { lhs, op, rhs } => {
                 self.check_binary_expr(expr.span, lhs, *op, rhs, expected)
             }
@@ -234,6 +241,12 @@ impl<'a> BodyChecker<'a> {
                 then_branch,
                 else_branch,
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
+            ExprKind::ComptimeIf(comptime_if) => self.check_if_expr(
+                &comptime_if.cond,
+                &comptime_if.then_branch,
+                comptime_if.else_branch.as_deref(),
+                expected,
+            ),
             ExprKind::Switch(switch) => self.check_switch_expr(switch, expected),
         };
         let ty = if let Some(expected) = expected {
@@ -248,6 +261,139 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_expr_type(expr.span, ty);
         ty
+    }
+
+    fn check_null_expr(&mut self, span: Span, expected: Option<InternedTyId>) -> InternedTyId {
+        let Some(expected) = expected.map(|ty| self.normalization.normalize(ty)) else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "`null` requires an expected optional type",
+            ));
+            return self.error();
+        };
+        if matches!(self.interner.get(expected), Some(TyKind::Optional { .. })) {
+            expected
+        } else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "`null` requires an optional type, found `{}`",
+                    self.ty_name(expected)
+                ),
+            ));
+            self.error()
+        }
+    }
+
+    fn check_optional_some_expr(
+        &mut self,
+        inner: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let expected_elem = expected.and_then(|expected| match self.interner.get(expected) {
+            Some(TyKind::Optional { elem }) => Some(*elem),
+            _ => None,
+        });
+        let elem = self.check_expr_with_expected(inner, expected_elem);
+        self.interner.intern(TyKind::Optional { elem })
+    }
+
+    fn check_error_ok_expr(
+        &mut self,
+        inner: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
+        else {
+            self.diagnostics.push(Diagnostic::error(
+                inner.span,
+                "`!value` requires an expected error union type",
+            ));
+            self.check_expr(inner);
+            return self.error();
+        };
+        let actual = self.check_expr_with_expected(inner, Some(value));
+        self.expect_expr_type(inner, value, actual, "error-union success value");
+        self.interner.intern(TyKind::ErrorUnion { error, value })
+    }
+
+    fn check_error_err_expr(
+        &mut self,
+        inner: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        let Some((error, value)) = expected.and_then(|expected| self.error_union_parts(expected))
+        else {
+            self.diagnostics.push(Diagnostic::error(
+                inner.span,
+                "`error!` requires an expected error union type",
+            ));
+            self.check_expr(inner);
+            return self.error();
+        };
+        let actual = self.check_expr_with_expected(inner, Some(error));
+        self.expect_expr_type(inner, error, actual, "error-union error value");
+        self.interner.intern(TyKind::ErrorUnion { error, value })
+    }
+
+    fn check_try_expr(&mut self, span: Span, inner: &Expr) -> InternedTyId {
+        let inner_ty = self.check_expr(inner);
+        let normalized = self.normalization.normalize(inner_ty);
+        match self.interner.get(normalized).cloned() {
+            Some(TyKind::Optional { elem }) => {
+                if !matches!(
+                    self.interner
+                        .get(self.normalization.normalize(self.current_return)),
+                    Some(TyKind::Optional { .. })
+                ) {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "optional propagation requires an optional function return type",
+                    ));
+                }
+                elem
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                match self.error_union_parts(self.current_return) {
+                    Some((return_error, _)) => {
+                        if !self.types_match(error, return_error) {
+                            self.diagnostics.push(Diagnostic::error(
+                                span,
+                                format!(
+                                    "error propagation type mismatch: cannot propagate `{}` from function returning `{}`",
+                                    self.ty_name(error),
+                                    self.ty_name(self.current_return)
+                                ),
+                            ));
+                        }
+                    }
+                    None => {
+                        self.diagnostics.push(Diagnostic::error(
+                            span,
+                            "error propagation requires an error union function return type",
+                        ));
+                    }
+                }
+                value
+            }
+            _ => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!(
+                        "`.?` requires optional or error union operand, found `{}`",
+                        self.ty_name(inner_ty)
+                    ),
+                ));
+                self.error()
+            }
+        }
+    }
+
+    fn error_union_parts(&self, ty: InternedTyId) -> Option<(InternedTyId, InternedTyId)> {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::ErrorUnion { error, value }) => Some((*error, *value)),
+            _ => None,
+        }
     }
 
     fn check_range_expr(

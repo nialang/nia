@@ -50,6 +50,7 @@ fn function_terminator_contains_builtin_eq(terminator: &FunctionTerminator) -> b
         FunctionTerminator::If { cond, .. } | FunctionTerminator::Switch { target: cond, .. } => {
             function_expr_contains_builtin_eq(cond)
         }
+        FunctionTerminator::Try { value, .. } => function_expr_contains_builtin_eq(value),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
             .as_ref()
             .is_some_and(function_expr_contains_builtin_eq),
@@ -72,6 +73,12 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         }
         FunctionExprKind::Call { args, .. } => args.iter().any(function_expr_contains_builtin_eq),
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -135,6 +142,7 @@ fn function_expr_contains_builtin_eq(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)

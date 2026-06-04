@@ -267,6 +267,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 AbiParam::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiParam::IndirectReadonly(ty),
+            Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => {
+                AbiParam::IndirectReadonly(ty)
+            }
             Some(
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
@@ -304,6 +307,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 AbiReturn::Direct(ty)
             }
             Some(TyKind::Array { .. } | TyKind::Nominal { .. }) => AbiReturn::IndirectOut(ty),
+            Some(TyKind::Optional { .. } | TyKind::ErrorUnion { .. }) => AbiReturn::IndirectOut(ty),
             Some(
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
@@ -375,6 +379,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(TyKind::Slice { .. }) => Ok(self.slice_type().into()),
             Some(TyKind::TraitObject { .. }) => Ok(self.trait_object_type().into()),
             Some(TyKind::Range { kind, bound }) => self.range_type(*kind, *bound, span),
+            Some(TyKind::Optional { elem }) => self.optional_type(*elem, span),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.error_union_type(*error, *value, span)
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem_layouts = self
                     .program
@@ -449,6 +457,67 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Ok(self.context.struct_type(&fields, false).into())
     }
 
+    pub(crate) fn optional_type(
+        &self,
+        elem: InternedTyId,
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        self.tagged_union_type(&[elem], span)
+    }
+
+    pub(crate) fn error_union_type(
+        &self,
+        error: InternedTyId,
+        value: InternedTyId,
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        self.tagged_union_type(&[error, value], span)
+    }
+
+    fn tagged_union_type(
+        &self,
+        payloads: &[InternedTyId],
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        let tag_ty: BasicTypeEnum<'ctx> = self.context.i8_type().into();
+        let max_align = payloads
+            .iter()
+            .filter_map(|ty| self.layout_of(*ty))
+            .map(|layout| layout.align)
+            .max()
+            .unwrap_or(1);
+        let max_size = payloads
+            .iter()
+            .filter_map(|ty| self.layout_of(*ty))
+            .map(|layout| layout.size)
+            .max()
+            .unwrap_or(0);
+        let storage = self.union_storage_type(max_size, max_align, span)?;
+        Ok(self.context.struct_type(&[tag_ty, storage], false).into())
+    }
+
+    pub(crate) fn union_storage_type(
+        &self,
+        size: u64,
+        align: u64,
+        span: Span,
+    ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
+        if size == 0 {
+            return Ok(self.context.struct_type(&[], false).into());
+        }
+        let align_ty = self.union_alignment_type(align, span)?;
+        let align_size = align;
+        let padding = size.saturating_sub(align_size);
+        let mut fields = vec![align_ty];
+        if padding > 0 {
+            if padding > u32::MAX as u64 {
+                return Err(self.error(span, "union storage padding is too large for LLVM"));
+            }
+            fields.push(self.context.i8_type().array_type(padding as u32).into());
+        }
+        Ok(self.context.struct_type(&fields, false).into())
+    }
+
     fn primitive_type(
         &self,
         primitive: PrimitiveTy,
@@ -467,7 +536,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             PrimitiveTy::F64 => self.context.f64_type().into(),
             PrimitiveTy::Bool => self.context.bool_type().into(),
             PrimitiveTy::Void | PrimitiveTy::Never => {
-                return Err(self.error(span, "`void` and `!` are not LLVM basic types"));
+                return Err(self.error(span, "`void` and `never` are not LLVM basic types"));
             }
         };
         Ok(ty)
@@ -684,7 +753,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Ok(fields)
     }
 
-    fn union_alignment_type(
+    pub(crate) fn union_alignment_type(
         &self,
         align: u64,
         span: Span,

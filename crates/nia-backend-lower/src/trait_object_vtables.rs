@@ -155,6 +155,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_trait_object_vtables_from_expr(&arm.pattern, out, seen);
                 }
             }
+            FunctionTerminator::Try { value, .. } => {
+                self.collect_trait_object_vtables_from_expr(value, out, seen);
+            }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(cond) => {
                     self.collect_trait_object_vtables_from_expr(cond, out, seen);
@@ -201,6 +204,12 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
             | FunctionExprKind::RangeBound { range: inner, .. }
             | FunctionExprKind::CStringPointer { array: inner, .. }
+            | FunctionExprKind::OptionalSome { expr: inner }
+            | FunctionExprKind::ErrorOk { expr: inner }
+            | FunctionExprKind::ErrorErr { expr: inner }
+            | FunctionExprKind::TaggedUnionTag { expr: inner }
+            | FunctionExprKind::TaggedUnionPayload { expr: inner }
+            | FunctionExprKind::Try { expr: inner }
             | FunctionExprKind::Unary { expr: inner, .. } => {
                 self.collect_trait_object_vtables_from_expr(inner, out, seen);
             }
@@ -276,6 +285,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)

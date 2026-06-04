@@ -406,6 +406,13 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.check_type_projection_obligations(span, return_type, obligations);
             }
+            Some(TyKind::Optional { elem }) => {
+                self.check_type_projection_obligations(span, elem, obligations);
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.check_type_projection_obligations(span, error, obligations);
+                self.check_type_projection_obligations(span, value, obligations);
+            }
             Some(TyKind::Nominal { args, .. }) => {
                 for arg in args {
                     self.check_type_projection_obligations(span, arg, obligations);

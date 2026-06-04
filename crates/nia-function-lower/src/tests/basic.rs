@@ -76,6 +76,62 @@ fn non_terminal_ops_branch_to_tail_block() {
 }
 
 #[test]
+fn lowers_try_expression_to_try_terminator_and_success_local() {
+    let span = Span::default();
+    let mut interner = TyInterner::new(ModuleId(0));
+    let i32_ty = interner.primitive(PrimitiveTy::I32);
+    let optional_i32 = interner.intern(TyKind::Optional { elem: i32_ty });
+    let body = TypedBody {
+        span,
+        locals: vec![TypedLocal {
+            id: LocalId(0),
+            name: "value".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty: optional_i32,
+            span,
+        }],
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty: i32_ty,
+            kind: TypedExprKind::Try {
+                expr: Box::new(TypedExpr {
+                    span,
+                    ty: optional_i32,
+                    kind: TypedExprKind::Local(LocalId(0)),
+                }),
+            },
+        })),
+        ty: i32_ty,
+    };
+
+    let function_body = lower_function_body_with_interner(&body, &interner);
+
+    assert!(function_body.blocks.iter().any(|block| {
+        matches!(
+            block.terminator,
+            FunctionTerminator::Try {
+                kind: FunctionTryKind::Optional,
+                ..
+            }
+        )
+    }));
+    assert!(
+        !function_body.blocks.iter().any(|block| matches!(
+            &block.terminator,
+            FunctionTerminator::Tail {
+                value: Some(FunctionExpr {
+                    kind: FunctionExprKind::Try { .. },
+                    ..
+                }),
+                ..
+            }
+        )),
+        "{function_body:?}"
+    );
+}
+
+#[test]
 fn lowers_address_of_places_to_function_place() {
     let span = Span::default();
     let ty = test_ty();

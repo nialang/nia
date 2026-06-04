@@ -84,6 +84,15 @@ impl<'a> TypeNormalizer<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.normalize_ty(elem, stack);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.normalize_ty(error, stack);
+                let value = self.normalize_ty(value, stack);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
             Some(TyKind::Nominal { def_id, args }) => {
                 let args = args
                     .into_iter()
@@ -240,6 +249,15 @@ impl<'a> TypeNormalizer<'a> {
                     return_type,
                     is_variadic,
                 })
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.normalize_ty_with_substitutions(error, substitutions, stack);
+                let value = self.normalize_ty_with_substitutions(value, substitutions, stack);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
             }
             Some(TyKind::Nominal { def_id, args }) => {
                 let args = args

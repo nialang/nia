@@ -471,7 +471,7 @@ fn checks_structural_associated_calls_and_function_pointers() {
     let checked = pipeline(
         r#"
 extend[T] &T {
-    fn null(self) bool {
+    fn is_null(self) bool {
         self as usize == 0
     }
 
@@ -487,10 +487,10 @@ extend[T] [3]T {
 }
 
 fn main(ptr: &u8, triple: [3]i32) i32 {
-    var null: &const fn(&u8) bool = &const [&u8]::null;
+    var is_null: &const fn(&u8) bool = &const [&u8]::is_null;
     var zero: &const fn() usize = &const [&u8]::zero;
-    if null(ptr) {}
-    if [&u8]::null(ptr) {}
+    if is_null(ptr) {}
+    if [&u8]::is_null(ptr) {}
     [[3]i32]::first(triple) + zero() as i32
 }
 "#,
@@ -503,14 +503,14 @@ fn checks_deep_pointer_structural_associated_calls_and_function_pointers() {
     let checked = pipeline(
         r#"
 extend &&&&&&const &&i32 {
-    fn null(self) bool {
+    fn is_null(self) bool {
         self as usize == 0
     }
 }
 
 fn main(ptr: &&&&&&const &&i32) bool {
-    var null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::null;
-    null(ptr) and [&&&&&&const &&i32]::null(ptr)
+    var is_null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::is_null;
+    is_null(ptr) and [&&&&&&const &&i32]::is_null(ptr)
 }
 "#,
     );

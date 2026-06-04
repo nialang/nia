@@ -133,6 +133,7 @@ impl<'a> Tokenizer<'a> {
             }
             b';' => self.token(TokenKind::Semicolon, start, self.pos),
             b'@' => self.token(TokenKind::At, start, self.pos),
+            b'?' => self.token(TokenKind::Question, start, self.pos),
             b':' => {
                 if self.eat(b':') {
                     self.token(TokenKind::ColonColon, start, self.pos)
@@ -223,6 +224,9 @@ impl<'a> Tokenizer<'a> {
             "in" => TokenKind::In,
             "loop" => TokenKind::Loop,
             "mut" => TokenKind::Mut,
+            "never" => TokenKind::Never,
+            "not" => TokenKind::Not,
+            "null" => TokenKind::Null,
             "or" => TokenKind::Or,
             "pub" => TokenKind::Pub,
             "return" => TokenKind::Return,

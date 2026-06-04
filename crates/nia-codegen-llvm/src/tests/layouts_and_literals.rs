@@ -448,7 +448,7 @@ enum Color: u8 {
 
 fn main(ptr: &const i32) i32 {
     var x = -1;
-    var y = !false;
+    var y = not false;
     var n = 1;
     var z: f64 = n as f64;
     var w: i32 = z as i32;

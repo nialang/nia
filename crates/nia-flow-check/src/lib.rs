@@ -60,6 +60,7 @@ impl FlowChecker<'_> {
                 }
                 ItemKind::Import(_)
                 | ItemKind::Using(_)
+                | ItemKind::ComptimeIf(_)
                 | ItemKind::Struct(_)
                 | ItemKind::Union(_)
                 | ItemKind::Enum(_)
@@ -247,6 +248,19 @@ impl FlowChecker<'_> {
                     falls_through: then_flow.falls_through || else_flow.falls_through,
                 }
             }
+            ExprKind::ComptimeIf(comptime_if) => {
+                self.check_expr_flow(&comptime_if.cond);
+                let then_flow = self.check_block(&comptime_if.then_branch);
+                let else_flow = comptime_if.else_branch.as_deref().map_or(
+                    Flow {
+                        falls_through: true,
+                    },
+                    |else_branch| self.check_expr_flow(else_branch),
+                );
+                Flow {
+                    falls_through: then_flow.falls_through || else_flow.falls_through,
+                }
+            }
             ExprKind::Switch(switch) => {
                 self.check_switch_patterns(switch);
                 self.check_expr_flow(&switch.target);
@@ -256,6 +270,10 @@ impl FlowChecker<'_> {
                     for pattern in &arm.patterns {
                         match pattern {
                             SwitchPattern::Default => has_default = true,
+                            SwitchPattern::OptionalSome { .. }
+                            | SwitchPattern::OptionalNull { .. }
+                            | SwitchPattern::ErrorOk { .. }
+                            | SwitchPattern::ErrorErr { .. } => {}
                             SwitchPattern::Expr(pattern) => {
                                 self.check_expr_flow(pattern);
                             }
@@ -306,7 +324,12 @@ impl FlowChecker<'_> {
                     falls_through: true,
                 }
             }
-            ExprKind::Unary { expr, .. } | ExprKind::Cast { expr, .. } => {
+            ExprKind::Unary { expr, .. }
+            | ExprKind::OptionalSome { expr }
+            | ExprKind::ErrorOk { expr }
+            | ExprKind::ErrorErr { expr }
+            | ExprKind::Try { expr }
+            | ExprKind::Cast { expr, .. } => {
                 self.check_expr_flow(expr);
                 Flow {
                     falls_through: true,
@@ -374,6 +397,7 @@ impl FlowChecker<'_> {
             | ExprKind::ByteChar(_)
             | ExprKind::Raw(_)
             | ExprKind::Bool(_)
+            | ExprKind::Null
             | ExprKind::Ident(_)
             | ExprKind::Underscore
             | ExprKind::Builtin { .. }
@@ -408,6 +432,7 @@ impl FlowChecker<'_> {
             | ExprKind::ByteChar(_)
             | ExprKind::Raw(_)
             | ExprKind::Bool(_)
+            | ExprKind::Null
             | ExprKind::Ident(_)
             | ExprKind::Underscore
             | ExprKind::Builtin { .. }
@@ -439,8 +464,19 @@ impl FlowChecker<'_> {
                     self.check_no_deferred_control_flow(&field.value);
                 }
             }
-            ExprKind::Unary { expr, .. } | ExprKind::Cast { expr, .. } => {
+            ExprKind::Unary { expr, .. }
+            | ExprKind::OptionalSome { expr }
+            | ExprKind::ErrorOk { expr }
+            | ExprKind::ErrorErr { expr }
+            | ExprKind::Cast { expr, .. } => {
                 self.check_no_deferred_control_flow(expr);
+            }
+            ExprKind::Try { expr } => {
+                self.check_no_deferred_control_flow(expr);
+                self.diagnostics.push(Diagnostic::error(
+                    expr.span,
+                    "`.?` propagation is not allowed inside deferred expressions",
+                ));
             }
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
                 self.check_no_deferred_control_flow(lhs);
@@ -487,6 +523,13 @@ impl FlowChecker<'_> {
                     self.check_no_deferred_control_flow(else_branch);
                 }
             }
+            ExprKind::ComptimeIf(comptime_if) => {
+                self.check_no_deferred_control_flow(&comptime_if.cond);
+                self.check_no_deferred_control_flow_in_block(&comptime_if.then_branch);
+                if let Some(else_branch) = &comptime_if.else_branch {
+                    self.check_no_deferred_control_flow(else_branch);
+                }
+            }
             ExprKind::Switch(switch) => {
                 self.check_switch_patterns(switch);
                 self.check_no_deferred_control_flow(&switch.target);
@@ -494,6 +537,10 @@ impl FlowChecker<'_> {
                     for pattern in &arm.patterns {
                         match pattern {
                             SwitchPattern::Default => {}
+                            SwitchPattern::OptionalSome { .. }
+                            | SwitchPattern::OptionalNull { .. }
+                            | SwitchPattern::ErrorOk { .. }
+                            | SwitchPattern::ErrorErr { .. } => {}
                             SwitchPattern::Expr(expr) => self.check_no_deferred_control_flow(expr),
                             SwitchPattern::Range { start, end, .. } => {
                                 self.check_no_deferred_control_flow(start);
@@ -573,6 +620,30 @@ impl FlowChecker<'_> {
                                 .push(Diagnostic::error(arm.span, "duplicate switch default"));
                         }
                         has_default = true;
+                    }
+                    SwitchPattern::OptionalSome { .. } => {
+                        if !seen_patterns.insert("optional:some".to_string()) {
+                            self.diagnostics
+                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                        }
+                    }
+                    SwitchPattern::OptionalNull { .. } => {
+                        if !seen_patterns.insert("optional:null".to_string()) {
+                            self.diagnostics
+                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                        }
+                    }
+                    SwitchPattern::ErrorOk { .. } => {
+                        if !seen_patterns.insert("error:ok".to_string()) {
+                            self.diagnostics
+                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                        }
+                    }
+                    SwitchPattern::ErrorErr { .. } => {
+                        if !seen_patterns.insert("error:err".to_string()) {
+                            self.diagnostics
+                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                        }
                     }
                     SwitchPattern::Expr(expr) => {
                         let key = format!("{:?}", expr.kind);

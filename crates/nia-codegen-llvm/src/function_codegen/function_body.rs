@@ -3,12 +3,23 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
     FunctionBinding, FunctionBlockId, FunctionBody, FunctionDeferBody, FunctionExpr,
     FunctionExprKind, FunctionForHeader, FunctionIrError, FunctionOp, FunctionScopeId,
-    FunctionTerminator, validate_function_body,
+    FunctionTerminator, FunctionTryKind, validate_function_body,
 };
-use nia_llvm::{basic_block::BasicBlock, values::IntValue};
+use nia_llvm::{IntPredicate, basic_block::BasicBlock, values::IntValue};
 use nia_span::Span;
 
 use super::FunctionCodegen;
+
+struct TryTerminatorInput<'b, 'ctx> {
+    body: &'b FunctionBody,
+    block: FunctionBlockId,
+    span: Span,
+    value: &'b FunctionExpr,
+    kind: FunctionTryKind,
+    success_local: nia_ids::LocalId,
+    success_target: FunctionBlockId,
+    llvm_blocks: &'b std::collections::HashMap<FunctionBlockId, BasicBlock<'ctx>>,
+}
 
 impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(crate) fn emit_function_body(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
@@ -223,6 +234,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_switch(target, default_block, &cases)
                     .map_err(|_| self.error(*span, "failed to build function switch"))?;
             }
+            FunctionTerminator::Try {
+                value,
+                kind,
+                success_local,
+                success_target,
+                span,
+            } => self.emit_try_terminator(TryTerminatorInput {
+                body,
+                block,
+                span: *span,
+                value,
+                kind: *kind,
+                success_local: *success_local,
+                success_target: *success_target,
+                llvm_blocks,
+            })?,
             FunctionTerminator::Loop {
                 header,
                 body: loop_body,
@@ -302,6 +329,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .build_switch(target, default_block, &cases)
                     .map_err(|_| self.error(*span, "failed to build defer function switch"))?;
             }
+            FunctionTerminator::Try { span, .. } => {
+                return Err(self.error(*span, "`.?` propagation is not valid in defer function IR"));
+            }
             FunctionTerminator::Loop {
                 header,
                 body: loop_body,
@@ -315,6 +345,125 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
         }
         Ok(())
+    }
+
+    fn emit_try_terminator(
+        &mut self,
+        input: TryTerminatorInput<'_, 'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let TryTerminatorInput {
+            body,
+            block,
+            span,
+            value,
+            kind,
+            success_local,
+            success_target,
+            llvm_blocks,
+        } = input;
+        let aggregate = self.emit_expr(value)?.into_struct_value()?;
+        let tag = self
+            .builder
+            .build_extract_value(aggregate, 0, "try.tag")
+            .map_err(|_| self.error(span, "failed to extract propagation tag"))?
+            .into_int_value()?;
+        let failure_tag = match kind {
+            FunctionTryKind::Optional => 0,
+            FunctionTryKind::ErrorUnion => 1,
+        };
+        let failure_tag = self.module.context.i8_type().const_int(failure_tag, false);
+        let is_failure = self
+            .builder
+            .build_int_compare(IntPredicate::EQ, tag, failure_tag, "try.failed")
+            .map_err(|_| self.error(span, "failed to compare propagation tag"))?;
+        let failure_block = self
+            .module
+            .context
+            .append_basic_block(self.llvm_function, "try.failure")
+            .map_err(|_| self.error(span, "failed to create propagation failure block"))?;
+        let success_block = self.llvm_function_block(span, success_target, llvm_blocks)?;
+        self.builder
+            .build_conditional_branch(is_failure, failure_block, success_block)
+            .map_err(|_| self.error(span, "failed to build propagation branch"))?;
+
+        self.builder.position_at_end(failure_block);
+        self.emit_try_failure_return(body, block, span, aggregate, kind)?;
+
+        self.builder.position_at_end(success_block);
+        if !self.is_zero_sized_local(success_local) {
+            let payload = self
+                .builder
+                .build_extract_value(aggregate, 1, "try.payload")
+                .map_err(|_| self.error(span, "failed to extract propagation payload"))?;
+            let Some(ptr) = self.locals.get(&success_local).copied() else {
+                return Err(self.error(span, "missing propagation success local"));
+            };
+            self.builder
+                .build_store(ptr, payload)
+                .map_err(|_| self.error(span, "failed to store propagation payload"))?;
+        }
+        Ok(())
+    }
+
+    fn emit_try_failure_return(
+        &mut self,
+        body: &FunctionBody,
+        block: FunctionBlockId,
+        span: Span,
+        aggregate: nia_llvm::values::StructValue<'ctx>,
+        kind: FunctionTryKind,
+    ) -> Result<(), Diagnostic> {
+        let return_ty = self.function.return_type;
+        let return_llvm_ty = self.module.llvm_basic_type(return_ty, span)?;
+        let return_ptr = self
+            .builder
+            .build_alloca(return_llvm_ty, "try.return")
+            .map_err(|_| self.error(span, "failed to allocate propagation return"))?;
+        match kind {
+            FunctionTryKind::Optional => {
+                let expr = FunctionExpr {
+                    span,
+                    ty: return_ty,
+                    kind: FunctionExprKind::Null,
+                };
+                self.emit_tagged_union_into(&expr, 0, None, return_ptr)?;
+            }
+            FunctionTryKind::ErrorUnion => {
+                let tag_ptr = self
+                    .builder
+                    .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.return.tag")
+                    .map_err(|_| self.error(span, "failed to build propagation return tag"))?;
+                let tag = self.module.context.i8_type().const_int(1, false);
+                self.builder
+                    .build_store(tag_ptr, tag)
+                    .map_err(|_| self.error(span, "failed to store propagation return tag"))?;
+                if let Some(payload_ty) = self.error_union_error_ty(return_ty)
+                    && !self.is_zero_sized(payload_ty)
+                {
+                    let payload = self
+                        .builder
+                        .build_extract_value(aggregate, 1, "try.error")
+                        .map_err(|_| self.error(span, "failed to extract propagated error"))?;
+                    let payload_ptr = self
+                        .builder
+                        .build_struct_gep(return_llvm_ty, return_ptr, 1, "try.return.payload")
+                        .map_err(|_| {
+                            self.error(span, "failed to build propagation return payload")
+                        })?;
+                    self.builder
+                        .build_store(payload_ptr, payload)
+                        .map_err(|_| {
+                            self.error(span, "failed to store propagation return payload")
+                        })?;
+                }
+            }
+        }
+        self.emit_function_tail_defers(body, block, span)?;
+        let value = self
+            .builder
+            .build_load(return_llvm_ty, return_ptr, "try.return.value")
+            .map_err(|_| self.error(span, "failed to load propagation return"))?;
+        self.emit_return_value(span, value)
     }
 
     fn emit_function_loop_header(
@@ -662,6 +811,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.emit_union_literal_into(value, field, ptr)?;
                 Ok(true)
             }
+            FunctionExprKind::Null => {
+                self.emit_tagged_union_into(value, 0, None, ptr)?;
+                Ok(true)
+            }
+            FunctionExprKind::OptionalSome { expr } => {
+                self.emit_tagged_union_into(value, 1, Some(expr), ptr)?;
+                Ok(true)
+            }
+            FunctionExprKind::ErrorOk { expr } => {
+                self.emit_tagged_union_into(value, 0, Some(expr), ptr)?;
+                Ok(true)
+            }
+            FunctionExprKind::ErrorErr { expr } => {
+                self.emit_tagged_union_into(value, 1, Some(expr), ptr)?;
+                Ok(true)
+            }
             _ => Ok(false),
         }
     }
@@ -709,8 +874,15 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(())
             }
             FunctionExprKind::UnionLiteral { field, .. } => self.emit_effect_expr(&field.value),
+            FunctionExprKind::OptionalSome { expr }
+            | FunctionExprKind::ErrorOk { expr }
+            | FunctionExprKind::ErrorErr { expr }
+            | FunctionExprKind::TaggedUnionTag { expr }
+            | FunctionExprKind::TaggedUnionPayload { expr }
+            | FunctionExprKind::Try { expr } => self.emit_effect_expr(expr),
             FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::CStringPointer { .. } => Ok(()),
             _ => {
                 let _ = self.emit_expr(expr)?;
@@ -752,6 +924,10 @@ fn is_aggregate_literal(value: &FunctionExpr) -> bool {
         FunctionExprKind::ArrayLiteral { .. }
             | FunctionExprKind::StructLiteral { .. }
             | FunctionExprKind::UnionLiteral { .. }
+            | FunctionExprKind::Null
+            | FunctionExprKind::OptionalSome { .. }
+            | FunctionExprKind::ErrorOk { .. }
+            | FunctionExprKind::ErrorErr { .. }
     )
 }
 

@@ -128,7 +128,7 @@ impl AbiChecker<'_> {
         if self.is_never(signature.return_type) {
             self.diagnostics.push(Diagnostic::error(
                 signature.span,
-                "extern return type cannot use `!`",
+                "extern return type cannot use `never`",
             ));
         } else if !self.is_void(signature.return_type) {
             self.check_extern_ty(signature.span, signature.return_type, "extern return type");
@@ -158,7 +158,7 @@ impl AbiChecker<'_> {
                 format!("{context} cannot use `void` directly"),
             )),
             Some(TyKind::Primitive(PrimitiveTy::Never)) => self.diagnostics.push(
-                Diagnostic::error(span, format!("{context} cannot use `!` directly")),
+                Diagnostic::error(span, format!("{context} cannot use `never` directly")),
             ),
             Some(TyKind::Primitive(_)) | Some(TyKind::Pointer { .. }) => {}
             Some(TyKind::Slice { .. }) => self.diagnostics.push(Diagnostic::error(
@@ -194,6 +194,14 @@ impl AbiChecker<'_> {
             Some(TyKind::Range { .. }) => self.diagnostics.push(Diagnostic::error(
                 span,
                 format!("{context} cannot use range by value"),
+            )),
+            Some(TyKind::Optional { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use optional by value"),
+            )),
+            Some(TyKind::ErrorUnion { .. }) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use error union by value"),
             )),
             Some(TyKind::Nominal { def_id, .. }) => {
                 if self.is_enum_def(*def_id) {
@@ -297,8 +305,8 @@ struct Empty {}
 extern struct BadExtern { flag: bool }
 extern struct ExternEmpty {}
 
-extern fn bad(flag: bool, ch: char, nothing: void, color: Color, xs: [2]u8, pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &const fn(i32, ...) !, ...);
-extern fn bad_never_return() !;
+extern fn bad(flag: bool, ch: char, nothing: void, color: Color, xs: [2]u8, pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &const fn(i32, ...) never, ...);
+extern fn bad_never_return() never;
 extern fn bad_variadic_definition(fmt: &u8, ...) {
 }
 extern const bad_global: bool;
@@ -316,7 +324,7 @@ extern fn bad_union(bits: Bits);
             "`bool`",
             "`char`",
             "`void`",
-            "`!`",
+            "`never`",
             "enum directly",
             "array by value",
             "normal Nia struct by value",

@@ -416,6 +416,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
@@ -433,9 +434,13 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
             .iter()
             .all(|field| is_pure_discardable_expr(&field.value)),
         FunctionExprKind::UnionLiteral { field, .. } => is_pure_discardable_expr(&field.value),
-        FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Cast { expr, .. } => {
-            is_pure_discardable_expr(expr)
-        }
+        FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::Cast { expr, .. } => is_pure_discardable_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             is_pure_discardable_expr(lhs) && is_pure_discardable_expr(rhs)
         }
@@ -449,6 +454,7 @@ fn is_pure_discardable_expr(expr: &FunctionExpr) -> bool {
         | FunctionExprKind::CStringPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
+        | FunctionExprKind::Try { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
         | FunctionExprKind::Call { .. } => false,
@@ -867,6 +873,7 @@ fn rewrite_local_copies_in_terminator(
             FunctionForHeader::Condition(cond) => rewrite_local_copies_in_expr(cond, copies),
             FunctionForHeader::Infinite => false,
         },
+        FunctionTerminator::Try { value, .. } => rewrite_local_copies_in_expr(value, copies),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
             .as_mut()
             .is_some_and(|value| rewrite_local_copies_in_expr(value, copies)),
@@ -896,6 +903,12 @@ fn rewrite_local_copies_in_expr(
             rewrite_local_copies_in_expr(array, copies)
         }
         FunctionExprKind::RangeBound { range, .. } => rewrite_local_copies_in_expr(range, copies),
+        FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr } => rewrite_local_copies_in_expr(expr, copies),
         FunctionExprKind::ArrayLiteral { elems } => {
             rewrite_local_copies_in_array_elements(elems, copies)
         }
@@ -944,6 +957,7 @@ fn rewrite_local_copies_in_expr(
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
@@ -1150,6 +1164,7 @@ fn rewrite_local_constants_in_terminator(
             FunctionForHeader::Condition(cond) => rewrite_local_constants_in_expr(cond, constants),
             FunctionForHeader::Infinite => false,
         },
+        FunctionTerminator::Try { value, .. } => rewrite_local_constants_in_expr(value, constants),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => value
             .as_mut()
             .is_some_and(|value| rewrite_local_constants_in_expr(value, constants)),
@@ -1181,6 +1196,12 @@ fn rewrite_local_constants_in_expr(
         FunctionExprKind::RangeBound { range, .. } => {
             rewrite_local_constants_in_expr(range, constants)
         }
+        FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr } => rewrite_local_constants_in_expr(expr, constants),
         FunctionExprKind::ArrayLiteral { elems } => {
             rewrite_local_constants_in_array_elements(elems, constants)
         }
@@ -1231,6 +1252,7 @@ fn rewrite_local_constants_in_expr(
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
@@ -1357,6 +1379,7 @@ fn simplify_constant_logical_exprs_in_terminator(terminator: &mut FunctionTermin
             FunctionForHeader::Infinite => false,
             FunctionForHeader::Condition(cond) => simplify_constant_logical_expr(cond),
         },
+        FunctionTerminator::Try { value, .. } => simplify_constant_logical_expr(value),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             value.as_mut().is_some_and(simplify_constant_logical_expr)
         }
@@ -1420,9 +1443,14 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
         FunctionExprKind::UnionLiteral { field, .. } => {
             changed |= simplify_constant_logical_expr(&mut field.value);
         }
-        FunctionExprKind::Unary { expr, .. } | FunctionExprKind::Discard(expr) => {
-            changed |= simplify_constant_logical_expr(expr);
-        }
+        FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr }
+        | FunctionExprKind::Discard(expr) => changed |= simplify_constant_logical_expr(expr),
         FunctionExprKind::Binary { lhs, rhs, .. } | FunctionExprKind::Index { lhs, index: rhs } => {
             changed |= simplify_constant_logical_expr(lhs);
             changed |= simplify_constant_logical_expr(rhs);
@@ -1465,6 +1493,7 @@ fn simplify_constant_logical_expr(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
@@ -1599,6 +1628,7 @@ fn collect_place_locals_in_terminator(
             FunctionForHeader::Condition(cond) => collect_place_locals_in_expr(cond, locals),
             FunctionForHeader::Infinite => {}
         },
+        FunctionTerminator::Try { value, .. } => collect_place_locals_in_expr(value, locals),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
                 collect_place_locals_in_expr(value, locals);
@@ -1618,6 +1648,12 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
             collect_place_locals_in_expr(array, locals)
         }
         FunctionExprKind::RangeBound { range, .. } => collect_place_locals_in_expr(range, locals),
+        FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr } => collect_place_locals_in_expr(expr, locals),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_place_locals_in_array_elements(elems, locals)
         }
@@ -1664,6 +1700,7 @@ fn collect_place_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalI
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
@@ -1794,6 +1831,7 @@ fn collect_read_locals_in_terminator(
             FunctionForHeader::Condition(cond) => collect_read_locals_in_expr(cond, locals),
             FunctionForHeader::Infinite => {}
         },
+        FunctionTerminator::Try { value, .. } => collect_read_locals_in_expr(value, locals),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
                 collect_read_locals_in_expr(value, locals);
@@ -1816,6 +1854,12 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
             collect_read_locals_in_expr(array, locals)
         }
         FunctionExprKind::RangeBound { range, .. } => collect_read_locals_in_expr(range, locals),
+        FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr } => collect_read_locals_in_expr(expr, locals),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_read_locals_in_array_elements(elems, locals)
         }
@@ -1862,6 +1906,7 @@ fn collect_read_locals_in_expr(expr: &FunctionExpr, locals: &mut HashSet<LocalId
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
@@ -1996,6 +2041,7 @@ fn collect_referenced_locals_in_terminator(
             FunctionForHeader::Condition(cond) => collect_referenced_locals_in_expr(cond, refs),
             FunctionForHeader::Infinite => {}
         },
+        FunctionTerminator::Try { value, .. } => collect_referenced_locals_in_expr(value, refs),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
                 collect_referenced_locals_in_expr(value, refs);
@@ -2020,6 +2066,12 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         FunctionExprKind::RangeBound { range, .. } => {
             collect_referenced_locals_in_expr(range, refs)
         }
+        FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr } => collect_referenced_locals_in_expr(expr, refs),
         FunctionExprKind::ArrayLiteral { elems } => {
             collect_referenced_locals_in_array_elements(elems, refs)
         }
@@ -2070,6 +2122,7 @@ fn collect_referenced_locals_in_expr(expr: &FunctionExpr, refs: &mut HashSet<nia
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
@@ -2217,6 +2270,7 @@ fn simplify_same_type_casts_in_terminator(terminator: &mut FunctionTerminator) -
             FunctionForHeader::Condition(cond) => simplify_same_type_casts_in_expr(cond),
             FunctionForHeader::Infinite => false,
         },
+        FunctionTerminator::Try { value, .. } => simplify_same_type_casts_in_expr(value),
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
                 simplify_same_type_casts_in_expr(value)
@@ -2253,6 +2307,7 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
@@ -2276,6 +2331,12 @@ fn simplify_same_type_casts_in_expr_children(expr: &mut FunctionExpr) -> bool {
             simplify_same_type_casts_in_field_init(field)
         }
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -2491,6 +2552,13 @@ fn switch_constant_value(expr: &FunctionExpr) -> Option<SwitchConstantValue> {
         | FunctionExprKind::ArrayLiteral { .. }
         | FunctionExprKind::StructLiteral { .. }
         | FunctionExprKind::UnionLiteral { .. }
+        | FunctionExprKind::Null
+        | FunctionExprKind::OptionalSome { .. }
+        | FunctionExprKind::ErrorOk { .. }
+        | FunctionExprKind::ErrorErr { .. }
+        | FunctionExprKind::TaggedUnionTag { .. }
+        | FunctionExprKind::TaggedUnionPayload { .. }
+        | FunctionExprKind::Try { .. }
         | FunctionExprKind::Unary { .. }
         | FunctionExprKind::Binary { .. }
         | FunctionExprKind::Cast { .. }
@@ -2642,6 +2710,7 @@ fn jump_target(terminator: &FunctionTerminator) -> Option<FunctionBlockId> {
         FunctionTerminator::Error { .. }
         | FunctionTerminator::If { .. }
         | FunctionTerminator::Switch { .. }
+        | FunctionTerminator::Try { .. }
         | FunctionTerminator::Loop { .. }
         | FunctionTerminator::Return { .. }
         | FunctionTerminator::Tail { .. } => None,
@@ -2692,6 +2761,9 @@ fn retarget_terminator(
             let break_changed = retarget_block_id(break_target, empty_jumps);
             body_changed || continue_changed || break_changed
         }
+        FunctionTerminator::Try { success_target, .. } => {
+            retarget_block_id(success_target, empty_jumps)
+        }
         FunctionTerminator::Error { .. }
         | FunctionTerminator::Return { .. }
         | FunctionTerminator::Tail { .. } => false,
@@ -2739,6 +2811,7 @@ fn terminator_referenced_blocks(terminator: &FunctionTerminator) -> Vec<Function
         FunctionTerminator::Branch { target, .. } | FunctionTerminator::Next { target, .. } => {
             vec![*target]
         }
+        FunctionTerminator::Try { success_target, .. } => vec![*success_target],
         FunctionTerminator::If {
             then_target,
             else_target,

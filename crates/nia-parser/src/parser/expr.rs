@@ -127,7 +127,7 @@ impl Parser {
     }
 
     fn parse_binary_until(&mut self, min_prec: u8, stops: &[TokenKind]) -> Option<Expr> {
-        let mut lhs = self.parse_cast_until(stops)?;
+        let mut lhs = self.parse_not_until(stops)?;
         while let Some((op, prec)) = self.binary_op() {
             if stops.iter().any(|kind| self.at(kind.clone())) {
                 break;
@@ -150,6 +150,23 @@ impl Parser {
         Some(lhs)
     }
 
+    fn parse_not_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
+        if !self.at(TokenKind::Not) {
+            return self.parse_cast_until(stops);
+        }
+        let start = self
+            .expect(TokenKind::Not, "expected `not` for logical negation")?
+            .start;
+        let expr = self.parse_binary_until(6, stops)?;
+        Some(self.make_expr(
+            Span::new(start, expr.span.end),
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(expr),
+            },
+        ))
+    }
+
     fn parse_cast_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {
         let mut expr = self.parse_unary_until(stops)?;
         while self.eat(TokenKind::As).is_some() {
@@ -169,8 +186,6 @@ impl Parser {
         let start = self.peek().span.start;
         let op = if self.eat(TokenKind::Minus).is_some() {
             Some(UnaryOp::Neg)
-        } else if self.eat(TokenKind::Bang).is_some() {
-            Some(UnaryOp::Not)
         } else if self.eat(TokenKind::Tilde).is_some() {
             Some(UnaryOp::BitNot)
         } else if self.eat(TokenKind::Amp).is_some() {
@@ -190,6 +205,33 @@ impl Parser {
                 Span::new(start, expr.span.end),
                 ExprKind::Unary {
                     op,
+                    expr: Box::new(expr),
+                },
+            ));
+        }
+        if self.at(TokenKind::Question) {
+            let start = self
+                .expect(TokenKind::Question, "expected `?` before optional value")?
+                .start;
+            let expr = self.parse_unary_until(stops)?;
+            return Some(self.make_expr(
+                Span::new(start, expr.span.end),
+                ExprKind::OptionalSome {
+                    expr: Box::new(expr),
+                },
+            ));
+        }
+        if self.at(TokenKind::Bang) {
+            let start = self
+                .expect(
+                    TokenKind::Bang,
+                    "expected `!` before error-union success value",
+                )?
+                .start;
+            let expr = self.parse_unary_until(stops)?;
+            return Some(self.make_expr(
+                Span::new(start, expr.span.end),
+                ExprKind::ErrorOk {
                     expr: Box::new(expr),
                 },
             ));
@@ -228,6 +270,16 @@ impl Parser {
                 continue;
             }
             if self.eat(TokenKind::Dot).is_some() {
+                if self.eat(TokenKind::Question).is_some() {
+                    let end = self.previous_end();
+                    expr = self.make_expr(
+                        Span::new(expr.span.start, end),
+                        ExprKind::Try {
+                            expr: Box::new(expr),
+                        },
+                    );
+                    continue;
+                }
                 if self.eat(TokenKind::Star).is_some() {
                     let end = self.previous_end();
                     expr = self.make_expr(
@@ -246,6 +298,16 @@ impl Parser {
                     ExprKind::Field {
                         lhs: Box::new(expr),
                         name,
+                    },
+                );
+                continue;
+            }
+            if self.eat(TokenKind::Bang).is_some() {
+                let end = self.previous_end();
+                expr = self.make_expr(
+                    Span::new(expr.span.start, end),
+                    ExprKind::ErrorErr {
+                        expr: Box::new(expr),
                     },
                 );
                 continue;
@@ -403,6 +465,7 @@ impl Parser {
                         | TokenKind::ByteChar
                         | TokenKind::True
                         | TokenKind::False
+                        | TokenKind::Null
                         | TokenKind::Ident
                         | TokenKind::Underscore
                         | TokenKind::At
@@ -410,8 +473,10 @@ impl Parser {
                         | TokenKind::LParen
                         | TokenKind::LBrace
                         | TokenKind::If
+                        | TokenKind::Not
                         | TokenKind::Minus
                         | TokenKind::Bang
+                        | TokenKind::Question
                         | TokenKind::Amp
                         | TokenKind::Star
                 ) {
@@ -482,6 +547,10 @@ impl Parser {
                 self.bump();
                 Some(self.make_expr(token.span, ExprKind::Bool(false)))
             }
+            TokenKind::Null => {
+                self.bump();
+                Some(self.make_expr(token.span, ExprKind::Null))
+            }
             TokenKind::Ident => {
                 self.bump();
                 Some(self.make_expr(
@@ -508,6 +577,7 @@ impl Parser {
                 let block = self.parse_block()?;
                 Some(self.make_expr(block.span, ExprKind::Block(block)))
             }
+            TokenKind::Comptime if self.at_comptime_if() => self.parse_comptime_if_expr(),
             TokenKind::If => self.parse_if_expr(),
             TokenKind::Switch => self.parse_switch_expr(),
             _ => {
@@ -583,6 +653,36 @@ impl Parser {
                 then_branch,
                 else_branch,
             },
+        ))
+    }
+
+    fn parse_comptime_if_expr(&mut self) -> Option<Expr> {
+        let start = self
+            .expect(TokenKind::Comptime, "expected `comptime`")?
+            .start;
+        self.expect(TokenKind::If, "expected `if` after `comptime`")?;
+        let cond = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
+        let then_branch = self.parse_block()?;
+        let else_branch = if self.eat(TokenKind::Else).is_some() {
+            if self.at_comptime_if() {
+                Some(Box::new(self.parse_comptime_if_expr()?))
+            } else {
+                let block = self.parse_block()?;
+                Some(Box::new(self.make_expr(block.span, ExprKind::Block(block))))
+            }
+        } else {
+            None
+        };
+        let end = else_branch
+            .as_ref()
+            .map_or(then_branch.span.end, |expr| expr.span.end);
+        Some(self.make_expr(
+            Span::new(start, end),
+            ExprKind::ComptimeIf(Box::new(ComptimeIfExpr {
+                cond: Box::new(cond),
+                then_branch,
+                else_branch,
+            })),
         ))
     }
 

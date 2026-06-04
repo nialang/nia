@@ -485,6 +485,29 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::Optional { elem: general_elem }) => match self.interner.get(specific) {
+                Some(TyKind::Optional {
+                    elem: specific_elem,
+                }) => self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions),
+                _ => false,
+            },
+            Some(TyKind::ErrorUnion {
+                error: general_error,
+                value: general_value,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::ErrorUnion {
+                    error: specific_error,
+                    value: specific_value,
+                }) => {
+                    self.pattern_subsumes_inner(*general_error, *specific_error, substitutions)
+                        && self.pattern_subsumes_inner(
+                            *general_value,
+                            *specific_value,
+                            substitutions,
+                        )
+                }
+                _ => false,
+            },
             Some(TyKind::Nominal {
                 def_id: general_def,
                 args: general_args,
@@ -783,6 +806,22 @@ impl<'a> BodyChecker<'a> {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
                         self.match_type_pattern(*pattern, *actual, substitutions)
                     }) && self.match_type_pattern(*pattern_return, *return_type, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Optional { elem: pattern_elem }) => match self.interner.get(actual) {
+                Some(TyKind::Optional { elem }) => {
+                    self.match_type_pattern(*pattern_elem, *elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::ErrorUnion {
+                error: pattern_error,
+                value: pattern_value,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::ErrorUnion { error, value }) => {
+                    self.match_type_pattern(*pattern_error, *error, substitutions)
+                        && self.match_type_pattern(*pattern_value, *value, substitutions)
                 }
                 _ => false,
             },

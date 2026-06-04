@@ -230,6 +230,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instances_expr(&arm.pattern, seen, out);
                 }
             }
+            FunctionTerminator::Try { value, .. } => {
+                self.collect_struct_instances_expr(value, seen, out);
+            }
             FunctionTerminator::Loop { header, .. } => {
                 self.collect_struct_instances_for_header(header, seen, out);
             }
@@ -285,6 +288,12 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_struct_instances_expr(&field.value, seen, out);
             }
             FunctionExprKind::Unary { expr, .. }
+            | FunctionExprKind::OptionalSome { expr }
+            | FunctionExprKind::ErrorOk { expr }
+            | FunctionExprKind::ErrorErr { expr }
+            | FunctionExprKind::TaggedUnionTag { expr }
+            | FunctionExprKind::TaggedUnionPayload { expr }
+            | FunctionExprKind::Try { expr }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }
@@ -359,6 +368,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
@@ -485,6 +495,11 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(param, seen, out);
                 }
                 self.collect_struct_instance_ty(return_type, seen, out);
+            }
+            Some(TyKind::Optional { elem }) => self.collect_struct_instance_ty(elem, seen, out),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.collect_struct_instance_ty(error, seen, out);
+                self.collect_struct_instance_ty(value, seen, out);
             }
             Some(TyKind::Nominal { def_id, args }) => {
                 for arg in &args {
@@ -633,6 +648,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instances_expr(&arm.pattern, seen, out);
                 }
             }
+            FunctionTerminator::Try { value, .. } => {
+                self.collect_union_instances_expr(value, seen, out);
+            }
             FunctionTerminator::Loop { header, .. } => {
                 self.collect_union_instances_for_header(header, seen, out);
             }
@@ -688,6 +706,12 @@ impl<'a> ModuleLowerer<'a> {
                 self.collect_union_instances_expr(&field.value, seen, out);
             }
             FunctionExprKind::Unary { expr, .. }
+            | FunctionExprKind::OptionalSome { expr }
+            | FunctionExprKind::ErrorOk { expr }
+            | FunctionExprKind::ErrorErr { expr }
+            | FunctionExprKind::TaggedUnionTag { expr }
+            | FunctionExprKind::TaggedUnionPayload { expr }
+            | FunctionExprKind::Try { expr }
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
             | FunctionExprKind::TraitObjectCoercion { expr, .. }
@@ -762,6 +786,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
@@ -888,6 +913,11 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(param, seen, out);
                 }
                 self.collect_union_instance_ty(return_type, seen, out);
+            }
+            Some(TyKind::Optional { elem }) => self.collect_union_instance_ty(elem, seen, out),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.collect_union_instance_ty(error, seen, out);
+                self.collect_union_instance_ty(value, seen, out);
             }
             Some(TyKind::Nominal { def_id, args }) => {
                 for arg in &args {

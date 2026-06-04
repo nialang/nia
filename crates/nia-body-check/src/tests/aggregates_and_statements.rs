@@ -118,7 +118,7 @@ fn rejects_implicit_discard_of_non_void_expression_statements() {
         r#"
 fn value() i32 { 1 }
 fn effect() {}
-extern fn abort() !;
+extern fn abort() never;
 extern fn printf(fmt: &const u8, ...);
 
 fn main() i32 {

@@ -43,6 +43,13 @@ pub enum TypeKind {
         return_type: Option<Box<TypeRef>>,
         is_variadic: bool,
     },
+    Optional {
+        elem: Box<TypeRef>,
+    },
+    ErrorUnion {
+        error: Box<TypeRef>,
+        value: Box<TypeRef>,
+    },
     SelfType,
     Void,
     Never,

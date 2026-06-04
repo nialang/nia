@@ -144,12 +144,12 @@ i64/u64/f64     size 8,  align 8
 i128/u128       size 16, align 16
 isize/usize     size 8,  align 8
 void            size 0,  align 1
-!               size 0,  align 1
+never           size 0,  align 1
 ```
 
 `void` is a first-class zero-sized value type.
 
-`!` is the never type. It has no values. Its zero-sized layout exists only so
+`never` is the never type. It has no values. Its zero-sized layout exists only so
 compiler phases can reason about diverging expressions consistently.
 
 ## 7. Pointer Representation
@@ -245,7 +245,25 @@ The pointer component points at the first element. The length component is a
 Slices are Nia ABI values. They are not C slices and must not be passed directly
 through C ABI boundaries.
 
-## 11. Struct Representation
+## 11. Optional And Error Union Representation
+
+Optional and error union values are Nia tagged unions. The current representation
+is a tag byte followed by storage large and aligned enough for the largest
+payload:
+
+```text
+?T    = { tag: u8, payload: T }
+E!T   = { tag: u8, payload: max(E, T) }
+```
+
+For `?T`, tag `0` is `null` and tag `1` is the present value. For `E!T`, tag `0`
+is success and tag `1` is error. This representation is owned by the Nia ABI and
+is not a C ABI contract.
+
+Optional and error union values are aggregates for parameter and return
+classification. At C ABI boundaries they are rejected by value.
+
+## 12. Struct Representation
 
 Nia has two struct layout policies:
 
@@ -698,8 +716,8 @@ Values passed to inline assembly must use their ABI representation. Nia-only
 aggregates should not be passed to inline assembly unless the compiler has a
 defined lowering for that operand class.
 
-Inline assembly outputs cannot have `void`, `!`, or other non-material runtime
-types.
+Inline assembly outputs cannot have `void`, `never`, or other non-material
+runtime types.
 
 ## 21. Backend Lowering Contract
 

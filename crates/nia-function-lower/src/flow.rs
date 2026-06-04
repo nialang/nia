@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::support::{LoweringContext, SwitchPatternConditionContext};
+use super::support::{LoweringContext, SwitchPatternConditionContext, SwitchStmtArmContext};
 use super::*;
 use nia_ast::BinaryOp;
 use nia_body_ir::BuiltinOperatorOp;
@@ -285,6 +285,7 @@ impl FunctionLowerer {
             return;
         }
         let target = self.lower_value_expr(&switch.target, scope, current, ops, blocks);
+        let arm_target_value = target.clone();
         let merge_target = self.alloc_block();
         let mut arms = Vec::new();
         let mut lowered_arms = Vec::new();
@@ -298,7 +299,11 @@ impl FunctionLowerer {
                         target: arm_target,
                     }),
                     TypedSwitchPattern::Default => default = Some(arm_target),
-                    TypedSwitchPattern::Range { .. } => {}
+                    TypedSwitchPattern::OptionalSome { .. }
+                    | TypedSwitchPattern::OptionalNull { .. }
+                    | TypedSwitchPattern::ErrorOk { .. }
+                    | TypedSwitchPattern::ErrorErr { .. }
+                    | TypedSwitchPattern::Range { .. } => {}
                 }
             }
             lowered_arms.push((arm_target, arm));
@@ -321,14 +326,16 @@ impl FunctionLowerer {
 
         for (arm_target, arm) in lowered_arms {
             let arm_scope = self.alloc_scope(Some(scope), arm.span);
-            self.lower_switch_arm_body(
-                arm.span,
-                &arm.body,
-                arm_scope,
-                arm_target,
+            let mut arm_context = SwitchStmtArmContext {
+                span: arm.span,
+                scope: arm_scope,
+                entry: arm_target,
                 merge_target,
                 blocks,
-            );
+                patterns: &arm.patterns,
+                target: &arm_target_value,
+            };
+            self.lower_switch_arm_body(&arm.body, &mut arm_context);
         }
 
         *current = merge_target;
@@ -422,69 +429,106 @@ impl FunctionLowerer {
         }
         for (arm_target, arm) in lowered_arms {
             let arm_scope = self.alloc_scope(Some(context.scope), arm.span);
-            self.lower_switch_arm_body(
-                arm.span,
-                &arm.body,
-                arm_scope,
-                arm_target,
+            let mut arm_context = SwitchStmtArmContext {
+                span: arm.span,
+                scope: arm_scope,
+                entry: arm_target,
                 merge_target,
-                context.blocks,
-            );
+                blocks: context.blocks,
+                patterns: &arm.patterns,
+                target: &target,
+            };
+            self.lower_switch_arm_body(&arm.body, &mut arm_context);
         }
         *context.current = merge_target;
     }
 
     pub(super) fn lower_switch_arm_body(
         &mut self,
-        span: Span,
         body: &TypedSwitchArmBody,
-        scope: FunctionScopeId,
-        entry: FunctionBlockId,
-        merge_target: FunctionBlockId,
-        blocks: &mut Vec<FunctionBlock>,
+        context: &mut SwitchStmtArmContext<'_>,
     ) {
         match body {
             TypedSwitchArmBody::Expr(expr) => {
-                let mut current = entry;
+                let mut current = context.entry;
                 let mut ops = Vec::new();
-                self.lower_expr_stmt(span, expr, scope, &mut current, &mut ops, blocks);
+                self.lower_switch_pattern_bindings(context.patterns, context.target, &mut ops);
+                self.lower_expr_stmt(
+                    context.span,
+                    expr,
+                    context.scope,
+                    &mut current,
+                    &mut ops,
+                    context.blocks,
+                );
                 self.finish_block(
-                    blocks,
+                    context.blocks,
                     current,
-                    scope,
-                    span,
+                    context.scope,
+                    context.span,
                     ops,
                     FunctionTerminator::Branch {
-                        target: merge_target,
-                        span,
+                        target: context.merge_target,
+                        span: context.span,
                     },
                 );
             }
             TypedSwitchArmBody::Stmt(stmt) => {
-                let mut current = entry;
+                let mut current = context.entry;
                 let mut ops = Vec::new();
-                if !self.lower_stmt_into(stmt, scope, &mut current, &mut ops, blocks) {
+                self.lower_switch_pattern_bindings(context.patterns, context.target, &mut ops);
+                if !self.lower_stmt_into(
+                    stmt,
+                    context.scope,
+                    &mut current,
+                    &mut ops,
+                    context.blocks,
+                ) {
                     self.finish_block(
-                        blocks,
+                        context.blocks,
                         current,
-                        scope,
-                        span,
+                        context.scope,
+                        context.span,
                         ops,
                         FunctionTerminator::Branch {
-                            target: merge_target,
-                            span,
+                            target: context.merge_target,
+                            span: context.span,
                         },
                     );
                 }
             }
             TypedSwitchArmBody::Block(body) => {
-                self.lower_body_into(
-                    body,
-                    entry,
-                    scope,
-                    blocks,
-                    Fallthrough::Branch(merge_target),
-                );
+                let mut ops = Vec::new();
+                self.lower_switch_pattern_bindings(context.patterns, context.target, &mut ops);
+                if ops.is_empty() {
+                    self.lower_body_into(
+                        body,
+                        context.entry,
+                        context.scope,
+                        context.blocks,
+                        Fallthrough::Branch(context.merge_target),
+                    );
+                } else {
+                    let body_entry = self.alloc_block();
+                    self.finish_block(
+                        context.blocks,
+                        context.entry,
+                        context.scope,
+                        context.span,
+                        ops,
+                        FunctionTerminator::Branch {
+                            target: body_entry,
+                            span: context.span,
+                        },
+                    );
+                    self.lower_body_into(
+                        body,
+                        body_entry,
+                        context.scope,
+                        context.blocks,
+                        Fallthrough::Branch(context.merge_target),
+                    );
+                }
             }
         }
     }

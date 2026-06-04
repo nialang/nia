@@ -615,7 +615,7 @@ trait Same {
     fn eq(&const self, other: &const Self) bool;
 
     fn ne(&const self, other: &const Self) bool {
-        !self.eq(other)
+        not self.eq(other)
     }
 }
 

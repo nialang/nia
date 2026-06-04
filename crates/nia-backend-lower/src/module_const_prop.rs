@@ -254,6 +254,11 @@ fn propagate_cross_function_constants_in_terminator(
             }
             changed
         }
+        FunctionTerminator::Try { value, .. } => propagate_cross_function_constants_in_expr(
+            value,
+            function_constants,
+            instance_constants,
+        ),
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(cond) => propagate_cross_function_constants_in_expr(
                 cond,
@@ -334,6 +339,12 @@ fn propagate_cross_function_constants_in_expr(
         FunctionExprKind::CStringPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
+        | FunctionExprKind::OptionalSome { expr: array }
+        | FunctionExprKind::ErrorOk { expr: array }
+        | FunctionExprKind::ErrorErr { expr: array }
+        | FunctionExprKind::TaggedUnionTag { expr: array }
+        | FunctionExprKind::TaggedUnionPayload { expr: array }
+        | FunctionExprKind::Try { expr: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. }
         | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
@@ -457,6 +468,7 @@ fn propagate_cross_function_constants_in_expr(
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)

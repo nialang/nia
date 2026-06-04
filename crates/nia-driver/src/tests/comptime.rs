@@ -62,6 +62,74 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_if_prunes_unselected_function_body_branch() {
+    let root = temp_dir("comptime_if_prunes_unselected_function_body_branch");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    comptime if true {
+        1
+    } else {
+        missing_name
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_if_accepts_builtin_target_fields_in_function_body() {
+    let root = temp_dir("comptime_if_accepts_builtin_target_fields_in_function_body");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    comptime if @builtin().target.pointer_width == 64
+        or @builtin().target.pointer_width == 32 {
+        1
+    } else {
+        missing_name
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_if_rejects_old_target_predicate_builtins() {
+    let root = temp_dir("comptime_if_rejects_old_target_predicate_builtins");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    comptime if @target_os("linux") {
+        1
+    } else {
+        0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("target config calls are only supported as `@builtin()` field roots")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn imported_comptime_values_drive_array_lengths() {
     let root = temp_dir("imported_comptime_values_drive_array_lengths");
     write(

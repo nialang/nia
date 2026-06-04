@@ -72,6 +72,13 @@ pub struct LoopStmt {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeIfExpr {
+    pub cond: Box<Expr>,
+    pub then_branch: Block,
+    pub else_branch: Option<Box<Expr>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct SwitchStmt {
     pub target: Expr,
     pub arms: Vec<SwitchArm>,
@@ -87,6 +94,21 @@ pub struct SwitchArm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SwitchPattern {
     Default,
+    OptionalSome {
+        name: String,
+        span: Span,
+    },
+    OptionalNull {
+        span: Span,
+    },
+    ErrorOk {
+        name: String,
+        span: Span,
+    },
+    ErrorErr {
+        name: String,
+        span: Span,
+    },
     Expr(Expr),
     Range {
         start: Expr,
@@ -136,6 +158,7 @@ pub enum ExprKind {
     ByteChar(String),
     Raw(String),
     Bool(bool),
+    Null,
     Ident(String),
     Underscore,
     Builtin {
@@ -165,6 +188,18 @@ pub enum ExprKind {
     },
     Unary {
         op: UnaryOp,
+        expr: Box<Expr>,
+    },
+    OptionalSome {
+        expr: Box<Expr>,
+    },
+    ErrorOk {
+        expr: Box<Expr>,
+    },
+    ErrorErr {
+        expr: Box<Expr>,
+    },
+    Try {
         expr: Box<Expr>,
     },
     Binary {
@@ -204,6 +239,7 @@ pub enum ExprKind {
         then_branch: Block,
         else_branch: Option<Box<Expr>>,
     },
+    ComptimeIf(Box<ComptimeIfExpr>),
     Switch(Box<SwitchStmt>),
 }
 

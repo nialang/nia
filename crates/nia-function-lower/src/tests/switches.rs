@@ -111,6 +111,93 @@ fn statement_switch_with_range_patterns_lowers_to_condition_chain() {
 }
 
 #[test]
+fn statement_switch_pattern_binding_stores_tagged_union_payload() {
+    let ty = test_ty();
+    let target_local = LocalId(0);
+    let payload_local = LocalId(1);
+    let span = Span::default();
+    let body = TypedBody {
+        span,
+        locals: vec![
+            TypedLocal {
+                id: target_local,
+                name: "value".to_string(),
+                kind: TypedLocalKind::Param,
+                ty,
+                span,
+            },
+            TypedLocal {
+                id: payload_local,
+                name: "x".to_string(),
+                kind: TypedLocalKind::Binding,
+                ty,
+                span,
+            },
+        ],
+        stmts: vec![TypedStmt {
+            span,
+            kind: TypedStmtKind::Expr(TypedExpr {
+                span,
+                ty,
+                kind: TypedExprKind::Switch(Box::new(TypedSwitch {
+                    target: TypedExpr {
+                        span,
+                        ty,
+                        kind: TypedExprKind::Local(target_local),
+                    },
+                    bool_ty: ty,
+                    arms: vec![
+                        nia_body_ir::TypedSwitchArm {
+                            patterns: vec![TypedSwitchPattern::OptionalSome {
+                                local_id: payload_local,
+                                name: "x".to_string(),
+                                ty,
+                                span,
+                            }],
+                            body: TypedSwitchArmBody::Expr(TypedExpr {
+                                span,
+                                ty,
+                                kind: TypedExprKind::Local(payload_local),
+                            }),
+                            span,
+                        },
+                        switch_default_arm(TypedSwitchArmBody::Expr(int_expr(0))),
+                    ],
+                })),
+            }),
+        }],
+        tail: None,
+        ty,
+    };
+
+    let function_body = lower_function_body(&body);
+
+    assert!(
+        function_body
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator, FunctionTerminator::If { .. })),
+        "{function_body:#?}"
+    );
+    assert!(function_body.blocks.iter().any(|block| {
+        block.ops.iter().any(|op| {
+            matches!(
+                op,
+                FunctionOp::StoreLocal {
+                    local_id,
+                    value:
+                        FunctionExpr {
+                            kind: FunctionExprKind::TaggedUnionPayload { .. },
+                            ..
+                        },
+                    ..
+                } if *local_id == payload_local
+            )
+        })
+    }), "{function_body:#?}");
+}
+
+#[test]
 fn statement_switch_arm_block_exits_arm_scope_to_merge() {
     let body = switch_stmt_body(vec![switch_expr_arm(
         1,

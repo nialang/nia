@@ -262,6 +262,15 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.normalize_dynamic_trait_object_projection(candidate, error);
+                let value = self.normalize_dynamic_trait_object_projection(candidate, value);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
             Some(TyKind::Nominal { def_id, args }) => {
                 let args = args
                     .into_iter()

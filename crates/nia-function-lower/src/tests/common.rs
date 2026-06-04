@@ -8,6 +8,7 @@ pub(super) use nia_body_ir::{
 pub(super) use nia_function_ir::*;
 pub(super) use nia_ids::{InternedTyId, LocalId, ModuleId, TyInternerIndex};
 pub(super) use nia_span::Span;
+pub(super) use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 pub(super) fn only_next_target(
     function_body: &FunctionBody,

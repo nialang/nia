@@ -111,6 +111,19 @@ impl<'a> ModuleLowerer<'a> {
                 fallback,
                 span,
             },
+            FunctionTerminator::Try {
+                value,
+                kind,
+                success_local,
+                success_target,
+                span,
+            } => FunctionTerminator::Try {
+                value: self.instantiate_expr(value, substitutions),
+                kind,
+                success_local,
+                success_target,
+                span,
+            },
             FunctionTerminator::Loop {
                 header,
                 body,
@@ -165,6 +178,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Char(value) => FunctionExprKind::Char(value),
                 FunctionExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text),
                 FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
+                FunctionExprKind::Null => FunctionExprKind::Null,
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
                 FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
@@ -249,6 +263,26 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 FunctionExprKind::Unary { op, expr } => FunctionExprKind::Unary {
                     op,
+                    expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                },
+                FunctionExprKind::OptionalSome { expr } => FunctionExprKind::OptionalSome {
+                    expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                },
+                FunctionExprKind::ErrorOk { expr } => FunctionExprKind::ErrorOk {
+                    expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                },
+                FunctionExprKind::ErrorErr { expr } => FunctionExprKind::ErrorErr {
+                    expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                },
+                FunctionExprKind::TaggedUnionTag { expr } => FunctionExprKind::TaggedUnionTag {
+                    expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                },
+                FunctionExprKind::TaggedUnionPayload { expr } => {
+                    FunctionExprKind::TaggedUnionPayload {
+                        expr: Box::new(self.instantiate_expr(*expr, substitutions)),
+                    }
+                }
+                FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.instantiate_expr(*expr, substitutions)),
                 },
                 FunctionExprKind::AddrOf(place) => {

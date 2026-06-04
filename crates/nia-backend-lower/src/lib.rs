@@ -328,7 +328,10 @@ impl<'a> ModuleLowerer<'a> {
                         globals.push(global);
                     }
                 }
-                ItemKind::Import(_) | ItemKind::Using(_) | ItemKind::TypeAlias(_) => {}
+                ItemKind::Import(_)
+                | ItemKind::Using(_)
+                | ItemKind::ComptimeIf(_)
+                | ItemKind::TypeAlias(_) => {}
             }
         }
 

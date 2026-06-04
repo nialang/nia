@@ -145,6 +145,19 @@ impl<'a> ModuleLowerer<'a> {
                 fallback,
                 span,
             },
+            FunctionTerminator::Try {
+                value,
+                kind,
+                success_local,
+                success_target,
+                span,
+            } => FunctionTerminator::Try {
+                value: self.resolve_builtin_operator_calls_in_expr(value),
+                kind,
+                success_local,
+                success_target,
+                span,
+            },
             FunctionTerminator::Loop {
                 header,
                 body,
@@ -194,6 +207,7 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Char(value) => FunctionExprKind::Char(value),
                 FunctionExprKind::ByteChar(text) => FunctionExprKind::ByteChar(text),
                 FunctionExprKind::Bool(value) => FunctionExprKind::Bool(value),
+                FunctionExprKind::Null => FunctionExprKind::Null,
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
                 FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
@@ -270,6 +284,26 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 FunctionExprKind::Unary { op, expr } => FunctionExprKind::Unary {
                     op,
+                    expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                },
+                FunctionExprKind::OptionalSome { expr } => FunctionExprKind::OptionalSome {
+                    expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                },
+                FunctionExprKind::ErrorOk { expr } => FunctionExprKind::ErrorOk {
+                    expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                },
+                FunctionExprKind::ErrorErr { expr } => FunctionExprKind::ErrorErr {
+                    expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                },
+                FunctionExprKind::TaggedUnionTag { expr } => FunctionExprKind::TaggedUnionTag {
+                    expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                },
+                FunctionExprKind::TaggedUnionPayload { expr } => {
+                    FunctionExprKind::TaggedUnionPayload {
+                        expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
+                    }
+                }
+                FunctionExprKind::Try { expr } => FunctionExprKind::Try {
                     expr: Box::new(self.resolve_builtin_operator_calls_in_expr(*expr)),
                 },
                 FunctionExprKind::AddrOf(place) => {

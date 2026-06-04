@@ -66,6 +66,15 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.normalize_projection(elem);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.normalize_projection(error);
+                let value = self.normalize_projection(value);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
             Some(TyKind::Nominal { def_id, args }) => {
                 let args = args
                     .into_iter()
@@ -788,6 +797,10 @@ impl<'a> BodyChecker<'a> {
                 format!("[{}]{}", self.array_len_name(len), self.ty_name(*elem))
             }
             Some(TyKind::Range { kind, bound }) => self.range_ty_name(*kind, *bound),
+            Some(TyKind::Optional { elem }) => format!("?{}", self.ty_name(*elem)),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                format!("{}!{}", self.ty_name(*error), self.ty_name(*value))
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,

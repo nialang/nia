@@ -463,7 +463,7 @@ Lowers AST type references into `TyId`s. It handles primitive types, pointers,
 arrays, slices, function pointer types, nominal types, generics, enum backing
 types, and inferred array lengths.
 
-It also validates type-level restrictions such as invalid use of `void` or `!`
+It also validates type-level restrictions such as invalid use of `void` or `never`
 in value positions.
 
 ### 6.4 `nia-item-signatures`

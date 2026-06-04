@@ -247,6 +247,11 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                     self.visit_type(return_type);
                 }
             }
+            TypeKind::Optional { elem } => self.visit_type(elem),
+            TypeKind::ErrorUnion { error, value } => {
+                self.visit_type(error);
+                self.visit_type(value);
+            }
             TypeKind::Path { segments } => self.resolve_type_path(ty.span, segments),
         }
     }

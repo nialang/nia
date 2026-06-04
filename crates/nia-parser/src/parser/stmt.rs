@@ -22,7 +22,10 @@ impl Parser {
                 StmtKind::Using(using),
             ));
         }
-        if self.at(TokenKind::Comptime) || self.at(TokenKind::Var) || self.at(TokenKind::Const) {
+        if (self.at(TokenKind::Comptime) && !self.at_comptime_if())
+            || self.at(TokenKind::Var)
+            || self.at(TokenKind::Const)
+        {
             let binding = self.parse_binding_stmt()?;
             return Some(self.make_stmt(
                 Span::new(start, self.previous_end()),
@@ -216,6 +219,34 @@ impl Parser {
         if self.eat(TokenKind::Underscore).is_some() {
             return Some(SwitchPattern::Default);
         }
+        if self.at(TokenKind::Question) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Ident))
+        {
+            let start = self
+                .expect(TokenKind::Question, "expected `?` in optional switch pattern")?
+                .start;
+            let name = self.expect_text(TokenKind::Ident, "expected optional payload name")?;
+            let span = Span::new(start, self.previous_end());
+            return Some(SwitchPattern::OptionalSome { name, span });
+        }
+        if self.at(TokenKind::Null) {
+            let span = self.expect(TokenKind::Null, "expected `null` in optional switch pattern")?;
+            return Some(SwitchPattern::OptionalNull { span });
+        }
+        if self.at(TokenKind::Bang) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Ident)) {
+            let start = self
+                .expect(TokenKind::Bang, "expected `!` in error success switch pattern")?
+                .start;
+            let name = self.expect_text(TokenKind::Ident, "expected error-union success name")?;
+            let span = Span::new(start, self.previous_end());
+            return Some(SwitchPattern::ErrorOk { name, span });
+        }
+        if self.at(TokenKind::Ident) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Bang)) {
+            let start = self.peek().span.start;
+            let name = self.expect_text(TokenKind::Ident, "expected error name")?;
+            self.expect(TokenKind::Bang, "expected `!` after error name")?;
+            let span = Span::new(start, self.previous_end());
+            return Some(SwitchPattern::ErrorErr { name, span });
+        }
         let expr = self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?;
         let ExprKind::Range(range) = expr.kind else {
             return Some(SwitchPattern::Expr(expr));
@@ -290,7 +321,6 @@ impl Parser {
         matches!(
             self.peek().kind,
             TokenKind::Const
-                | TokenKind::Comptime
                 | TokenKind::Var
                 | TokenKind::Return
                 | TokenKind::Break
@@ -300,7 +330,7 @@ impl Parser {
                 | TokenKind::While
                 | TokenKind::Loop
                 | TokenKind::Using
-        )
+        ) || (self.at(TokenKind::Comptime) && !self.at_comptime_if())
     }
 
     pub(super) fn parse_block(&mut self) -> Option<Block> {

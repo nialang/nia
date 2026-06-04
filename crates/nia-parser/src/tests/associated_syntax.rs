@@ -92,13 +92,13 @@ fn parses_deep_pointer_structural_type_target_associated_call() {
     let (module, errors) = parse_module(
         r#"
 extend &&&&&&const &&i32 {
-    fn null(self) bool {
+    fn is_null(self) bool {
         self as usize == 0
     }
 }
 
 fn main(ptr: &&&&&&const &&i32) bool {
-    [&&&&&&const &&i32]::null(ptr)
+    [&&&&&&const &&i32]::is_null(ptr)
 }
 "#,
     );
@@ -365,7 +365,7 @@ fn parses_structural_type_targets_after_if_statements() {
     let (module, errors) = parse_module(
         r#"
 extend[T] &T {
-    fn null(self) bool {
+    fn is_null(self) bool {
         self as usize == 0
     }
 }
@@ -381,7 +381,7 @@ fn zero() usize {
 }
 
 fn main(ptr: &u8, triple: [3]i32) i32 {
-    if [&u8]::null(ptr) {}
+    if [&u8]::is_null(ptr) {}
     [[3]i32]::first(triple) + zero() as i32
 }
 "#,
