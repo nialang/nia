@@ -2927,7 +2927,12 @@ impl Analyzer<'_> {
             UnaryOp::Not => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),
-            UnaryOp::Neg | UnaryOp::BitNot => {
+            UnaryOp::Neg => {
+                let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
+                (self.is_integer_runtime_type(inner_ty) || self.is_float_runtime_type(inner_ty))
+                    .then_some(ComptimeValueType::Runtime(inner_ty))
+            }
+            UnaryOp::BitNot => {
                 let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
                 self.is_integer_runtime_type(inner_ty)
                     .then_some(ComptimeValueType::Runtime(inner_ty))
