@@ -1689,6 +1689,31 @@ impl Analyzer<'_> {
             .and_then(|ty| ty.runtime())
     }
 
+    fn probe_comptime_int_expr(&mut self, expr: &ComptimeExpr) -> Option<i128> {
+        nia_comptime_engine::eval_comptime_int_expr(expr, self).ok()
+    }
+
+    fn probe_comptime_array_len_expr(&mut self, expr: &ComptimeExpr) -> Option<u64> {
+        nia_comptime_engine::eval_comptime_array_len_expr(expr, self).ok()
+    }
+
+    fn probe_type_generic_inference(
+        &mut self,
+        span: Span,
+        expected: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> Option<()> {
+        self.infer_generics_from_tys(
+            span,
+            self.current_execution_module_id(),
+            expected,
+            actual,
+            substitutions,
+        )
+        .ok()
+    }
+
     fn comptime_expr_type(
         &mut self,
         expr: &ComptimeExpr,
@@ -1873,13 +1898,12 @@ impl Analyzer<'_> {
             ComptimeValueType::Array { .. } => {
                 let (elem, len) = lhs.array_elem()?;
                 if let Some(len) = len {
-                    let index =
-                        nia_comptime_engine::eval_comptime_array_len_expr(index, self).ok()?;
+                    let index = self.probe_comptime_array_len_expr(index)?;
                     if index >= len {
                         return None;
                     }
                 } else {
-                    nia_comptime_engine::eval_comptime_int_expr(index, self).ok()?;
+                    self.probe_comptime_int_expr(index)?;
                 }
                 Some(elem.clone())
             }
@@ -1903,12 +1927,12 @@ impl Analyzer<'_> {
             _ => return None,
         };
         if let Some(ArrayLenTy::ConstValue(len)) = len {
-            let index = nia_comptime_engine::eval_comptime_array_len_expr(index, self).ok()?;
+            let index = self.probe_comptime_array_len_expr(index)?;
             if index >= len {
                 return None;
             }
         } else {
-            nia_comptime_engine::eval_comptime_int_expr(index, self).ok()?;
+            self.probe_comptime_int_expr(index)?;
         }
         self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
             .map(ComptimeValueType::Runtime)
@@ -1963,8 +1987,7 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
                 let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
                 let elem_ty = self.comptime_arg_runtime_type(value, expected_elem)?;
-                let actual_len =
-                    nia_comptime_engine::eval_comptime_array_len_expr(count, self).ok();
+                let actual_len = self.probe_comptime_array_len_expr(count);
                 (elem_ty, actual_len)
             }
         };
@@ -1994,7 +2017,7 @@ impl Analyzer<'_> {
             }
             nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
                 let elem_ty = self.comptime_expr_type(value, None)?;
-                let len = nia_comptime_engine::eval_comptime_array_len_expr(count, self).ok();
+                let len = self.probe_comptime_array_len_expr(count);
                 (elem_ty, len)
             }
         };
@@ -2153,14 +2176,12 @@ impl Analyzer<'_> {
             if let Some(actual_field) =
                 self.comptime_struct_field_actual_type(&field.value, expected_field)
             {
-                self.infer_generics_from_tys(
+                self.probe_type_generic_inference(
                     span,
-                    self.current_execution_module_id(),
                     expected_field,
                     actual_field,
                     &mut substitutions,
-                )
-                .ok()?;
+                )?;
             }
         }
         if signature
@@ -2656,21 +2677,32 @@ impl Analyzer<'_> {
             .functions
             .get(&function_id.def_id)?
             .clone();
-        let substitutions = self
-            .instantiate_function_generics(
-                span,
-                function_id,
-                function_id.module_id,
-                &signature,
-                type_args,
-                args,
-            )
-            .ok()?;
+        let substitutions =
+            self.probe_comptime_function_generics(span, function_id, &signature, type_args, args)?;
         self.substitute_ty_into_current_module(
             function_id.module_id,
             signature.return_type,
             &substitutions,
         )
+    }
+
+    fn probe_comptime_function_generics(
+        &mut self,
+        span: Span,
+        function_id: GlobalDefId,
+        signature: &FunctionSignature,
+        type_args: &[ComptimeTypeArg],
+        arg_exprs: &[ComptimeExpr],
+    ) -> Option<HashMap<String, InternedTyId>> {
+        self.instantiate_function_generics(
+            span,
+            function_id,
+            function_id.module_id,
+            signature,
+            type_args,
+            arg_exprs,
+        )
+        .ok()
     }
 
     fn substitute_ty_into_current_module(
