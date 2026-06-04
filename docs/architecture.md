@@ -798,7 +798,7 @@ It produces two explicit products:
   bracket-suffix resolution, builtin values, call targets, coercions, function
   references, local types, generic instantiations, source-node fact keys, and
   compile-time branch selections such as body `comptime if`, plus checked
-  comptime-derived facts such as array repeat counts;
+  comptime-derived facts such as array repeat counts and switch pattern values;
 - `BodyIr`, the runtime checked body boundary: typed function bodies, static
   initializers, and the interner required to interpret those typed bodies.
 
@@ -818,7 +818,8 @@ Defines checked body data products:
   facts that later phases may consume, including expression types, final
   bracket-suffix resolution, builtin values, call targets, coercions, function
   references, local types, compile-time branch selections, source-node fact
-  keys, checked array repeat counts, and recorded generic instantiations.
+  keys, checked array repeat counts, checked switch pattern values, and recorded
+  generic instantiations.
 - `BodyIr` is the runtime checked body product. It stores typed function
   bodies, static initializers, and the type interner used by those bodies.
 - The crate also defines the typed body, statement, expression, place, call,
@@ -831,6 +832,10 @@ MIR and does not own diagnostics or checking policy. It is the durable data
 product of body checking and the input boundary for later lowering,
 monomorphization, and backend phases. `BodyFacts` carries semantic side facts;
 `BodyIr` carries runtime typed bodies and static data.
+Facts derived from comptime execution during body checking, such as array repeat
+counts and switch pattern values, are recorded here so later lowering can
+consume checked facts instead of re-running expression evaluation from source
+shape.
 
 ### 9.4 `nia-function-ir`
 
