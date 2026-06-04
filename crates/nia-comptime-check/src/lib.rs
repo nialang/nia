@@ -1342,6 +1342,16 @@ impl Analyzer<'_> {
                 self.comptime_error_union_type(actual_error, value)
                     .map(ComptimeValueType::Runtime)
             }
+            nia_comptime_engine::ComptimeExprKind::Try { expr: inner } => {
+                let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
+                let payload = match self.ty_kind(inner_ty)? {
+                    TyKind::Optional { elem } => elem,
+                    TyKind::ErrorUnion { value, .. } => value,
+                    _ => return None,
+                };
+                self.import_ty_into_module_or_none(payload, self.current_execution_module_id())
+                    .map(ComptimeValueType::Runtime)
+            }
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,

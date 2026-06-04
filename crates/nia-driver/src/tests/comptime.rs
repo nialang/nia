@@ -1357,6 +1357,65 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_try_payload_return_type() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_try_payload_return_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime fn use_try(value: ?usize) usize {
+    id(value.?)
+}
+
+comptime let n: usize = use_try(?7usize);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_error_try_payload_return_type() {
+    let root =
+        temp_dir("generic_comptime_function_infers_type_arg_from_error_try_payload_return_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime fn use_try(value: usize!usize) usize!usize {
+    !id(value.?)
+}
+
+comptime let got: usize!usize = use_try(!7usize);
+comptime let n: usize = switch got {
+    !payload => payload,
+    err! => err,
+};
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_builtin_target_field() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_builtin_target_field");
     write(
