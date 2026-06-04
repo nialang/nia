@@ -2513,6 +2513,31 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_rejects_mismatched_equality_operands() {
+    let root = temp_dir("generic_comptime_function_rejects_mismatched_equality_operands");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let value: bool = id(1usize == true);
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("matching operand types")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_float_values_validate_target_range() {
     let root = temp_dir("comptime_float_values_validate_target_range");
     write(
