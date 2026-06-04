@@ -58,7 +58,17 @@ pub struct ComptimeStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComptimeStmtKind {
     Binding(ComptimeBinding),
+    Expr(ComptimeExpr),
     Return(Option<ComptimeExpr>),
+    Break,
+    Continue,
+    While {
+        cond: ComptimeExpr,
+        body: ComptimeBlock,
+    },
+    Loop {
+        body: ComptimeBlock,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -490,12 +500,24 @@ fn lower_stmt_with_context(
                 value: lower_expr_with_context(value, context)?,
             })
         }
+        nia_ast::StmtKind::Expr(expr) => {
+            ComptimeStmtKind::Expr(lower_expr_with_context(expr, context)?)
+        }
         nia_ast::StmtKind::Return(value) => ComptimeStmtKind::Return(
             value
                 .as_ref()
                 .map(|value| lower_expr_with_context(value, context))
                 .transpose()?,
         ),
+        nia_ast::StmtKind::Break => ComptimeStmtKind::Break,
+        nia_ast::StmtKind::Continue => ComptimeStmtKind::Continue,
+        nia_ast::StmtKind::While(while_stmt) => ComptimeStmtKind::While {
+            cond: lower_expr_with_context(&while_stmt.cond, context)?,
+            body: lower_block_with_context(&while_stmt.body, context)?,
+        },
+        nia_ast::StmtKind::Loop(loop_stmt) => ComptimeStmtKind::Loop {
+            body: lower_block_with_context(&loop_stmt.body, context)?,
+        },
         _ => {
             return Err(ComptimeLowerError {
                 span: stmt.span,
