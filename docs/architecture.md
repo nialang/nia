@@ -580,6 +580,9 @@ uses `nia-comptime-engine` to check and collect current compile-time values. It
 owns `comptime` binding dependency resolution, cycle diagnostics, enum
 discriminant values, and array length values that depend on local or imported
 comptime let bindings or imported `comptime fn` calls.
+Layout builtins such as `@size[T]()` and `@align[T]()` consume those evaluated
+array lengths through narrow lookup closures while computing layouts; they do
+not construct ad hoc `ComptimeCheck` result tables for layout queries.
 
 This crate is the semantic boundary for current compile-time value requirements.
 It is separate from static storage because `comptime` bindings have no runtime

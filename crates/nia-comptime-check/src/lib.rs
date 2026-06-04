@@ -1494,15 +1494,6 @@ impl Analyzer<'_> {
         builtin: LayoutBuiltin,
         ty: nia_ids::InternedTyId,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let current_lengths = ComptimeCheck {
-            values: self.values.clone(),
-            typed_values: HashMap::new(),
-            enum_values: self.enum_values.clone(),
-            typed_enum_values: self.typed_enum_values.clone(),
-            array_lengths: self.array_lengths.clone(),
-            diagnostics: Vec::new(),
-        };
-        let array_lengths = |id| current_lengths.array_lengths.get(&id).copied();
         let module_id = self.current_execution_module_id();
         if self.ensure_working_interner(module_id).is_none() {
             return Err(ComptimeError {
@@ -1534,9 +1525,8 @@ impl Analyzer<'_> {
                 message: "cannot compute layout without normalized module types".to_string(),
             });
         };
-        let layout_query = |module_id| self.compute_program_layout(module_id, &current_lengths);
-        let program_array_lengths =
-            |id: GlobalConstExprId| current_lengths.array_lengths.get(&id).copied();
+        let array_lengths = |id| self.array_lengths.get(&id).copied();
+        let layout_query = |module_id| self.compute_program_layout(module_id, &self.array_lengths);
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs,
             interner,
@@ -1546,7 +1536,7 @@ impl Analyzer<'_> {
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
                 layouts: Some(&layout_query),
-                array_lengths: Some(&program_array_lengths),
+                array_lengths: Some(&array_lengths),
             },
         );
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
@@ -1569,24 +1559,24 @@ impl Analyzer<'_> {
     fn compute_program_layout(
         &self,
         module_id: ModuleId,
-        current_lengths: &ComptimeCheck,
+        array_lengths: &HashMap<GlobalConstExprId, u64>,
     ) -> Option<nia_layout::Layouts> {
         let defs = self.global_defs(module_id)?;
         let signatures = self.signatures_for_module(module_id)?;
         let interner = self.source_interner_for_module(module_id)?;
         let normalized = self.normalized_for_module(module_id)?;
-        let array_lengths = |id: GlobalConstExprId| current_lengths.array_lengths.get(&id).copied();
-        let layout_query = |module_id| self.compute_program_layout(module_id, current_lengths);
+        let array_lengths_for_layout = |id: GlobalConstExprId| array_lengths.get(&id).copied();
+        let layout_query = |module_id| self.compute_program_layout(module_id, array_lengths);
         Some(nia_layout::compute_layouts_with_program_context(
             defs,
             interner,
             signatures,
             normalized,
-            &array_lengths,
+            &array_lengths_for_layout,
             nia_layout::TargetDataLayout::LP64,
             nia_layout::ProgramLayoutContext {
                 layouts: Some(&layout_query),
-                array_lengths: Some(&array_lengths),
+                array_lengths: Some(&array_lengths_for_layout),
             },
         ))
     }
