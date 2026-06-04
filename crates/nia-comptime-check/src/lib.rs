@@ -1859,7 +1859,9 @@ impl Analyzer<'_> {
         fields: &[ComptimeFieldInit],
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
-        let expected = expected?;
+        let Some(expected) = expected else {
+            return self.structural_comptime_struct_literal_type(fields);
+        };
         let (def_id, expected_args) = self.expected_nominal_parts(expected)?;
         if self.def_kind_of(def_id) != Some(DefKind::Struct) {
             return None;
@@ -1906,6 +1908,24 @@ impl Analyzer<'_> {
         }
         self.substitute_nominal_args(def_id, expected_args, &substitutions)
             .map(ComptimeValueType::Runtime)
+    }
+
+    fn structural_comptime_struct_literal_type(
+        &mut self,
+        fields: &[ComptimeFieldInit],
+    ) -> Option<ComptimeValueType> {
+        let mut seen = HashSet::new();
+        let mut typed_fields = Vec::with_capacity(fields.len());
+        for field in fields {
+            if !seen.insert(field.name.as_str()) {
+                return None;
+            }
+            typed_fields.push(ComptimeValueFieldType {
+                name: field.name.clone(),
+                ty: self.comptime_expr_type(&field.value, None)?,
+            });
+        }
+        Some(ComptimeValueType::Struct(typed_fields))
     }
 
     fn comptime_nominal_struct_field_type(

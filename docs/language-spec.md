@@ -766,6 +766,15 @@ var q = Point{x: 1, y: 2};
 var ptr = &Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
 ```
 
+In a `comptime` value context, an untyped struct literal may also be used as a
+structural compile-time-only value. This does not create an anonymous runtime
+struct type:
+
+```nia
+comptime let config = { width: 4usize };
+comptime let width: usize = config.width;
+```
+
 Field access:
 
 ```nia

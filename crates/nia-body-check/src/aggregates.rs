@@ -185,6 +185,9 @@ impl<'a> BodyChecker<'a> {
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
         let Some(aggregate_ty) = expected else {
+            if self.in_comptime_context() {
+                return self.check_structural_comptime_struct_literal(fields);
+            }
             self.diagnostics.push(Diagnostic::error(
                 span,
                 "aggregate literal requires an expected struct or union type; add a type annotation",
@@ -255,6 +258,16 @@ impl<'a> BodyChecker<'a> {
         aggregate_ty
     }
 
+    fn check_structural_comptime_struct_literal(
+        &mut self,
+        fields: &[nia_ast::FieldInit],
+    ) -> InternedTyId {
+        for field in fields {
+            self.check_expr(&field.value);
+        }
+        self.interner.intern(TyKind::ComptimeOnly)
+    }
+
     fn check_union_literal(
         &mut self,
         span: Span,
@@ -308,6 +321,9 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         name: &str,
     ) -> InternedTyId {
+        if let Some(ty) = self.comptime_field_expr_runtime_type(lhs, name) {
+            return ty;
+        }
         if let Some(ty) = self.builtin_field_access_type(lhs, name) {
             return ty;
         }
@@ -321,6 +337,113 @@ impl<'a> BodyChecker<'a> {
         }
         let lhs_ty = self.check_expr(lhs);
         self.field_access_type_from_lhs_ty(span, lhs_ty, name)
+    }
+
+    fn comptime_field_expr_runtime_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
+        match self.comptime_field_expr_type(lhs, name)? {
+            ComptimeValueType::Runtime(ty) => Some(ty),
+            ComptimeValueType::Struct(_)
+            | ComptimeValueType::Int
+            | ComptimeValueType::Bool
+            | ComptimeValueType::String => Some(self.interner.intern(TyKind::ComptimeOnly)),
+        }
+    }
+
+    fn comptime_field_expr_type(&mut self, lhs: &Expr, name: &str) -> Option<ComptimeValueType> {
+        let lhs_ty = self.comptime_expr_value_type(lhs)?;
+        self.comptime_struct_field_value_type(lhs_ty, name)
+    }
+
+    fn comptime_expr_value_type(&mut self, expr: &Expr) -> Option<ComptimeValueType> {
+        match &expr.kind {
+            ExprKind::Ident(_) => self.comptime_ident_value_type(expr.span),
+            ExprKind::Qualified { .. } => {
+                let global_id = self.values.qualified_values.get(&expr.span).copied()?;
+                self.comptime_global_value_type(global_id)
+            }
+            ExprKind::Field { lhs, name } => self.comptime_field_expr_type(lhs, name),
+            _ => None,
+        }
+    }
+
+    fn comptime_ident_value_type(&self, span: Span) -> Option<ComptimeValueType> {
+        if let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.locals.uses.get(&span)
+            && let Some(typed) = self
+                .comptime
+                .typed_values
+                .get(&ComptimeKey::Local(*local_id))
+        {
+            return Some(typed.ty.clone());
+        }
+        let nia_value_resolve::ValueNameResolution::Def(def_id) = self.values.names.get(&span)?
+        else {
+            return None;
+        };
+        let def = self.defs.defs.get(*def_id)?;
+        if def.kind != DefKind::Comptime {
+            return None;
+        }
+        self.comptime
+            .typed_values
+            .get(&ComptimeKey::Global(self.global_def_id(*def_id)))
+            .map(|typed| typed.ty.clone())
+    }
+
+    fn comptime_global_value_type(&mut self, global_id: GlobalDefId) -> Option<ComptimeValueType> {
+        if global_id.module_id == self.defs.module_id {
+            return self
+                .comptime
+                .typed_values
+                .get(&ComptimeKey::Global(global_id))
+                .map(|typed| typed.ty.clone());
+        }
+        let program_signature = self.program_comptimes.get(&global_id).cloned()?;
+        self.program_comptime
+            .get(&global_id.module_id)
+            .and_then(|comptime| comptime.typed_values.get(&ComptimeKey::Global(global_id)))
+            .cloned()
+            .and_then(|typed| {
+                self.import_comptime_value_type(&program_signature.interner, typed.ty)
+            })
+    }
+
+    fn comptime_struct_field_value_type(
+        &mut self,
+        lhs_ty: ComptimeValueType,
+        name: &str,
+    ) -> Option<ComptimeValueType> {
+        match lhs_ty {
+            ComptimeValueType::Struct(fields) => fields
+                .into_iter()
+                .find(|field| field.name == name)
+                .map(|field| field.ty),
+            _ => None,
+        }
+    }
+
+    fn import_comptime_value_type(
+        &mut self,
+        source: &TyInterner,
+        ty: ComptimeValueType,
+    ) -> Option<ComptimeValueType> {
+        match ty {
+            ComptimeValueType::Runtime(ty) => Some(ComptimeValueType::Runtime(
+                self.import_type_from(source, ty),
+            )),
+            ComptimeValueType::Struct(fields) => fields
+                .into_iter()
+                .map(|field| {
+                    Some(nia_comptime_check::ComptimeValueFieldType {
+                        name: field.name,
+                        ty: self.import_comptime_value_type(source, field.ty)?,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(ComptimeValueType::Struct),
+            ComptimeValueType::Int => Some(ComptimeValueType::Int),
+            ComptimeValueType::Bool => Some(ComptimeValueType::Bool),
+            ComptimeValueType::String => Some(ComptimeValueType::String),
+        }
     }
 
     fn builtin_field_access_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
@@ -472,10 +595,10 @@ impl<'a> BodyChecker<'a> {
         source: &TyInterner,
         ty: ComptimeValueType,
     ) -> Option<InternedTyId> {
-        let ComptimeValueType::Runtime(ty) = ty else {
+        let ComptimeValueType::Runtime(ty) = self.import_comptime_value_type(source, ty)? else {
             return None;
         };
-        Some(self.import_type_from(source, ty))
+        Some(ty)
     }
 
     pub(crate) fn resolved_struct_signature(
