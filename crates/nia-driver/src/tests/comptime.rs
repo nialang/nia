@@ -938,6 +938,33 @@ comptime let n: usize = width();
 }
 
 #[test]
+fn comptime_function_rejects_int_assignment_to_bool() {
+    let root = temp_dir("comptime_function_rejects_int_assignment_to_bool");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var value: bool = true;
+    value = 1usize;
+    1usize
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("primitive type bool")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_rejects_array_assignment_shape_mismatch() {
     let root = temp_dir("comptime_function_rejects_array_assignment_shape_mismatch");
     write(
@@ -1629,6 +1656,60 @@ fn main() i32 {
             .diagnostic
             .message
             .contains("comptime-only value")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_builtin_string_field_assignment_type_mismatch() {
+    let root = temp_dir("comptime_function_rejects_builtin_string_field_assignment_type_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    comptime var builtin = @builtin();
+    builtin.target.os = true;
+    builtin.target.pointer_width
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("expected string type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_structural_bool_field_assignment_type_mismatch() {
+    let root = temp_dir("comptime_function_rejects_structural_bool_field_assignment_type_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    comptime var config = {enabled: true};
+    config.enabled = 1usize;
+    1usize
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("primitive type bool")),
         "{:?}",
         program.diagnostics
     );

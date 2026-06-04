@@ -1065,7 +1065,21 @@ impl Analyzer<'_> {
                     }
                 }
             }
-            ComptimeValueType::Int | ComptimeValueType::Bool | ComptimeValueType::String => {}
+            ComptimeValueType::Int => {
+                if !matches!(value, ComptimeValue::Int(_)) {
+                    self.push_comptime_type_mismatch(span, "int");
+                }
+            }
+            ComptimeValueType::Bool => {
+                if !matches!(value, ComptimeValue::Bool(_)) {
+                    self.push_comptime_type_mismatch(span, "bool");
+                }
+            }
+            ComptimeValueType::String => {
+                if !matches!(value, ComptimeValue::String(_)) {
+                    self.push_comptime_type_mismatch(span, "string");
+                }
+            }
         }
     }
 
@@ -1174,6 +1188,7 @@ impl Analyzer<'_> {
                 let Some((min, max)) =
                     primitive_integer_range_for_target(primitive, self.input.target.pointer_width)
                 else {
+                    self.push_comptime_primitive_mismatch(span, primitive);
                     return;
                 };
                 if *value < min || *value > max {
@@ -1205,13 +1220,7 @@ impl Analyzer<'_> {
                 }
             }
             (_, primitive) => {
-                self.diagnostics.push(Diagnostic::error(
-                    span,
-                    format!(
-                        "comptime value does not match primitive type {}",
-                        primitive_ty_name(primitive)
-                    ),
-                ));
+                self.push_comptime_primitive_mismatch(span, primitive);
             }
         }
     }
@@ -1241,6 +1250,16 @@ impl Analyzer<'_> {
         self.diagnostics.push(Diagnostic::error(
             span,
             format!("comptime struct value has extra field `{name}`"),
+        ));
+    }
+
+    fn push_comptime_primitive_mismatch(&mut self, span: Span, primitive: PrimitiveTy) {
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!(
+                "comptime value does not match primitive type {}",
+                primitive_ty_name(primitive)
+            ),
         ));
     }
 
