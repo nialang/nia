@@ -15,7 +15,6 @@ pub(super) struct CompilerQueryProviders {
     pub(super) module_defs: fn(&QueryDb<DriverContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<DriverContext>) -> Vec<DefCollection>,
     pub(super) program_defs_by_id: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, DefCollection>,
-    pub(super) program_modules_by_id: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, Module>,
     pub(super) public_surface: fn(&QueryDb<DriverContext>) -> PublicSurfaceQueryValue,
     pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
@@ -63,7 +62,6 @@ impl Default for CompilerQueryProviders {
             module_defs: provide_module_defs,
             defs_by_module: provide_defs_by_module,
             program_defs_by_id: provide_program_defs_by_id,
-            program_modules_by_id: provide_program_modules_by_id,
             public_surface: provide_public_surface,
             type_resolution: provide_type_resolution,
             type_lowering: provide_type_lowering,
@@ -178,18 +176,6 @@ pub(super) fn provide_program_defs_by_id(
     db.query(ParseOkModuleIdsQuery)
         .into_iter()
         .map(|module_id| (module_id, db.query(ModuleDefsQuery(module_id))))
-        .collect()
-}
-
-pub(super) fn provide_program_modules_by_id(
-    db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, Module> {
-    db.query(ParseOkModuleIdsQuery)
-        .into_iter()
-        .map(|module_id| {
-            let loaded = db.query(LoadedModuleQuery(module_id));
-            (module_id, loaded.module)
-        })
         .collect()
 }
 
@@ -579,7 +565,6 @@ pub(super) fn provide_body_check(
 ) -> nia_body_check::BodyCheck {
     let loaded = db.query(LoadedModuleQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
-    let program_modules = db.query(ProgramModulesByIdQuery);
     let program_defs = defs_by_module_id(db);
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
@@ -610,7 +595,6 @@ pub(super) fn provide_body_check(
             extensions: &extensions.methods,
             extension_interner: Some(&extensions.interner),
             program: nia_body_check::BodyProgramContext {
-                modules: Some(&program_modules),
                 defs: Some(&program_defs),
             },
             program_signatures: program_signatures.maps(),

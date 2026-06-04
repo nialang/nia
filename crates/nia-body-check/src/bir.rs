@@ -847,26 +847,22 @@ impl<'a> BodyChecker<'a> {
             module_id: def_id.module_id,
             active,
         };
-        let value = nia_comptime_engine::eval_expr(&value, &mut env).ok();
+        let value = nia_comptime_engine::eval_comptime_expr(&value, &mut env).ok();
         active.pop();
         value
     }
 
-    fn global_comptime_initializer(&self, def_id: nia_ids::GlobalDefId) -> Option<&Expr> {
-        let defs = self.defs_for_module(def_id.module_id)?;
-        let module = self.module_for_module(def_id.module_id)?;
-        module.items.iter().find_map(|item| {
-            let nia_ast::ItemKind::Binding(binding) = &item.kind else {
-                return None;
-            };
-            if !binding.is_comptime {
-                return None;
-            }
-            let item_def_id = defs.def_spans.get(item.span)?;
-            (item_def_id == def_id.def_id)
-                .then_some(binding.value.as_ref())
-                .flatten()
-        })
+    fn global_comptime_initializer(
+        &self,
+        def_id: nia_ids::GlobalDefId,
+    ) -> Option<&nia_comptime_ir::ComptimeExpr> {
+        if def_id.module_id == self.defs.module_id {
+            return self.comptime_module.global_initializers.get(&def_id);
+        }
+        self.program_comptime_modules
+            .get(&def_id.module_id)?
+            .global_initializers
+            .get(&def_id)
     }
 
     fn global_comptime_id_in_module(
@@ -1104,7 +1100,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn lower_array_repeat_count(&mut self, count: &Expr) -> u64 {
-        nia_comptime_engine::eval_array_len_expr(count, self).unwrap_or(0)
+        self.lower_comptime_expr(count)
+            .ok()
+            .and_then(|count| nia_comptime_engine::eval_comptime_array_len_expr(&count, self).ok())
+            .unwrap_or(0)
     }
 
     fn lower_callee(&mut self, call_span: Span, callee: &Expr) -> TypedCallee {
@@ -1632,6 +1631,32 @@ impl nia_comptime_engine::ComptimeEnv for BirComptimeEnv<'_, '_> {
                 span,
                 message: format!("comptime expression can only use comptime bindings: `{name}`"),
             })?;
+        self.checker
+            .global_comptime_value_for_env(def_id, self.active)
+            .ok_or_else(|| nia_comptime_engine::ComptimeError {
+                span,
+                message: format!("failed to evaluate comptime value `{name}`"),
+            })
+    }
+
+    fn resolve_name_resolution(
+        &mut self,
+        span: Span,
+        resolution: nia_comptime_engine::ComptimeNameResolution,
+        name: &str,
+    ) -> Result<nia_comptime_check::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        let nia_comptime_engine::ComptimeNameResolution::Global(def_id) = resolution else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: format!("comptime expression can only use comptime bindings: `{name}`"),
+            });
+        };
+        if self.checker.global_def_kind(def_id) != Some(nia_defs::DefKind::Comptime) {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: format!("comptime expression can only use comptime bindings: `{name}`"),
+            });
+        }
         self.checker
             .global_comptime_value_for_env(def_id, self.active)
             .ok_or_else(|| nia_comptime_engine::ComptimeError {

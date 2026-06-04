@@ -66,16 +66,12 @@ pub struct ProgramComptimeMaps<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct BodyProgramContext<'a> {
-    pub modules: Option<&'a HashMap<ModuleId, Module>>,
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
     pub fn empty() -> Self {
-        Self {
-            modules: None,
-            defs: None,
-        }
+        Self { defs: None }
     }
 }
 
@@ -495,14 +491,6 @@ impl<'a> BodyChecker<'a> {
             Some(self.defs)
         } else {
             self.program.defs?.get(&module_id)
-        }
-    }
-
-    fn module_for_module(&self, module_id: ModuleId) -> Option<&Module> {
-        if module_id == self.defs.module_id {
-            Some(self.module)
-        } else {
-            self.program.modules?.get(&module_id)
         }
     }
 }
@@ -1422,7 +1410,15 @@ impl<'a> BodyChecker<'a> {
             return Some(if value { 1 } else { 0 });
         }
         match self
-            .with_comptime_context(|this| nia_comptime_engine::eval_expr(expr, this))
+            .with_comptime_context(|this| {
+                let expr = this.lower_comptime_expr(expr).map_err(|err| {
+                    nia_comptime_engine::ComptimeError {
+                        span: err.span,
+                        message: err.message,
+                    }
+                })?;
+                nia_comptime_engine::eval_comptime_expr(&expr, this)
+            })
             .ok()?
         {
             nia_comptime_engine::ComptimeValue::Int(value) => Some(value),

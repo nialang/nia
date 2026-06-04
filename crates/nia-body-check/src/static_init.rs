@@ -130,7 +130,12 @@ impl<'a> BodyChecker<'a> {
             }
             | ExprKind::Binary { .. } => {
                 let mut env = nia_comptime_engine::EmptyEnv;
-                nia_comptime_engine::eval_int_expr(expr, &mut env)
+                self.lower_comptime_expr(expr)
+                    .map_err(|err| nia_comptime_engine::ComptimeError {
+                        span: err.span,
+                        message: err.message,
+                    })
+                    .and_then(|expr| nia_comptime_engine::eval_comptime_int_expr(&expr, &mut env))
                     .map(StaticInit::Int)
                     .unwrap_or_else(|err| {
                         self.diagnostics.push(Diagnostic::error(
@@ -265,7 +270,26 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_static_place_index(&mut self, expr: &Expr) -> u64 {
-        match nia_comptime_engine::eval_array_len_expr(expr, self) {
+        let expr =
+            match self
+                .lower_comptime_expr(expr)
+                .map_err(|err| nia_comptime_engine::ComptimeError {
+                    span: err.span,
+                    message: err.message,
+                }) {
+                Ok(expr) => expr,
+                Err(error) => {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        format!(
+                            "static address index is not a valid usize constant: {}",
+                            error.message
+                        ),
+                    ));
+                    return 0;
+                }
+            };
+        match nia_comptime_engine::eval_comptime_array_len_expr(&expr, self) {
             Ok(value) => value,
             Err(error) => {
                 self.diagnostics.push(Diagnostic::error(

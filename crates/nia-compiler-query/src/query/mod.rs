@@ -10,7 +10,6 @@ use crate::{
     },
     public_surface::compute_public_surfaces,
 };
-use nia_ast::Module;
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
 use nia_comptime_ir::ComptimeModule;
@@ -495,6 +494,32 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "function_bodies" && dependency.to.name == "body_check"
         }));
+    }
+
+    #[test]
+    fn body_check_uses_comptime_semantic_modules_not_ast_module_map() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "comptime let N: usize = 4; fn main() i32 { var values: [N]i32 = [0; N]; values.len() as i32 }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(BodyCheckQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "comptime_module"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_check" && dependency.to.name == "program_comptime_modules"
+        }));
+        assert!(
+            !trace
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.to.name == "program_modules_by_id")
+        );
     }
 
     #[test]
