@@ -587,13 +587,14 @@ storage or address, while top-level `let` and `var` bindings do.
 
 `nia-comptime-check` also owns the typed comptime value layer. The engine may
 produce a pure value such as an integer, string, array, or struct, but the
-checker records the semantic type when the type is known from source-level
-semantic tables: explicit `comptime let: T` bindings, `comptime fn` parameter
-and local annotations, enum backing types, type arguments, and later the
-dedicated comptime expression checker. This keeps type ownership in the semantic
-query layer instead of teaching the evaluator about Nia's type system, while
-still giving generic comptime calls, `@builtin()` structs, target data, and
-ordinary user comptime structs one shared typed representation.
+checker records the semantic comptime type when it is known from source-level
+semantic tables or builtin declarations. Runtime Nia types are represented as
+one case of this typed comptime layer; pure compile-time structs such as
+`@builtin()` are represented structurally and do not have to be forced into the
+runtime type interner. This keeps type ownership in the semantic query layer
+instead of teaching the evaluator about Nia's type system, while still giving
+generic comptime calls, `@builtin()` structs, target data, and ordinary user
+comptime structs one shared typed representation.
 
 Early target pruning is intentionally narrower than full comptime execution: it
 can evaluate target builtins and same-module helper functions before the module
