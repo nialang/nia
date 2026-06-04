@@ -1070,6 +1070,7 @@ impl ComptimeEnv for Analyzer<'_> {
                 span: target_span,
                 name,
                 local_id,
+                ..
             } => {
                 let Some(local_id) = local_id.or_else(|| {
                     self.input.locals.uses.get(target_span).and_then(|use_| {

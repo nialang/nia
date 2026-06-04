@@ -706,6 +706,141 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_mutates_struct_fields() {
+    let root = temp_dir("comptime_function_mutates_struct_fields");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: usize,
+    y: usize,
+}
+
+comptime fn width() usize {
+    var p: Point = Point{x: 2, y: 3};
+    p.x += 4;
+    p.y = p.x + p.y;
+    p.y
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_mutates_array_indexes() {
+    let root = temp_dir("comptime_function_mutates_array_indexes");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var values: [4]usize = [1, 2, 3, 4];
+    var i: usize = 0;
+    for value in 0..4 {
+        values[i] += value;
+        i += 1;
+    }
+    values[0] + values[1] + values[2] + values[3]
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_mutates_nested_aggregate_paths() {
+    let root = temp_dir("comptime_function_mutates_nested_aggregate_paths");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair {
+    values: [2]usize,
+}
+
+struct Config {
+    pairs: [2]Pair,
+}
+
+comptime fn width() usize {
+    var config: Config = Config{
+        pairs: [
+            Pair{values: [1, 2]},
+            Pair{values: [3, 4]},
+        ],
+    };
+    config.pairs[1].values[0] = 8;
+    config.pairs[0].values[1] += config.pairs[1].values[0];
+    config.pairs[0].values[1]
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_rejects_field_assignment_to_immutable_root() {
+    let root = temp_dir("comptime_function_rejects_field_assignment_to_immutable_root");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: usize,
+}
+
+comptime fn width() usize {
+    let p: Point = Point{x: 1};
+    p.x = 2;
+    p.x
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("cannot assign to immutable comptime local `p`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_if_statement_flows_return_and_else_if() {
     let root = temp_dir("comptime_function_if_statement_flows_return_and_else_if");
     write(

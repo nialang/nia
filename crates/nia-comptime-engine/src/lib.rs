@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{BinaryOp, UnaryOp};
 pub use nia_comptime_ir::{
-    ComptimeArrayElements, ComptimeAssign, ComptimeAssignTarget, ComptimeBinding, ComptimeBlock,
-    ComptimeExpr, ComptimeExprKind, ComptimeForBinding, ComptimeForIn, ComptimeFunction,
-    ComptimeNameResolution, ComptimeParam, ComptimeRange, ComptimeStmt, ComptimeStmtKind,
-    ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern,
+    ComptimeArrayElements, ComptimeAssign, ComptimeAssignPathElem, ComptimeAssignTarget,
+    ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeForBinding,
+    ComptimeForIn, ComptimeFunction, ComptimeNameResolution, ComptimeParam, ComptimeRange,
+    ComptimeStmt, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
+    ComptimeSwitchPattern,
 };
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
@@ -976,6 +977,7 @@ fn eval_assign_expr_flow(
             });
         }
     };
+    let value = assign_target_writeback_value(span, &assign.lhs, value, env)?;
     env.assign_local(span, &assign.lhs, value)?;
     Ok(ComptimeEvalFlow::Void)
 }
@@ -1006,7 +1008,7 @@ fn eval_assignment_value_flow(
         .map_err(|message| ComptimeError { span, message })
 }
 
-fn eval_assign_target_value(
+fn eval_assign_target_root_value(
     span: Span,
     target: &ComptimeAssignTarget,
     env: &mut impl ComptimeEnv,
@@ -1016,6 +1018,7 @@ fn eval_assign_target_value(
             span: target_span,
             name,
             local_id,
+            ..
         } => {
             if let Some(local_id) = local_id {
                 env.resolve_name_resolution(
@@ -1028,6 +1031,172 @@ fn eval_assign_target_value(
             }
         }
     }
+}
+
+fn eval_assign_target_value(
+    span: Span,
+    target: &ComptimeAssignTarget,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    let value = eval_assign_target_root_value(span, target, env)?;
+    match target {
+        ComptimeAssignTarget::Local { path, .. } => eval_assign_path_value(span, value, path, env),
+    }
+}
+
+fn eval_assign_path_value(
+    span: Span,
+    mut value: ComptimeValue,
+    path: &[ComptimeAssignPathElem],
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    for elem in path {
+        value = match elem {
+            ComptimeAssignPathElem::Field { span, name } => match value {
+                ComptimeValue::Struct(fields) => {
+                    fields.get(name).cloned().ok_or_else(|| ComptimeError {
+                        span: *span,
+                        message: format!("unknown comptime assignment field `{name}`"),
+                    })?
+                }
+                _ => {
+                    return Err(ComptimeError {
+                        span: *span,
+                        message: "comptime field assignment requires a struct value".to_string(),
+                    });
+                }
+            },
+            ComptimeAssignPathElem::Index {
+                span: elem_span,
+                index,
+            } => match value {
+                ComptimeValue::Array(values) => {
+                    let index = eval_assign_path_index(*elem_span, index, env)?;
+                    values.get(index).cloned().ok_or_else(|| ComptimeError {
+                        span,
+                        message: format!(
+                            "comptime array assignment index {index} is out of bounds"
+                        ),
+                    })?
+                }
+                _ => {
+                    return Err(ComptimeError {
+                        span: *elem_span,
+                        message: "comptime index assignment requires an array value".to_string(),
+                    });
+                }
+            },
+        };
+    }
+    Ok(value)
+}
+
+fn assign_target_writeback_value(
+    span: Span,
+    target: &ComptimeAssignTarget,
+    value: ComptimeValue,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    match target {
+        ComptimeAssignTarget::Local { path, .. } => {
+            if path.is_empty() {
+                return Ok(value);
+            }
+            let root = eval_assign_target_root_value(span, target, env)?;
+            write_assign_path_value(span, root, path, value, env)
+        }
+    }
+}
+
+fn write_assign_path_value(
+    span: Span,
+    root: ComptimeValue,
+    path: &[ComptimeAssignPathElem],
+    value: ComptimeValue,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    let Some((head, tail)) = path.split_first() else {
+        return Ok(value);
+    };
+    match head {
+        ComptimeAssignPathElem::Field {
+            span: field_span,
+            name,
+        } => {
+            let ComptimeValue::Struct(mut fields) = root else {
+                return Err(ComptimeError {
+                    span: *field_span,
+                    message: "comptime field assignment requires a struct value".to_string(),
+                });
+            };
+            let current = fields.remove(name).ok_or_else(|| ComptimeError {
+                span: *field_span,
+                message: format!("unknown comptime assignment field `{name}`"),
+            })?;
+            let updated = write_assign_path_value(span, current, tail, value, env)?;
+            fields.insert(name.clone(), updated);
+            Ok(ComptimeValue::Struct(fields))
+        }
+        ComptimeAssignPathElem::Index {
+            span: index_span,
+            index,
+        } => {
+            let ComptimeValue::Array(mut values) = root else {
+                return Err(ComptimeError {
+                    span: *index_span,
+                    message: "comptime index assignment requires an array value".to_string(),
+                });
+            };
+            let index = eval_assign_path_index(*index_span, index, env)?;
+            if index >= values.len() {
+                return Err(ComptimeError {
+                    span,
+                    message: format!("comptime array assignment index {index} is out of bounds"),
+                });
+            }
+            let current = values.remove(index);
+            let updated = write_assign_path_value(span, current, tail, value, env)?;
+            values.insert(index, updated);
+            Ok(ComptimeValue::Array(values))
+        }
+    }
+}
+
+fn eval_assign_path_index(
+    span: Span,
+    index: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<usize, ComptimeError> {
+    let index_span = index.span;
+    let value = match eval_comptime_expr_flow(index, env)? {
+        ComptimeEvalFlow::Value(ComptimeValue::Int(value)) => value,
+        ComptimeEvalFlow::Value(_) => {
+            return Err(ComptimeError {
+                span: index_span,
+                message: "comptime array assignment index must be an integer".to_string(),
+            });
+        }
+        ComptimeEvalFlow::Return(_)
+        | ComptimeEvalFlow::Propagate(_)
+        | ComptimeEvalFlow::Break
+        | ComptimeEvalFlow::Continue => {
+            return Err(ComptimeError {
+                span: index_span,
+                message: "comptime array assignment index cannot contain control flow".to_string(),
+            });
+        }
+        ComptimeEvalFlow::Void => {
+            return Err(ComptimeError {
+                span: index_span,
+                message: "comptime array assignment index requires a value".to_string(),
+            });
+        }
+    };
+    let index = int_to_array_len(span, value)?;
+    usize::try_from(index).map_err(|_| ComptimeError {
+        span,
+        message: "comptime array assignment index is too large".to_string(),
+    })
 }
 
 fn assign_op_binary(op: nia_ast::AssignOp) -> Option<BinaryOp> {
