@@ -727,8 +727,10 @@ impl ComptimeEnv for BodyChecker<'_> {
         &mut self,
         span: Span,
         callee: &nia_comptime_engine::ComptimeExpr,
+        type_args: &[nia_comptime_engine::ComptimeTypeArg],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = type_args;
         let Some(function_id) = self.comptime_function(callee) else {
             return Err(ComptimeError {
                 span,
@@ -741,7 +743,14 @@ impl ComptimeEnv for BodyChecker<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        nia_comptime_engine::eval_comptime_function_call(span, &function, args, self)
+        nia_comptime_engine::eval_comptime_function_call(
+            span,
+            function_id.module_id,
+            &function,
+            Vec::new(),
+            args,
+            self,
+        )
     }
 
     fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
@@ -852,9 +861,11 @@ impl<'a> BodyChecker<'a> {
     ) -> Result<nia_comptime_ir::ComptimeExpr, nia_comptime_ir::ComptimeLowerError> {
         let name_resolution = |span| self.comptime_name_resolution(span);
         let local_id = |span| self.locals.local_defs.get(&span).copied();
+        let type_id = |span| self.type_uses.get(&span).copied();
         let context = nia_comptime_ir::ComptimeLowerContext {
             name_resolution: Some(&name_resolution),
             local_id: Some(&local_id),
+            type_id: Some(&type_id),
         };
         nia_comptime_ir::lower_expr_with_context(expr, &context)
     }

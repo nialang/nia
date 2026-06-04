@@ -18,6 +18,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) public_surface: fn(&QueryDb<DriverContext>) -> PublicSurfaceQueryValue,
     pub(super) type_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> TypeResolution,
     pub(super) type_lowering: fn(&QueryDb<DriverContext>, ModuleId) -> TypeLowering,
+    pub(super) program_type_lowerings:
+        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, TypeLowering>,
     pub(super) item_signatures: fn(&QueryDb<DriverContext>, ModuleId) -> ItemSignatures,
     pub(super) type_normalization: fn(&QueryDb<DriverContext>, ModuleId) -> TypeNormalization,
     pub(super) program_type_normalizations:
@@ -65,6 +67,7 @@ impl Default for CompilerQueryProviders {
             public_surface: provide_public_surface,
             type_resolution: provide_type_resolution,
             type_lowering: provide_type_lowering,
+            program_type_lowerings: provide_program_type_lowerings,
             item_signatures: provide_item_signatures,
             type_normalization: provide_type_normalization,
             program_type_normalizations: provide_program_type_normalizations,
@@ -253,6 +256,15 @@ pub(super) fn provide_type_normalization(
     nia_type_normalize::normalize_module_types(module_id, &type_lowering.interner, &item_signatures)
 }
 
+pub(super) fn provide_program_type_lowerings(
+    db: &QueryDb<DriverContext>,
+) -> HashMap<ModuleId, TypeLowering> {
+    db.query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .map(|module_id| (module_id, db.query(TypeLoweringQuery(module_id))))
+        .collect()
+}
+
 pub(super) fn provide_program_type_normalizations(
     db: &QueryDb<DriverContext>,
 ) -> HashMap<ModuleId, TypeNormalization> {
@@ -416,6 +428,7 @@ pub(super) fn provide_comptime_module(
         defs: &defs,
         values: &values,
         locals: &locals,
+        type_uses: &type_lowering.type_uses,
         const_exprs: &type_lowering.const_exprs,
     })
 }
@@ -435,6 +448,14 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
     let defs = db.query(ModuleDefsQuery(module_id));
     let program_modules = db.query(ProgramComptimeModulesQuery);
     let program_defs = db.query(ProgramDefsByIdQuery);
+    let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
+    let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let program_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
+        .collect::<HashMap<_, _>>();
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
@@ -454,6 +475,9 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
             program: nia_comptime_check::ComptimeProgramContext {
                 modules: Some(&program_modules),
                 defs: Some(&program_defs),
+                type_lowerings: Some(&program_type_lowerings),
+                type_normalizations: Some(&program_type_normalizations),
+                signatures: Some(&program_signatures),
             },
         });
     comptime.diagnostics.extend(module.diagnostics);

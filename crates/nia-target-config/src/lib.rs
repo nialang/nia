@@ -156,8 +156,10 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         &mut self,
         span: Span,
         callee: &nia_comptime_engine::ComptimeExpr,
+        type_args: &[nia_comptime_engine::ComptimeTypeArg],
         args: Vec<nia_comptime_engine::ComptimeValue>,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        let _ = type_args;
         let nia_comptime_engine::ComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
@@ -177,7 +179,14 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
                     message: err.message,
                 }
             })?;
-        nia_comptime_engine::eval_comptime_function_call(span, &function, args, self)
+        nia_comptime_engine::eval_comptime_function_call(
+            span,
+            nia_ids::ModuleId(0),
+            &function,
+            Vec::new(),
+            args,
+            self,
+        )
     }
 
     fn push_comptime_scope(

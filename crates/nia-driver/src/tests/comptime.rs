@@ -1225,6 +1225,122 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_explicit_type_args_drive_array_lengths() {
+    let root = temp_dir("generic_comptime_function_explicit_type_args_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id[usize](4usize);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_requires_explicit_type_args() {
+    let root = temp_dir("generic_comptime_function_requires_explicit_type_args");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(4usize);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("generic comptime function requires explicit type arguments")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn generic_comptime_function_substitutes_type_args_for_layout_builtins() {
+    let root = temp_dir("generic_comptime_function_substitutes_type_args_for_layout_builtins");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair {
+    a: u8,
+    b: i32,
+}
+
+comptime fn size_of[T]() usize {
+    @size[T]()
+}
+
+comptime let n: usize = size_of[Pair]();
+
+fn main() i32 {
+    var bytes: [n]u8 = [0; n];
+    bytes.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_generic_comptime_function_substitutes_type_args_for_layout_builtins() {
+    let root =
+        temp_dir("imported_generic_comptime_function_substitutes_type_args_for_layout_builtins");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .layout;
+
+struct Pair {
+    a: u8,
+    b: i32,
+}
+
+comptime let n: usize = layout::size_of[Pair]();
+
+fn main() i32 {
+    var bytes: [n]u8 = [0; n];
+    bytes.len() as i32
+}
+"#,
+    );
+    write(
+        &root.join("layout.nia"),
+        r#"
+pub comptime fn size_of[T]() usize {
+    @size[T]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_struct_field_array_length_accepts_literal_repeat_count() {
     let root = temp_dir("imported_struct_field_array_length_accepts_literal_repeat_count");
     write(

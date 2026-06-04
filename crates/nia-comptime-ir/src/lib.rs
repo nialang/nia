@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ast::{AssignOp, BinaryOp, StringLiteral, UnaryOp};
-use nia_ids::{GlobalConstExprId, GlobalDefId, LocalId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -214,6 +214,7 @@ pub enum ComptimeExprKind {
     },
     Call {
         callee: Box<ComptimeExpr>,
+        type_args: Vec<ComptimeTypeArg>,
         args: Vec<ComptimeExpr>,
     },
     Unary {
@@ -280,6 +281,13 @@ pub struct ComptimeFieldInit {
     pub value: ComptimeExpr,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeTypeArg {
+    pub span: Span,
+    pub ty_span: Span,
+    pub ty: Option<InternedTyId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComptimeLowerError {
     pub span: Span,
@@ -294,6 +302,7 @@ pub fn lower_expr(expr: &nia_ast::Expr) -> Result<ComptimeExpr, ComptimeLowerErr
 pub struct ComptimeLowerContext<'a> {
     pub name_resolution: Option<&'a dyn Fn(Span) -> Option<ComptimeNameResolution>>,
     pub local_id: Option<&'a dyn Fn(Span) -> Option<LocalId>>,
+    pub type_id: Option<&'a dyn Fn(Span) -> Option<InternedTyId>>,
 }
 
 pub fn lower_expr_with_context(
@@ -363,13 +372,7 @@ pub fn lower_expr_with_context(
             name: name.clone(),
             type_arg_span: type_arg.as_ref().map(|ty| ty.span),
         },
-        nia_ast::ExprKind::Call { callee, args } => ComptimeExprKind::Call {
-            callee: Box::new(lower_expr_with_context(callee, context)?),
-            args: args
-                .iter()
-                .map(|arg| lower_expr_with_context(arg, context))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
+        nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => ComptimeExprKind::Unary {
             op: *op,
             expr: Box::new(lower_expr_with_context(expr, context)?),
@@ -446,6 +449,52 @@ pub fn lower_expr_with_context(
         span: expr.span,
         kind,
     })
+}
+
+fn lower_call_with_context(
+    callee: &nia_ast::Expr,
+    args: &[nia_ast::Expr],
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeExprKind, ComptimeLowerError> {
+    let (callee, type_args) = match &callee.kind {
+        nia_ast::ExprKind::BracketSuffix {
+            callee: generic_callee,
+            args: bracket_args,
+        } if bracket_args.iter().all(|arg| arg.ty.is_some()) => (
+            generic_callee.as_ref(),
+            lower_type_args_with_context(bracket_args, context)?,
+        ),
+        _ => (callee, Vec::new()),
+    };
+    Ok(ComptimeExprKind::Call {
+        callee: Box::new(lower_expr_with_context(callee, context)?),
+        type_args,
+        args: args
+            .iter()
+            .map(|arg| lower_expr_with_context(arg, context))
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+fn lower_type_args_with_context(
+    args: &[nia_ast::BracketArg],
+    context: &ComptimeLowerContext<'_>,
+) -> Result<Vec<ComptimeTypeArg>, ComptimeLowerError> {
+    args.iter()
+        .map(|arg| {
+            let Some(ty) = &arg.ty else {
+                return Err(ComptimeLowerError {
+                    span: arg.span,
+                    message: "comptime generic function arguments must be types".to_string(),
+                });
+            };
+            Ok(ComptimeTypeArg {
+                span: arg.span,
+                ty_span: ty.span,
+                ty: context.type_id.and_then(|type_id| type_id(ty.span)),
+            })
+        })
+        .collect()
 }
 
 fn lower_assign_target_with_context(
@@ -561,6 +610,7 @@ pub fn lower_function_with_locals(
     let context = ComptimeLowerContext {
         name_resolution: None,
         local_id: Some(local_id_for_span),
+        type_id: None,
     };
     lower_function_with_context(function_span, function, &context)
 }
@@ -574,12 +624,6 @@ pub fn lower_function_with_context(
         return Err(ComptimeLowerError {
             span: function_span,
             message: "comptime expression can only call `comptime fn`".to_string(),
-        });
-    }
-    if !function.generics.is_empty() {
-        return Err(ComptimeLowerError {
-            span: function_span,
-            message: "generic comptime functions are not supported yet".to_string(),
         });
     }
     let Some(body) = &function.body else {

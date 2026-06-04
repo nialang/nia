@@ -5,9 +5,9 @@ pub use nia_comptime_ir::{
     ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeForBinding,
     ComptimeForIn, ComptimeFunction, ComptimeNameResolution, ComptimeParam, ComptimeRange,
     ComptimeStmt, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
-    ComptimeSwitchPattern,
+    ComptimeSwitchPattern, ComptimeTypeArg,
 };
-use nia_ids::LayoutBuiltin;
+use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId};
 use nia_span::Span;
 use std::collections::BTreeMap;
 
@@ -114,9 +114,11 @@ pub trait ComptimeEnv {
         &mut self,
         span: Span,
         callee: &ComptimeExpr,
+        type_args: &[ComptimeTypeArg],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = callee;
+        let _ = type_args;
         let _ = args;
         Err(ComptimeError {
             span,
@@ -153,6 +155,18 @@ pub trait ComptimeEnv {
             span,
             message: "comptime function parameters are not available in this context".to_string(),
         })
+    }
+
+    fn bind_function_context(
+        &mut self,
+        span: Span,
+        module_id: ModuleId,
+        substitutions: Vec<(String, InternedTyId)>,
+    ) -> Result<(), ComptimeError> {
+        let _ = span;
+        let _ = module_id;
+        let _ = substitutions;
+        Ok(())
     }
 
     fn bind_function_local(
@@ -316,7 +330,11 @@ fn eval_comptime_expr_flow(
                 name,
                 type_arg_span: None,
             } => env.resolve_builtin_value(expr.span, name)?,
-            ComptimeExprKind::Call { callee, args } => {
+            ComptimeExprKind::Call {
+                callee,
+                type_args,
+                args,
+            } => {
                 if let ComptimeExprKind::Builtin {
                     name,
                     type_arg_span,
@@ -348,7 +366,7 @@ fn eval_comptime_expr_flow(
                     for arg in args {
                         values.push(eval_value_or_return_flow!(arg, env));
                     }
-                    env.call_function(expr.span, callee, values)?
+                    env.call_function(expr.span, callee, type_args, values)?
                 }
             }
             ComptimeExprKind::Unary {
@@ -818,7 +836,9 @@ pub fn eval_comptime_array_len_expr(
 
 pub fn eval_comptime_function_call(
     span: Span,
+    function_module_id: ModuleId,
     function: &ComptimeFunction,
+    type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -833,6 +853,10 @@ pub fn eval_comptime_function_call(
         });
     }
     env.push_comptime_scope(span)?;
+    if let Err(err) = env.bind_function_context(span, function_module_id, type_substitutions) {
+        env.pop_comptime_scope();
+        return Err(err);
+    }
     for (param, value) in function.params.iter().zip(args) {
         if let Err(err) = env.bind_function_param(param.span, param, value) {
             env.pop_comptime_scope();

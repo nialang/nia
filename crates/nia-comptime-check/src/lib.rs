@@ -5,15 +5,16 @@ use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
     ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeModule, ComptimeNameResolution,
+    ComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalConstExprId, GlobalDefId, LayoutBuiltin, LocalId, ModuleId};
-use nia_item_signatures::ItemSignatures;
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId};
+use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyInterner, TyKind, import_type_into};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -58,6 +59,7 @@ pub struct ComptimeModuleInput<'a> {
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
+    pub type_uses: &'a HashMap<Span, InternedTyId>,
     pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
 }
 
@@ -65,6 +67,9 @@ pub struct ComptimeModuleInput<'a> {
 pub struct ComptimeProgramContext<'a> {
     pub modules: Option<&'a HashMap<ModuleId, ComptimeModule>>,
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
+    pub type_lowerings: Option<&'a HashMap<ModuleId, nia_type_lower::TypeLowering>>,
+    pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
+    pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
 }
 
 impl<'a> ComptimeProgramContext<'a> {
@@ -72,6 +77,9 @@ impl<'a> ComptimeProgramContext<'a> {
         Self {
             modules: None,
             defs: None,
+            type_lowerings: None,
+            type_normalizations: None,
+            signatures: None,
         }
     }
 }
@@ -98,6 +106,7 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
         array_lengths: HashMap::new(),
         diagnostics: Vec::new(),
         active: HashSet::new(),
+        working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
     };
     analyzer.analyze_module();
     ComptimeCheck {
@@ -199,9 +208,11 @@ impl ComptimeModuleLowerer<'_> {
         let name_resolution =
             |span| self.name_resolution_with_allowed_locals(span, &function_locals);
         let local_id = |span| self.input.locals.local_defs.get(&span).copied();
+        let type_id = |span| self.input.type_uses.get(&span).copied();
         let context = nia_comptime_ir::ComptimeLowerContext {
             name_resolution: Some(&name_resolution),
             local_id: Some(&local_id),
+            type_id: Some(&type_id),
         };
         match nia_comptime_ir::lower_function_with_context(function_span, function, &context) {
             Ok(function) => {
@@ -220,9 +231,11 @@ impl ComptimeModuleLowerer<'_> {
         let name_resolution =
             |span| self.name_resolution_with_allowed_locals(span, &allowed_locals);
         let local_id = |span| self.input.locals.local_defs.get(&span).copied();
+        let type_id = |span| self.input.type_uses.get(&span).copied();
         let context = nia_comptime_ir::ComptimeLowerContext {
             name_resolution: Some(&name_resolution),
             local_id: Some(&local_id),
+            type_id: Some(&type_id),
         };
         match nia_comptime_ir::lower_expr_with_context(expr, &context) {
             Ok(expr) => Some(expr),
@@ -552,13 +565,16 @@ struct Analyzer<'a> {
     array_lengths: HashMap<GlobalConstExprId, u64>,
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ComptimeKey>,
+    working_interners: HashMap<ModuleId, TyInterner>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct ComptimeCallFrame {
+    module_id: Option<ModuleId>,
     locals: HashMap<LocalId, ComptimeValue>,
     mutable_locals: HashSet<LocalId>,
     names: HashMap<String, ComptimeValue>,
+    type_substitutions: HashMap<String, InternedTyId>,
 }
 
 impl Analyzer<'_> {
@@ -803,12 +819,12 @@ impl Analyzer<'_> {
             }
             return None;
         }
-        let nia_comptime_engine::ComptimeExprKind::Ident { .. } = &callee.kind else {
+        let nia_comptime_engine::ComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return None;
         };
         let Some(ValueNameResolution::Def(def_id)) = self.input.values.names.get(&callee.span)
         else {
-            return None;
+            return self.function_def_by_name(name);
         };
         let def = self.input.defs.defs.get(*def_id)?;
         if def.kind != DefKind::Function {
@@ -817,6 +833,15 @@ impl Analyzer<'_> {
         Some(GlobalDefId {
             module_id: self.input.defs.module_id,
             def_id: *def_id,
+        })
+    }
+
+    fn function_def_by_name(&self, name: &str) -> Option<GlobalDefId> {
+        self.input.defs.defs.iter().find_map(|(def_id, def)| {
+            (def.kind == DefKind::Function && def.name == name).then_some(GlobalDefId {
+                module_id: self.input.defs.module_id,
+                def_id,
+            })
         })
     }
 
@@ -836,12 +861,94 @@ impl Analyzer<'_> {
         }
     }
 
-    fn ty_for_span(&self, span: Span) -> Option<nia_ids::InternedTyId> {
-        self.input.type_uses.get(&span).copied()
+    fn current_execution_module_id(&self) -> ModuleId {
+        self.call_locals
+            .iter()
+            .rev()
+            .find_map(|frame| frame.module_id)
+            .unwrap_or(self.input.defs.module_id)
+    }
+
+    fn type_lowering_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<&nia_type_lower::TypeLowering> {
+        if module_id == self.input.defs.module_id {
+            return None;
+        }
+        self.input.program.type_lowerings?.get(&module_id)
+    }
+
+    fn type_uses_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<&HashMap<Span, nia_ids::InternedTyId>> {
+        if module_id == self.input.defs.module_id {
+            Some(self.input.type_uses)
+        } else {
+            Some(&self.type_lowering_for_module(module_id)?.type_uses)
+        }
+    }
+
+    fn interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
+        self.working_interners.get(&module_id)
+    }
+
+    fn source_interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
+        if module_id == self.input.defs.module_id {
+            Some(self.input.interner)
+        } else {
+            Some(&self.type_normalization_for_module(module_id)?.interner)
+        }
+    }
+
+    fn ensure_working_interner(&mut self, module_id: ModuleId) -> Option<()> {
+        if self.working_interners.contains_key(&module_id) {
+            return Some(());
+        }
+        let interner = self.source_interner_for_module(module_id)?.clone();
+        self.working_interners.insert(module_id, interner);
+        Some(())
+    }
+
+    fn signatures_for_module(&self, module_id: ModuleId) -> Option<&ItemSignatures> {
+        if module_id == self.input.defs.module_id {
+            Some(self.input.signatures)
+        } else {
+            self.input.program.signatures?.get(&module_id)
+        }
+    }
+
+    fn type_normalization_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<&nia_type_normalize::TypeNormalization> {
+        if module_id == self.input.defs.module_id {
+            return None;
+        }
+        self.input.program.type_normalizations?.get(&module_id)
+    }
+
+    fn normalized_for_module(
+        &self,
+        module_id: ModuleId,
+    ) -> Option<&HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>> {
+        if module_id == self.input.defs.module_id {
+            Some(self.input.normalized)
+        } else {
+            Some(&self.type_normalization_for_module(module_id)?.normalized)
+        }
+    }
+
+    fn ty_for_span(&mut self, span: Span) -> Option<nia_ids::InternedTyId> {
+        let module_id = self.current_execution_module_id();
+        let ty = self.type_uses_for_module(module_id)?.get(&span).copied()?;
+        self.ensure_working_interner(module_id)?;
+        Some(self.substitute_ty_generics(ty))
     }
 
     fn resolve_layout_builtin_for_ty(
-        &self,
+        &mut self,
         span: Span,
         builtin: LayoutBuiltin,
         ty: nia_ids::InternedTyId,
@@ -853,15 +960,53 @@ impl Analyzer<'_> {
             diagnostics: Vec::new(),
         };
         let array_lengths = |id| current_lengths.array_lengths.get(&id).copied();
-        let layouts = nia_layout::compute_layouts_with_normalized_types(
-            self.input.defs,
-            self.input.interner,
-            self.input.signatures,
-            self.input.normalized,
+        let module_id = self.current_execution_module_id();
+        if self.ensure_working_interner(module_id).is_none() {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute layout without module type interner".to_string(),
+            });
+        }
+        let Some(defs) = self.global_defs(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute layout without module definitions".to_string(),
+            });
+        };
+        let Some(signatures) = self.signatures_for_module(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute layout without module signatures".to_string(),
+            });
+        };
+        let Some(interner) = self.interner_for_module(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute layout without module type interner".to_string(),
+            });
+        };
+        let Some(normalized) = self.normalized_for_module(module_id) else {
+            return Err(ComptimeError {
+                span,
+                message: "cannot compute layout without normalized module types".to_string(),
+            });
+        };
+        let layout_query = |module_id| self.compute_program_layout(module_id, &current_lengths);
+        let program_array_lengths =
+            |id: GlobalConstExprId| current_lengths.array_lengths.get(&id).copied();
+        let layouts = nia_layout::compute_layouts_with_program_context(
+            defs,
+            interner,
+            signatures,
+            normalized,
             &array_lengths,
             nia_layout::TargetDataLayout::LP64,
+            nia_layout::ProgramLayoutContext {
+                layouts: Some(&layout_query),
+                array_lengths: Some(&program_array_lengths),
+            },
         );
-        let ty = self.input.normalized.get(&ty).copied().unwrap_or(ty);
+        let ty = normalized.get(&ty).copied().unwrap_or(ty);
         let Some(layout) = layouts.types.get(&ty) else {
             return Err(ComptimeError {
                 span,
@@ -876,6 +1021,223 @@ impl Analyzer<'_> {
             LayoutBuiltin::Align => layout.align,
         };
         Ok(ComptimeValue::Int(value as i128))
+    }
+
+    fn compute_program_layout(
+        &self,
+        module_id: ModuleId,
+        current_lengths: &ComptimeCheck,
+    ) -> Option<nia_layout::Layouts> {
+        let defs = self.global_defs(module_id)?;
+        let signatures = self.signatures_for_module(module_id)?;
+        let interner = self.source_interner_for_module(module_id)?;
+        let normalized = self.normalized_for_module(module_id)?;
+        let array_lengths =
+            |id: GlobalConstExprId| current_lengths.array_lengths.get(&id).copied();
+        let layout_query = |module_id| self.compute_program_layout(module_id, current_lengths);
+        Some(nia_layout::compute_layouts_with_program_context(
+            defs,
+            interner,
+            signatures,
+            normalized,
+            &array_lengths,
+            nia_layout::TargetDataLayout::LP64,
+            nia_layout::ProgramLayoutContext {
+                layouts: Some(&layout_query),
+                array_lengths: Some(&array_lengths),
+            },
+        ))
+    }
+
+    fn substitute_ty_generics(&mut self, ty: InternedTyId) -> InternedTyId {
+        let module_id = self.current_execution_module_id();
+        let substitutions = self
+            .call_locals
+            .iter()
+            .flat_map(|frame| frame.type_substitutions.iter())
+            .map(|(name, ty)| (name.clone(), *ty))
+            .collect::<HashMap<_, _>>();
+        let interner = self
+            .working_interners
+            .get_mut(&module_id)
+            .expect("working interner must exist for current execution module");
+        substitute_ty_generics_in_interner(interner, ty, &|name| substitutions.get(name).copied())
+    }
+
+    fn instantiate_function_generics(
+        &mut self,
+        span: Span,
+        function_id: GlobalDefId,
+        signature: &FunctionSignature,
+        type_args: &[ComptimeTypeArg],
+    ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
+        if self
+            .ensure_working_interner(function_id.module_id)
+            .is_none()
+        {
+            return Err(ComptimeError {
+                span,
+                message: "cannot instantiate comptime function without module type interner"
+                    .to_string(),
+            });
+        }
+        if type_args.is_empty() && !signature.generics.is_empty() {
+            return Err(ComptimeError {
+                span,
+                message: "generic comptime function requires explicit type arguments".to_string(),
+            });
+        }
+        if type_args.len() != signature.generics.len() {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "generic argument count mismatch for comptime function: expected {}, got {}",
+                    signature.generics.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        let mut substitutions = HashMap::new();
+        for (generic, arg) in signature.generics.iter().zip(type_args) {
+            let Some(ty) = arg.ty else {
+                return Err(ComptimeError {
+                    span: arg.span,
+                    message: "cannot resolve comptime generic function type argument".to_string(),
+                });
+            };
+            let Some(source_interner) = self.source_interner_for_module(ty.interner_id).cloned()
+            else {
+                return Err(ComptimeError {
+                    span: arg.span,
+                    message: "cannot resolve comptime generic function type argument interner"
+                        .to_string(),
+                });
+            };
+            let imported = {
+                let target = self
+                    .working_interners
+                    .get_mut(&function_id.module_id)
+                    .expect("callee working interner must exist");
+                import_type_into(target, &source_interner, ty)
+            };
+            substitutions.insert(generic.clone(), imported);
+        }
+        Ok(substitutions)
+    }
+}
+
+fn substitute_ty_generics_in_interner(
+    interner: &mut TyInterner,
+    ty: InternedTyId,
+    lookup: &impl Fn(&str) -> Option<InternedTyId>,
+) -> InternedTyId {
+    match interner.get(ty).cloned() {
+        Some(TyKind::GenericParam(name)) => lookup(&name).unwrap_or(ty),
+        Some(TyKind::Pointer { is_readonly, elem }) => {
+            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            interner.intern(TyKind::Pointer { is_readonly, elem })
+        }
+        Some(TyKind::Slice { is_readonly, elem }) => {
+            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            interner.intern(TyKind::Slice { is_readonly, elem })
+        }
+        Some(TyKind::Array { len, elem }) => {
+            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            interner.intern(TyKind::Array { len, elem })
+        }
+        Some(TyKind::Range { kind, bound }) => {
+            let bound =
+                bound.map(|bound| substitute_ty_generics_in_interner(interner, bound, lookup));
+            interner.intern(TyKind::Range { kind, bound })
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            is_variadic,
+        }) => {
+            let params = params
+                .into_iter()
+                .map(|param| substitute_ty_generics_in_interner(interner, param, lookup))
+                .collect();
+            let return_type = substitute_ty_generics_in_interner(interner, return_type, lookup);
+            interner.intern(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            })
+        }
+        Some(TyKind::Optional { elem }) => {
+            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            interner.intern(TyKind::Optional { elem })
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            let error = substitute_ty_generics_in_interner(interner, error, lookup);
+            let value = substitute_ty_generics_in_interner(interner, value, lookup);
+            interner.intern(TyKind::ErrorUnion { error, value })
+        }
+        Some(TyKind::Nominal { def_id, args }) => {
+            let args = args
+                .into_iter()
+                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .collect();
+            interner.intern(TyKind::Nominal { def_id, args })
+        }
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            let args = args
+                .into_iter()
+                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .collect();
+            interner.intern(TyKind::BuiltinTrait { trait_id, args })
+        }
+        Some(TyKind::TraitObject {
+            is_readonly,
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .collect();
+            let associated_type_bindings = associated_type_bindings
+                .into_iter()
+                .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                    trait_id: binding.trait_id,
+                    trait_args: binding
+                        .trait_args
+                        .into_iter()
+                        .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                        .collect(),
+                    name: binding.name,
+                    ty: substitute_ty_generics_in_interner(interner, binding.ty, lookup),
+                })
+                .collect();
+            interner.intern(TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            })
+        }
+        Some(TyKind::Projection {
+            self_ty,
+            trait_id,
+            trait_args,
+            name,
+        }) => {
+            let self_ty = substitute_ty_generics_in_interner(interner, self_ty, lookup);
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .collect();
+            interner.intern(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            })
+        }
+        Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => ty,
     }
 }
 
@@ -980,6 +1342,7 @@ impl ComptimeEnv for Analyzer<'_> {
         &mut self,
         span: Span,
         callee: &nia_comptime_engine::ComptimeExpr,
+        type_args: &[ComptimeTypeArg],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let Some(function_id) = self.comptime_function(callee) else {
@@ -988,13 +1351,32 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
+        let Some(signature) = self
+            .signatures_for_module(function_id.module_id)
+            .and_then(|signatures| signatures.functions.get(&function_id.def_id))
+            .cloned()
+        else {
+            return Err(ComptimeError {
+                span,
+                message: "comptime expression can only call `comptime fn`".to_string(),
+            });
+        };
+        let type_substitutions =
+            self.instantiate_function_generics(span, function_id, &signature, type_args)?;
         let Some(function) = self.comptime_function_body(function_id).cloned() else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        nia_comptime_engine::eval_comptime_function_call(span, &function, args, self)
+        nia_comptime_engine::eval_comptime_function_call(
+            span,
+            function_id.module_id,
+            &function,
+            type_substitutions.into_iter().collect(),
+            args,
+            self,
+        )
     }
 
     fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
@@ -1022,6 +1404,23 @@ impl ComptimeEnv for Analyzer<'_> {
             });
         };
         self.bind_local_value(span, local_id, &param.name, false, value)
+    }
+
+    fn bind_function_context(
+        &mut self,
+        span: Span,
+        module_id: ModuleId,
+        substitutions: Vec<(String, InternedTyId)>,
+    ) -> Result<(), ComptimeError> {
+        let Some(frame) = self.call_locals.last_mut() else {
+            return Err(ComptimeError {
+                span,
+                message: "failed to bind comptime function type substitutions".to_string(),
+            });
+        };
+        frame.module_id = Some(module_id);
+        frame.type_substitutions.extend(substitutions);
+        Ok(())
     }
 
     fn bind_function_local(
