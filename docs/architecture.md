@@ -614,6 +614,10 @@ Boolean logic and comparisons produce `bool`; integer arithmetic and bit
 operations produce the shared operand type only when both operands already have
 the same concrete integer runtime type.
 
+Boolean literals and supported unary comptime operators are typed directly:
+`true`, `false`, and `not` produce `bool`, while integer negation preserves the
+known concrete integer operand type.
+
 Expected types are an input to this semantic query, not a fallback evaluator
 rule. This lets generic comptime calls infer through partially-known parameter
 types, for example `E!T` can type `!value` when `E` is already concrete, while

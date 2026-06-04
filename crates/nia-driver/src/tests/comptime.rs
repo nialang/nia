@@ -1325,6 +1325,70 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_bool_literal_and_not() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_bool_literal_and_not");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime fn choose(value: bool) usize {
+    if value {
+        6usize
+    } else {
+        1usize
+    }
+}
+
+comptime let a: bool = id(true);
+comptime let b: bool = id(not false);
+comptime let n: usize = choose(a and b);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_integer_negation() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_integer_negation");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime fn magnitude(value: i32) usize {
+    if value == -4i32 {
+        4usize
+    } else {
+        1usize
+    }
+}
+
+comptime let n: usize = magnitude(id(-4i32));
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_typed_comptime_value() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_comptime_value");
     write(

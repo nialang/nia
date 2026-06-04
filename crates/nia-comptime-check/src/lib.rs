@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{BinaryOp, Expr, ItemKind, Module};
+use nia_ast::{BinaryOp, Expr, ItemKind, Module, UnaryOp};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
     ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeLocalInitializer,
@@ -1308,6 +1308,9 @@ impl Analyzer<'_> {
                             .primitive(primitive),
                     )
                 }),
+            nia_comptime_engine::ComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Bool),
+            )),
             nia_comptime_engine::ComptimeExprKind::ArrayLiteral { ty: Some(ty), .. }
             | nia_comptime_engine::ComptimeExprKind::StructLiteral { ty: Some(ty), .. } => {
                 Some(ComptimeValueType::Runtime(*ty))
@@ -1355,6 +1358,9 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeExprKind::Binary { lhs, op, rhs } => {
                 self.comptime_binary_expr_type(lhs, *op, rhs)
             }
+            nia_comptime_engine::ComptimeExprKind::Unary { op, expr: inner } => {
+                self.comptime_unary_expr_type(*op, inner)
+            }
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,
@@ -1381,6 +1387,24 @@ impl Analyzer<'_> {
                     .map(|field| field.ty)
             }
             _ => None,
+        }
+    }
+
+    fn comptime_unary_expr_type(
+        &mut self,
+        op: UnaryOp,
+        inner: &ComptimeExpr,
+    ) -> Option<ComptimeValueType> {
+        match op {
+            UnaryOp::Not => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Bool),
+            )),
+            UnaryOp::Neg => {
+                let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
+                self.is_integer_runtime_type(inner_ty)
+                    .then_some(ComptimeValueType::Runtime(inner_ty))
+            }
+            UnaryOp::BitNot | UnaryOp::RefReadOnly | UnaryOp::Ref | UnaryOp::Deref => None,
         }
     }
 
