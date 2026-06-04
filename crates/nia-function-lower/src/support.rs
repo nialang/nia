@@ -201,7 +201,9 @@ impl FunctionLowerer {
             arm.patterns.iter().any(|pattern| {
                 !matches!(
                     pattern,
-                    TypedSwitchPattern::Expr(_) | TypedSwitchPattern::Default
+                    TypedSwitchPattern::Expr(_)
+                        | TypedSwitchPattern::CheckedInt { .. }
+                        | TypedSwitchPattern::Default
                 )
             })
         })
@@ -253,15 +255,11 @@ impl FunctionLowerer {
                     context.ops,
                     context.blocks,
                 );
-                Some(FunctionExpr {
-                    span: pattern.span,
-                    ty: context.bool_ty,
-                    kind: FunctionExprKind::Binary {
-                        lhs: Box::new(target.clone()),
-                        op: BinaryOp::Eq,
-                        rhs: Box::new(pattern),
-                    },
-                })
+                Some(self.switch_eq_condition(target, pattern, context.bool_ty))
+            }
+            TypedSwitchPattern::CheckedInt { value, ty, span } => {
+                let pattern = self.checked_int_pattern_expr(*value, *ty, *span);
+                Some(self.switch_eq_condition(target, pattern, context.bool_ty))
             }
             TypedSwitchPattern::Range {
                 start,
@@ -283,38 +281,105 @@ impl FunctionLowerer {
                     context.ops,
                     context.blocks,
                 );
-                let lower = FunctionExpr {
-                    span: *span,
-                    ty: context.bool_ty,
-                    kind: FunctionExprKind::Binary {
-                        lhs: Box::new(target.clone()),
-                        op: BinaryOp::Ge,
-                        rhs: Box::new(start),
-                    },
-                };
-                let upper = FunctionExpr {
-                    span: *span,
-                    ty: context.bool_ty,
-                    kind: FunctionExprKind::Binary {
-                        lhs: Box::new(target.clone()),
-                        op: if *inclusive {
-                            BinaryOp::Le
-                        } else {
-                            BinaryOp::Lt
-                        },
-                        rhs: Box::new(end),
-                    },
-                };
-                Some(FunctionExpr {
-                    span: *span,
-                    ty: context.bool_ty,
-                    kind: FunctionExprKind::Binary {
-                        lhs: Box::new(lower),
-                        op: BinaryOp::And,
-                        rhs: Box::new(upper),
-                    },
-                })
+                Some(self.switch_range_condition(
+                    target,
+                    start,
+                    end,
+                    *inclusive,
+                    *span,
+                    context.bool_ty,
+                ))
             }
+            TypedSwitchPattern::CheckedIntRange {
+                start,
+                end,
+                inclusive,
+                ty,
+                span,
+            } => {
+                let start = self.checked_int_pattern_expr(*start, *ty, *span);
+                let end = self.checked_int_pattern_expr(*end, *ty, *span);
+                Some(self.switch_range_condition(
+                    target,
+                    start,
+                    end,
+                    *inclusive,
+                    *span,
+                    context.bool_ty,
+                ))
+            }
+        }
+    }
+
+    fn switch_eq_condition(
+        &self,
+        target: &FunctionExpr,
+        pattern: FunctionExpr,
+        bool_ty: InternedTyId,
+    ) -> FunctionExpr {
+        FunctionExpr {
+            span: pattern.span,
+            ty: bool_ty,
+            kind: FunctionExprKind::Binary {
+                lhs: Box::new(target.clone()),
+                op: BinaryOp::Eq,
+                rhs: Box::new(pattern),
+            },
+        }
+    }
+
+    fn switch_range_condition(
+        &self,
+        target: &FunctionExpr,
+        start: FunctionExpr,
+        end: FunctionExpr,
+        inclusive: bool,
+        span: Span,
+        bool_ty: InternedTyId,
+    ) -> FunctionExpr {
+        let lower = FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::Binary {
+                lhs: Box::new(target.clone()),
+                op: BinaryOp::Ge,
+                rhs: Box::new(start),
+            },
+        };
+        let upper = FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::Binary {
+                lhs: Box::new(target.clone()),
+                op: if inclusive {
+                    BinaryOp::Le
+                } else {
+                    BinaryOp::Lt
+                },
+                rhs: Box::new(end),
+            },
+        };
+        FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::Binary {
+                lhs: Box::new(lower),
+                op: BinaryOp::And,
+                rhs: Box::new(upper),
+            },
+        }
+    }
+
+    pub(super) fn checked_int_pattern_expr(
+        &self,
+        value: i128,
+        ty: InternedTyId,
+        span: Span,
+    ) -> FunctionExpr {
+        FunctionExpr {
+            span,
+            ty,
+            kind: FunctionExprKind::Integer(value.to_string()),
         }
     }
 
@@ -620,7 +685,9 @@ impl FunctionLowerer {
                                 TypedSwitchPattern::OptionalSome { .. }
                                 | TypedSwitchPattern::OptionalNull { .. }
                                 | TypedSwitchPattern::ErrorOk { .. }
-                                | TypedSwitchPattern::ErrorErr { .. } => {}
+                                | TypedSwitchPattern::ErrorErr { .. }
+                                | TypedSwitchPattern::CheckedInt { .. }
+                                | TypedSwitchPattern::CheckedIntRange { .. } => {}
                                 TypedSwitchPattern::Expr(pattern) => visit_expr(pattern, max_id),
                                 TypedSwitchPattern::Range { start, end, .. } => {
                                     visit_expr(start, max_id);

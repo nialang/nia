@@ -848,6 +848,10 @@ consume checked facts instead of re-running expression evaluation from source
 shape. If body IR lowering needs one of these facts and it is absent, that is a
 missing checked-fact boundary error and should be reported as recovery rather
 than repaired by evaluating another comptime expression.
+Integer and boolean switch patterns therefore enter `BodyIr` as checked pattern
+values or checked ranges; expression-shaped switch patterns remain only for
+patterns whose semantics are not represented by the integer-pattern fact, such
+as enum variant references.
 
 ### 9.4 `nia-function-ir`
 

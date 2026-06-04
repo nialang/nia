@@ -116,7 +116,11 @@ pub(super) fn switch_stmt_body(arms: Vec<nia_body_ir::TypedSwitchArm>) -> TypedB
 
 pub(super) fn switch_expr_arm(value: i32, body: TypedSwitchArmBody) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![TypedSwitchPattern::Expr(int_expr(value))],
+        patterns: vec![TypedSwitchPattern::CheckedInt {
+            value: value.into(),
+            ty: test_ty(),
+            span: Span::default(),
+        }],
         body,
         span: Span::default(),
     }
@@ -129,10 +133,11 @@ pub(super) fn switch_range_arm(
     body: TypedSwitchArmBody,
 ) -> nia_body_ir::TypedSwitchArm {
     nia_body_ir::TypedSwitchArm {
-        patterns: vec![TypedSwitchPattern::Range {
-            start: Box::new(int_expr(start)),
-            end: Box::new(int_expr(end)),
+        patterns: vec![TypedSwitchPattern::CheckedIntRange {
+            start: start.into(),
+            end: end.into(),
             inclusive,
+            ty: test_ty(),
             span: Span::default(),
         }],
         body,
