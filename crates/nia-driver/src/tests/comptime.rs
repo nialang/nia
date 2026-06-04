@@ -879,6 +879,33 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_for_in_accepts_range_iter_method() {
+    let root = temp_dir("comptime_for_in_accepts_range_iter_method");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var total: usize = 0;
+    for value in (0usize..4usize).iter() {
+        total += value;
+    }
+    total
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_function_mutates_nested_aggregate_paths() {
     let root = temp_dir("comptime_function_mutates_nested_aggregate_paths");
     write(

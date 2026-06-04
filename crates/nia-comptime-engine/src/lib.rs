@@ -345,6 +345,15 @@ fn eval_comptime_expr_flow(
                     });
                 }
             },
+            ComptimeExprKind::RangeIter { lhs } => match eval_value_or_return_flow!(lhs, env) {
+                range @ ComptimeValue::Range(_) => range,
+                _ => {
+                    return Err(ComptimeError {
+                        span: expr.span,
+                        message: "comptime range.iter requires a range value".to_string(),
+                    });
+                }
+            },
             ComptimeExprKind::Index { lhs, index } => {
                 return eval_array_index_flow(expr.span, lhs, index, env);
             }

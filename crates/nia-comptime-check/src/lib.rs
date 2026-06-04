@@ -16,7 +16,7 @@ use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind, import_type_into};
+use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -1850,6 +1850,9 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeExprKind::Unary { op, expr: inner } => {
                 self.comptime_unary_expr_type(*op, inner)
             }
+            nia_comptime_engine::ComptimeExprKind::Range(range) => {
+                self.comptime_range_type(range, expected)
+            }
             nia_comptime_engine::ComptimeExprKind::If {
                 then_branch,
                 else_branch,
@@ -1881,6 +1884,10 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeExprKind::Len { lhs } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_len_type(lhs_ty)
+            }
+            nia_comptime_engine::ComptimeExprKind::RangeIter { lhs } => {
+                let lhs_ty = self.comptime_expr_type(lhs, None)?;
+                self.comptime_range_iter_type(lhs_ty)
             }
             nia_comptime_engine::ComptimeExprKind::Index { lhs, index } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
@@ -1929,6 +1936,19 @@ impl Analyzer<'_> {
             | ComptimeValueType::Int
             | ComptimeValueType::Bool
             | ComptimeValueType::String => None,
+        }
+    }
+
+    fn comptime_range_iter_type(&mut self, lhs: ComptimeValueType) -> Option<ComptimeValueType> {
+        let ComptimeValueType::Runtime(ty) = lhs else {
+            return None;
+        };
+        match self.ty_kind(ty)? {
+            TyKind::Range {
+                kind: RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From,
+                bound: Some(_),
+            } => Some(ComptimeValueType::Runtime(ty)),
+            _ => None,
         }
     }
 
@@ -2755,6 +2775,53 @@ impl Analyzer<'_> {
             }
             UnaryOp::RefReadOnly | UnaryOp::Ref | UnaryOp::Deref => None,
         }
+    }
+
+    fn comptime_range_type(
+        &mut self,
+        range: &nia_comptime_engine::ComptimeRange,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
+            (true, true, false) => RangeTyKind::Exclusive,
+            (true, true, true) => RangeTyKind::Inclusive,
+            (true, false, false) => RangeTyKind::From,
+            (false, true, false) => RangeTyKind::To,
+            (false, true, true) => RangeTyKind::ToInclusive,
+            (false, false, false) => RangeTyKind::Full,
+            (true, false, true) | (false, false, true) => return None,
+        };
+        let expected_bound = expected.and_then(|expected| match self.ty_kind(expected) {
+            Some(TyKind::Range {
+                kind: expected_kind,
+                bound,
+            }) if expected_kind == kind => bound,
+            _ => None,
+        });
+        let start_ty = match range.start.as_deref() {
+            Some(start) => Some(self.comptime_arg_runtime_type(start, expected_bound)?),
+            None => None,
+        };
+        let end_ty = match range.end.as_deref() {
+            Some(end) => Some(self.comptime_arg_runtime_type(end, expected_bound.or(start_ty))?),
+            None => None,
+        };
+        let bound = match (start_ty, end_ty) {
+            (Some(start_ty), Some(end_ty)) if start_ty == end_ty => Some(start_ty),
+            (Some(bound), None) | (None, Some(bound)) => Some(bound),
+            (None, None) => expected_bound,
+            (Some(_), Some(_)) => return None,
+        };
+        let module_id = self.current_execution_module_id();
+        let bound = match bound {
+            Some(bound) => Some(self.import_ty_into_module_or_none(bound, module_id)?),
+            None => None,
+        };
+        let ty = self
+            .working_interners
+            .get_mut(&module_id)?
+            .intern(TyKind::Range { kind, bound });
+        Some(ComptimeValueType::Runtime(ty))
     }
 
     fn comptime_binary_expr_type(
