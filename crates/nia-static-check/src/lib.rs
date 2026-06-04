@@ -262,7 +262,13 @@ impl StaticChecker<'_> {
         expr: &Expr,
     ) -> Result<u64, nia_comptime_engine::ComptimeError> {
         let mut env = nia_comptime_engine::EmptyEnv;
-        nia_comptime_engine::eval_array_len_expr(expr, &mut env)
+        let expr = nia_comptime_ir::lower_expr(expr).map_err(|err| {
+            nia_comptime_engine::ComptimeError {
+                span: err.span,
+                message: err.message,
+            }
+        })?;
+        nia_comptime_engine::eval_comptime_array_len_expr(&expr, &mut env)
     }
 
     fn is_global(&self, def_id: DefId) -> bool {

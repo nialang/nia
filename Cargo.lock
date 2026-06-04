@@ -556,6 +556,7 @@ version = "0.3.2"
 dependencies = [
  "nia-ast",
  "nia-comptime-engine",
+ "nia-comptime-ir",
  "nia-defs",
  "nia-diagnostic",
  "nia-item-signatures",
@@ -590,6 +591,7 @@ version = "0.3.2"
 dependencies = [
  "nia-ast",
  "nia-comptime-engine",
+ "nia-comptime-ir",
  "nia-diagnostic",
  "nia-ids",
  "nia-item-tree",

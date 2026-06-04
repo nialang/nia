@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{BinaryOp, Expr, FunctionItem, UnaryOp};
+use nia_ast::{BinaryOp, UnaryOp};
 pub use nia_comptime_ir::{
     ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeFunction,
-    ComptimeLowerError, ComptimeNameResolution, ComptimeParam, ComptimeStmt, ComptimeStmtKind,
+    ComptimeNameResolution, ComptimeParam, ComptimeStmt, ComptimeStmtKind,
 };
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
@@ -127,11 +127,6 @@ impl ComptimeEnv for EmptyEnv {
             message: "layout builtins are not available in this comptime context".to_string(),
         })
     }
-}
-
-pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValue, ComptimeError> {
-    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
-    eval_comptime_expr(&expr, env)
 }
 
 pub fn eval_comptime_expr(
@@ -295,11 +290,6 @@ fn eval_struct_literal(
     Ok(ComptimeValue::Struct(values))
 }
 
-pub fn eval_int_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<i128, ComptimeError> {
-    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
-    eval_comptime_int_expr(&expr, env)
-}
-
 pub fn eval_comptime_int_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -311,11 +301,6 @@ pub fn eval_comptime_int_expr(
             message: "comptime expression must evaluate to an integer".to_string(),
         }),
     }
-}
-
-pub fn eval_bool_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<bool, ComptimeError> {
-    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
-    eval_comptime_bool_expr(&expr, env)
 }
 
 pub fn eval_comptime_bool_expr(
@@ -331,27 +316,11 @@ pub fn eval_comptime_bool_expr(
     }
 }
 
-pub fn eval_array_len_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<u64, ComptimeError> {
-    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
-    eval_comptime_array_len_expr(&expr, env)
-}
-
 pub fn eval_comptime_array_len_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     int_to_array_len(expr.span, eval_comptime_int_expr(expr, env)?)
-}
-
-pub fn eval_function_call(
-    span: Span,
-    function_span: Span,
-    function: &FunctionItem,
-    args: Vec<ComptimeValue>,
-    env: &mut impl ComptimeEnv,
-) -> Result<ComptimeValue, ComptimeError> {
-    let function = nia_comptime_ir::lower_function(function_span, function).map_err(lower_error)?;
-    eval_comptime_function_call(span, &function, args, env)
 }
 
 pub fn eval_comptime_function_call(
@@ -528,13 +497,6 @@ fn eval_binary(
                 .map(ComptimeValue::Int)
                 .map_err(|message| ComptimeError { span, message })
         }
-    }
-}
-
-fn lower_error(err: ComptimeLowerError) -> ComptimeError {
-    ComptimeError {
-        span: err.span,
-        message: err.message,
     }
 }
 
@@ -716,7 +678,8 @@ fn main() bool {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let value = eval_bool_expr(expr, &mut BuiltinEnv).unwrap();
+        let expr = nia_comptime_ir::lower_expr(expr).unwrap();
+        let value = eval_comptime_bool_expr(&expr, &mut BuiltinEnv).unwrap();
         assert!(value);
     }
 
