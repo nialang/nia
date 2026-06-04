@@ -15,7 +15,7 @@ use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind, import_type_into};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind, import_type_into};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -1523,6 +1523,9 @@ impl Analyzer<'_> {
             | nia_comptime_engine::ComptimeExprKind::StructLiteral { ty: Some(ty), .. } => {
                 Some(ComptimeValueType::Runtime(*ty))
             }
+            nia_comptime_engine::ComptimeExprKind::ArrayLiteral { ty: None, elems } => {
+                self.comptime_array_literal_type(elems, expected)
+            }
             nia_comptime_engine::ComptimeExprKind::OptionalSome { expr: inner } => {
                 let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
                     Some(TyKind::Optional { elem }) => Some(elem),
@@ -1606,6 +1609,159 @@ impl Analyzer<'_> {
                 self.comptime_block_tail_type(block, expected)
             }
             _ => None,
+        }
+    }
+
+    fn comptime_array_literal_type(
+        &mut self,
+        elems: &nia_comptime_engine::ComptimeArrayElements,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        let expected_parts = expected.and_then(|expected| self.expected_array_parts(expected));
+        let (elem_ty, actual_len) = match elems {
+            nia_comptime_engine::ComptimeArrayElements::List(elems) => {
+                let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
+                let elem_ty = self.comptime_array_list_elem_type(elems, expected_elem)?;
+                (elem_ty, Some(elems.len() as u64))
+            }
+            nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
+                let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
+                let elem_ty = self.comptime_arg_runtime_type(value, expected_elem)?;
+                let actual_len =
+                    nia_comptime_engine::eval_comptime_array_len_expr(count, self).ok();
+                (elem_ty, actual_len)
+            }
+        };
+        let len = self.comptime_array_literal_len(expected_parts, actual_len)?;
+        self.comptime_runtime_type(
+            elem_ty,
+            |elem| TyKind::Array { len, elem },
+            self.current_execution_module_id(),
+        )
+        .map(ComptimeValueType::Runtime)
+    }
+
+    fn expected_array_parts(&self, expected: InternedTyId) -> Option<(ArrayLenTy, InternedTyId)> {
+        match self.ty_kind(expected)? {
+            TyKind::Array { len, elem } => Some((len, elem)),
+            _ => None,
+        }
+    }
+
+    fn comptime_array_list_elem_type(
+        &mut self,
+        elems: &[ComptimeExpr],
+        expected_elem: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let (anchor_index, elem_ty) =
+            self.comptime_array_list_anchor_elem_type(elems, expected_elem)?;
+        for (index, elem) in elems.iter().enumerate() {
+            if index == anchor_index {
+                continue;
+            }
+            let actual = self.comptime_arg_runtime_type(elem, Some(elem_ty))?;
+            if actual != elem_ty {
+                return None;
+            }
+        }
+        Some(elem_ty)
+    }
+
+    fn comptime_array_list_anchor_elem_type(
+        &mut self,
+        elems: &[ComptimeExpr],
+        expected_elem: Option<InternedTyId>,
+    ) -> Option<(usize, InternedTyId)> {
+        for (index, elem) in elems.iter().enumerate() {
+            let expected_ty = expected_elem
+                .and_then(|expected| self.comptime_arg_runtime_type(elem, Some(expected)))
+                .filter(|ty| !self.type_contains_generic(*ty));
+            if let Some(ty) = expected_ty.or_else(|| self.comptime_arg_runtime_type(elem, None))
+                && !self.type_contains_generic(ty)
+            {
+                return Some((index, ty));
+            }
+        }
+        None
+    }
+
+    fn type_contains_generic(&self, ty: InternedTyId) -> bool {
+        let mut seen = HashSet::new();
+        self.type_contains_generic_inner(ty, &mut seen)
+    }
+
+    fn type_contains_generic_inner(
+        &self,
+        ty: InternedTyId,
+        seen: &mut HashSet<InternedTyId>,
+    ) -> bool {
+        if !seen.insert(ty) {
+            return false;
+        }
+        match self.ty_kind(ty) {
+            Some(TyKind::GenericParam(_)) => true,
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::Array { elem, .. })
+            | Some(TyKind::Optional { elem }) => self.type_contains_generic_inner(elem, seen),
+            Some(TyKind::Range { bound, .. }) => {
+                bound.is_some_and(|bound| self.type_contains_generic_inner(bound, seen))
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                params
+                    .into_iter()
+                    .any(|param| self.type_contains_generic_inner(param, seen))
+                    || self.type_contains_generic_inner(return_type, seen)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.type_contains_generic_inner(error, seen)
+                    || self.type_contains_generic_inner(value, seen)
+            }
+            Some(TyKind::Nominal { args, .. }) | Some(TyKind::BuiltinTrait { args, .. }) => args
+                .into_iter()
+                .any(|arg| self.type_contains_generic_inner(arg, seen)),
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                trait_args
+                    .into_iter()
+                    .any(|arg| self.type_contains_generic_inner(arg, seen))
+                    || associated_type_bindings
+                        .into_iter()
+                        .any(|binding| self.type_contains_generic_inner(binding.ty, seen))
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.type_contains_generic_inner(self_ty, seen)
+                    || trait_args
+                        .into_iter()
+                        .any(|arg| self.type_contains_generic_inner(arg, seen))
+            }
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => false,
+        }
+    }
+
+    fn comptime_array_literal_len(
+        &self,
+        expected: Option<(ArrayLenTy, InternedTyId)>,
+        actual: Option<u64>,
+    ) -> Option<ArrayLenTy> {
+        match (expected.map(|(len, _)| len), actual) {
+            (Some(ArrayLenTy::ConstValue(expected)), Some(actual)) if expected != actual => None,
+            (Some(ArrayLenTy::Infer), Some(actual)) | (None, Some(actual)) => {
+                Some(ArrayLenTy::ConstValue(actual))
+            }
+            (Some(len), _) => Some(len),
+            (None, None) => None,
         }
     }
 
