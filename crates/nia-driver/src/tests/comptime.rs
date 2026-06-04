@@ -1319,6 +1319,36 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_optional_constructor() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_optional_constructor");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime fn unwrap(value: ?usize) usize {
+    switch value {
+        ?payload => payload,
+        null => 0usize,
+    }
+}
+
+comptime let n: usize = unwrap(id(?7usize));
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_typed_aggregate_literals() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_aggregate_literals");
     write(
