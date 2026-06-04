@@ -144,6 +144,13 @@ pub enum ComptimeExprKind {
         lhs: Box<ComptimeExpr>,
         name: String,
     },
+    Index {
+        lhs: Box<ComptimeExpr>,
+        index: Box<ComptimeExpr>,
+    },
+    ArrayLiteral {
+        elems: ComptimeArrayElements,
+    },
     StructLiteral {
         fields: Vec<ComptimeFieldInit>,
     },
@@ -168,6 +175,9 @@ pub enum ComptimeExprKind {
     ErrorErr {
         expr: Box<ComptimeExpr>,
     },
+    Try {
+        expr: Box<ComptimeExpr>,
+    },
     Binary {
         lhs: Box<ComptimeExpr>,
         op: BinaryOp,
@@ -183,6 +193,15 @@ pub enum ComptimeExprKind {
         expr: Box<ComptimeExpr>,
     },
     Block(ComptimeBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComptimeArrayElements {
+    List(Vec<ComptimeExpr>),
+    Repeat {
+        value: Box<ComptimeExpr>,
+        count: Box<ComptimeExpr>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +254,41 @@ pub fn lower_expr_with_context(
             lhs: Box::new(lower_expr_with_context(lhs, context)?),
             name: name.clone(),
         },
+        nia_ast::ExprKind::BracketSuffix { callee, args } => {
+            let [arg] = args.as_slice() else {
+                return Err(ComptimeLowerError {
+                    span: expr.span,
+                    message: "comptime bracket suffix requires exactly one index argument"
+                        .to_string(),
+                });
+            };
+            let Some(index) = &arg.expr else {
+                return Err(ComptimeLowerError {
+                    span: arg.span,
+                    message: "comptime bracket suffix requires an expression index".to_string(),
+                });
+            };
+            ComptimeExprKind::Index {
+                lhs: Box::new(lower_expr_with_context(callee, context)?),
+                index: Box::new(lower_expr_with_context(index, context)?),
+            }
+        }
+        nia_ast::ExprKind::Index { lhs, index } => match index {
+            nia_ast::IndexArg::Expr(index) => ComptimeExprKind::Index {
+                lhs: Box::new(lower_expr_with_context(lhs, context)?),
+                index: Box::new(lower_expr_with_context(index, context)?),
+            },
+            nia_ast::IndexArg::Range(_) => {
+                return Err(ComptimeLowerError {
+                    span: expr.span,
+                    message: "comptime array slicing is not supported".to_string(),
+                });
+            }
+        },
+        nia_ast::ExprKind::ArrayLiteral { elems }
+        | nia_ast::ExprKind::TypedArrayLiteral { elems, .. } => ComptimeExprKind::ArrayLiteral {
+            elems: lower_array_elements_with_context(elems, context)?,
+        },
         nia_ast::ExprKind::StructLiteral { fields }
         | nia_ast::ExprKind::TypedStructLiteral { fields, .. } => ComptimeExprKind::StructLiteral {
             fields: fields
@@ -264,6 +318,9 @@ pub fn lower_expr_with_context(
             expr: Box::new(lower_expr_with_context(expr, context)?),
         },
         nia_ast::ExprKind::ErrorErr { expr } => ComptimeExprKind::ErrorErr {
+            expr: Box::new(lower_expr_with_context(expr, context)?),
+        },
+        nia_ast::ExprKind::Try { expr } => ComptimeExprKind::Try {
             expr: Box::new(lower_expr_with_context(expr, context)?),
         },
         nia_ast::ExprKind::Binary { lhs, op, rhs } => ComptimeExprKind::Binary {
@@ -304,6 +361,24 @@ pub fn lower_expr_with_context(
         span: expr.span,
         kind,
     })
+}
+
+fn lower_array_elements_with_context(
+    elems: &nia_ast::ArrayElements,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeArrayElements, ComptimeLowerError> {
+    match elems {
+        nia_ast::ArrayElements::List(elems) => Ok(ComptimeArrayElements::List(
+            elems
+                .iter()
+                .map(|elem| lower_expr_with_context(elem, context))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        nia_ast::ArrayElements::Repeat { value, count } => Ok(ComptimeArrayElements::Repeat {
+            value: Box::new(lower_expr_with_context(value, context)?),
+            count: Box::new(lower_expr_with_context(count, context)?),
+        }),
+    }
 }
 
 fn resolve_name(context: &ComptimeLowerContext<'_>, span: Span) -> Option<ComptimeNameResolution> {

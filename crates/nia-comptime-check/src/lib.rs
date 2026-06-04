@@ -996,12 +996,12 @@ impl ComptimeEnv for Analyzer<'_> {
         nia_comptime_engine::eval_comptime_function_call(span, &function, args, self)
     }
 
-    fn push_function_frame(&mut self, _span: Span) -> Result<(), ComptimeError> {
+    fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
         self.call_locals.push(ComptimeCallFrame::default());
         Ok(())
     }
 
-    fn pop_function_frame(&mut self) {
+    fn pop_comptime_scope(&mut self) {
         self.call_locals.pop();
     }
 
