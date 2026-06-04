@@ -609,6 +609,11 @@ Propagation expressions use the same typed value surface: when the operand type
 is known as `?T` or `E!T`, `operand.?` has payload type `T` for later comptime
 generic inference.
 
+Binary comptime expressions are typed conservatively from operand types.
+Boolean logic and comparisons produce `bool`; integer arithmetic and bit
+operations produce the shared operand type only when both operands already have
+the same concrete integer runtime type.
+
 Expected types are an input to this semantic query, not a fallback evaluator
 rule. This lets generic comptime calls infer through partially-known parameter
 types, for example `E!T` can type `!value` when `E` is already concrete, while
