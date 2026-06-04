@@ -1891,6 +1891,85 @@ fn main() i32 {
 }
 
 #[test]
+fn structural_comptime_struct_fields_have_typed_values() {
+    let root = temp_dir("structural_comptime_struct_fields_have_typed_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let config = {width: 4usize, enabled: true};
+comptime let n: usize = id(config.width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn nested_structural_comptime_struct_fields_have_typed_values() {
+    let root = temp_dir("nested_structural_comptime_struct_fields_have_typed_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let config = {target: {word_bits: 64usize}};
+comptime let n: usize = id(config.target.word_bits / 8usize);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_structural_comptime_struct_fields_have_typed_values() {
+    let root = temp_dir("imported_structural_comptime_struct_fields_have_typed_values");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime let config = {width: 4usize};
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(config::config.width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_nested_call_return_type() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_nested_call_return_type");
     write(
