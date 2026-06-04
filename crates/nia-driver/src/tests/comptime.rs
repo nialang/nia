@@ -1756,6 +1756,38 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_substitutes_struct_field_types_in_body() {
+    let root = temp_dir("generic_comptime_function_substitutes_struct_field_types_in_body");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair[T] {
+    left: T,
+    right: T,
+}
+
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime fn right_id[T](pair: Pair[T]) T {
+    id(pair.right)
+}
+
+comptime let n: usize = right_id({left: 4usize, right: 8usize});
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_typed_comptime_value() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_comptime_value");
     write(

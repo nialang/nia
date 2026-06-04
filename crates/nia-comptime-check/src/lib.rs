@@ -2154,6 +2154,7 @@ impl Analyzer<'_> {
             ComptimeStmtKind::Binding(binding) => {
                 let ty = binding
                     .explicit_type
+                    .map(|ty| self.substitute_ty_generics(ty))
                     .or_else(|| self.comptime_arg_runtime_type(&binding.value, None))?;
                 let local_id = binding
                     .local_id
@@ -3122,6 +3123,7 @@ impl Analyzer<'_> {
         value: ComptimeValue,
         ty: Option<InternedTyId>,
     ) -> Result<(), ComptimeError> {
+        let ty = ty.map(|ty| self.substitute_ty_generics(ty));
         let Some(frame) = self.call_locals.last_mut() else {
             return Err(ComptimeError {
                 span,
