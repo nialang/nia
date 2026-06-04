@@ -2995,9 +2995,7 @@ impl Analyzer<'_> {
         rhs: &ComptimeExpr,
     ) -> Option<ComptimeValueType> {
         match op {
-            BinaryOp::And | BinaryOp::Or => Some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Bool),
-            )),
+            BinaryOp::And | BinaryOp::Or => self.comptime_bool_binary_expr_type(lhs, rhs),
             BinaryOp::Eq | BinaryOp::Ne => self.comptime_equality_expr_type(lhs, rhs),
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
                 let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
@@ -3031,6 +3029,17 @@ impl Analyzer<'_> {
                 (lhs_ty == rhs_ty && allowed).then_some(ComptimeValueType::Runtime(lhs_ty))
             }
         }
+    }
+
+    fn comptime_bool_binary_expr_type(
+        &mut self,
+        lhs: &ComptimeExpr,
+        rhs: &ComptimeExpr,
+    ) -> Option<ComptimeValueType> {
+        let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
+        let lhs_ty = self.comptime_arg_runtime_type(lhs, Some(bool_ty))?;
+        let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(bool_ty))?;
+        (lhs_ty == bool_ty && rhs_ty == bool_ty).then_some(ComptimeValueType::Runtime(bool_ty))
     }
 
     fn comptime_equality_expr_type(
