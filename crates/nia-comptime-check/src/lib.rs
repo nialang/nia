@@ -1024,14 +1024,27 @@ impl Analyzer<'_> {
             ComptimeValueType::Runtime(ty) => self.validate_runtime_typed_value(span, value, *ty),
             ComptimeValueType::Array { elem, .. } => {
                 let ComptimeValue::Array(values) = value else {
+                    self.push_comptime_type_mismatch(span, "array");
                     return;
                 };
+                if let ComptimeValueType::Array { len: Some(len), .. } = ty
+                    && values.len() as u64 != *len
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        format!(
+                            "comptime array length {} does not match expected length {len}",
+                            values.len()
+                        ),
+                    ));
+                }
                 for value in values {
                     self.validate_typed_value(span, value, elem);
                 }
             }
             ComptimeValueType::Struct(fields) => {
                 let ComptimeValue::Struct(values) = value else {
+                    self.push_comptime_type_mismatch(span, "struct");
                     return;
                 };
                 for field in fields {
@@ -1056,20 +1069,34 @@ impl Analyzer<'_> {
             }
             Some(TyKind::Array { elem, .. }) => {
                 let ComptimeValue::Array(values) = value else {
+                    self.push_comptime_type_mismatch(span, "array");
                     return;
                 };
+                if let Some(expected_len) = self.runtime_array_len(ty)
+                    && values.len() as u64 != expected_len
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        format!(
+                            "comptime array length {} does not match expected length {expected_len}",
+                            values.len()
+                        ),
+                    ));
+                }
                 for value in values {
                     self.validate_runtime_typed_value(span, value, elem);
                 }
             }
-            Some(TyKind::Optional { elem }) => {
-                let ComptimeValue::Optional(Some(value)) = value else {
-                    return;
-                };
-                self.validate_runtime_typed_value(span, value, elem);
-            }
+            Some(TyKind::Optional { elem }) => match value {
+                ComptimeValue::Optional(Some(value)) => {
+                    self.validate_runtime_typed_value(span, value, elem);
+                }
+                ComptimeValue::Optional(None) => {}
+                _ => self.push_comptime_type_mismatch(span, "optional"),
+            },
             Some(TyKind::ErrorUnion { error, value: ok }) => {
                 let ComptimeValue::ErrorUnion(value) = value else {
+                    self.push_comptime_type_mismatch(span, "error union");
                     return;
                 };
                 match value {
@@ -1091,6 +1118,7 @@ impl Analyzer<'_> {
         ty: InternedTyId,
     ) {
         let ComptimeValue::Struct(values) = value else {
+            self.push_comptime_type_mismatch(span, "struct");
             return;
         };
         let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
@@ -1163,6 +1191,20 @@ impl Analyzer<'_> {
                 ));
             }
         }
+    }
+
+    fn runtime_array_len(&self, ty: InternedTyId) -> Option<u64> {
+        let Some(TyKind::Array { len, .. }) = self.ty_kind(ty) else {
+            return None;
+        };
+        self.array_len_const_value(len)
+    }
+
+    fn push_comptime_type_mismatch(&mut self, span: Span, expected: &str) {
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!("comptime value does not match expected {expected} type"),
+        ));
     }
 
     fn with_execution_module<T>(

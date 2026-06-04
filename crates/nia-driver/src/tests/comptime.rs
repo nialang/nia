@@ -938,6 +938,87 @@ comptime let n: usize = width();
 }
 
 #[test]
+fn comptime_function_rejects_array_assignment_shape_mismatch() {
+    let root = temp_dir("comptime_function_rejects_array_assignment_shape_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var values: [2]usize = [1usize, 2usize];
+    values = true;
+    values.len()
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("expected array type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_optional_assignment_shape_mismatch() {
+    let root = temp_dir("comptime_function_rejects_optional_assignment_shape_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var value: ?usize = ?1usize;
+    value = true;
+    1usize
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("expected optional type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_error_union_assignment_shape_mismatch() {
+    let root = temp_dir("comptime_function_rejects_error_union_assignment_shape_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var value: usize!usize = !1usize;
+    value = true;
+    1usize
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("expected error union type")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_mutates_struct_fields() {
     let root = temp_dir("comptime_function_mutates_struct_fields");
     write(
