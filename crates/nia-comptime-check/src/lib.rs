@@ -1050,6 +1050,8 @@ impl Analyzer<'_> {
                 for field in fields {
                     if let Some(value) = values.get(&field.name) {
                         self.validate_typed_value(span, value, &field.ty);
+                    } else {
+                        self.push_comptime_missing_struct_field(span, &field.name);
                     }
                 }
             }
@@ -1136,6 +1138,8 @@ impl Analyzer<'_> {
         for (name, field_ty) in field_tys {
             if let Some(value) = values.get(&name) {
                 self.validate_runtime_typed_value(span, value, field_ty);
+            } else {
+                self.push_comptime_missing_struct_field(span, &name);
             }
         }
     }
@@ -1204,6 +1208,13 @@ impl Analyzer<'_> {
         self.diagnostics.push(Diagnostic::error(
             span,
             format!("comptime value does not match expected {expected} type"),
+        ));
+    }
+
+    fn push_comptime_missing_struct_field(&mut self, span: Span, name: &str) {
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!("comptime struct value is missing field `{name}`"),
         ));
     }
 
@@ -4383,6 +4394,11 @@ fn validate_assignment_shape(
             for (name, previous) in previous_values {
                 if let Some(value) = values.get(name) {
                     validate_assignment_shape(diagnostics, span, value, previous);
+                } else {
+                    diagnostics.push(Diagnostic::error(
+                        span,
+                        format!("comptime struct value is missing field `{name}`"),
+                    ));
                 }
             }
         }
