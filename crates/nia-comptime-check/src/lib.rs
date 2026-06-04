@@ -4335,8 +4335,12 @@ impl Analyzer<'_> {
                 });
             }
             let previous_ty = self.call_locals[index].local_types.get(&local_id).cloned();
+            let previous_value = self.call_locals[index].locals.get(&local_id).cloned();
             if let Some(previous_ty) = previous_ty.as_ref() {
                 self.validate_typed_value(span, &value, previous_ty);
+            }
+            if let Some(previous_value) = previous_value.as_ref() {
+                validate_assignment_shape(&mut self.diagnostics, span, &value, previous_value);
             }
             let frame = &mut self.call_locals[index];
             frame.locals.insert(local_id, value.clone());
@@ -4350,6 +4354,46 @@ impl Analyzer<'_> {
             span,
             message: format!("unknown comptime assignment target `{name}`"),
         })
+    }
+}
+
+fn validate_assignment_shape(
+    diagnostics: &mut Vec<Diagnostic>,
+    span: Span,
+    value: &ComptimeValue,
+    previous: &ComptimeValue,
+) {
+    match (value, previous) {
+        (ComptimeValue::Array(values), ComptimeValue::Array(previous_values)) => {
+            if values.len() != previous_values.len() {
+                diagnostics.push(Diagnostic::error(
+                    span,
+                    format!(
+                        "comptime array length {} does not match expected length {}",
+                        values.len(),
+                        previous_values.len()
+                    ),
+                ));
+            }
+            for (value, previous) in values.iter().zip(previous_values) {
+                validate_assignment_shape(diagnostics, span, value, previous);
+            }
+        }
+        (ComptimeValue::Struct(values), ComptimeValue::Struct(previous_values)) => {
+            for (name, previous) in previous_values {
+                if let Some(value) = values.get(name) {
+                    validate_assignment_shape(diagnostics, span, value, previous);
+                }
+            }
+        }
+        (ComptimeValue::Optional(Some(value)), ComptimeValue::Optional(Some(previous))) => {
+            validate_assignment_shape(diagnostics, span, value, previous);
+        }
+        (ComptimeValue::ErrorUnion(Ok(value)), ComptimeValue::ErrorUnion(Ok(previous)))
+        | (ComptimeValue::ErrorUnion(Err(value)), ComptimeValue::ErrorUnion(Err(previous))) => {
+            validate_assignment_shape(diagnostics, span, value, previous);
+        }
+        _ => {}
     }
 }
 
