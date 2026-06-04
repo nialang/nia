@@ -3462,6 +3462,57 @@ comptime let n: usize = accept_short(@builtin().target.os);
 }
 
 #[test]
+fn typed_comptime_target_string_binding_is_a_char_array() {
+    let root = temp_dir("typed_comptime_target_string_binding_is_a_char_array");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let os: [5]char = @builtin().target.os;
+comptime let n: usize = if os.len() == 5usize {
+    os.len()
+} else {
+    0usize
+};
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_typed_comptime_target_string_binding_is_a_char_array() {
+    let root = temp_dir("imported_typed_comptime_target_string_binding_is_a_char_array");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime let os: [5]char = @builtin().target.os;
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime let n: usize = config::os.len();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_byte_and_c_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_byte_and_c_string_literals_are_typed_arrays");
     write(
