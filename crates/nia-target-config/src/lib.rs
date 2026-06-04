@@ -3,6 +3,10 @@ use nia_ast::{
     ArrayElements, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
     Module, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
 };
+use nia_comptime_ir::{
+    ComptimeAssignTarget, ComptimeBinding, ComptimeExpr, ComptimeExprKind, ComptimeParam,
+    ComptimeTypeArg,
+};
 use nia_diagnostic::Diagnostic;
 use nia_item_tree::ActiveModuleItemTree;
 use nia_item_tree::{ComptimeBranch, ComptimeBranchResolver, ItemTreeError, ModuleItemTree};
@@ -149,14 +153,14 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     fn call_function(
         &mut self,
         span: Span,
-        callee: &nia_comptime_engine::ComptimeExpr,
-        type_args: &[nia_comptime_engine::ComptimeTypeArg],
-        arg_exprs: &[nia_comptime_engine::ComptimeExpr],
+        callee: &ComptimeExpr,
+        type_args: &[ComptimeTypeArg],
+        arg_exprs: &[ComptimeExpr],
         args: Vec<nia_comptime_engine::ComptimeValue>,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
         let _ = type_args;
         let _ = arg_exprs;
-        let nia_comptime_engine::ComptimeExprKind::Ident { name, .. } = &callee.kind else {
+        let ComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
                 message: "target condition can only call same-module `comptime fn`".to_string(),
@@ -193,7 +197,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &nia_comptime_engine::ComptimeParam,
+        param: &ComptimeParam,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         self.bind_named_value(span, &param.name, false, value)
@@ -202,7 +206,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     fn bind_function_local(
         &mut self,
         span: Span,
-        binding: &nia_comptime_engine::ComptimeBinding,
+        binding: &ComptimeBinding,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         self.bind_named_value(span, &binding.name, binding.is_mutable, value)
@@ -221,13 +225,11 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     fn assign_local(
         &mut self,
         span: Span,
-        target: &nia_comptime_engine::ComptimeAssignTarget,
+        target: &ComptimeAssignTarget,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         match target {
-            nia_comptime_engine::ComptimeAssignTarget::Local { name, .. } => {
-                self.assign_named_value(span, name, value)
-            }
+            ComptimeAssignTarget::Local { name, .. } => self.assign_named_value(span, name, value),
         }
     }
 }
