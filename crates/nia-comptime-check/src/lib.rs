@@ -2320,7 +2320,7 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
                 let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
                 let elem_ty = self.comptime_arg_runtime_type(value, expected_elem)?;
-                let actual_len = self.probe_comptime_array_len_expr(count);
+                let actual_len = Some(self.probe_comptime_array_len_expr(count)?);
                 (elem_ty, actual_len)
             }
         };
@@ -2350,8 +2350,8 @@ impl Analyzer<'_> {
             }
             nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
                 let elem_ty = self.comptime_expr_type(value, None)?;
-                let len = self.probe_comptime_array_len_expr(count);
-                (elem_ty, len)
+                let len = self.probe_comptime_array_len_expr(count)?;
+                (elem_ty, Some(len))
             }
         };
         Some(ComptimeValueType::Array {
