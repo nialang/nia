@@ -2299,7 +2299,11 @@ fn comptime_string_literals_are_typed_arrays() {
         &root.join("main.nia"),
         r#"
 comptime fn accept4(value: [4]char) usize {
-    4usize
+    if value[0] == 'n' {
+        4usize
+    } else {
+        0usize
+    }
 }
 
 comptime fn id[T](value: T) T {
@@ -2308,6 +2312,29 @@ comptime fn id[T](value: T) T {
 
 comptime let text: [4]char = id("nia!");
 comptime let n: usize = accept4(text);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_target_strings_compare_with_string_literals() {
+    let root = temp_dir("comptime_target_strings_compare_with_string_literals");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn is_target_os(value: [5]char) bool {
+    @builtin().target.os == value
+}
+
+comptime let n: usize = if is_target_os("linux") { 4usize } else { 2usize };
 
 fn main() i32 {
     var values: [n]i32 = [0; n];

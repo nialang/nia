@@ -274,7 +274,7 @@ fn eval_comptime_expr_flow(
             ComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
             ComptimeExprKind::Null => ComptimeValue::Optional(None),
             ComptimeExprKind::String(literal) => eval_string_literal(literal)
-                .map(ComptimeValue::String)
+                .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
                 .ok_or_else(|| ComptimeError {
                     span: expr.span,
                     message: "unsupported string literal in comptime expression".to_string(),
@@ -1762,6 +1762,12 @@ fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
         (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => Some(lhs == rhs),
         (ComptimeValue::Bool(lhs), ComptimeValue::Bool(rhs)) => Some(lhs == rhs),
         (ComptimeValue::String(lhs), ComptimeValue::String(rhs)) => Some(lhs == rhs),
+        (ComptimeValue::String(lhs), ComptimeValue::Array(rhs)) => {
+            Some(char_array_to_string(rhs)? == *lhs)
+        }
+        (ComptimeValue::Array(lhs), ComptimeValue::String(rhs)) => {
+            Some(char_array_to_string(lhs)? == *rhs)
+        }
         (ComptimeValue::Range(lhs), ComptimeValue::Range(rhs)) => Some(lhs == rhs),
         (ComptimeValue::Array(lhs), ComptimeValue::Array(rhs)) => {
             if lhs.len() != rhs.len() {
@@ -1782,6 +1788,25 @@ fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
         },
         _ => None,
     }
+}
+
+fn string_to_char_array(value: &str) -> Vec<ComptimeValue> {
+    value
+        .chars()
+        .map(|ch| ComptimeValue::Int(ch as i128))
+        .collect()
+}
+
+fn char_array_to_string(values: &[ComptimeValue]) -> Option<String> {
+    let mut out = String::new();
+    for value in values {
+        let ComptimeValue::Int(value) = value else {
+            return None;
+        };
+        let value = u32::try_from(*value).ok()?;
+        out.push(char::from_u32(value)?);
+    }
+    Some(out)
 }
 
 pub fn eval_string_literal(literal: &nia_ast::StringLiteral) -> Option<String> {
