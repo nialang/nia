@@ -1050,32 +1050,11 @@ impl<'a> BodyChecker<'a> {
         if let Some(value) = self.array_repeat_counts.get(&count.span).copied() {
             return value;
         }
-        let lowered = match self.lower_comptime_expr(count) {
-            Ok(count) => count,
-            Err(err) => {
-                self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-                    err.span,
-                    format!(
-                        "array repeat count is not a valid constant during lowering: {}",
-                        err.message
-                    ),
-                ));
-                return 0;
-            }
-        };
-        match nia_comptime_engine::eval_comptime_array_len_expr(&lowered, self) {
-            Ok(value) => value,
-            Err(err) => {
-                self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-                    err.span,
-                    format!(
-                        "array repeat count is not a valid constant during lowering: {}",
-                        err.message
-                    ),
-                ));
-                0
-            }
-        }
+        self.diagnostics.push(nia_diagnostic::Diagnostic::error(
+            count.span,
+            "missing checked array repeat count during body IR lowering",
+        ));
+        0
     }
 
     fn lower_callee(&mut self, call_span: Span, callee: &Expr) -> TypedCallee {
