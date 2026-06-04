@@ -242,6 +242,60 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_switch_optional_payload_drives_array_lengths() {
+    let root = temp_dir("comptime_function_switch_optional_payload_drives_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn unwrap(value: ?usize) usize {
+    switch value {
+        ?payload => payload,
+        null => 1,
+    }
+}
+
+comptime let some: ?usize = ?8usize;
+comptime let n: usize = unwrap(some);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_switch_error_payload_drives_array_lengths() {
+    let root = temp_dir("comptime_function_switch_error_payload_drives_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn unwrap(value: usize!usize) usize {
+    switch value {
+        !payload => payload,
+        err! => err,
+    }
+}
+
+comptime let ok: usize!usize = !8;
+comptime let n: usize = unwrap(ok);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn function_body_comptime_if_uses_comptime_function_condition() {
     let root = temp_dir("function_body_comptime_if_uses_comptime_function_condition");
     write(

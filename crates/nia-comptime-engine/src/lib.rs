@@ -15,12 +15,26 @@ pub enum ComptimeValue {
     Bool(bool),
     String(String),
     Struct(BTreeMap<String, ComptimeValue>),
+    Optional(Option<Box<ComptimeValue>>),
+    ErrorUnion(Result<Box<ComptimeValue>, Box<ComptimeValue>>),
 }
 
 enum ComptimeEvalFlow {
     Value(ComptimeValue),
     Return(ComptimeValue),
     Void,
+}
+
+struct ComptimeSwitchMatch<'a> {
+    arm: &'a ComptimeSwitchArm,
+    binding: Option<ComptimeSwitchBinding>,
+}
+
+struct ComptimeSwitchBinding {
+    span: Span,
+    name: String,
+    local_id: Option<nia_ids::LocalId>,
+    value: ComptimeValue,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +124,22 @@ pub trait ComptimeEnv {
             message: "comptime function locals are not available in this context".to_string(),
         })
     }
+
+    fn bind_switch_pattern_local(
+        &mut self,
+        span: Span,
+        name: &str,
+        local_id: Option<nia_ids::LocalId>,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = name;
+        let _ = local_id;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "comptime switch pattern locals are not available in this context".to_string(),
+        })
+    }
 }
 
 #[derive(Default)]
@@ -142,6 +172,7 @@ pub fn eval_comptime_expr(
 ) -> Result<ComptimeValue, ComptimeError> {
     match &expr.kind {
         ComptimeExprKind::Bool(value) => Ok(ComptimeValue::Bool(*value)),
+        ComptimeExprKind::Null => Ok(ComptimeValue::Optional(None)),
         ComptimeExprKind::String(literal) => literal_string(literal)
             .map(ComptimeValue::String)
             .ok_or_else(|| ComptimeError {
@@ -258,6 +289,12 @@ pub fn eval_comptime_expr(
             span: expr.span,
             message: format!("unsupported unary operator in comptime expression: {op:?}"),
         }),
+        ComptimeExprKind::OptionalSome { expr: inner } => eval_comptime_expr(inner, env)
+            .map(|value| ComptimeValue::Optional(Some(Box::new(value)))),
+        ComptimeExprKind::ErrorOk { expr: inner } => eval_comptime_expr(inner, env)
+            .map(|value| ComptimeValue::ErrorUnion(Ok(Box::new(value)))),
+        ComptimeExprKind::ErrorErr { expr: inner } => eval_comptime_expr(inner, env)
+            .map(|value| ComptimeValue::ErrorUnion(Err(Box::new(value)))),
         ComptimeExprKind::Binary { lhs, op, rhs } => eval_binary(expr.span, lhs, *op, rhs, env),
         ComptimeExprKind::If {
             cond,
@@ -313,20 +350,21 @@ fn eval_comptime_switch_expr(
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let target = eval_comptime_expr(&switch.target, env)?;
-    let Some(arm) = matching_switch_arm(&target, switch, env)? else {
+    let Some(matched) = matching_switch_arm(&target, switch, env)? else {
         return Err(ComptimeError {
             span: switch.span,
             message: "comptime switch expression did not match any arm".to_string(),
         });
     };
-    match eval_comptime_switch_arm_body(&arm.body, env)? {
+    let arm_span = matched.arm.span;
+    match eval_comptime_switch_match_body(matched, env)? {
         ComptimeEvalFlow::Value(value) => Ok(value),
         ComptimeEvalFlow::Return(_) => Err(ComptimeError {
-            span: arm.span,
+            span: arm_span,
             message: "comptime switch arm cannot return from a comptime function".to_string(),
         }),
         ComptimeEvalFlow::Void => Err(ComptimeError {
-            span: arm.span,
+            span: arm_span,
             message: "comptime switch arm requires a value".to_string(),
         }),
     }
@@ -336,7 +374,7 @@ fn matching_switch_arm<'a>(
     target: &ComptimeValue,
     switch: &'a ComptimeSwitch,
     env: &mut impl ComptimeEnv,
-) -> Result<Option<&'a ComptimeSwitchArm>, ComptimeError> {
+) -> Result<Option<ComptimeSwitchMatch<'a>>, ComptimeError> {
     let mut default = None;
     for arm in &switch.arms {
         for pattern in &arm.patterns {
@@ -347,7 +385,7 @@ fn matching_switch_arm<'a>(
                 ComptimeSwitchPattern::Expr(pattern) => {
                     let pattern = eval_comptime_expr(pattern, env)?;
                     if values_equal(target, &pattern).unwrap_or(false) {
-                        return Ok(Some(arm));
+                        return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
                     }
                 }
                 ComptimeSwitchPattern::Range {
@@ -357,13 +395,101 @@ fn matching_switch_arm<'a>(
                     span,
                 } => {
                     if switch_range_matches(target, start, end, *inclusive, *span, env)? {
-                        return Ok(Some(arm));
+                        return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
                     }
                 }
+                ComptimeSwitchPattern::OptionalSome {
+                    name,
+                    local_id,
+                    span,
+                } => match target {
+                    ComptimeValue::Optional(Some(value)) => {
+                        return Ok(Some(ComptimeSwitchMatch {
+                            arm,
+                            binding: Some(ComptimeSwitchBinding {
+                                span: *span,
+                                name: name.clone(),
+                                local_id: *local_id,
+                                value: (**value).clone(),
+                            }),
+                        }));
+                    }
+                    ComptimeValue::Optional(None) => {}
+                    _ => {
+                        return Err(ComptimeError {
+                            span: *span,
+                            message: "comptime optional switch pattern requires an optional target"
+                                .to_string(),
+                        });
+                    }
+                },
+                ComptimeSwitchPattern::OptionalNull { span } => match target {
+                    ComptimeValue::Optional(None) => {
+                        return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
+                    }
+                    ComptimeValue::Optional(Some(_)) => {}
+                    _ => {
+                        return Err(ComptimeError {
+                            span: *span,
+                            message: "comptime optional switch pattern requires an optional target"
+                                .to_string(),
+                        });
+                    }
+                },
+                ComptimeSwitchPattern::ErrorOk {
+                    name,
+                    local_id,
+                    span,
+                } => match target {
+                    ComptimeValue::ErrorUnion(Ok(value)) => {
+                        return Ok(Some(ComptimeSwitchMatch {
+                            arm,
+                            binding: Some(ComptimeSwitchBinding {
+                                span: *span,
+                                name: name.clone(),
+                                local_id: *local_id,
+                                value: (**value).clone(),
+                            }),
+                        }));
+                    }
+                    ComptimeValue::ErrorUnion(Err(_)) => {}
+                    _ => {
+                        return Err(ComptimeError {
+                            span: *span,
+                            message: "comptime error switch pattern requires an error-union target"
+                                .to_string(),
+                        });
+                    }
+                },
+                ComptimeSwitchPattern::ErrorErr {
+                    name,
+                    local_id,
+                    span,
+                } => match target {
+                    ComptimeValue::ErrorUnion(Err(value)) => {
+                        return Ok(Some(ComptimeSwitchMatch {
+                            arm,
+                            binding: Some(ComptimeSwitchBinding {
+                                span: *span,
+                                name: name.clone(),
+                                local_id: *local_id,
+                                value: (**value).clone(),
+                            }),
+                        }));
+                    }
+                    ComptimeValue::ErrorUnion(Ok(_)) => {}
+                    _ => {
+                        return Err(ComptimeError {
+                            span: *span,
+                            message: "comptime error switch pattern requires an error-union target"
+                                .to_string(),
+                        });
+                    }
+                },
             }
         }
     }
-    Ok(default)
+    Ok(default.map(|arm| ComptimeSwitchMatch { arm, binding: None }))
 }
 
 fn switch_range_matches(
@@ -398,6 +524,32 @@ fn eval_comptime_switch_arm_body(
         ComptimeSwitchArmBody::Stmt(stmt) => eval_function_stmt(stmt, env),
         ComptimeSwitchArmBody::Block(block) => eval_function_block(block, env),
     }
+}
+
+fn eval_comptime_switch_match_body(
+    matched: ComptimeSwitchMatch<'_>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let Some(binding) = matched.binding else {
+        return eval_comptime_switch_arm_body(&matched.arm.body, env);
+    };
+    env.push_function_frame(matched.arm.span)?;
+    let bind_result = bind_switch_pattern_value(&binding, env);
+    let result = bind_result.and_then(|()| eval_comptime_switch_arm_body(&matched.arm.body, env));
+    env.pop_function_frame();
+    result
+}
+
+fn bind_switch_pattern_value(
+    binding: &ComptimeSwitchBinding,
+    env: &mut impl ComptimeEnv,
+) -> Result<(), ComptimeError> {
+    env.bind_switch_pattern_local(
+        binding.span,
+        &binding.name,
+        binding.local_id,
+        binding.value.clone(),
+    )
 }
 
 fn eval_struct_literal(
@@ -546,13 +698,13 @@ fn eval_function_switch_tail_expr(
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let target = eval_comptime_expr(&switch.target, env)?;
-    let Some(arm) = matching_switch_arm(&target, switch, env)? else {
+    let Some(matched) = matching_switch_arm(&target, switch, env)? else {
         return Err(ComptimeError {
             span: switch.span,
             message: "comptime switch expression did not match any arm".to_string(),
         });
     };
-    eval_comptime_switch_arm_body(&arm.body, env)
+    eval_comptime_switch_match_body(matched, env)
 }
 
 fn eval_function_stmt(
@@ -697,6 +849,15 @@ fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
         (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => Some(lhs == rhs),
         (ComptimeValue::Bool(lhs), ComptimeValue::Bool(rhs)) => Some(lhs == rhs),
         (ComptimeValue::String(lhs), ComptimeValue::String(rhs)) => Some(lhs == rhs),
+        (ComptimeValue::Optional(lhs), ComptimeValue::Optional(rhs)) => match (lhs, rhs) {
+            (None, None) => Some(true),
+            (Some(lhs), Some(rhs)) => values_equal(lhs, rhs),
+            _ => Some(false),
+        },
+        (ComptimeValue::ErrorUnion(lhs), ComptimeValue::ErrorUnion(rhs)) => match (lhs, rhs) {
+            (Ok(lhs), Ok(rhs)) | (Err(lhs), Err(rhs)) => values_equal(lhs, rhs),
+            _ => Some(false),
+        },
         _ => None,
     }
 }
@@ -925,6 +1086,50 @@ fn main() usize {
         assert_eq!(value, 8);
     }
 
+    #[test]
+    fn evaluates_lowered_switch_with_optional_payload_patterns() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() usize {
+    switch ?8 {
+        ?value => value,
+        null => 0,
+    }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+            panic!("expected function");
+        };
+        let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let value = eval_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
+        assert_eq!(value, 8);
+    }
+
+    #[test]
+    fn evaluates_lowered_switch_with_error_union_payload_patterns() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() usize {
+    switch 5! {
+        !value => value,
+        error! => error,
+    }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+            panic!("expected function");
+        };
+        let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let value = eval_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
+        assert_eq!(value, 5);
+    }
+
     struct BuiltinEnv;
 
     impl ComptimeEnv for BuiltinEnv {
@@ -968,6 +1173,66 @@ fn main() usize {
                 span,
                 message: "layout builtins are not available in this test".to_string(),
             })
+        }
+    }
+
+    #[derive(Default)]
+    struct SwitchPatternEnv {
+        scopes: Vec<BTreeMap<String, ComptimeValue>>,
+    }
+
+    impl ComptimeEnv for SwitchPatternEnv {
+        fn resolve_ident(
+            &mut self,
+            span: Span,
+            name: &str,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            self.scopes
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(name).cloned())
+                .ok_or_else(|| ComptimeError {
+                    span,
+                    message: format!("unknown comptime value `{name}`"),
+                })
+        }
+
+        fn resolve_layout_builtin(
+            &mut self,
+            span: Span,
+            _builtin: LayoutBuiltin,
+            _type_arg_span: Span,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            Err(ComptimeError {
+                span,
+                message: "layout builtins are not available in this test".to_string(),
+            })
+        }
+
+        fn push_function_frame(&mut self, _span: Span) -> Result<(), ComptimeError> {
+            self.scopes.push(BTreeMap::new());
+            Ok(())
+        }
+
+        fn pop_function_frame(&mut self) {
+            self.scopes.pop();
+        }
+
+        fn bind_switch_pattern_local(
+            &mut self,
+            span: Span,
+            name: &str,
+            _local_id: Option<nia_ids::LocalId>,
+            value: ComptimeValue,
+        ) -> Result<(), ComptimeError> {
+            let Some(scope) = self.scopes.last_mut() else {
+                return Err(ComptimeError {
+                    span,
+                    message: "internal comptime switch pattern scope is missing".to_string(),
+                });
+            };
+            scope.insert(name.to_string(), value);
+            Ok(())
         }
     }
 }

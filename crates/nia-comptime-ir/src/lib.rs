@@ -86,6 +86,24 @@ pub struct ComptimeSwitchArm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComptimeSwitchPattern {
     Default,
+    OptionalSome {
+        name: String,
+        local_id: Option<LocalId>,
+        span: Span,
+    },
+    OptionalNull {
+        span: Span,
+    },
+    ErrorOk {
+        name: String,
+        local_id: Option<LocalId>,
+        span: Span,
+    },
+    ErrorErr {
+        name: String,
+        local_id: Option<LocalId>,
+        span: Span,
+    },
     Expr(ComptimeExpr),
     Range {
         start: ComptimeExpr,
@@ -113,6 +131,7 @@ pub enum ComptimeExprKind {
     Integer(String),
     String(StringLiteral),
     Bool(bool),
+    Null,
     Ident {
         name: String,
         resolution: Option<ComptimeNameResolution>,
@@ -138,6 +157,15 @@ pub enum ComptimeExprKind {
     },
     Unary {
         op: UnaryOp,
+        expr: Box<ComptimeExpr>,
+    },
+    OptionalSome {
+        expr: Box<ComptimeExpr>,
+    },
+    ErrorOk {
+        expr: Box<ComptimeExpr>,
+    },
+    ErrorErr {
         expr: Box<ComptimeExpr>,
     },
     Binary {
@@ -194,6 +222,7 @@ pub fn lower_expr_with_context(
         nia_ast::ExprKind::Integer(text) => ComptimeExprKind::Integer(text.clone()),
         nia_ast::ExprKind::String(literal) => ComptimeExprKind::String(literal.clone()),
         nia_ast::ExprKind::Bool(value) => ComptimeExprKind::Bool(*value),
+        nia_ast::ExprKind::Null => ComptimeExprKind::Null,
         nia_ast::ExprKind::Ident(name) => ComptimeExprKind::Ident {
             name: name.clone(),
             resolution: resolve_name(context, expr.span),
@@ -226,6 +255,15 @@ pub fn lower_expr_with_context(
         },
         nia_ast::ExprKind::Unary { op, expr } => ComptimeExprKind::Unary {
             op: *op,
+            expr: Box::new(lower_expr_with_context(expr, context)?),
+        },
+        nia_ast::ExprKind::OptionalSome { expr } => ComptimeExprKind::OptionalSome {
+            expr: Box::new(lower_expr_with_context(expr, context)?),
+        },
+        nia_ast::ExprKind::ErrorOk { expr } => ComptimeExprKind::ErrorOk {
+            expr: Box::new(lower_expr_with_context(expr, context)?),
+        },
+        nia_ast::ExprKind::ErrorErr { expr } => ComptimeExprKind::ErrorErr {
             expr: Box::new(lower_expr_with_context(expr, context)?),
         },
         nia_ast::ExprKind::Binary { lhs, op, rhs } => ComptimeExprKind::Binary {
@@ -433,6 +471,26 @@ fn lower_switch_pattern_with_context(
 ) -> Result<ComptimeSwitchPattern, ComptimeLowerError> {
     match pattern {
         nia_ast::SwitchPattern::Default => Ok(ComptimeSwitchPattern::Default),
+        nia_ast::SwitchPattern::OptionalSome { name, span } => {
+            Ok(ComptimeSwitchPattern::OptionalSome {
+                name: name.clone(),
+                local_id: context.local_id.and_then(|local_id| local_id(*span)),
+                span: *span,
+            })
+        }
+        nia_ast::SwitchPattern::OptionalNull { span } => {
+            Ok(ComptimeSwitchPattern::OptionalNull { span: *span })
+        }
+        nia_ast::SwitchPattern::ErrorOk { name, span } => Ok(ComptimeSwitchPattern::ErrorOk {
+            name: name.clone(),
+            local_id: context.local_id.and_then(|local_id| local_id(*span)),
+            span: *span,
+        }),
+        nia_ast::SwitchPattern::ErrorErr { name, span } => Ok(ComptimeSwitchPattern::ErrorErr {
+            name: name.clone(),
+            local_id: context.local_id.and_then(|local_id| local_id(*span)),
+            span: *span,
+        }),
         nia_ast::SwitchPattern::Expr(expr) => {
             lower_expr_with_context(expr, context).map(ComptimeSwitchPattern::Expr)
         }
@@ -446,14 +504,6 @@ fn lower_switch_pattern_with_context(
             end: lower_expr_with_context(end, context)?,
             inclusive: *inclusive,
             span: *span,
-        }),
-        nia_ast::SwitchPattern::OptionalSome { span, .. }
-        | nia_ast::SwitchPattern::OptionalNull { span }
-        | nia_ast::SwitchPattern::ErrorOk { span, .. }
-        | nia_ast::SwitchPattern::ErrorErr { span, .. } => Err(ComptimeLowerError {
-            span: *span,
-            message: "comptime switch payload patterns require comptime optional/error values"
-                .to_string(),
         }),
     }
 }

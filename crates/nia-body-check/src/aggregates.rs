@@ -789,6 +789,22 @@ impl ComptimeEnv for BodyChecker<'_> {
         };
         self.bind_comptime_call_local_value(span, local_id, &binding.name, value)
     }
+
+    fn bind_switch_pattern_local(
+        &mut self,
+        span: Span,
+        name: &str,
+        local_id: Option<LocalId>,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let Some(local_id) = local_id.or_else(|| self.locals.local_defs.get(&span).copied()) else {
+            return Err(ComptimeError {
+                span,
+                message: "failed to bind comptime switch pattern local".to_string(),
+            });
+        };
+        self.bind_comptime_call_local_value(span, local_id, name, value)
+    }
 }
 
 impl<'a> BodyChecker<'a> {
