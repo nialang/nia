@@ -2709,12 +2709,14 @@ impl Analyzer<'_> {
         target_ty: Option<InternedTyId>,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeArmType> {
+        let target_ty = target_ty?;
+        self.check_comptime_switch_patterns(&arm.patterns, target_ty)?;
         if !self.comptime_switch_arm_binds_pattern_locals(arm) {
             return self.comptime_switch_arm_body_type(&arm.body, expected);
         }
         self.push_typed_comptime_scope();
         let result = (|| {
-            self.bind_typed_comptime_switch_patterns(&arm.patterns, target_ty?)?;
+            self.bind_typed_comptime_switch_patterns(&arm.patterns, target_ty)?;
             self.comptime_switch_arm_body_type(&arm.body, expected)
         })();
         self.pop_typed_comptime_scope();
@@ -2730,6 +2732,51 @@ impl Analyzer<'_> {
                     | ComptimeSwitchPattern::ErrorErr { .. }
             )
         })
+    }
+
+    fn check_comptime_switch_patterns(
+        &mut self,
+        patterns: &[ComptimeSwitchPattern],
+        target_ty: InternedTyId,
+    ) -> Option<()> {
+        for pattern in patterns {
+            match pattern {
+                ComptimeSwitchPattern::Default => {}
+                ComptimeSwitchPattern::Expr(expr) => {
+                    let target_ty = ComptimeValueType::Runtime(target_ty);
+                    let pattern_ty = self
+                        .comptime_expr_type(expr, Some(target_ty.runtime()?))
+                        .or_else(|| self.comptime_expr_type(expr, None))?;
+                    if pattern_ty != target_ty
+                        && !self.comptime_equality_types_are_compatible(&target_ty, &pattern_ty)
+                    {
+                        return None;
+                    }
+                }
+                ComptimeSwitchPattern::Range { start, end, .. } => {
+                    if !self.is_integer_runtime_type(target_ty) {
+                        return None;
+                    }
+                    let start_ty = self.comptime_arg_runtime_type(start, Some(target_ty))?;
+                    let end_ty = self.comptime_arg_runtime_type(end, Some(target_ty))?;
+                    if start_ty != target_ty || end_ty != target_ty {
+                        return None;
+                    }
+                }
+                ComptimeSwitchPattern::OptionalSome { .. }
+                | ComptimeSwitchPattern::OptionalNull { .. } => {
+                    if !matches!(self.ty_kind(target_ty), Some(TyKind::Optional { .. })) {
+                        return None;
+                    }
+                }
+                ComptimeSwitchPattern::ErrorOk { .. } | ComptimeSwitchPattern::ErrorErr { .. } => {
+                    if !matches!(self.ty_kind(target_ty), Some(TyKind::ErrorUnion { .. })) {
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(())
     }
 
     fn bind_typed_comptime_switch_patterns(

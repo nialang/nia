@@ -1701,6 +1701,62 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_rejects_mismatched_switch_pattern() {
+    let root = temp_dir("generic_comptime_function_rejects_mismatched_switch_pattern");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(switch 2usize {
+    true => 4usize,
+    _ => 1usize,
+});
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("switch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn generic_comptime_function_rejects_non_integer_switch_range_pattern() {
+    let root = temp_dir("generic_comptime_function_rejects_non_integer_switch_range_pattern");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(switch true {
+    0usize..2usize => 4usize,
+    _ => 1usize,
+});
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("switch")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_switch_optional_payload() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_switch_optional_payload");
     write(
