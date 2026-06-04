@@ -845,7 +845,9 @@ monomorphization, and backend phases. `BodyFacts` carries semantic side facts;
 Facts derived from comptime execution during body checking, such as array repeat
 counts and switch pattern values, are recorded here so later lowering can
 consume checked facts instead of re-running expression evaluation from source
-shape.
+shape. If body IR lowering needs one of these facts and it is absent, that is a
+missing checked-fact boundary error and should be reported as recovery rather
+than repaired by evaluating another comptime expression.
 
 ### 9.4 `nia-function-ir`
 
