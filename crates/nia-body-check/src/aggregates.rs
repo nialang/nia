@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
-use nia_ast::{Expr, ExprKind, TypeRef};
+use nia_ast::{Expr, ExprKind, ItemKind, TypeRef};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -625,6 +625,11 @@ impl<'a> BodyChecker<'a> {
 
 impl ComptimeEnv for BodyChecker<'_> {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
+        if let Some(local_id) = self.local_use(span)
+            && let Some(value) = self.comptime_call_local_value(local_id)
+        {
+            return Ok(value);
+        }
         if let Some(local_id) = self.local_comptime_use(span) {
             return self
                 .comptime
@@ -672,12 +677,68 @@ impl ComptimeEnv for BodyChecker<'_> {
         };
         Ok(ComptimeValue::Int(value as i128))
     }
+
+    fn call_function(
+        &mut self,
+        span: Span,
+        callee: &Expr,
+        args: Vec<ComptimeValue>,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let Some((function_span, function)) = self.comptime_function(callee) else {
+            return Err(ComptimeError {
+                span,
+                message: "comptime expression can only call same-module `comptime fn`".to_string(),
+            });
+        };
+        nia_comptime_engine::eval_function_call(span, function_span, &function, args, self)
+    }
+
+    fn push_function_frame(&mut self, _span: Span) -> Result<(), ComptimeError> {
+        self.comptime_call_locals.push(HashMap::new());
+        Ok(())
+    }
+
+    fn pop_function_frame(&mut self) {
+        self.comptime_call_locals.pop();
+    }
+
+    fn bind_function_param(
+        &mut self,
+        span: Span,
+        param: &nia_ast::Param,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let Some(local_id) = self.locals.local_defs.get(&param.span).copied() else {
+            return Err(ComptimeError {
+                span,
+                message: "failed to bind comptime function parameter".to_string(),
+            });
+        };
+        self.bind_comptime_call_local_value(span, local_id, value)
+    }
+
+    fn bind_function_local(
+        &mut self,
+        span: Span,
+        _binding: &nia_ast::BindingStmt,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let Some(local_id) = self.locals.local_defs.get(&span).copied() else {
+            return Err(ComptimeError {
+                span,
+                message: "failed to bind comptime function local".to_string(),
+            });
+        };
+        self.bind_comptime_call_local_value(span, local_id, value)
+    }
 }
 
 impl<'a> BodyChecker<'a> {
     fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {
-        self.check_expr(count);
-        nia_comptime_engine::eval_array_len_expr(count, self)
+        self.with_comptime_context(|this| {
+            this.check_expr(count);
+            nia_comptime_engine::eval_array_len_expr(count, this)
+        })
     }
 
     pub(crate) fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
@@ -686,6 +747,36 @@ impl<'a> BodyChecker<'a> {
         };
         let local = self.locals.locals.get(*local_id)?;
         (local.kind == nia_local_resolve::LocalKind::ComptimeBinding).then_some(*local_id)
+    }
+
+    fn local_use(&self, span: Span) -> Option<LocalId> {
+        let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.locals.uses.get(&span) else {
+            return None;
+        };
+        Some(*local_id)
+    }
+
+    fn comptime_call_local_value(&self, local_id: LocalId) -> Option<ComptimeValue> {
+        self.comptime_call_locals
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(&local_id).cloned())
+    }
+
+    fn bind_comptime_call_local_value(
+        &mut self,
+        span: Span,
+        local_id: LocalId,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let Some(frame) = self.comptime_call_locals.last_mut() else {
+            return Err(ComptimeError {
+                span,
+                message: "internal comptime function frame is missing".to_string(),
+            });
+        };
+        frame.insert(local_id, value);
+        Ok(())
     }
 
     pub(crate) fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
@@ -708,6 +799,28 @@ impl<'a> BodyChecker<'a> {
         self.defs_for_module(global_id.module_id)
             .and_then(|defs| defs.defs.get(global_id.def_id))
             .map(|def| def.kind)
+    }
+
+    fn comptime_function(&self, callee: &Expr) -> Option<(Span, nia_ast::FunctionItem)> {
+        let ExprKind::Ident(_) = &callee.kind else {
+            return None;
+        };
+        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
+            self.values.names.get(&callee.span)
+        else {
+            return None;
+        };
+        let def = self.defs.defs.get(*def_id)?;
+        if def.kind != DefKind::Function {
+            return None;
+        }
+        self.module.items.iter().find_map(|item| {
+            let ItemKind::Function(function) = &item.kind else {
+                return None;
+            };
+            let item_def_id = self.defs.def_spans.get(item.span)?;
+            (item_def_id == *def_id).then(|| (item.span, function.clone()))
+        })
     }
 }
 

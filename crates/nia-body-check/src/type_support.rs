@@ -727,10 +727,13 @@ impl<'a> BodyChecker<'a> {
             local_types: HashMap::new(),
             global_types: HashMap::new(),
             comptime_types: HashMap::new(),
+            comptime_if_selections: HashMap::new(),
             diagnostics: Vec::new(),
             current_return: self.current_return,
             current_def_id: self.current_def_id,
             current_param_locals: self.current_param_locals.clone(),
+            comptime_context_depth: self.comptime_context_depth,
+            comptime_call_locals: Vec::new(),
         }
     }
 

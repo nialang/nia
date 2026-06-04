@@ -6,12 +6,13 @@ use nia_ast::{
     ArrayLen, AssocBindingKey, FunctionItem, Item, ItemKind, Module, TypeArg, TypeKind,
     TypePathSegment, TypeRef,
 };
-use nia_ast_walk::{Visitor, walk_function, walk_item, walk_module};
+use nia_ast_walk::{Visitor, walk_function, walk_item};
 use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ImportAliasMap;
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_span::Span;
 use nia_ty::BuiltinTrait;
 
@@ -66,7 +67,8 @@ impl<'a> ProgramDefsContext<'a> {
 }
 
 pub fn resolve_module_types(module: &Module, defs: &DefCollection) -> TypeResolution {
-    resolve_module_types_inner(module, defs, None, ProgramDefsContext::empty(), None, None)
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_types_from_item_tree(&item_tree, defs)
 }
 
 pub fn resolve_module_types_with_imports(
@@ -75,7 +77,15 @@ pub fn resolve_module_types_with_imports(
     imports: &ImportAliasMap,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeResolution {
-    resolve_module_types_inner(module, defs, Some(imports), program_defs, None, None)
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_types_from_item_tree_inner(
+        &item_tree,
+        defs,
+        Some(imports),
+        program_defs,
+        None,
+        None,
+    )
 }
 
 pub fn resolve_module_types_with_context(
@@ -86,8 +96,9 @@ pub fn resolve_module_types_with_context(
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
 ) -> TypeResolution {
-    resolve_module_types_inner(
-        module,
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_types_from_item_tree_inner(
+        &item_tree,
         defs,
         Some(imports),
         program_defs,
@@ -96,8 +107,58 @@ pub fn resolve_module_types_with_context(
     )
 }
 
-fn resolve_module_types_inner(
-    module: &Module,
+pub fn resolve_module_types_from_item_tree(
+    item_tree: &ModuleItemTree,
+    defs: &DefCollection,
+) -> TypeResolution {
+    resolve_module_types_from_item_tree_inner(
+        item_tree,
+        defs,
+        None,
+        ProgramDefsContext::empty(),
+        None,
+        None,
+    )
+}
+
+pub fn resolve_module_types_from_active_item_tree(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    imports: &ImportAliasMap,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+) -> TypeResolution {
+    resolve_module_types_from_items(
+        &item_tree.items,
+        defs,
+        Some(imports),
+        program_defs,
+        Some(public_surfaces),
+        Some(using_scope),
+    )
+}
+
+fn resolve_module_types_from_item_tree_inner(
+    item_tree: &ModuleItemTree,
+    defs: &DefCollection,
+    imports: Option<&ImportAliasMap>,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: Option<&PublicSurfaces>,
+    using_scope: Option<&ModuleUsingScope>,
+) -> TypeResolution {
+    resolve_module_types_from_items(
+        &item_tree.items,
+        defs,
+        imports,
+        program_defs,
+        public_surfaces,
+        using_scope,
+    )
+}
+
+fn resolve_module_types_from_items(
+    items: &[ItemTreeNode],
     defs: &DefCollection,
     imports: Option<&ImportAliasMap>,
     program_defs: ProgramDefsContext<'_>,
@@ -117,7 +178,9 @@ fn resolve_module_types_inner(
         self_type_stack: Vec::new(),
         suppress_unknown_type_errors: false,
     };
-    walk_module(&mut resolver, module);
+    for item in items {
+        resolver.visit_item_tree_node(item);
+    }
     TypeResolution {
         type_names: resolver.type_names,
         qualified_type_names: resolver.qualified_type_names,
@@ -253,6 +316,96 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                 self.visit_type(value);
             }
             TypeKind::Path { segments } => self.resolve_type_path(ty.span, segments),
+        }
+    }
+}
+
+impl TypeResolver<'_> {
+    fn visit_item_tree_node(&mut self, item: &ItemTreeNode) {
+        match &item.kind {
+            ItemTreeNodeKind::Struct(item_struct) => {
+                self.with_generics(&item_struct.generics, |resolver| {
+                    resolver.visit_where_clause(&item_struct.where_clause);
+                    for field in &item_struct.fields {
+                        resolver.visit_type(&field.ty);
+                    }
+                });
+            }
+            ItemTreeNodeKind::Union(item_union) => {
+                self.with_generics(&item_union.generics, |resolver| {
+                    resolver.visit_where_clause(&item_union.where_clause);
+                    for field in &item_union.fields {
+                        resolver.visit_type(&field.ty);
+                    }
+                });
+            }
+            ItemTreeNodeKind::Trait(item_trait) => {
+                self.with_generics(&item_trait.generics, |resolver| {
+                    resolver.with_self_type(item.span, |resolver| {
+                        for supertrait in &item_trait.supertraits {
+                            resolver.visit_type(supertrait);
+                        }
+                        resolver.visit_where_clause(&item_trait.where_clause);
+                        for method in &item_trait.methods {
+                            resolver.visit_function(&method.function);
+                        }
+                    });
+                });
+            }
+            ItemTreeNodeKind::Extend(extend) => {
+                self.with_generics(&extend.generics, |resolver| {
+                    resolver.with_self_type(extend.target.span, |resolver| {
+                        resolver.visit_type(&extend.target);
+                        if let Some(trait_ref) = &extend.trait_ref {
+                            resolver.visit_type(trait_ref);
+                        }
+                        resolver.visit_where_clause(&extend.where_clause);
+                        for associated_type in &extend.associated_types {
+                            resolver.visit_type(&associated_type.ty);
+                        }
+                        for method in &extend.methods {
+                            resolver.visit_function(&method.function);
+                        }
+                    });
+                });
+            }
+            ItemTreeNodeKind::TypeAlias(alias) => {
+                self.with_generics(&alias.generics, |resolver| {
+                    resolver.visit_where_clause(&alias.where_clause);
+                    resolver.visit_type(&alias.ty);
+                });
+            }
+            ItemTreeNodeKind::Enum(item_enum) => {
+                if let Some(backing_type) = &item_enum.backing_type {
+                    self.visit_type(backing_type);
+                }
+                for variant in &item_enum.variants {
+                    if let Some(value) = &variant.value {
+                        self.visit_expr(value);
+                    }
+                }
+            }
+            ItemTreeNodeKind::Binding(binding) => {
+                if let Some(ty) = &binding.ty {
+                    self.visit_type(ty);
+                }
+                if let Some(value) = &binding.value {
+                    self.visit_expr(value);
+                }
+            }
+            ItemTreeNodeKind::Function(function) => self.visit_function(function),
+            ItemTreeNodeKind::Import(_)
+            | ItemTreeNodeKind::Using(_)
+            | ItemTreeNodeKind::ComptimeIf(_) => {}
+        }
+    }
+
+    fn visit_where_clause(&mut self, clause: &nia_ast::WhereClause) {
+        for predicate in &clause.predicates {
+            self.visit_type(&predicate.ty);
+            for bound in &predicate.bounds {
+                self.visit_type(bound);
+            }
         }
     }
 }
@@ -581,7 +734,8 @@ fn primitive_type(name: &str) -> Option<PrimitiveType> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs};
+    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
 
     #[test]
@@ -669,5 +823,59 @@ fn main() Missing::Type {
                 .contains("unknown namespace `Missing`")
         );
         assert_ne!(resolved.diagnostics[0].span, Span::default());
+    }
+
+    #[test]
+    fn resolves_types_from_active_item_tree_only() {
+        let (module, errors) = parse_module(
+            r#"
+comptime if false {
+    fn skipped(value: MissingType) void {}
+} else {
+    fn selected(value: i32) void {}
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = ModuleItemTree::from_module(&module);
+        let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        let resolved = resolve_module_types_from_active_item_tree(
+            &active,
+            &defs,
+            &nia_imports::ImportAliasMap::default(),
+            ProgramDefsContext::empty(),
+            &nia_defs::PublicSurfaces::default(),
+            &nia_defs::ModuleUsingScope::default(),
+        );
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        assert!(
+            resolved
+                .type_names
+                .values()
+                .any(|resolution| matches!(resolution, TypeNameResolution::Primitive(_)))
+        );
+    }
+
+    struct BoolResolver(bool);
+
+    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
+        fn resolve_comptime_if(
+            &mut self,
+            span: Span,
+            _cond: &nia_ast::Expr,
+        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
+            let _ = span;
+            Ok(if self.0 {
+                nia_item_tree::ComptimeBranch::Then
+            } else {
+                nia_item_tree::ComptimeBranch::Else
+            })
+        }
     }
 }

@@ -163,7 +163,7 @@ fn main() i32 {
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 
-    let counts = checked.ir.bracket_suffix_resolutions.values().fold(
+    let counts = checked.facts.bracket_suffix_resolutions.values().fold(
         (0usize, 0usize, 0usize),
         |(indexes, generic_calls, type_prefixes), resolution| match resolution {
             BracketSuffixResolution::Index => (indexes + 1, generic_calls, type_prefixes),

@@ -379,7 +379,7 @@ impl<'a> ModuleLowerer<'a> {
             generic_instantiations: self
                 .input
                 .body_check
-                .ir
+                .facts
                 .generic_instantiations
                 .iter()
                 .map(|inst| nia_backend_ir::BackendGenericInstantiation {
@@ -428,7 +428,12 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
-        self.input.body_check.ir.expr_types.get(&expr.span).copied()
+        self.input
+            .body_check
+            .facts
+            .expr_types
+            .get(&expr.span)
+            .copied()
     }
 
     fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {

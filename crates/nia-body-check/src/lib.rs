@@ -19,8 +19,9 @@ use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, SliceRange, Stmt, StmtKind,
 };
 use nia_body_ir::{
-    ArrayToSliceCoercion, BodyIr, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
-    FunctionReference, GenericInstantiation, ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
+    ArrayToSliceCoercion, BodyFacts, BodyIr, BracketSuffixResolution, BuiltinValue,
+    CStringPointerCoercion, ComptimeIfSelection, FunctionReference, GenericInstantiation,
+    ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
@@ -45,6 +46,7 @@ use nia_value_resolve::ValueResolution;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyCheck {
     pub ir: BodyIr,
+    pub facts: BodyFacts,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -274,10 +276,13 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         comptime_types: HashMap::new(),
+        comptime_if_selections: HashMap::new(),
         diagnostics: Vec::new(),
         current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
         current_def_id: None,
         current_param_locals: Vec::new(),
+        comptime_context_depth: 0,
+        comptime_call_locals: Vec::new(),
     };
     checker.seed_global_types();
     checker.check_module(input.module);
@@ -286,6 +291,8 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             interner: checker.interner,
             function_bodies: checker.function_bodies,
             global_inits: checker.global_inits,
+        },
+        facts: BodyFacts {
             expr_types: checker.expr_types,
             bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
             array_to_slice_coercions: checker.array_to_slice_coercions,
@@ -293,6 +300,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             trait_object_coercions: checker.trait_object_coercions,
             trait_object_upcasts: checker.trait_object_upcasts,
             local_types: checker.local_types,
+            comptime_if_selections: checker.comptime_if_selections,
             builtin_values: checker.builtin_values,
             resolved_calls: checker.resolved_calls,
             function_references: checker.function_references,
@@ -359,10 +367,13 @@ struct BodyChecker<'a> {
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
+    comptime_if_selections: HashMap<Span, ComptimeIfSelection>,
     diagnostics: Vec<Diagnostic>,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
     current_param_locals: Vec<LocalId>,
+    comptime_context_depth: usize,
+    comptime_call_locals: Vec<HashMap<LocalId, nia_comptime_check::ComptimeValue>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -446,6 +457,17 @@ impl<'a> BodyChecker<'a> {
             self.source_version
                 .map(|version| NodeKey::span(version, kind, span))
         })
+    }
+
+    fn with_comptime_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        self.comptime_context_depth += 1;
+        let result = f(self);
+        self.comptime_context_depth -= 1;
+        result
+    }
+
+    fn in_comptime_context(&self) -> bool {
+        self.comptime_context_depth > 0
     }
 
     fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
@@ -539,7 +561,9 @@ impl<'a> BodyChecker<'a> {
         let comptime_ty = match binding.ty.as_ref() {
             Some(ty) => {
                 let explicit = self.ty_for_span(ty.span);
-                let value_ty = self.check_expr_with_expected(value, Some(explicit));
+                let value_ty = self.with_comptime_context(|this| {
+                    this.check_expr_with_expected(value, Some(explicit))
+                });
                 if !self.is_comptime_only_ty(value_ty) {
                     self.expect_expr_type(value, explicit, value_ty, "comptime initializer");
                 }
@@ -548,9 +572,9 @@ impl<'a> BodyChecker<'a> {
             }
             None => {
                 if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
-                    self.infer_array_literal_expr(value)
+                    self.with_comptime_context(|this| this.infer_array_literal_expr(value))
                 } else {
-                    self.check_expr(value)
+                    self.with_comptime_context(|this| this.check_expr(value))
                 }
             }
         };
@@ -643,6 +667,12 @@ impl<'a> BodyChecker<'a> {
         let self_ty = self.method_self_type(def_id, signature);
         self.check_object_safe_types_in_signature(signature);
         self.seed_param_types(signature, function, self_ty);
+        if signature.is_comptime {
+            self.current_return = previous_return;
+            self.current_def_id = previous_def_id;
+            self.current_param_locals = previous_param_locals;
+            return;
+        }
         if let Some(body) = &function.body {
             let expected_tail =
                 (!self.is_void(signature.return_type)).then_some(signature.return_type);
@@ -897,7 +927,13 @@ impl<'a> BodyChecker<'a> {
         let binding_ty = match (&binding.ty, &binding.value) {
             (Some(ty), Some(value)) => {
                 let explicit = self.ty_for_span(ty.span);
-                let value_ty = self.check_expr_with_expected(value, Some(explicit));
+                let value_ty = if binding.is_comptime {
+                    self.with_comptime_context(|this| {
+                        this.check_expr_with_expected(value, Some(explicit))
+                    })
+                } else {
+                    self.check_expr_with_expected(value, Some(explicit))
+                };
                 if binding.is_comptime && self.is_comptime_only_ty(value_ty) {
                     // The initializer is validated by nia-comptime-check and has no runtime value.
                 } else if self.is_comptime_only_ty(value_ty) {
@@ -912,9 +948,17 @@ impl<'a> BodyChecker<'a> {
             (Some(ty), None) => self.ty_for_span(ty.span),
             (None, Some(value)) => {
                 let value_ty = if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
-                    self.infer_array_literal_expr(value)
+                    if binding.is_comptime {
+                        self.with_comptime_context(|this| this.infer_array_literal_expr(value))
+                    } else {
+                        self.infer_array_literal_expr(value)
+                    }
                 } else {
-                    self.check_expr(value)
+                    if binding.is_comptime {
+                        self.with_comptime_context(|this| this.check_expr(value))
+                    } else {
+                        self.check_expr(value)
+                    }
                 };
                 if !binding.is_comptime && self.is_comptime_only_ty(value_ty) {
                     self.reject_runtime_comptime_only_value(value.span, "binding initializer");
@@ -1357,7 +1401,10 @@ impl<'a> BodyChecker<'a> {
         if let ExprKind::Bool(value) = expr.kind {
             return Some(if value { 1 } else { 0 });
         }
-        match nia_comptime_engine::eval_expr(expr, self).ok()? {
+        match self
+            .with_comptime_context(|this| nia_comptime_engine::eval_expr(expr, this))
+            .ok()?
+        {
             nia_comptime_engine::ComptimeValue::Int(value) => Some(value),
             _ => None,
         }

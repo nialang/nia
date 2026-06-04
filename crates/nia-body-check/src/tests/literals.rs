@@ -105,43 +105,43 @@ fn main() i32 {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
         checked
-            .ir
+            .facts
             .local_types
             .values()
             .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::I32))),
         "{:?}",
-        checked.ir.local_types
+        checked.facts.local_types
     );
     assert!(
         checked
-            .ir
+            .facts
             .local_types
             .values()
             .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F64))),
         "{:?}",
-        checked.ir.local_types
+        checked.facts.local_types
     );
     assert!(
         checked
-            .ir
+            .facts
             .local_types
             .values()
             .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::U8))),
         "{:?}",
-        checked.ir.local_types
+        checked.facts.local_types
     );
     assert!(
         checked
-            .ir
+            .facts
             .local_types
             .values()
             .any(|ty| checked.ir.interner.get(*ty)
                 == Some(&nia_ty::TyKind::Primitive(nia_ty::PrimitiveTy::F32))),
         "{:?}",
-        checked.ir.local_types
+        checked.facts.local_types
     );
 }
 

@@ -2,12 +2,13 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    BindingItem, EnumItem, ExtendItem, FunctionItem, ItemKind, Module, Param, ReceiverKind,
-    StructItem, TraitItem, TypeAliasItem, UnionItem, WhereClause,
+    BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param, ReceiverKind, StructItem,
+    TraitItem, TypeAliasItem, UnionItem, WhereClause,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_span::Span;
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
@@ -96,6 +97,7 @@ pub struct FunctionSignature {
     pub params: Vec<ParamSignature>,
     pub return_type: InternedTyId,
     pub is_extern: bool,
+    pub is_comptime: bool,
     pub is_variadic: bool,
     pub has_body: bool,
     pub span: Span,
@@ -246,6 +248,31 @@ pub fn collect_item_signatures(
     defs: &DefCollection,
     lowered: &TypeLowering,
 ) -> ItemSignatures {
+    let item_tree = ModuleItemTree::from_module(module);
+    collect_item_signatures_from_item_tree(&item_tree, defs, lowered)
+}
+
+pub fn collect_item_signatures_from_item_tree(
+    item_tree: &ModuleItemTree,
+    defs: &DefCollection,
+    lowered: &TypeLowering,
+) -> ItemSignatures {
+    collect_item_signatures_from_items(&item_tree.items, defs, lowered)
+}
+
+pub fn collect_item_signatures_from_active_item_tree(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    lowered: &TypeLowering,
+) -> ItemSignatures {
+    collect_item_signatures_from_items(&item_tree.items, defs, lowered)
+}
+
+fn collect_item_signatures_from_items(
+    items: &[ItemTreeNode],
+    defs: &DefCollection,
+    lowered: &TypeLowering,
+) -> ItemSignatures {
     let mut collector = SignatureCollector {
         defs,
         lowered,
@@ -263,7 +290,7 @@ pub fn collect_item_signatures(
         comptimes: HashMap::new(),
         diagnostics: Vec::new(),
     };
-    for item in &module.items {
+    for item in items {
         collector.collect_item_into(&mut signatures, item);
     }
     signatures.diagnostics = collector.diagnostics;
@@ -277,31 +304,33 @@ struct SignatureCollector<'a> {
 }
 
 impl<'a> SignatureCollector<'a> {
-    fn collect_item_into(&mut self, signatures: &mut ItemSignatures, item: &nia_ast::Item) {
+    fn collect_item_into(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
         match &item.kind {
-            ItemKind::Import(_) | ItemKind::Using(_) | ItemKind::ComptimeIf(_) => {}
-            ItemKind::Struct(item_struct) => {
+            ItemTreeNodeKind::Import(_)
+            | ItemTreeNodeKind::Using(_)
+            | ItemTreeNodeKind::ComptimeIf(_) => {}
+            ItemTreeNodeKind::Struct(item_struct) => {
                 self.collect_struct(signatures, item.span, item_struct);
             }
-            ItemKind::Union(item_union) => {
+            ItemTreeNodeKind::Union(item_union) => {
                 self.collect_union(signatures, item.span, item_union);
             }
-            ItemKind::Trait(item_trait) => {
+            ItemTreeNodeKind::Trait(item_trait) => {
                 self.collect_trait(signatures, item.span, item_trait);
             }
-            ItemKind::Extend(extend) => {
+            ItemTreeNodeKind::Extend(extend) => {
                 self.collect_extend(signatures, extend);
             }
-            ItemKind::Enum(item_enum) => {
+            ItemTreeNodeKind::Enum(item_enum) => {
                 self.collect_enum(signatures, item.span, item_enum);
             }
-            ItemKind::TypeAlias(alias) => {
+            ItemTreeNodeKind::TypeAlias(alias) => {
                 self.collect_type_alias(signatures, item.span, alias);
             }
-            ItemKind::Function(function) => {
+            ItemTreeNodeKind::Function(function) => {
                 self.collect_function(signatures, item.span, function);
             }
-            ItemKind::Binding(binding) => {
+            ItemTreeNodeKind::Binding(binding) => {
                 if binding.is_comptime {
                     self.collect_comptime(signatures, item.span, binding);
                 } else {
@@ -583,6 +612,7 @@ impl<'a> SignatureCollector<'a> {
             params,
             return_type,
             is_extern: function.is_extern,
+            is_comptime: function.is_comptime,
             is_variadic: function.is_variadic,
             has_body: function.body.is_some(),
             span: function.span,
@@ -714,7 +744,8 @@ impl<'a> SignatureCollector<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs};
+    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
     use nia_type_lower::lower_module_types;
     use nia_type_resolve::resolve_module_types;
@@ -776,5 +807,63 @@ fn add(a: i32, b: i32) i32 {
                 .values()
                 .any(|signature| signature.is_variadic)
         );
+    }
+
+    #[test]
+    fn collects_item_signatures_from_active_item_tree_only() {
+        let (module, errors) = parse_module(
+            r#"
+comptime if false {
+    fn skipped() i32 { 0 }
+} else {
+    fn selected() i32 { 1 }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = ModuleItemTree::from_module(&module);
+        let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+        let active_module = active.to_module();
+        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        let resolved = resolve_module_types(&active_module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let lowered = lower_module_types(&active_module, &resolved);
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+
+        let signatures = collect_item_signatures_from_active_item_tree(&active, &defs, &lowered);
+        assert!(
+            signatures.diagnostics.is_empty(),
+            "{:?}",
+            signatures.diagnostics
+        );
+        assert_eq!(signatures.functions.len(), 1);
+        assert!(
+            signatures
+                .functions
+                .values()
+                .any(|signature| signature.span == active.items[0].span)
+        );
+    }
+
+    struct BoolResolver(bool);
+
+    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
+        fn resolve_comptime_if(
+            &mut self,
+            span: Span,
+            _cond: &nia_ast::Expr,
+        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
+            let _ = span;
+            Ok(if self.0 {
+                nia_item_tree::ComptimeBranch::Then
+            } else {
+                nia_item_tree::ComptimeBranch::Else
+            })
+        }
     }
 }

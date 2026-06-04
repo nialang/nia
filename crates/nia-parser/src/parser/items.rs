@@ -28,7 +28,7 @@ impl Parser {
             } else if self.at(TokenKind::Union) {
                 ItemKind::Union(self.parse_union(true)?)
             } else if self.at(TokenKind::Fn) {
-                ItemKind::Function(self.parse_function(true)?)
+                ItemKind::Function(self.parse_function(true, false)?)
             } else if self.at(TokenKind::Let) || self.at(TokenKind::Var) {
                 ItemKind::Binding(self.parse_binding(true)?)
             } else {
@@ -47,8 +47,8 @@ impl Parser {
             ItemKind::Enum(self.parse_enum()?)
         } else if self.at(TokenKind::Type) {
             ItemKind::TypeAlias(self.parse_type_alias()?)
-        } else if self.at(TokenKind::Fn) {
-            ItemKind::Function(self.parse_function(false)?)
+        } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
+            ItemKind::Function(self.parse_function(false, self.at_comptime_fn())?)
         } else if self.at_comptime_if() {
             if let Some(span) = pub_span {
                 self.error_at(span, "`pub` cannot be applied to `comptime if`");
@@ -407,8 +407,8 @@ impl Parser {
                 if let Some(associated_type) = self.parse_trait_associated_type() {
                     associated_types.push(associated_type);
                 }
-            } else if self.at(TokenKind::Fn) {
-                if let Some(function) = self.parse_function(false) {
+            } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
+                if let Some(function) = self.parse_function(false, self.at_comptime_fn()) {
                     methods.push(TraitMethod { function });
                 }
             } else {
@@ -491,8 +491,8 @@ impl Parser {
                 if let Some(associated_type) = self.parse_extend_associated_type() {
                     associated_types.push(associated_type);
                 }
-            } else if self.at(TokenKind::Fn) {
-                if let Some(function) = self.parse_function(false) {
+            } else if self.at(TokenKind::Fn) || self.at_comptime_fn() {
+                if let Some(function) = self.parse_function(false, self.at_comptime_fn()) {
                     methods.push(ExtendMethod { vis, function });
                 }
             } else {
@@ -622,8 +622,14 @@ impl Parser {
         })
     }
 
-    fn parse_function(&mut self, is_extern: bool) -> Option<FunctionItem> {
+    fn parse_function(&mut self, is_extern: bool, is_comptime: bool) -> Option<FunctionItem> {
         let start = self.peek().span.start;
+        if is_comptime {
+            self.expect(TokenKind::Comptime, "expected `comptime`")?;
+            if is_extern {
+                self.error_here("extern function cannot be `comptime`");
+            }
+        }
         self.expect(TokenKind::Fn, "expected `fn`")?;
         let name = self.expect_text(TokenKind::Ident, "expected function name")?;
         let generics = self.parse_generic_params();
@@ -660,6 +666,7 @@ impl Parser {
             return_type,
             body,
             is_extern,
+            is_comptime,
             is_variadic,
             span: Span::new(start, end),
         })

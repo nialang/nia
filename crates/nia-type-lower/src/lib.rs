@@ -5,10 +5,11 @@ use nia_ast::{
     ArrayLen, AssocBindingKey, Expr, ExprKind, FunctionItem, Item, ItemKind, Module, TypeArg,
     TypeKind, TypePathSegment, TypeRef, WhereClause,
 };
-use nia_ast_walk::{Visitor, walk_module};
+use nia_ast_walk::Visitor;
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_span::Span;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, RangeTyKind,
@@ -36,7 +37,8 @@ impl<'a> ProgramDefsContext<'a> {
 }
 
 pub fn lower_module_types(module: &Module, resolved: &TypeResolution) -> TypeLowering {
-    lower_module_types_with_id(ModuleId(0), module, resolved)
+    let item_tree = ModuleItemTree::from_module(module);
+    lower_module_types_from_item_tree(ModuleId(0), &item_tree, resolved)
 }
 
 pub fn lower_module_types_with_id(
@@ -44,12 +46,59 @@ pub fn lower_module_types_with_id(
     module: &Module,
     resolved: &TypeResolution,
 ) -> TypeLowering {
-    lower_module_types_with_defs(module_id, module, resolved, ProgramDefsContext::empty())
+    let item_tree = ModuleItemTree::from_module(module);
+    lower_module_types_from_item_tree_with_defs(
+        module_id,
+        &item_tree,
+        resolved,
+        ProgramDefsContext::empty(),
+    )
 }
 
 pub fn lower_module_types_with_defs(
     module_id: ModuleId,
     module: &Module,
+    resolved: &TypeResolution,
+    program_defs: ProgramDefsContext<'_>,
+) -> TypeLowering {
+    let item_tree = ModuleItemTree::from_module(module);
+    lower_module_types_from_item_tree_with_defs(module_id, &item_tree, resolved, program_defs)
+}
+
+pub fn lower_module_types_from_item_tree(
+    module_id: ModuleId,
+    item_tree: &ModuleItemTree,
+    resolved: &TypeResolution,
+) -> TypeLowering {
+    lower_module_types_from_item_tree_with_defs(
+        module_id,
+        item_tree,
+        resolved,
+        ProgramDefsContext::empty(),
+    )
+}
+
+pub fn lower_module_types_from_active_item_tree(
+    module_id: ModuleId,
+    item_tree: &ActiveModuleItemTree,
+    resolved: &TypeResolution,
+    program_defs: ProgramDefsContext<'_>,
+) -> TypeLowering {
+    lower_module_types_from_items(module_id, &item_tree.items, resolved, program_defs)
+}
+
+pub fn lower_module_types_from_item_tree_with_defs(
+    module_id: ModuleId,
+    item_tree: &ModuleItemTree,
+    resolved: &TypeResolution,
+    program_defs: ProgramDefsContext<'_>,
+) -> TypeLowering {
+    lower_module_types_from_items(module_id, &item_tree.items, resolved, program_defs)
+}
+
+fn lower_module_types_from_items(
+    module_id: ModuleId,
+    items: &[ItemTreeNode],
     resolved: &TypeResolution,
     program_defs: ProgramDefsContext<'_>,
 ) -> TypeLowering {
@@ -65,7 +114,9 @@ pub fn lower_module_types_with_defs(
         self_type_stack: Vec::new(),
         next_const_expr_id: 0,
     };
-    walk_module(&mut lowerer, module);
+    for item in items {
+        lowerer.visit_item_tree_node(item);
+    }
     TypeLowering {
         interner: lowerer.interner,
         type_uses: lowerer.type_uses,
@@ -245,6 +296,91 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                 }
             }
             _ => nia_ast_walk::walk_expr(self, expr),
+        }
+    }
+}
+
+impl TypeLowerer<'_> {
+    fn visit_item_tree_node(&mut self, item: &ItemTreeNode) {
+        match &item.kind {
+            ItemTreeNodeKind::Struct(item_struct) => {
+                self.with_generics(&item_struct.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_struct.where_clause);
+                    for field in &item_struct.fields {
+                        lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
+                    }
+                });
+            }
+            ItemTreeNodeKind::Union(item_union) => {
+                self.with_generics(&item_union.generics, |lowerer| {
+                    lowerer.lower_where_clause(&item_union.where_clause);
+                    for field in &item_union.fields {
+                        lowerer.lower_type_in_context(&field.ty, TypeContext::Value);
+                    }
+                });
+            }
+            ItemTreeNodeKind::Trait(item_trait) => {
+                self.with_generics(&item_trait.generics, |lowerer| {
+                    let self_ty = lowerer
+                        .interner
+                        .intern(TyKind::GenericParam("Self".to_string()));
+                    lowerer.with_self_type(self_ty, |lowerer| {
+                        for supertrait in &item_trait.supertraits {
+                            lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
+                        }
+                        lowerer.lower_where_clause(&item_trait.where_clause);
+                        for method in &item_trait.methods {
+                            lowerer.visit_function(&method.function);
+                        }
+                    });
+                });
+            }
+            ItemTreeNodeKind::Extend(extend) => {
+                self.with_generics(&extend.generics, |lowerer| {
+                    let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
+                    if let Some(trait_ref) = &extend.trait_ref {
+                        lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
+                    }
+                    lowerer.with_self_type(self_ty, |lowerer| {
+                        lowerer.lower_where_clause(&extend.where_clause);
+                        for associated_type in &extend.associated_types {
+                            lowerer.lower_type_in_context(&associated_type.ty, TypeContext::Value);
+                        }
+                        for method in &extend.methods {
+                            lowerer.visit_function(&method.function);
+                        }
+                    });
+                });
+            }
+            ItemTreeNodeKind::Enum(item_enum) => {
+                if let Some(backing_type) = &item_enum.backing_type {
+                    let ty = self.lower_type_in_context(backing_type, TypeContext::Value);
+                    if !self.is_integer(ty) {
+                        self.diagnostics.push(Diagnostic::error(
+                            backing_type.span,
+                            "enum backing type must be an integer type",
+                        ));
+                    }
+                }
+            }
+            ItemTreeNodeKind::TypeAlias(alias) => {
+                self.with_generics(&alias.generics, |lowerer| {
+                    lowerer.lower_where_clause(&alias.where_clause);
+                    lowerer.lower_type_in_context(&alias.ty, TypeContext::Alias);
+                });
+            }
+            ItemTreeNodeKind::Binding(binding) => {
+                if let Some(ty) = &binding.ty {
+                    self.lower_type_in_context(ty, TypeContext::Value);
+                }
+                if let Some(value) = &binding.value {
+                    nia_ast_walk::walk_expr(self, value);
+                }
+            }
+            ItemTreeNodeKind::Function(function) => self.visit_function(function),
+            ItemTreeNodeKind::Import(_)
+            | ItemTreeNodeKind::Using(_)
+            | ItemTreeNodeKind::ComptimeIf(_) => {}
         }
     }
 }
@@ -1039,9 +1175,13 @@ fn layout_builtin_type_arg(expr: &Expr) -> Option<(LayoutBuiltin, &TypeRef)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs};
+    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_item_tree::ModuleItemTree;
     use nia_parser::parse_module;
-    use nia_type_resolve::resolve_module_types;
+    use nia_type_resolve::{
+        ProgramDefsContext as TypeResolveProgramDefsContext, resolve_module_types,
+        resolve_module_types_from_active_item_tree,
+    };
     use std::collections::HashMap;
 
     #[test]
@@ -1343,5 +1483,64 @@ fn bad(value: Show) void {}
             "{:?}",
             lowered.diagnostics
         );
+    }
+
+    #[test]
+    fn lowers_types_from_active_item_tree_only() {
+        let (module, errors) = parse_module(
+            r#"
+comptime if false {
+    fn skipped(value: MissingType) void {}
+} else {
+    fn selected(value: i32) void {}
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = ModuleItemTree::from_module(&module);
+        let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        let resolved = resolve_module_types_from_active_item_tree(
+            &active,
+            &defs,
+            &nia_imports::ImportAliasMap::default(),
+            TypeResolveProgramDefsContext::empty(),
+            &nia_defs::PublicSurfaces::default(),
+            &nia_defs::ModuleUsingScope::default(),
+        );
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let lowered = lower_module_types_from_active_item_tree(
+            ModuleId(0),
+            &active,
+            &resolved,
+            ProgramDefsContext::empty(),
+        );
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        assert!(lowered.type_uses.values().any(|ty| matches!(
+            lowered.interner.get(*ty),
+            Some(TyKind::Primitive(PrimitiveTy::I32))
+        )));
+    }
+
+    struct BoolResolver(bool);
+
+    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
+        fn resolve_comptime_if(
+            &mut self,
+            span: Span,
+            _cond: &nia_ast::Expr,
+        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
+            let _ = span;
+            Ok(if self.0 {
+                nia_item_tree::ComptimeBranch::Then
+            } else {
+                nia_item_tree::ComptimeBranch::Else
+            })
+        }
     }
 }

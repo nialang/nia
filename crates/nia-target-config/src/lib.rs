@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
-    Module, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
+    ArrayElements, BindingStmt, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item,
+    ItemKind, Module, Param, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_tree::ActiveModuleItemTree;
 use nia_item_tree::{ComptimeBranch, ComptimeBranchResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetConfig {
@@ -48,8 +48,19 @@ pub struct PruneResult {
 }
 
 pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneResult {
+    let functions = module
+        .items
+        .iter()
+        .filter_map(|item| {
+            let ItemKind::Function(function) = &item.kind else {
+                return None;
+            };
+            Some((function.name.clone(), function.clone()))
+        })
+        .collect();
     let mut pruner = Pruner {
         config,
+        functions,
         diagnostics: Vec::new(),
     };
     let pruned = pruner.prune_module(module);
@@ -65,7 +76,12 @@ pub fn eval_config_bool(
     config: &TargetConfig,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<bool> {
-    let mut env = TargetComptimeEnv { config };
+    let functions = HashMap::new();
+    let mut env = TargetComptimeEnv {
+        config,
+        functions: &functions,
+        call_locals: Vec::new(),
+    };
     nia_comptime_engine::eval_bool_expr(expr, &mut env)
         .map_err(|err| diagnostics.push(Diagnostic::error(err.span, err.message)))
         .ok()
@@ -73,6 +89,8 @@ pub fn eval_config_bool(
 
 struct TargetComptimeEnv<'a> {
     config: &'a TargetConfig,
+    functions: &'a HashMap<String, nia_ast::FunctionItem>,
+    call_locals: Vec<HashMap<String, nia_comptime_engine::ComptimeValue>>,
 }
 
 impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
@@ -81,6 +99,14 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         span: Span,
         name: &str,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        if let Some(value) = self
+            .call_locals
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(name).cloned())
+        {
+            return Ok(value);
+        }
         Err(nia_comptime_engine::ComptimeError {
             span,
             message: format!("unknown target comptime value `{name}`"),
@@ -111,6 +137,81 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
             span,
             message: "layout builtins are not available in target conditions".to_string(),
         })
+    }
+
+    fn call_function(
+        &mut self,
+        span: Span,
+        callee: &Expr,
+        args: Vec<nia_comptime_engine::ComptimeValue>,
+    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        let ExprKind::Ident(name) = &callee.kind else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: "target condition can only call same-module `comptime fn`".to_string(),
+            });
+        };
+        let Some(function) = self.functions.get(name).cloned() else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: format!("unknown target comptime function `{name}`"),
+            });
+        };
+        nia_comptime_engine::eval_function_call(span, function.span, &function, args, self)
+    }
+
+    fn push_function_frame(
+        &mut self,
+        _span: Span,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        self.call_locals.push(HashMap::new());
+        Ok(())
+    }
+
+    fn pop_function_frame(&mut self) {
+        self.call_locals.pop();
+    }
+
+    fn bind_function_param(
+        &mut self,
+        span: Span,
+        param: &Param,
+        value: nia_comptime_engine::ComptimeValue,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        let Some(name) = &param.name else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: "comptime function parameter requires a name".to_string(),
+            });
+        };
+        self.bind_named_value(span, name, value)
+    }
+
+    fn bind_function_local(
+        &mut self,
+        span: Span,
+        binding: &BindingStmt,
+        value: nia_comptime_engine::ComptimeValue,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        self.bind_named_value(span, &binding.name, value)
+    }
+}
+
+impl TargetComptimeEnv<'_> {
+    fn bind_named_value(
+        &mut self,
+        span: Span,
+        name: &str,
+        value: nia_comptime_engine::ComptimeValue,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        let Some(frame) = self.call_locals.last_mut() else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: "internal comptime function frame is missing".to_string(),
+            });
+        };
+        frame.insert(name.to_string(), value);
+        Ok(())
     }
 }
 
@@ -155,6 +256,7 @@ pub fn target_comptime_value(config: &TargetConfig) -> nia_comptime_engine::Comp
 
 struct Pruner<'a> {
     config: &'a TargetConfig,
+    functions: HashMap<String, nia_ast::FunctionItem>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -528,7 +630,7 @@ impl Pruner<'_> {
     }
 
     fn prune_comptime_if_expr(&mut self, span: Span, comptime_if: ComptimeIfExpr) -> Expr {
-        match eval_config_bool(&comptime_if.cond, self.config, &mut self.diagnostics) {
+        match self.eval_bool(&comptime_if.cond) {
             Some(true) => Expr {
                 span,
                 kind: ExprKind::Block(self.prune_block(comptime_if.then_branch)),
@@ -550,6 +652,20 @@ impl Pruner<'_> {
             },
         }
     }
+
+    fn eval_bool(&mut self, expr: &Expr) -> Option<bool> {
+        let mut env = TargetComptimeEnv {
+            config: self.config,
+            functions: &self.functions,
+            call_locals: Vec::new(),
+        };
+        nia_comptime_engine::eval_bool_expr(expr, &mut env)
+            .map_err(|err| {
+                self.diagnostics
+                    .push(Diagnostic::error(err.span, err.message))
+            })
+            .ok()
+    }
 }
 
 impl ComptimeBranchResolver for Pruner<'_> {
@@ -559,13 +675,11 @@ impl ComptimeBranchResolver for Pruner<'_> {
         cond: &Expr,
     ) -> Result<ComptimeBranch, ItemTreeError> {
         let _ = span;
-        Ok(
-            match eval_config_bool(cond, self.config, &mut self.diagnostics) {
-                Some(true) => ComptimeBranch::Then,
-                Some(false) => ComptimeBranch::Else,
-                None => ComptimeBranch::None,
-            },
-        )
+        Ok(match self.eval_bool(cond) {
+            Some(true) => ComptimeBranch::Then,
+            Some(false) => ComptimeBranch::Else,
+            None => ComptimeBranch::None,
+        })
     }
 }
 

@@ -27,7 +27,7 @@ pub(super) fn path_for_diagnostic_span(modules: &[CheckedModule], span: Span) ->
         .find(|module| {
             module
                 .body_check
-                .ir
+                .facts
                 .generic_instantiations
                 .iter()
                 .any(|instantiation| instantiation.span == span)
