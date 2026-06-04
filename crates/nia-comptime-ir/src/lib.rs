@@ -213,6 +213,9 @@ pub enum ComptimeExprKind {
     Len {
         lhs: Box<ComptimeExpr>,
     },
+    RangeIter {
+        lhs: Box<ComptimeExpr>,
+    },
     Index {
         lhs: Box<ComptimeExpr>,
         index: Box<ComptimeExpr>,
@@ -493,6 +496,14 @@ fn lower_call_with_context(
         && name == "len"
     {
         return Ok(ComptimeExprKind::Len {
+            lhs: Box::new(lower_expr_with_context(lhs, context)?),
+        });
+    }
+    if args.is_empty()
+        && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
+        && name == "iter"
+    {
+        return Ok(ComptimeExprKind::RangeIter {
             lhs: Box::new(lower_expr_with_context(lhs, context)?),
         });
     }
