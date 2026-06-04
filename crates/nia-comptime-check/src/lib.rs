@@ -2283,15 +2283,12 @@ impl Analyzer<'_> {
                 let ty = binding
                     .explicit_type
                     .map(|ty| self.substitute_ty_generics(ty))
-                    .or_else(|| self.comptime_arg_runtime_type(&binding.value, None))?;
+                    .map(ComptimeValueType::Runtime)
+                    .or_else(|| self.comptime_expr_type(&binding.value, None))?;
                 let local_id = binding
                     .local_id
                     .or_else(|| self.input.locals.local_defs.get(&stmt.span).copied())?;
-                self.bind_comptime_local_type(
-                    local_id,
-                    &binding.name,
-                    ComptimeValueType::Runtime(ty),
-                );
+                self.bind_comptime_local_type(local_id, &binding.name, ty);
                 Some(())
             }
             ComptimeStmtKind::Expr(_)
@@ -3111,7 +3108,10 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime function parameter".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, &param.name, false, value, param.ty)
+        let ty = param
+            .ty
+            .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
+        self.bind_local_value(span, local_id, &param.name, false, value, ty)
     }
 
     fn bind_function_context(
@@ -3146,14 +3146,11 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime function local".to_string(),
             });
         };
-        self.bind_local_value(
-            span,
-            local_id,
-            &binding.name,
-            binding.is_mutable,
-            value,
-            binding.explicit_type,
-        )
+        let ty = binding
+            .explicit_type
+            .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)))
+            .or_else(|| self.comptime_expr_type(&binding.value, None));
+        self.bind_local_value(span, local_id, &binding.name, binding.is_mutable, value, ty)
     }
 
     fn bind_pattern_local(
@@ -3170,7 +3167,9 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime switch pattern local".to_string(),
             });
         };
-        let ty = self.find_local_binding_type(local_id);
+        let ty = self
+            .find_local_binding_type(local_id)
+            .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
         self.bind_local_value(span, local_id, name, false, value, ty)
     }
 
@@ -3215,9 +3214,8 @@ impl Analyzer<'_> {
         name: &str,
         is_mutable: bool,
         value: ComptimeValue,
-        ty: Option<InternedTyId>,
+        ty: Option<ComptimeValueType>,
     ) -> Result<(), ComptimeError> {
-        let ty = ty.map(|ty| self.substitute_ty_generics(ty));
         let Some(frame) = self.call_locals.last_mut() else {
             return Err(ComptimeError {
                 span,
@@ -3230,10 +3228,7 @@ impl Analyzer<'_> {
         frame.locals.insert(local_id, value.clone());
         frame.names.insert(name.to_string(), value.clone());
         if let Some(ty) = ty {
-            let typed = TypedComptimeValue {
-                value,
-                ty: ComptimeValueType::Runtime(ty),
-            };
+            let typed = TypedComptimeValue { value, ty };
             frame.local_types.insert(local_id, typed.ty.clone());
             frame.name_types.insert(name.to_string(), typed.ty);
         }

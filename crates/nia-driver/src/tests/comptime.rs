@@ -1970,6 +1970,34 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_local_structural_struct_fields_have_typed_values() {
+    let root = temp_dir("comptime_function_local_structural_struct_fields_have_typed_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime fn width() usize {
+    comptime let config = {target: {word_bits: 64usize}};
+    id(config.target.word_bits) / 8usize
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_nested_call_return_type() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_nested_call_return_type");
     write(
