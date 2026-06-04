@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{BinaryOp, UnaryOp};
 pub use nia_comptime_ir::{
-    ComptimeArrayElements, ComptimeAssign, ComptimeAssignPathElem, ComptimeAssignTarget,
-    ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeForBinding,
-    ComptimeForIn, ComptimeFunction, ComptimeNameResolution, ComptimeParam, ComptimeRange,
-    ComptimeSliceRange, ComptimeStmt, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm,
-    ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg,
+    ComptimeArrayElements, ComptimeAssign, ComptimeAssignOp, ComptimeAssignPathElem,
+    ComptimeAssignTarget, ComptimeBinaryOp, ComptimeBinding, ComptimeBlock, ComptimeExpr,
+    ComptimeExprKind, ComptimeForBinding, ComptimeForIn, ComptimeFunction, ComptimeNameResolution,
+    ComptimeParam, ComptimeRange, ComptimeSliceRange, ComptimeStmt, ComptimeStmtKind,
+    ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
+    ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId};
 use nia_span::Span;
@@ -440,7 +440,7 @@ fn eval_comptime_expr_flow(
                 }
             }
             ComptimeExprKind::Unary {
-                op: UnaryOp::Neg,
+                op: ComptimeUnaryOp::Neg,
                 expr: inner,
             } => match eval_value_or_return_flow!(inner, env) {
                 ComptimeValue::Int(value) => value
@@ -459,7 +459,7 @@ fn eval_comptime_expr_flow(
                 }
             },
             ComptimeExprKind::Unary {
-                op: UnaryOp::Not,
+                op: ComptimeUnaryOp::Not,
                 expr: inner,
             } => match eval_value_or_return_flow!(inner, env) {
                 ComptimeValue::Bool(value) => ComptimeValue::Bool(!value),
@@ -471,7 +471,7 @@ fn eval_comptime_expr_flow(
                 }
             },
             ComptimeExprKind::Unary {
-                op: UnaryOp::BitNot,
+                op: ComptimeUnaryOp::BitNot,
                 expr: inner,
             } => match eval_value_or_return_flow!(inner, env) {
                 ComptimeValue::Int(value) => ComptimeValue::Int(!value),
@@ -1184,7 +1184,7 @@ fn eval_assignment_value_flow(
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let rhs = eval_value_or_return_flow!(&assign.rhs, env);
-    if matches!(assign.op, nia_ast::AssignOp::Assign) {
+    if matches!(assign.op, ComptimeAssignOp::Assign) {
         return Ok(ComptimeEvalFlow::Value(rhs));
     }
     let lhs = eval_assign_target_value(span, &assign.lhs, env)?;
@@ -1388,19 +1388,19 @@ fn eval_assign_path_index(
     })
 }
 
-fn assign_op_binary(op: nia_ast::AssignOp) -> Option<BinaryOp> {
+fn assign_op_binary(op: ComptimeAssignOp) -> Option<ComptimeBinaryOp> {
     Some(match op {
-        nia_ast::AssignOp::Assign => return None,
-        nia_ast::AssignOp::Add => BinaryOp::Add,
-        nia_ast::AssignOp::Sub => BinaryOp::Sub,
-        nia_ast::AssignOp::Shl => BinaryOp::Shl,
-        nia_ast::AssignOp::Shr => BinaryOp::Shr,
-        nia_ast::AssignOp::Mul => BinaryOp::Mul,
-        nia_ast::AssignOp::Div => BinaryOp::Div,
-        nia_ast::AssignOp::Rem => BinaryOp::Rem,
-        nia_ast::AssignOp::BitAnd => BinaryOp::BitAnd,
-        nia_ast::AssignOp::BitXor => BinaryOp::BitXor,
-        nia_ast::AssignOp::BitOr => BinaryOp::BitOr,
+        ComptimeAssignOp::Assign => return None,
+        ComptimeAssignOp::Add => ComptimeBinaryOp::Add,
+        ComptimeAssignOp::Sub => ComptimeBinaryOp::Sub,
+        ComptimeAssignOp::Shl => ComptimeBinaryOp::Shl,
+        ComptimeAssignOp::Shr => ComptimeBinaryOp::Shr,
+        ComptimeAssignOp::Mul => ComptimeBinaryOp::Mul,
+        ComptimeAssignOp::Div => ComptimeBinaryOp::Div,
+        ComptimeAssignOp::Rem => ComptimeBinaryOp::Rem,
+        ComptimeAssignOp::BitAnd => ComptimeBinaryOp::BitAnd,
+        ComptimeAssignOp::BitXor => ComptimeBinaryOp::BitXor,
+        ComptimeAssignOp::BitOr => ComptimeBinaryOp::BitOr,
     })
 }
 
@@ -1705,36 +1705,36 @@ fn int_to_array_len(span: Span, value: i128) -> Result<u64, ComptimeError> {
     })
 }
 
-fn eval_binary_int(lhs: i128, op: BinaryOp, rhs: i128) -> Result<i128, String> {
+fn eval_binary_int(lhs: i128, op: ComptimeBinaryOp, rhs: i128) -> Result<i128, String> {
     Ok(match op {
-        BinaryOp::Mul => lhs
+        ComptimeBinaryOp::Mul => lhs
             .checked_mul(rhs)
             .ok_or_else(|| "integer overflow in comptime multiplication".to_string())?,
-        BinaryOp::Div => {
+        ComptimeBinaryOp::Div => {
             if rhs == 0 {
                 return Err("division by zero in comptime expression".to_string());
             }
             lhs.checked_div(rhs)
                 .ok_or_else(|| "integer overflow in comptime division".to_string())?
         }
-        BinaryOp::Rem => {
+        ComptimeBinaryOp::Rem => {
             if rhs == 0 {
                 return Err("remainder by zero in comptime expression".to_string());
             }
             lhs.checked_rem(rhs)
                 .ok_or_else(|| "integer overflow in comptime remainder".to_string())?
         }
-        BinaryOp::Add => lhs
+        ComptimeBinaryOp::Add => lhs
             .checked_add(rhs)
             .ok_or_else(|| "integer overflow in comptime addition".to_string())?,
-        BinaryOp::Sub => lhs
+        ComptimeBinaryOp::Sub => lhs
             .checked_sub(rhs)
             .ok_or_else(|| "integer overflow in comptime subtraction".to_string())?,
-        BinaryOp::Shl => checked_shift(lhs, rhs, true)?,
-        BinaryOp::Shr => checked_shift(lhs, rhs, false)?,
-        BinaryOp::BitAnd => lhs & rhs,
-        BinaryOp::BitXor => lhs ^ rhs,
-        BinaryOp::BitOr => lhs | rhs,
+        ComptimeBinaryOp::Shl => checked_shift(lhs, rhs, true)?,
+        ComptimeBinaryOp::Shr => checked_shift(lhs, rhs, false)?,
+        ComptimeBinaryOp::BitAnd => lhs & rhs,
+        ComptimeBinaryOp::BitXor => lhs ^ rhs,
+        ComptimeBinaryOp::BitOr => lhs | rhs,
         _ => {
             return Err(format!(
                 "unsupported binary operator in comptime expression: {op:?}"
@@ -1745,7 +1745,7 @@ fn eval_binary_int(lhs: i128, op: BinaryOp, rhs: i128) -> Result<i128, String> {
 
 fn eval_numeric_binary_value(
     lhs: ComptimeValue,
-    op: BinaryOp,
+    op: ComptimeBinaryOp,
     rhs: ComptimeValue,
 ) -> Result<ComptimeValue, String> {
     match (lhs, rhs) {
@@ -1783,7 +1783,7 @@ fn eval_numeric_operand_flow(
 fn eval_binary_flow(
     span: Span,
     lhs: &ComptimeExpr,
-    op: BinaryOp,
+    op: ComptimeBinaryOp,
     rhs: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
@@ -1801,30 +1801,37 @@ fn eval_binary_flow(
         };
     }
     let value = match op {
-        BinaryOp::And => {
+        ComptimeBinaryOp::And => {
             let lhs = bool_operand!(lhs);
             if !lhs {
                 return Ok(ComptimeEvalFlow::Value(ComptimeValue::Bool(false)));
             }
             ComptimeValue::Bool(bool_operand!(rhs))
         }
-        BinaryOp::Or => {
+        ComptimeBinaryOp::Or => {
             let lhs = bool_operand!(lhs);
             if lhs {
                 return Ok(ComptimeEvalFlow::Value(ComptimeValue::Bool(true)));
             }
             ComptimeValue::Bool(bool_operand!(rhs))
         }
-        BinaryOp::Eq | BinaryOp::Ne => {
+        ComptimeBinaryOp::Eq | ComptimeBinaryOp::Ne => {
             let lhs = eval_value_or_return_flow!(lhs, env);
             let rhs = eval_value_or_return_flow!(rhs, env);
             let equal = values_equal(&lhs, &rhs).ok_or_else(|| ComptimeError {
                 span,
                 message: "comptime equality requires matching operand types".to_string(),
             })?;
-            ComptimeValue::Bool(if op == BinaryOp::Eq { equal } else { !equal })
+            ComptimeValue::Bool(if op == ComptimeBinaryOp::Eq {
+                equal
+            } else {
+                !equal
+            })
         }
-        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+        ComptimeBinaryOp::Lt
+        | ComptimeBinaryOp::Le
+        | ComptimeBinaryOp::Gt
+        | ComptimeBinaryOp::Ge => {
             let lhs = match eval_numeric_operand_flow(lhs, env)? {
                 Ok(value) => value,
                 Err(flow) => return Ok(flow),
@@ -1865,27 +1872,27 @@ fn eval_binary_flow(
     Ok(ComptimeEvalFlow::Value(value))
 }
 
-fn eval_binary_int_compare(lhs: i128, op: BinaryOp, rhs: i128) -> bool {
+fn eval_binary_int_compare(lhs: i128, op: ComptimeBinaryOp, rhs: i128) -> bool {
     match op {
-        BinaryOp::Lt => lhs < rhs,
-        BinaryOp::Le => lhs <= rhs,
-        BinaryOp::Gt => lhs > rhs,
-        BinaryOp::Ge => lhs >= rhs,
+        ComptimeBinaryOp::Lt => lhs < rhs,
+        ComptimeBinaryOp::Le => lhs <= rhs,
+        ComptimeBinaryOp::Gt => lhs > rhs,
+        ComptimeBinaryOp::Ge => lhs >= rhs,
         _ => unreachable!("non-comparison binary operator routed to integer comparison"),
     }
 }
 
-fn eval_binary_float(lhs: f64, op: BinaryOp, rhs: f64) -> Result<ComptimeValue, String> {
+fn eval_binary_float(lhs: f64, op: ComptimeBinaryOp, rhs: f64) -> Result<ComptimeValue, String> {
     Ok(match op {
-        BinaryOp::Add => ComptimeValue::Float(lhs + rhs),
-        BinaryOp::Sub => ComptimeValue::Float(lhs - rhs),
-        BinaryOp::Mul => ComptimeValue::Float(lhs * rhs),
-        BinaryOp::Div => ComptimeValue::Float(lhs / rhs),
-        BinaryOp::Rem => ComptimeValue::Float(lhs % rhs),
-        BinaryOp::Lt => ComptimeValue::Bool(lhs < rhs),
-        BinaryOp::Le => ComptimeValue::Bool(lhs <= rhs),
-        BinaryOp::Gt => ComptimeValue::Bool(lhs > rhs),
-        BinaryOp::Ge => ComptimeValue::Bool(lhs >= rhs),
+        ComptimeBinaryOp::Add => ComptimeValue::Float(lhs + rhs),
+        ComptimeBinaryOp::Sub => ComptimeValue::Float(lhs - rhs),
+        ComptimeBinaryOp::Mul => ComptimeValue::Float(lhs * rhs),
+        ComptimeBinaryOp::Div => ComptimeValue::Float(lhs / rhs),
+        ComptimeBinaryOp::Rem => ComptimeValue::Float(lhs % rhs),
+        ComptimeBinaryOp::Lt => ComptimeValue::Bool(lhs < rhs),
+        ComptimeBinaryOp::Le => ComptimeValue::Bool(lhs <= rhs),
+        ComptimeBinaryOp::Gt => ComptimeValue::Bool(lhs > rhs),
+        ComptimeBinaryOp::Ge => ComptimeValue::Bool(lhs >= rhs),
         _ => {
             return Err(format!(
                 "unsupported binary operator for float comptime expression: {op:?}"
@@ -1954,7 +1961,7 @@ fn char_array_to_string(values: &[ComptimeValue]) -> Option<String> {
     Some(out)
 }
 
-pub fn eval_string_literal(literal: &nia_ast::StringLiteral) -> Option<String> {
+pub fn eval_string_literal(literal: &ComptimeStringLiteral) -> Option<String> {
     if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
         return None;
     }
@@ -1977,17 +1984,17 @@ fn decode_string_literal_part(text: &str) -> Option<String> {
         .and_then(|scalars| scalars.into_iter().map(char::from_u32).collect())
 }
 
-pub fn eval_byte_string_literal(literal: &nia_ast::StringLiteral) -> Option<Vec<u8>> {
+pub fn eval_byte_string_literal(literal: &ComptimeStringLiteral) -> Option<Vec<u8>> {
     eval_byte_literal(literal, "b\"")
 }
 
-pub fn eval_c_string_literal(literal: &nia_ast::StringLiteral) -> Option<Vec<u8>> {
+pub fn eval_c_string_literal(literal: &ComptimeStringLiteral) -> Option<Vec<u8>> {
     let mut bytes = eval_byte_literal(literal, "c\"")?;
     bytes.push(0);
     Some(bytes)
 }
 
-fn eval_byte_literal(literal: &nia_ast::StringLiteral, prefix: &str) -> Option<Vec<u8>> {
+fn eval_byte_literal(literal: &ComptimeStringLiteral, prefix: &str) -> Option<Vec<u8>> {
     if literal.parts.len() > 1 && literal.parts.iter().any(|part| is_multiline_literal(part)) {
         return None;
     }

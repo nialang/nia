@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{BinaryOp, Expr, ItemKind, Module, UnaryOp};
+use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
-    ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeFieldInit,
-    ComptimeLocalInitializer, ComptimeModule, ComptimeNameResolution, ComptimeStmtKind,
-    ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern,
-    ComptimeTypeArg,
+    ComptimeBinaryOp, ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr,
+    ComptimeFieldInit, ComptimeLocalInitializer, ComptimeModule, ComptimeNameResolution,
+    ComptimeStmtKind, ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm,
+    ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -3140,26 +3140,26 @@ impl Analyzer<'_> {
 
     fn comptime_unary_expr_type(
         &mut self,
-        op: UnaryOp,
+        op: ComptimeUnaryOp,
         inner: &ComptimeExpr,
     ) -> Option<ComptimeValueType> {
         match op {
-            UnaryOp::Not => {
+            ComptimeUnaryOp::Not => {
                 let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
                 let inner_ty = self.comptime_arg_runtime_type(inner, Some(bool_ty))?;
                 (inner_ty == bool_ty).then_some(ComptimeValueType::Runtime(bool_ty))
             }
-            UnaryOp::Neg => {
+            ComptimeUnaryOp::Neg => {
                 let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
                 (self.is_integer_runtime_type(inner_ty) || self.is_float_runtime_type(inner_ty))
                     .then_some(ComptimeValueType::Runtime(inner_ty))
             }
-            UnaryOp::BitNot => {
+            ComptimeUnaryOp::BitNot => {
                 let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
                 self.is_integer_runtime_type(inner_ty)
                     .then_some(ComptimeValueType::Runtime(inner_ty))
             }
-            UnaryOp::RefReadOnly | UnaryOp::Ref | UnaryOp::Deref => None,
+            ComptimeUnaryOp::RefReadOnly | ComptimeUnaryOp::Ref | ComptimeUnaryOp::Deref => None,
         }
     }
 
@@ -3213,13 +3213,20 @@ impl Analyzer<'_> {
     fn comptime_binary_expr_type(
         &mut self,
         lhs: &ComptimeExpr,
-        op: BinaryOp,
+        op: ComptimeBinaryOp,
         rhs: &ComptimeExpr,
     ) -> Option<ComptimeValueType> {
         match op {
-            BinaryOp::And | BinaryOp::Or => self.comptime_bool_binary_expr_type(lhs, rhs),
-            BinaryOp::Eq | BinaryOp::Ne => self.comptime_equality_expr_type(lhs, rhs),
-            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+            ComptimeBinaryOp::And | ComptimeBinaryOp::Or => {
+                self.comptime_bool_binary_expr_type(lhs, rhs)
+            }
+            ComptimeBinaryOp::Eq | ComptimeBinaryOp::Ne => {
+                self.comptime_equality_expr_type(lhs, rhs)
+            }
+            ComptimeBinaryOp::Lt
+            | ComptimeBinaryOp::Le
+            | ComptimeBinaryOp::Gt
+            | ComptimeBinaryOp::Ge => {
                 let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
                 let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
                 (lhs_ty == rhs_ty
@@ -3228,24 +3235,24 @@ impl Analyzer<'_> {
                     self.current_runtime_primitive_type(PrimitiveTy::Bool),
                 ))
             }
-            BinaryOp::Mul
-            | BinaryOp::Div
-            | BinaryOp::Rem
-            | BinaryOp::Add
-            | BinaryOp::Sub
-            | BinaryOp::Shl
-            | BinaryOp::Shr
-            | BinaryOp::BitAnd
-            | BinaryOp::BitXor
-            | BinaryOp::BitOr => {
+            ComptimeBinaryOp::Mul
+            | ComptimeBinaryOp::Div
+            | ComptimeBinaryOp::Rem
+            | ComptimeBinaryOp::Add
+            | ComptimeBinaryOp::Sub
+            | ComptimeBinaryOp::Shl
+            | ComptimeBinaryOp::Shr
+            | ComptimeBinaryOp::BitAnd
+            | ComptimeBinaryOp::BitXor
+            | ComptimeBinaryOp::BitOr => {
                 let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
                 let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
                 let allowed = match op {
-                    BinaryOp::Shl
-                    | BinaryOp::Shr
-                    | BinaryOp::BitAnd
-                    | BinaryOp::BitXor
-                    | BinaryOp::BitOr => self.is_integer_runtime_type(lhs_ty),
+                    ComptimeBinaryOp::Shl
+                    | ComptimeBinaryOp::Shr
+                    | ComptimeBinaryOp::BitAnd
+                    | ComptimeBinaryOp::BitXor
+                    | ComptimeBinaryOp::BitOr => self.is_integer_runtime_type(lhs_ty),
                     _ => self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty),
                 };
                 (lhs_ty == rhs_ty && allowed).then_some(ComptimeValueType::Runtime(lhs_ty))
@@ -3341,7 +3348,7 @@ impl Analyzer<'_> {
 
     fn comptime_string_literal_type(
         &mut self,
-        literal: &nia_ast::StringLiteral,
+        literal: &ComptimeStringLiteral,
     ) -> Option<ComptimeValueType> {
         let len = nia_comptime_engine::eval_string_literal(literal)?
             .chars()
