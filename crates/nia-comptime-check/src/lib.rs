@@ -4348,20 +4348,34 @@ impl ComptimeEnv for Analyzer<'_> {
             type_args,
             arg_exprs,
         )?;
+        let return_ty = self
+            .substitute_ty_into_current_module(
+                function_id.module_id,
+                signature.return_type,
+                &type_substitutions,
+            )
+            .ok_or_else(|| ComptimeError {
+                span,
+                message: "cannot resolve comptime function return type".to_string(),
+            })?;
         let Some(function) = self.comptime_function_body(function_id).cloned() else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        nia_comptime_engine::eval_comptime_function_call(
+        let value = nia_comptime_engine::eval_comptime_function_call(
             span,
             function_id.module_id,
             &function,
             type_substitutions.into_iter().collect(),
             args,
             self,
-        )
+        )?;
+        let return_ty = ComptimeValueType::Runtime(return_ty);
+        let value = self.normalize_typed_comptime_value(value, &return_ty);
+        self.validate_typed_value(span, &value, &return_ty);
+        Ok(value)
     }
 
     fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
