@@ -344,11 +344,7 @@ impl<'a> BodyChecker<'a> {
     fn comptime_field_expr_runtime_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
         match self.comptime_field_expr_type(lhs, name)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
-            ComptimeValueType::Struct(_)
-            | ComptimeValueType::Array { .. }
-            | ComptimeValueType::Int
-            | ComptimeValueType::Bool
-            | ComptimeValueType::String => Some(self.interner.intern(TyKind::ComptimeOnly)),
+            _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
         }
     }
 
@@ -432,13 +428,7 @@ impl<'a> BodyChecker<'a> {
         lhs_ty: ComptimeValueType,
         name: &str,
     ) -> Option<ComptimeValueType> {
-        match lhs_ty {
-            ComptimeValueType::Struct(fields) => fields
-                .into_iter()
-                .find(|field| field.name == name)
-                .map(|field| field.ty),
-            _ => None,
-        }
+        lhs_ty.structural_field(name).cloned()
     }
 
     pub(crate) fn comptime_index_expr_runtime_type(
@@ -448,11 +438,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         match self.comptime_index_expr_type(lhs, index)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
-            ComptimeValueType::Struct(_)
-            | ComptimeValueType::Array { .. }
-            | ComptimeValueType::Int
-            | ComptimeValueType::Bool
-            | ComptimeValueType::String => Some(self.interner.intern(TyKind::ComptimeOnly)),
+            _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
         }
     }
 
@@ -469,20 +455,16 @@ impl<'a> BodyChecker<'a> {
 
     fn comptime_index_expr_type(&mut self, lhs: &Expr, index: &Expr) -> Option<ComptimeValueType> {
         let lhs_ty = self.comptime_expr_value_type(lhs)?;
-        match lhs_ty {
-            ComptimeValueType::Array { elem, len } => {
-                let index = self.lower_comptime_expr(index).ok().and_then(|index| {
-                    nia_comptime_engine::eval_comptime_array_len_expr(&index, self).ok()
-                })?;
-                if let Some(len) = len
-                    && index >= len
-                {
-                    return None;
-                }
-                Some(*elem)
-            }
-            _ => None,
+        let (elem, len) = lhs_ty.array_elem()?;
+        let index = self.lower_comptime_expr(index).ok().and_then(|index| {
+            nia_comptime_engine::eval_comptime_array_len_expr(&index, self).ok()
+        })?;
+        if let Some(len) = len
+            && index >= len
+        {
+            return None;
         }
+        Some(elem.clone())
     }
 
     fn import_comptime_value_type(
