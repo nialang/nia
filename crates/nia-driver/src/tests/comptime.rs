@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 use crate::check_program;
+use nia_static_ir::StaticInit;
 
 #[test]
 fn public_comptime_values_are_visible_through_import_closure() {
@@ -39,6 +40,34 @@ pub comptime let answer: i32 = 42;
         .find(|module| module.name.ends_with("main.nia"))
         .expect("main module");
     assert!(main_module.globals.is_empty());
+}
+
+#[test]
+fn comptime_values_drive_static_global_integer_initializers() {
+    let root = temp_dir("comptime_values_drive_static_global_integer_initializers");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let base = 20;
+var value: i32 = base + 2;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let value = main_module
+        .globals
+        .iter()
+        .find(|global| global.name == "value")
+        .expect("value global");
+    assert_eq!(value.init, Some(StaticInit::Int(22)));
 }
 
 #[test]

@@ -111,7 +111,7 @@ impl StaticChecker<'_> {
                     .find_map(|field| self.static_init_reject_reason(&field.value))
             }
             ExprKind::Unary { op, expr: inner } => match op {
-                UnaryOp::Neg => self.int_const_expr_reject_reason(expr),
+                UnaryOp::Neg => self.static_int_expr_reject_reason(expr),
                 UnaryOp::Ref | UnaryOp::RefReadOnly => {
                     self.static_address_path_reject_reason(inner)
                 }
@@ -119,7 +119,7 @@ impl StaticChecker<'_> {
                     Some("unsupported unary operator")
                 }
             },
-            ExprKind::Binary { .. } => self.int_const_expr_reject_reason(expr),
+            ExprKind::Binary { .. } => self.static_int_expr_reject_reason(expr),
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),
             ExprKind::Builtin { .. } => None,
             ExprKind::TypeTarget { .. } => Some("type target is not static data"),
@@ -167,18 +167,10 @@ impl StaticChecker<'_> {
         }
     }
 
-    fn int_const_expr_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
-        match &expr.kind {
-            ExprKind::Integer(_) => None,
-            ExprKind::Unary {
-                op: UnaryOp::Neg,
-                expr: inner,
-            } => self.int_const_expr_reject_reason(inner),
-            ExprKind::Binary { lhs, rhs, .. } => self
-                .int_const_expr_reject_reason(lhs)
-                .or_else(|| self.int_const_expr_reject_reason(rhs)),
-            _ => Some("expression is not an integer constant expression"),
-        }
+    fn static_int_expr_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
+        self.eval_static_int_expr(expr)
+            .err()
+            .map(|_| "expression is not an integer constant expression")
     }
 
     fn static_address_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
@@ -293,6 +285,30 @@ impl StaticChecker<'_> {
             }
         })?;
         nia_comptime_engine::eval_comptime_array_len_expr(&expr, &mut env)
+    }
+
+    fn eval_static_int_expr(
+        &self,
+        expr: &Expr,
+    ) -> Result<i128, nia_comptime_engine::ComptimeError> {
+        let context = nia_comptime_ir::ComptimeLowerContext {
+            name_resolution: Some(&|span| self.comptime_name_resolution(span)),
+            local_id: None,
+            type_id: None,
+        };
+        let mut env = StaticComptimeEnv {
+            defs: self.defs,
+            comptime: self.comptime,
+            program_defs: self.program_defs,
+            program_comptime: self.program_comptime,
+        };
+        let expr = nia_comptime_ir::lower_expr_with_context(expr, &context).map_err(|err| {
+            nia_comptime_engine::ComptimeError {
+                span: err.span,
+                message: err.message,
+            }
+        })?;
+        nia_comptime_engine::eval_comptime_int_expr(&expr, &mut env)
     }
 
     fn comptime_name_resolution(
@@ -588,6 +604,18 @@ struct Vtable {
 
 fn print_i32(value: &i32) {}
 let vtable: Vtable = { print: & print_i32 };
+"#,
+        );
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn accepts_static_integer_expression_from_comptime_value() {
+        let checked = check(
+            r#"
+comptime let base = 20;
+var value: i32 = base + 2;
 "#,
         );
 

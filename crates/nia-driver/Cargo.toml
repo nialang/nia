@@ -17,6 +17,7 @@ nia-body-ir.workspace = true
 nia-function-ir.workspace = true
 nia-ids.workspace = true
 nia-layout.workspace = true
+nia-static-ir.workspace = true
 nia-ty.workspace = true
 
 [lib]
