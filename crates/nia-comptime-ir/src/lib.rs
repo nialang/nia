@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{BinaryOp, StringLiteral, UnaryOp};
+use nia_ast::{AssignOp, BinaryOp, StringLiteral, UnaryOp};
 use nia_ids::{GlobalConstExprId, GlobalDefId, LocalId};
 use nia_span::Span;
 
@@ -76,7 +76,24 @@ pub struct ComptimeBinding {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
+    pub is_mutable: bool,
     pub value: ComptimeExpr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeAssign {
+    pub lhs: ComptimeAssignTarget,
+    pub op: AssignOp,
+    pub rhs: ComptimeExpr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComptimeAssignTarget {
+    Local {
+        span: Span,
+        name: String,
+        local_id: Option<LocalId>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,6 +210,7 @@ pub enum ComptimeExprKind {
         op: BinaryOp,
         rhs: Box<ComptimeExpr>,
     },
+    Assign(Box<ComptimeAssign>),
     If {
         cond: Box<ComptimeExpr>,
         then_branch: ComptimeBlock,
@@ -338,6 +356,13 @@ pub fn lower_expr_with_context(
             op: *op,
             rhs: Box::new(lower_expr_with_context(rhs, context)?),
         },
+        nia_ast::ExprKind::Assign { lhs, op, rhs } => {
+            ComptimeExprKind::Assign(Box::new(ComptimeAssign {
+                lhs: lower_assign_target_with_context(lhs, context)?,
+                op: *op,
+                rhs: lower_expr_with_context(rhs, context)?,
+            }))
+        }
         nia_ast::ExprKind::If {
             cond,
             then_branch,
@@ -371,6 +396,23 @@ pub fn lower_expr_with_context(
         span: expr.span,
         kind,
     })
+}
+
+fn lower_assign_target_with_context(
+    expr: &nia_ast::Expr,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeAssignTarget, ComptimeLowerError> {
+    match &expr.kind {
+        nia_ast::ExprKind::Ident(name) => Ok(ComptimeAssignTarget::Local {
+            span: expr.span,
+            name: name.clone(),
+            local_id: context.local_id.and_then(|local_id| local_id(expr.span)),
+        }),
+        _ => Err(ComptimeLowerError {
+            span: expr.span,
+            message: "unsupported comptime assignment target".to_string(),
+        }),
+    }
 }
 
 fn lower_array_elements_with_context(
@@ -497,6 +539,7 @@ fn lower_stmt_with_context(
                 span: stmt.span,
                 name: binding.name.clone(),
                 local_id: context.local_id.and_then(|local_id| local_id(stmt.span)),
+                is_mutable: !binding.is_let,
                 value: lower_expr_with_context(value, context)?,
             })
         }
