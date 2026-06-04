@@ -101,6 +101,91 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_if_expression_drives_array_lengths() {
+    let root = temp_dir("comptime_function_if_expression_drives_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(use_wide: bool) usize {
+    if use_wide {
+        let word: usize = 8;
+        word
+    } else {
+        let word: usize = 4;
+        word
+    }
+}
+
+comptime let bits: usize = @builtin().target.pointer_width;
+comptime let n: usize = width(bits == 64);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_if_branch_return_drives_array_lengths() {
+    let root = temp_dir("comptime_function_if_branch_return_drives_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn word_bytes(bits: usize) usize {
+    if bits == 64 {
+        return 8;
+    } else {
+        return 4;
+    }
+}
+
+comptime let bits: usize = @builtin().target.pointer_width;
+comptime let n: usize = word_bytes(bits);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_return_expression_propagates_nested_return() {
+    let root = temp_dir("comptime_function_return_expression_propagates_nested_return");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(use_wide: bool) usize {
+    return if use_wide {
+        return 8;
+    } else {
+        4
+    };
+}
+
+comptime let n: usize = width(true);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn function_body_comptime_if_uses_comptime_function_condition() {
     let root = temp_dir("function_body_comptime_if_uses_comptime_function_condition");
     write(
