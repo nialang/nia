@@ -1812,6 +1812,85 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_inferred_comptime_value() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_inferred_comptime_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let width = 4usize;
+comptime let n: usize = id(width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_local_inferred_comptime_value() {
+    let root =
+        temp_dir("generic_comptime_function_infers_type_arg_from_local_inferred_comptime_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    comptime let width = 4usize;
+    comptime let n: usize = id(width);
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_inferred_comptime_value_has_runtime_type() {
+    let root = temp_dir("imported_inferred_comptime_value_has_runtime_type");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime let width = 4usize;
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(config::width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_nested_call_return_type() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_nested_call_return_type");
     write(

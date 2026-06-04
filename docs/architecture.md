@@ -596,6 +596,15 @@ instead of teaching the evaluator about Nia's type system, while still giving
 generic comptime calls, `@builtin()` structs, target data, and ordinary user
 comptime structs one shared typed representation.
 
+Typed comptime bindings are not limited to explicit type annotations. When a
+`comptime` binding has no source annotation, the checker derives its typed
+value from the initializer's typed comptime expression and records that in
+`ComptimeCheck::typed_values`. Cross-module body checking consumes those typed
+values through the program comptime query result and imports runtime types into
+the current module interner at the use site. Item signatures remain the source
+signature surface; inferred comptime value types are semantic query output, not
+retroactive signature data.
+
 Typed comptime expression inference belongs to this checker as well. It derives
 runtime types for source-shaped comptime expressions only when the type is a
 semantic consequence of the expression and available tables, such as suffixed
