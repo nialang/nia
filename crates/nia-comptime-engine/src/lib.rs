@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{BinaryOp, Expr, ExprKind, TypeRef, UnaryOp};
+use nia_ast::{
+    BinaryOp, BindingStmt, Block, Expr, ExprKind, FunctionItem, Param, Stmt, StmtKind, TypeRef,
+    UnaryOp,
+};
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
 use std::collections::BTreeMap;
@@ -38,6 +41,57 @@ pub trait ComptimeEnv {
         builtin: LayoutBuiltin,
         ty: &TypeRef,
     ) -> Result<ComptimeValue, ComptimeError>;
+
+    fn call_function(
+        &mut self,
+        span: Span,
+        callee: &Expr,
+        args: Vec<ComptimeValue>,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = callee;
+        let _ = args;
+        Err(ComptimeError {
+            span,
+            message: "unsupported comptime function call".to_string(),
+        })
+    }
+
+    fn push_function_frame(&mut self, span: Span) -> Result<(), ComptimeError> {
+        Err(ComptimeError {
+            span,
+            message: "comptime function calls are not available in this context".to_string(),
+        })
+    }
+
+    fn pop_function_frame(&mut self) {}
+
+    fn bind_function_param(
+        &mut self,
+        span: Span,
+        param: &Param,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = param;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "comptime function parameters are not available in this context".to_string(),
+        })
+    }
+
+    fn bind_function_local(
+        &mut self,
+        span: Span,
+        binding: &BindingStmt,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = binding;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "comptime function locals are not available in this context".to_string(),
+        })
+    }
 }
 
 #[derive(Default)]
@@ -114,8 +168,16 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
             name,
             type_arg: None,
         } => env.resolve_builtin_value(expr.span, name),
-        ExprKind::Call { callee, args } if args.is_empty() => {
+        ExprKind::Call { callee, args } => {
             if let ExprKind::Builtin { name, type_arg } = &callee.kind {
+                if !args.is_empty() {
+                    return Err(ComptimeError {
+                        span: expr.span,
+                        message: format!(
+                            "unsupported builtin call in comptime expression: @{name}"
+                        ),
+                    });
+                }
                 if let Some(type_arg) = type_arg {
                     let Some(builtin) = LayoutBuiltin::from_name(name) else {
                         return Err(ComptimeError {
@@ -128,10 +190,11 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                     env.resolve_builtin_value(expr.span, name)
                 }
             } else {
-                Err(ComptimeError {
-                    span: expr.span,
-                    message: "unsupported comptime expression".to_string(),
-                })
+                let args = args
+                    .iter()
+                    .map(|arg| eval_expr(arg, env))
+                    .collect::<Result<Vec<_>, _>>()?;
+                env.call_function(expr.span, callee, args)
             }
         }
         ExprKind::Unary {
@@ -231,6 +294,105 @@ pub fn eval_bool_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<bool, C
 
 pub fn eval_array_len_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<u64, ComptimeError> {
     int_to_array_len(expr.span, eval_int_expr(expr, env)?)
+}
+
+pub fn eval_function_call(
+    span: Span,
+    function_span: Span,
+    function: &FunctionItem,
+    args: Vec<ComptimeValue>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    if !function.is_comptime || function.is_extern {
+        return Err(ComptimeError {
+            span,
+            message: "comptime expression can only call `comptime fn`".to_string(),
+        });
+    }
+    if !function.generics.is_empty() {
+        return Err(ComptimeError {
+            span,
+            message: "generic comptime functions are not supported yet".to_string(),
+        });
+    }
+    let Some(body) = &function.body else {
+        return Err(ComptimeError {
+            span: function_span,
+            message: "comptime function requires a body".to_string(),
+        });
+    };
+    if function.params.len() != args.len() {
+        return Err(ComptimeError {
+            span,
+            message: format!(
+                "comptime function argument count mismatch: expected {}, got {}",
+                function.params.len(),
+                args.len()
+            ),
+        });
+    }
+    env.push_function_frame(span)?;
+    for (param, value) in function.params.iter().zip(args) {
+        if let Err(err) = env.bind_function_param(param.span, param, value) {
+            env.pop_function_frame();
+            return Err(err);
+        }
+    }
+    let result = eval_function_block(body, env).and_then(|value| {
+        value.ok_or_else(|| ComptimeError {
+            span: body.span,
+            message: "comptime function must return a value".to_string(),
+        })
+    });
+    env.pop_function_frame();
+    result
+}
+
+fn eval_function_block(
+    block: &Block,
+    env: &mut impl ComptimeEnv,
+) -> Result<Option<ComptimeValue>, ComptimeError> {
+    for stmt in &block.stmts {
+        if let Some(value) = eval_function_stmt(stmt, env)? {
+            return Ok(Some(value));
+        }
+    }
+    block
+        .tail
+        .as_deref()
+        .map_or(Ok(None), |tail| eval_expr(tail, env).map(Some))
+}
+
+fn eval_function_stmt(
+    stmt: &Stmt,
+    env: &mut impl ComptimeEnv,
+) -> Result<Option<ComptimeValue>, ComptimeError> {
+    match &stmt.kind {
+        StmtKind::Binding(binding) => {
+            let Some(value) = &binding.value else {
+                return Err(ComptimeError {
+                    span: stmt.span,
+                    message: "comptime function binding requires an initializer".to_string(),
+                });
+            };
+            let value = eval_expr(value, env)?;
+            env.bind_function_local(stmt.span, binding, value)?;
+            Ok(None)
+        }
+        StmtKind::Return(value) => {
+            let Some(value) = value else {
+                return Err(ComptimeError {
+                    span: stmt.span,
+                    message: "comptime function must return a value".to_string(),
+                });
+            };
+            eval_expr(value, env).map(Some)
+        }
+        _ => Err(ComptimeError {
+            span: stmt.span,
+            message: "unsupported statement in comptime function body".to_string(),
+        }),
+    }
 }
 
 pub fn eval_int_literal(text: &str) -> Result<i128, String> {

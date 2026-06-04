@@ -216,10 +216,22 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let signature = &resolved.signature;
+        if signature.is_comptime && !self.in_comptime_context() {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "`comptime fn` can only be called from a comptime expression",
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.error();
+        }
         if signature.generics.is_empty() {
             let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
-            self.record_resolved_call(span, ResolvedCall::Function(resolved.def_id));
+            if !signature.is_comptime {
+                self.record_resolved_call(span, ResolvedCall::Function(resolved.def_id));
+            }
             return signature.return_type;
         }
         self.check_inferred_generic_function_call(span, resolved.def_id, signature, args, expected)

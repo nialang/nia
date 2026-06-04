@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
-use nia_ast::{AssignOp, BinaryOp, BracketArg, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp};
+use nia_ast::{AssignOp, BinaryOp, BracketArg, ComptimeIfExpr, Expr, ExprKind, IndexArg, UnaryOp};
+use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp, ComptimeIfSelection};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
@@ -238,12 +238,9 @@ impl<'a> BodyChecker<'a> {
                 then_branch,
                 else_branch,
             } => self.check_if_expr(cond, then_branch, else_branch.as_deref(), expected),
-            ExprKind::ComptimeIf(comptime_if) => self.check_if_expr(
-                &comptime_if.cond,
-                &comptime_if.then_branch,
-                comptime_if.else_branch.as_deref(),
-                expected,
-            ),
+            ExprKind::ComptimeIf(comptime_if) => {
+                self.check_comptime_if_expr(expr.span, comptime_if, expected)
+            }
             ExprKind::Switch(switch) => self.check_switch_expr(switch, expected),
         };
         let ty = if let Some(expected) = expected {
@@ -554,6 +551,40 @@ impl<'a> BodyChecker<'a> {
                 .unwrap_or(else_ty)
         } else {
             then_ty
+        }
+    }
+
+    fn check_comptime_if_expr(
+        &mut self,
+        span: Span,
+        comptime_if: &ComptimeIfExpr,
+        expected: Option<InternedTyId>,
+    ) -> InternedTyId {
+        match self.with_comptime_context(|this| {
+            nia_comptime_engine::eval_bool_expr(&comptime_if.cond, this)
+        }) {
+            Ok(true) => {
+                self.comptime_if_selections
+                    .insert(span, ComptimeIfSelection::Then);
+                self.check_block_with_expected(&comptime_if.then_branch, expected)
+            }
+            Ok(false) => {
+                let Some(else_branch) = comptime_if.else_branch.as_deref() else {
+                    self.comptime_if_selections
+                        .insert(span, ComptimeIfSelection::None);
+                    return self.void();
+                };
+                self.comptime_if_selections
+                    .insert(span, ComptimeIfSelection::Else);
+                self.check_expr_with_expected(else_branch, expected)
+            }
+            Err(err) => {
+                self.diagnostics
+                    .push(Diagnostic::error(err.span, err.message));
+                self.comptime_if_selections
+                    .insert(span, ComptimeIfSelection::None);
+                self.error()
+            }
         }
     }
 
@@ -957,7 +988,11 @@ impl<'a> BodyChecker<'a> {
             Some(LocalUse::ImportAlias)
             | Some(LocalUse::TypePrefix)
             | Some(LocalUse::Unresolved)
-            | None => self.error(),
+            | None => {
+                self.diagnostics
+                    .push(Diagnostic::error(span, "name is unresolved"));
+                self.error()
+            }
         }
     }
 

@@ -242,6 +242,10 @@ impl Parser {
         self.at(TokenKind::Comptime) && matches!(self.tokens.nth_kind(1), Some(TokenKind::If))
     }
 
+    fn at_comptime_fn(&self) -> bool {
+        self.at(TokenKind::Comptime) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Fn))
+    }
+
     fn bump(&mut self) -> SyntaxToken {
         self.tokens.bump()
     }

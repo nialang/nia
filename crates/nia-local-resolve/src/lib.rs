@@ -2,12 +2,13 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    ArrayLen, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, ItemKind, Module, Stmt,
-    StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef,
+    ArrayLen, BindingStmt, Block, Expr, ExprKind, FunctionItem, IndexArg, Module, Stmt, StmtKind,
+    SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef,
 };
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::LocalId;
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -89,7 +90,8 @@ pub fn resolve_module_locals(
     defs: &DefCollection,
     values: &ValueResolution,
 ) -> LocalResolution {
-    resolve_module_locals_with_source(module, defs, values, None)
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_locals_from_item_tree(&item_tree, defs, values)
 }
 
 pub fn resolve_module_locals_with_source(
@@ -98,8 +100,9 @@ pub fn resolve_module_locals_with_source(
     values: &ValueResolution,
     source_version: Option<SourceVersion>,
 ) -> LocalResolution {
-    resolve_module_locals_with_origins(
-        module,
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_locals_from_item_tree_with_origins(
+        &item_tree,
         defs,
         values,
         source_version,
@@ -109,6 +112,57 @@ pub fn resolve_module_locals_with_source(
 
 pub fn resolve_module_locals_with_origins(
     module: &Module,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    source_version: Option<SourceVersion>,
+    origins: &NodeOriginTable,
+) -> LocalResolution {
+    let item_tree = ModuleItemTree::from_module(module);
+    resolve_module_locals_from_item_tree_with_origins(
+        &item_tree,
+        defs,
+        values,
+        source_version,
+        origins,
+    )
+}
+
+pub fn resolve_module_locals_from_item_tree(
+    item_tree: &ModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+) -> LocalResolution {
+    resolve_module_locals_from_item_tree_with_origins(
+        item_tree,
+        defs,
+        values,
+        None,
+        &NodeOriginTable::default(),
+    )
+}
+
+pub fn resolve_module_locals_from_active_item_tree_with_origins(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    source_version: Option<SourceVersion>,
+    origins: &NodeOriginTable,
+) -> LocalResolution {
+    resolve_module_locals_from_items(&item_tree.items, defs, values, source_version, origins)
+}
+
+pub fn resolve_module_locals_from_item_tree_with_origins(
+    item_tree: &ModuleItemTree,
+    defs: &DefCollection,
+    values: &ValueResolution,
+    source_version: Option<SourceVersion>,
+    origins: &NodeOriginTable,
+) -> LocalResolution {
+    resolve_module_locals_from_items(&item_tree.items, defs, values, source_version, origins)
+}
+
+fn resolve_module_locals_from_items(
+    items: &[ItemTreeNode],
     defs: &DefCollection,
     values: &ValueResolution,
     source_version: Option<SourceVersion>,
@@ -127,7 +181,7 @@ pub fn resolve_module_locals_with_origins(
         diagnostics: Vec::new(),
         scopes: Vec::new(),
     };
-    resolver.resolve_module(module);
+    resolver.resolve_items(items);
     LocalResolution {
         locals: resolver.locals,
         local_defs: resolver.local_defs,
@@ -159,48 +213,52 @@ struct ScopedLocal {
 }
 
 impl<'a> LocalResolver<'a> {
-    fn resolve_module(&mut self, module: &Module) {
-        for item in &module.items {
-            match &item.kind {
-                ItemKind::Function(function) => self.resolve_function(function),
-                ItemKind::Trait(item_trait) => {
-                    self.resolve_where_clause(&item_trait.where_clause);
-                    for method in &item_trait.methods {
-                        self.resolve_function(&method.function);
-                    }
+    fn resolve_items(&mut self, items: &[ItemTreeNode]) {
+        for item in items {
+            self.resolve_item_tree_node(item);
+        }
+    }
+
+    fn resolve_item_tree_node(&mut self, item: &ItemTreeNode) {
+        match &item.kind {
+            ItemTreeNodeKind::Function(function) => self.resolve_function(function),
+            ItemTreeNodeKind::Trait(item_trait) => {
+                self.resolve_where_clause(&item_trait.where_clause);
+                for method in &item_trait.methods {
+                    self.resolve_function(&method.function);
                 }
-                ItemKind::Extend(extend) => {
-                    self.resolve_type(&extend.target);
-                    if let Some(trait_ref) = &extend.trait_ref {
-                        self.resolve_type(trait_ref);
-                    }
-                    self.resolve_where_clause(&extend.where_clause);
-                    for method in &extend.methods {
-                        self.resolve_function(&method.function);
-                    }
+            }
+            ItemTreeNodeKind::Extend(extend) => {
+                self.resolve_type(&extend.target);
+                if let Some(trait_ref) = &extend.trait_ref {
+                    self.resolve_type(trait_ref);
                 }
-                ItemKind::Enum(item_enum) => {
-                    for variant in &item_enum.variants {
-                        if let Some(value) = &variant.value {
-                            self.resolve_expr(value);
-                        }
-                    }
+                self.resolve_where_clause(&extend.where_clause);
+                for method in &extend.methods {
+                    self.resolve_function(&method.function);
                 }
-                ItemKind::Binding(binding) => {
-                    if let Some(ty) = &binding.ty {
-                        self.resolve_type(ty);
-                    }
-                    if let Some(value) = &binding.value {
+            }
+            ItemTreeNodeKind::Enum(item_enum) => {
+                for variant in &item_enum.variants {
+                    if let Some(value) = &variant.value {
                         self.resolve_expr(value);
                     }
                 }
-                ItemKind::Import(_)
-                | ItemKind::Using(_)
-                | ItemKind::ComptimeIf(_)
-                | ItemKind::Struct(_)
-                | ItemKind::Union(_)
-                | ItemKind::TypeAlias(_) => {}
             }
+            ItemTreeNodeKind::Binding(binding) => {
+                if let Some(ty) = &binding.ty {
+                    self.resolve_type(ty);
+                }
+                if let Some(value) = &binding.value {
+                    self.resolve_expr(value);
+                }
+            }
+            ItemTreeNodeKind::Import(_)
+            | ItemTreeNodeKind::Using(_)
+            | ItemTreeNodeKind::ComptimeIf(_)
+            | ItemTreeNodeKind::Struct(_)
+            | ItemTreeNodeKind::Union(_)
+            | ItemTreeNodeKind::TypeAlias(_) => {}
         }
     }
 
@@ -693,10 +751,6 @@ impl<'a> LocalResolver<'a> {
                     self.record_use(span, LocalUse::Local(local.id));
                 } else {
                     self.record_use(span, LocalUse::Unresolved);
-                    self.diagnostics.push(Diagnostic::error(
-                        span,
-                        format!("unknown local or value `{name}`"),
-                    ));
                 }
             }
             Some(ValueNameResolution::Error) => {
@@ -776,11 +830,15 @@ impl<'a> LocalResolver<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_defs::{ModuleId, collect_module_defs};
+    use nia_defs::{ModuleId, collect_module_defs, collect_module_defs_from_active_item_tree};
+    use nia_item_tree::ModuleItemTree;
     use nia_node_id::{NodePosition, SyntaxKind};
     use nia_parser::{parse_module, parse_module_syntax_with_origins};
     use nia_source::{SourceId, SourceRevision, SourceVersion};
-    use nia_value_resolve::resolve_module_values;
+    use nia_value_resolve::{
+        ProgramDefsContext as ValueProgramDefsContext, resolve_module_values,
+        resolve_module_values_from_active_item_tree,
+    };
 
     #[test]
     fn resolves_params_and_local_bindings() {
@@ -887,11 +945,14 @@ fn main() i32 {
         let defs = collect_module_defs(ModuleId(0), &module);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
-        assert_eq!(locals.diagnostics.len(), 1);
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(
-            locals.diagnostics[0]
-                .message
-                .contains("unknown local or value `missing`")
+            locals
+                .uses
+                .values()
+                .any(|use_kind| matches!(use_kind, LocalUse::Unresolved)),
+            "{:?}",
+            locals.uses
         );
     }
 
@@ -1040,5 +1101,63 @@ fn main() i32 {
             "{:?}",
             locals.uses
         );
+    }
+
+    #[test]
+    fn resolves_locals_from_active_item_tree_only() {
+        let (module, errors) = parse_module(
+            r#"
+comptime if false {
+    fn skipped() i32 {
+        missing
+    }
+} else {
+    fn selected() i32 {
+        var value = 1;
+        value
+    }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = ModuleItemTree::from_module(&module);
+        let active = tree.active_items(&mut BoolResolver(false)).unwrap();
+        let defs = collect_module_defs_from_active_item_tree(ModuleId(0), &active);
+        assert!(defs.diagnostics.is_empty(), "{:?}", defs.diagnostics);
+        let values = resolve_module_values_from_active_item_tree(
+            &active,
+            &defs,
+            &nia_imports::ImportAliasMap::default(),
+            ValueProgramDefsContext::empty(),
+            &nia_defs::PublicSurfaces::default(),
+            &nia_defs::ModuleUsingScope::default(),
+        );
+        assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
+        let locals = resolve_module_locals_from_active_item_tree_with_origins(
+            &active,
+            &defs,
+            &values,
+            None,
+            &NodeOriginTable::default(),
+        );
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+        assert!(locals.locals.iter().any(|(_, local)| local.name == "value"));
+    }
+
+    struct BoolResolver(bool);
+
+    impl nia_item_tree::ComptimeBranchResolver for BoolResolver {
+        fn resolve_comptime_if(
+            &mut self,
+            span: Span,
+            _cond: &nia_ast::Expr,
+        ) -> Result<nia_item_tree::ComptimeBranch, nia_item_tree::ItemTreeError> {
+            let _ = span;
+            Ok(if self.0 {
+                nia_item_tree::ComptimeBranch::Then
+            } else {
+                nia_item_tree::ComptimeBranch::Else
+            })
+        }
     }
 }

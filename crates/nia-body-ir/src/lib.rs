@@ -13,6 +13,10 @@ pub struct BodyIr {
     pub interner: TyInterner,
     pub function_bodies: HashMap<GlobalDefId, TypedBody>,
     pub global_inits: HashMap<GlobalDefId, StaticInit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BodyFacts {
     pub expr_types: HashMap<Span, InternedTyId>,
     pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
@@ -20,6 +24,7 @@ pub struct BodyIr {
     pub trait_object_coercions: HashMap<Span, TraitObjectCoercion>,
     pub trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     pub local_types: HashMap<LocalId, InternedTyId>,
+    pub comptime_if_selections: HashMap<Span, ComptimeIfSelection>,
     pub builtin_values: HashMap<Span, BuiltinValue>,
     pub resolved_calls: HashMap<Span, ResolvedCall>,
     pub function_references: HashMap<Span, FunctionReference>,
@@ -33,6 +38,13 @@ pub struct BodyIr {
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     pub node_function_references: HashMap<NodeKey, FunctionReference>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComptimeIfSelection {
+    Then,
+    Else,
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -215,6 +215,7 @@ pub struct FunctionItem {
     pub return_type: Option<TypeRef>,
     pub body: Option<Block>,
     pub is_extern: bool,
+    pub is_comptime: bool,
     pub is_variadic: bool,
     pub span: Span,
 }

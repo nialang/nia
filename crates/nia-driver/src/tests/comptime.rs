@@ -62,6 +62,96 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_functions_drive_array_lengths() {
+    let root = temp_dir("comptime_functions_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(base: usize) usize {
+    let extra: usize = 2;
+    return base + extra;
+}
+
+comptime let n: usize = width(2);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    assert!(
+        main_module
+            .functions
+            .iter()
+            .all(|function| function.name != "width"),
+        "{:?}",
+        main_module.functions
+    );
+}
+
+#[test]
+fn function_body_comptime_if_uses_comptime_function_condition() {
+    let root = temp_dir("function_body_comptime_if_uses_comptime_function_condition");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn is_native_word(bits: usize) bool {
+    bits == @builtin().target.pointer_width
+}
+
+fn main() i32 {
+    comptime if is_native_word(@builtin().target.pointer_width) {
+        1
+    } else {
+        missing_name
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn runtime_call_to_comptime_function_is_rejected() {
+    let root = temp_dir("runtime_call_to_comptime_function_is_rejected");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    4
+}
+
+fn main() i32 {
+    width() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("`comptime fn` can only be called from a comptime expression")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_struct_values_drive_field_access() {
     let root = temp_dir("comptime_struct_values_drive_field_access");
     write(
@@ -216,7 +306,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .message
-            .contains("unsupported comptime expression")),
+            .contains("unsupported builtin call in comptime expression")),
         "{:?}",
         program.diagnostics
     );

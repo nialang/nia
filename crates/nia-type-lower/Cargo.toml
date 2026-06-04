@@ -11,12 +11,14 @@ nia-ast-walk.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
+nia-item-tree.workspace = true
 nia-span.workspace = true
 nia-ty.workspace = true
 nia-type-resolve.workspace = true
 
 [dev-dependencies]
 nia-defs.workspace = true
+nia-imports.workspace = true
 nia-parser.workspace = true
 
 [lib]

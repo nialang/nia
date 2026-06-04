@@ -20,14 +20,14 @@ fn main() usize {
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     assert!(
         checked
-            .ir
+            .facts
             .builtin_values
             .values()
             .any(|value| *value == BuiltinValue::Usize(8))
     );
     assert!(
         checked
-            .ir
+            .facts
             .builtin_values
             .values()
             .any(|value| *value == BuiltinValue::Usize(4))
@@ -446,9 +446,9 @@ fn make() i32 {
         checked.diagnostics
     );
     assert!(
-        checked.ir.array_to_slice_coercions.len() >= 6,
+        checked.facts.array_to_slice_coercions.len() >= 6,
         "{:?}",
-        checked.ir.array_to_slice_coercions
+        checked.facts.array_to_slice_coercions
     );
 }
 
@@ -485,7 +485,7 @@ fn main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert_eq!(checked.ir.c_string_pointer_coercions.len(), 6);
+    assert_eq!(checked.facts.c_string_pointer_coercions.len(), 6);
 }
 
 #[test]
@@ -514,5 +514,5 @@ fn main() void {
             >= 2,
         "{messages:?}"
     );
-    assert!(checked.ir.c_string_pointer_coercions.is_empty());
+    assert!(checked.facts.c_string_pointer_coercions.is_empty());
 }

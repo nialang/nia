@@ -203,15 +203,15 @@ pub(super) fn provide_type_resolution(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> TypeResolution {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let program_defs = defs_by_module_id(db);
     let imports = db.query(ImportAliasMapQuery);
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    nia_type_resolve::resolve_module_types_with_context(
-        &loaded.module,
+    nia_type_resolve::resolve_module_types_from_active_item_tree(
+        &active_item_tree,
         &defs,
         &imports,
         nia_type_resolve::ProgramDefsContext {
@@ -226,12 +226,12 @@ pub(super) fn provide_type_lowering(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> TypeLowering {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     let type_resolution = db.query(TypeResolutionQuery(module_id));
     let program_defs = defs_by_module_id(db);
-    nia_type_lower::lower_module_types_with_defs(
+    nia_type_lower::lower_module_types_from_active_item_tree(
         module_id,
-        &loaded.module,
+        &active_item_tree,
         &type_resolution,
         nia_type_lower::ProgramDefsContext {
             defs: Some(&program_defs),
@@ -243,10 +243,14 @@ pub(super) fn provide_item_signatures(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> ItemSignatures {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
-    nia_item_signatures::collect_item_signatures(&loaded.module, &defs, &type_lowering)
+    nia_item_signatures::collect_item_signatures_from_active_item_tree(
+        &active_item_tree,
+        &defs,
+        &type_lowering,
+    )
 }
 
 pub(super) fn provide_type_normalization(
@@ -371,15 +375,15 @@ pub(super) fn provide_value_resolution(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> ValueResolution {
-    let loaded = db.query(LoadedModuleQuery(module_id));
+    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let program_defs = defs_by_module_id(db);
     let imports = db.query(ImportAliasMapQuery);
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    nia_value_resolve::resolve_module_values_with_context(
-        &loaded.module,
+    nia_value_resolve::resolve_module_values_from_active_item_tree(
+        &active_item_tree,
         &defs,
         &imports,
         nia_value_resolve::ProgramDefsContext {
@@ -395,10 +399,11 @@ pub(super) fn provide_local_resolution(
     module_id: ModuleId,
 ) -> LocalResolution {
     let loaded = db.query(LoadedModuleQuery(module_id));
+    let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
-    nia_local_resolve::resolve_module_locals_with_origins(
-        &loaded.module,
+    nia_local_resolve::resolve_module_locals_from_active_item_tree_with_origins(
+        &active_item_tree,
         &defs,
         &values,
         Some(loaded.source_version),
@@ -644,7 +649,7 @@ pub(super) fn provide_monomorphization(
                 interner: &module.body_check.ir.interner,
                 comptime: &module.comptime,
                 const_exprs: &module.type_lowering.const_exprs,
-                instantiations: &module.body_check.ir.generic_instantiations,
+                instantiations: &module.body_check.facts.generic_instantiations,
             })
             .collect::<Vec<_>>(),
     )

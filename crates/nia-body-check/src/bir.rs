@@ -6,11 +6,11 @@ use nia_ast::{
 };
 use nia_body_ir::{
     BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinOperatorOp, BuiltinPlaceMethod,
-    BuiltinValue, PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements, TypedBinding, TypedBody,
-    TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn, TypedForIterator,
-    TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange, TypedRangeIteratorKind,
-    TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody,
-    TypedSwitchPattern, TypedWhile,
+    BuiltinValue, ComptimeIfSelection, PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements,
+    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
+    TypedForIterator, TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange,
+    TypedRangeIteratorKind, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
+    TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -756,7 +756,20 @@ impl<'a> BodyChecker<'a> {
                     .as_ref()
                     .map(|else_branch| Box::new(self.lower_expr(else_branch))),
             },
-            ExprKind::ComptimeIf(_) => TypedExprKind::Error,
+            ExprKind::ComptimeIf(comptime_if) => {
+                match self.comptime_if_selections.get(&expr.span).copied() {
+                    Some(ComptimeIfSelection::Then) => {
+                        TypedExprKind::Block(self.lower_body(&comptime_if.then_branch))
+                    }
+                    Some(ComptimeIfSelection::Else) => comptime_if
+                        .else_branch
+                        .as_deref()
+                        .map(|else_branch| self.lower_expr(else_branch).kind)
+                        .unwrap_or_else(|| self.lower_void_block(expr.span).kind),
+                    Some(ComptimeIfSelection::None) => self.lower_void_block(expr.span).kind,
+                    None => TypedExprKind::Error,
+                }
+            }
             ExprKind::Switch(switch) => TypedExprKind::Switch(Box::new(self.lower_switch(switch))),
         };
         TypedExpr {
@@ -783,6 +796,20 @@ impl<'a> BodyChecker<'a> {
                 ty,
                 kind: TypedExprKind::Error,
             },
+        }
+    }
+
+    fn lower_void_block(&self, span: Span) -> TypedExpr {
+        TypedExpr {
+            span,
+            ty: self.void(),
+            kind: TypedExprKind::Block(TypedBody {
+                span,
+                locals: Vec::new(),
+                stmts: Vec::new(),
+                tail: None,
+                ty: self.void(),
+            }),
         }
     }
 

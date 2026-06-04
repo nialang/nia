@@ -4336,7 +4336,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             interner: &body_check.ir.interner,
             comptime: &comptime,
             const_exprs: &type_lowering.const_exprs,
-            instantiations: &body_check.ir.generic_instantiations,
+            instantiations: &body_check.facts.generic_instantiations,
         }]);
     assert!(
         monomorphization.diagnostics.is_empty(),

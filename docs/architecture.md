@@ -402,8 +402,8 @@ small and generic. It must not embed semantic policy.
 
 Defines the source item tree used as the first semantic-facing representation of
 module contents. It keeps AST syntax out of long-lived semantic tables while
-preserving item boundaries, visibility, nested `comptime if` item branches, and
-source spans.
+preserving item boundaries, item attributes, visibility, nested `comptime if`
+item branches, and source spans.
 
 `nia-item-tree` does not evaluate comptime conditions and does not resolve names
 or types. It exposes a branch-resolver interface so higher-level queries can
@@ -411,14 +411,22 @@ select an active item surface using the same tree shape whether the condition is
 a simple target expression or a full comptime value query.
 
 The loader records both the raw module item tree and the active item tree for
-the current target. Import discovery and definition collection consume the
-active item tree, while the raw tree remains available for future lazy comptime
-branch queries and source-addressable inactive-branch diagnostics.
+the current target. Import discovery, definition collection, type-name
+resolution, type lowering, item-signature collection, value resolution, and
+local resolution consume the active item tree. These phases therefore see a
+single declaration surface selected by comptime branch queries instead of
+reinterpreting a pruned AST module. The raw tree remains available for future
+lazy comptime branch queries and source-addressable inactive-branch diagnostics.
 
 This boundary is the long-term replacement for phases directly interpreting
-top-level AST `comptime if` as an import or definition pre-pass. Inactive
-branches remain represented and source-addressable; they are not semantically
-checked for a target unless a query selects that branch.
+top-level AST `comptime if` as an import, definition, type, value, or local-name
+pre-pass. Inactive branches remain represented and source-addressable; they are
+not semantically checked for a target unless a query selects that branch.
+
+Function bodies are still stored as AST body nodes inside active item-tree
+function items until body checking. Declaration-surface phases use
+`nia-item-tree`; body-oriented facts are produced later as `BodyFacts` instead
+of adding long-lived meaning to AST expressions.
 
 ### 4.7 Query Frontend
 
@@ -478,9 +486,9 @@ analysis crate.
 
 ### 6.1 `nia-type-resolve`
 
-Resolves type names in AST type syntax to definition identities or primitive
-types. It validates type paths and generic names but does not lower them into
-canonical type ids.
+Resolves type names in active item-tree type syntax to definition identities or
+primitive types. It validates type paths and generic names but does not lower
+them into canonical type ids.
 
 ### 6.2 `nia-ty`
 
@@ -489,9 +497,9 @@ phases are interned as `TyId`.
 
 ### 6.3 `nia-type-lower`
 
-Lowers AST type references into `TyId`s. It handles primitive types, pointers,
-arrays, slices, function pointer types, nominal types, generics, enum backing
-types, and inferred array lengths.
+Lowers active item-tree type references into `TyId`s. It handles primitive
+types, pointers, arrays, slices, function pointer types, nominal types,
+generics, enum backing types, and inferred array lengths.
 
 It also validates type-level restrictions such as invalid use of `void` or `never`
 in value positions.
@@ -618,24 +626,39 @@ Type-checks function bodies and expression semantics. It owns:
 Body checking consumes earlier tables instead of rediscovering definitions or
 types from source text.
 
-It produces `nia-body-ir` as the stable body semantic boundary. Later phases
-consume that IR instead of reading ad hoc body-check side tables or
-rediscovering expression semantics from AST shape.
+It produces two explicit products:
+
+- `BodyFacts`, the body semantic surface: expression types, final
+  bracket-suffix resolution, builtin values, call targets, coercions, function
+  references, local types, generic instantiations, source-node fact keys, and
+  compile-time branch selections such as body `comptime if`;
+- `BodyIr`, the runtime checked body boundary: typed function bodies, static
+  initializers, and the interner required to interpret those typed bodies.
+
+Later phases consume these products explicitly instead of reading ad hoc
+body-check side tables or rediscovering expression semantics from AST shape.
 
 ### 9.3 `nia-body-ir`
 
-Defines the checked body semantic IR. It stores resolved, typed body facts that
-later phases may consume, including expression types, final bracket-suffix
-resolution, builtin values, call targets, coercions, function references, local
-types, and recorded generic instantiations. It also defines the typed body,
-statement, expression, place, call, aggregate, inline assembly, and control-flow
-nodes produced after body checking.
+Defines checked body data products:
+
+- `BodyFacts` is the Nia body semantic surface. It stores resolved, typed body
+  facts that later phases may consume, including expression types, final
+  bracket-suffix resolution, builtin values, call targets, coercions, function
+  references, local types, compile-time branch selections, source-node fact
+  keys, and recorded generic instantiations.
+- `BodyIr` is the runtime checked body product. It stores typed function
+  bodies, static initializers, and the type interner used by those bodies.
+- The crate also defines the typed body, statement, expression, place, call,
+  aggregate, inline assembly, and control-flow nodes produced after body
+  checking.
 
 This crate is source-shaped: blocks, if expressions, switch expressions, and
 for headers still reflect the checked language form. It is not an optimization
 MIR and does not own diagnostics or checking policy. It is the durable data
 product of body checking and the input boundary for later lowering,
-monomorphization, and backend phases.
+monomorphization, and backend phases. `BodyFacts` carries semantic side facts;
+`BodyIr` carries runtime typed bodies and static data.
 
 ### 9.4 `nia-function-ir`
 
@@ -664,10 +687,11 @@ runtime executable control and value flow.
 
 ### 9.5 `nia-function-lower`
 
-Lowers `nia-body-ir::TypedBody` into `nia-function-ir::FunctionBody`. This crate
-owns the translation from source-shaped checked bodies into explicit function
-blocks, scope edges, terminators, defer bodies, locals, builtin values, and
-inline assembly options.
+Lowers `nia-body-ir::TypedBody` from `BodyIr` into
+`nia-function-ir::FunctionBody`. This crate owns the translation from
+source-shaped checked runtime bodies into explicit function blocks, scope
+edges, terminators, defer bodies, locals, builtin values, and inline assembly
+options.
 
 This split keeps the Function IR data model reusable by validation, analyses,
 backend lowering, and codegen without making the IR crate depend on the
@@ -721,15 +745,16 @@ layouts needed by runtime values.
 ### 11.2 `nia-backend-lower`
 
 Lowers checked modules into backend IR. It uses definitions, lowered types,
-signatures, layouts, body-check results, monomorphized instances, and public
+signatures, layouts, `BodyFacts`, `BodyIr`, monomorphized instances, and public
 module information.
 
 It owns translation from semantic expressions into typed backend expressions,
 places, statements, static initializers, and inline assembly operands.
 
-Backend lowering may temporarily use `nia-body-ir` typed bodies for
-monomorphization and instance discovery, but typed bodies are not exposed through
-backend IR as the function codegen boundary.
+Backend lowering consumes body semantic facts for expression types, call
+resolution, and coercions, and consumes typed runtime bodies for function
+lowering. Typed bodies are not exposed through backend IR as the function
+codegen boundary.
 
 ### 11.3 Static Initializer IR
 

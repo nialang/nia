@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    BindingItem, ComptimeIfItem, ComptimeIfItemElse, EnumItem, ExtendItem, FunctionItem,
+    Attribute, BindingItem, ComptimeIfItem, ComptimeIfItemElse, EnumItem, ExtendItem, FunctionItem,
     ImportItem, Item, ItemKind, Module, StructItem, TraitItem, TypeAliasItem, UnionItem, UsingItem,
     Visibility,
 };
@@ -15,6 +15,7 @@ pub struct ModuleItemTree {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ItemTreeNode {
     pub span: Span,
+    pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub kind: ItemTreeNodeKind,
 }
@@ -120,7 +121,7 @@ impl ItemTreeNode {
     pub fn to_ast_item(&self) -> Item {
         Item {
             span: self.span,
-            attributes: Vec::new(),
+            attributes: self.attributes.clone(),
             vis: self.visibility,
             kind: match &self.kind {
                 ItemTreeNodeKind::Import(item) => ItemKind::Import(item.clone()),
@@ -171,6 +172,7 @@ pub fn lower_module_items(module: &Module) -> ModuleItemTree {
 fn lower_item(item: &Item) -> ItemTreeNode {
     ItemTreeNode {
         span: item.span,
+        attributes: item.attributes.clone(),
         visibility: item.vis,
         kind: match &item.kind {
             ItemKind::Import(import) => ItemTreeNodeKind::Import(import.clone()),
@@ -309,6 +311,25 @@ comptime if true {
         };
         assert_eq!(node.then_items.len(), 1);
         assert!(matches!(node.else_branch, Some(ComptimeIfElse::Items(_))));
+    }
+
+    #[test]
+    fn preserves_item_attributes_in_tree_nodes_and_ast_projection() {
+        let (module, errors) = parse_module(
+            r#"
+@[link_name("runtime_start")]
+pub extern fn start(argc: i32) i32;
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let tree = lower_module_items(&module);
+        assert_eq!(tree.items.len(), 1);
+        assert_eq!(tree.items[0].attributes.len(), 1);
+        assert_eq!(tree.items[0].attributes[0].path, vec!["link_name"]);
+
+        let projected = ActiveModuleItemTree::new(tree.items.clone(), HashSet::new()).to_module();
+        assert_eq!(projected.items[0].attributes.len(), 1);
+        assert_eq!(projected.items[0].attributes[0].path, vec!["link_name"]);
     }
 
     #[test]

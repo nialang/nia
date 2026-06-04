@@ -161,6 +161,9 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Option<BackendFunction> {
         let def_id = self.def_id_for_span_any_function(span)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
+        if signature.is_comptime {
+            return None;
+        }
         let global_def_id = self.global_def_id(def_id);
         let function_body = self
             .input
@@ -182,7 +185,12 @@ impl<'a> ModuleLowerer<'a> {
                     let ty = if signature.receiver.is_some() {
                         local_id
                             .and_then(|local_id| {
-                                self.input.body_check.ir.local_types.get(&local_id).copied()
+                                self.input
+                                    .body_check
+                                    .facts
+                                    .local_types
+                                    .get(&local_id)
+                                    .copied()
                             })
                             .unwrap_or(signature.ty)
                     } else {
