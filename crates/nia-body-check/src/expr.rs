@@ -561,7 +561,13 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         match self.with_comptime_context(|this| {
-            nia_comptime_engine::eval_bool_expr(&comptime_if.cond, this)
+            let cond = this.lower_comptime_expr(&comptime_if.cond).map_err(|err| {
+                nia_comptime_engine::ComptimeError {
+                    span: err.span,
+                    message: err.message,
+                }
+            })?;
+            nia_comptime_engine::eval_comptime_bool_expr(&cond, this)
         }) {
             Ok(true) => {
                 self.comptime_if_selections

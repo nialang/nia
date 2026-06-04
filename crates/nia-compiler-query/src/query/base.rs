@@ -167,21 +167,6 @@ impl QueryKey<DriverContext> for ProgramDefsByIdQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct ProgramModulesByIdQuery;
-
-impl QueryKey<DriverContext> for ProgramModulesByIdQuery {
-    type Value = HashMap<ModuleId, Module>;
-
-    fn name() -> &'static str {
-        "program_modules_by_id"
-    }
-
-    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
-        (db.context().providers.program_modules_by_id)(db)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct PublicSurfaceQueryValue {
     pub(super) surfaces: PublicSurfaces,

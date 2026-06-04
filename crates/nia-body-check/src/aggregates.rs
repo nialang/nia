@@ -792,10 +792,61 @@ impl ComptimeEnv for BodyChecker<'_> {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn lower_comptime_expr(
+        &self,
+        expr: &Expr,
+    ) -> Result<nia_comptime_ir::ComptimeExpr, nia_comptime_ir::ComptimeLowerError> {
+        let name_resolution = |span| self.comptime_name_resolution(span);
+        let local_id = |span| self.locals.local_defs.get(&span).copied();
+        let context = nia_comptime_ir::ComptimeLowerContext {
+            name_resolution: Some(&name_resolution),
+            local_id: Some(&local_id),
+        };
+        nia_comptime_ir::lower_expr_with_context(expr, &context)
+    }
+
+    fn comptime_name_resolution(
+        &self,
+        span: Span,
+    ) -> Option<nia_comptime_ir::ComptimeNameResolution> {
+        if let Some(local_id) = self.local_comptime_use(span) {
+            return Some(nia_comptime_ir::ComptimeNameResolution::Local(local_id));
+        }
+        if let Some(local_id) = self.local_use(span)
+            && self.comptime_call_locals.iter().rev().any(|frame| {
+                frame.locals.contains_key(&local_id)
+                    || self
+                        .locals
+                        .locals
+                        .get(local_id)
+                        .is_some_and(|local| frame.names.contains_key(&local.name))
+            })
+        {
+            return Some(nia_comptime_ir::ComptimeNameResolution::Local(local_id));
+        }
+        if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
+            return Some(nia_comptime_ir::ComptimeNameResolution::Global(global_id));
+        }
+        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
+            self.values.names.get(&span)
+        else {
+            return None;
+        };
+        Some(nia_comptime_ir::ComptimeNameResolution::Global(
+            self.global_def_id(*def_id),
+        ))
+    }
+
     fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {
         self.with_comptime_context(|this| {
             this.check_expr(count);
-            nia_comptime_engine::eval_array_len_expr(count, this)
+            let count = this.lower_comptime_expr(count).map_err(|err| {
+                nia_comptime_engine::ComptimeError {
+                    span: err.span,
+                    message: err.message,
+                }
+            })?;
+            nia_comptime_engine::eval_comptime_array_len_expr(&count, this)
         })
     }
 
