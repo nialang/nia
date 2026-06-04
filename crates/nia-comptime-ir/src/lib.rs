@@ -272,6 +272,7 @@ pub enum ComptimeExprKind {
     Switch(Box<ComptimeSwitch>),
     Cast {
         expr: Box<ComptimeExpr>,
+        ty: Option<InternedTyId>,
     },
     Block(ComptimeBlock),
 }
@@ -467,8 +468,9 @@ pub fn lower_expr_with_context(
         nia_ast::ExprKind::Switch(switch) => ComptimeExprKind::Switch(Box::new(
             lower_switch_with_context(expr.span, switch, context)?,
         )),
-        nia_ast::ExprKind::Cast { expr, .. } => ComptimeExprKind::Cast {
+        nia_ast::ExprKind::Cast { expr, ty } => ComptimeExprKind::Cast {
             expr: Box::new(lower_expr_with_context(expr, context)?),
+            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
         },
         nia_ast::ExprKind::Block(block) => {
             ComptimeExprKind::Block(lower_block_with_context(block, context)?)

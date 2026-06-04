@@ -1889,6 +1889,9 @@ impl Analyzer<'_> {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_range_iter_type(lhs_ty)
             }
+            nia_comptime_engine::ComptimeExprKind::Cast { ty: Some(ty), .. } => self
+                .import_ty_into_module_or_none(*ty, self.current_execution_module_id())
+                .map(ComptimeValueType::Runtime),
             nia_comptime_engine::ComptimeExprKind::Index { lhs, index } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_index_type(expr.span, lhs_ty, index)
