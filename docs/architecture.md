@@ -670,6 +670,11 @@ module. This keeps ordinary user comptime structs and `@builtin()` structs on
 the same typed expression path without forcing builtin data into the runtime
 type interner.
 
+Consumers outside `nia-comptime-check` should use the typed value surface's
+accessors for structural field and array element queries instead of duplicating
+shape matches. That keeps `nia-body-check` a consumer of typed comptime facts
+rather than a second owner of comptime expression inference.
+
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
 expression rules, including nested block expressions and contextual

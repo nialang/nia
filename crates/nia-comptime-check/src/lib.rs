@@ -61,11 +61,28 @@ enum ComptimeArmType {
 }
 
 impl ComptimeValueType {
-    fn runtime(&self) -> Option<InternedTyId> {
+    pub fn runtime(&self) -> Option<InternedTyId> {
         match self {
             Self::Runtime(ty) => Some(*ty),
             Self::Int | Self::Bool | Self::String | Self::Array { .. } | Self::Struct(_) => None,
         }
+    }
+
+    pub fn structural_field(&self, name: &str) -> Option<&ComptimeValueType> {
+        let Self::Struct(fields) = self else {
+            return None;
+        };
+        fields
+            .iter()
+            .find(|field| field.name == name)
+            .map(|field| &field.ty)
+    }
+
+    pub fn array_elem(&self) -> Option<(&ComptimeValueType, Option<u64>)> {
+        let Self::Array { elem, len } = self else {
+            return None;
+        };
+        Some((elem, *len))
     }
 }
 
@@ -1707,13 +1724,10 @@ impl Analyzer<'_> {
         lhs: ComptimeValueType,
         name: &str,
     ) -> Option<ComptimeValueType> {
-        match lhs {
-            ComptimeValueType::Struct(fields) => fields
-                .into_iter()
-                .find(|field| field.name == name)
-                .map(|field| field.ty),
+        match &lhs {
+            ComptimeValueType::Struct(_) => lhs.structural_field(name).cloned(),
             ComptimeValueType::Runtime(ty) => self
-                .comptime_nominal_struct_field_type(ty, name)
+                .comptime_nominal_struct_field_type(*ty, name)
                 .map(ComptimeValueType::Runtime),
             ComptimeValueType::Array { .. }
             | ComptimeValueType::Int
@@ -1729,7 +1743,8 @@ impl Analyzer<'_> {
         index: &ComptimeExpr,
     ) -> Option<ComptimeValueType> {
         match lhs {
-            ComptimeValueType::Array { elem, len } => {
+            ComptimeValueType::Array { .. } => {
+                let (elem, len) = lhs.array_elem()?;
                 if let Some(len) = len {
                     let index =
                         nia_comptime_engine::eval_comptime_array_len_expr(index, self).ok()?;
@@ -1739,7 +1754,7 @@ impl Analyzer<'_> {
                 } else {
                     nia_comptime_engine::eval_comptime_int_expr(index, self).ok()?;
                 }
-                Some(*elem)
+                Some(elem.clone())
             }
             ComptimeValueType::Runtime(ty) => self.comptime_runtime_index_type(span, ty, index),
             ComptimeValueType::Struct(_)
