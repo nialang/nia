@@ -556,15 +556,19 @@ name = "nia-static-check"
 version = "0.3.2"
 dependencies = [
  "nia-ast",
+ "nia-comptime-check",
  "nia-comptime-engine",
  "nia-comptime-ir",
  "nia-defs",
  "nia-diagnostic",
+ "nia-ids",
  "nia-item-signatures",
  "nia-local-resolve",
  "nia-parser",
  "nia-span",
+ "nia-target-config",
  "nia-type-lower",
+ "nia-type-normalize",
  "nia-type-resolve",
  "nia-value-resolve",
 ]
