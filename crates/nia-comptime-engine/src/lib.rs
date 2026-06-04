@@ -2,9 +2,9 @@
 use nia_ast::{BinaryOp, UnaryOp};
 pub use nia_comptime_ir::{
     ComptimeArrayElements, ComptimeAssign, ComptimeAssignTarget, ComptimeBinding, ComptimeBlock,
-    ComptimeExpr, ComptimeExprKind, ComptimeFunction, ComptimeNameResolution, ComptimeParam,
-    ComptimeStmt, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
-    ComptimeSwitchPattern,
+    ComptimeExpr, ComptimeExprKind, ComptimeForBinding, ComptimeForIn, ComptimeFunction,
+    ComptimeNameResolution, ComptimeParam, ComptimeRange, ComptimeStmt, ComptimeStmtKind,
+    ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern,
 };
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
@@ -16,9 +16,17 @@ pub enum ComptimeValue {
     Bool(bool),
     String(String),
     Array(Vec<ComptimeValue>),
+    Range(ComptimeRangeValue),
     Struct(BTreeMap<String, ComptimeValue>),
     Optional(Option<Box<ComptimeValue>>),
     ErrorUnion(Result<Box<ComptimeValue>, Box<ComptimeValue>>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeRangeValue {
+    pub start: Option<i128>,
+    pub end: Option<i128>,
+    pub inclusive: bool,
 }
 
 enum ComptimeEvalFlow {
@@ -174,7 +182,7 @@ pub trait ComptimeEnv {
         })
     }
 
-    fn bind_switch_pattern_local(
+    fn bind_pattern_local(
         &mut self,
         span: Span,
         name: &str,
@@ -395,6 +403,9 @@ fn eval_comptime_expr_flow(
             }
             ComptimeExprKind::Assign(assign) => {
                 return eval_assign_expr_flow(expr.span, assign, env);
+            }
+            ComptimeExprKind::Range(range) => {
+                return eval_range_expr_flow(range, env);
             }
             ComptimeExprKind::If {
                 cond,
@@ -664,7 +675,7 @@ fn bind_switch_pattern_value(
     binding: &ComptimeSwitchBinding,
     env: &mut impl ComptimeEnv,
 ) -> Result<(), ComptimeError> {
-    env.bind_switch_pattern_local(
+    env.bind_pattern_local(
         binding.span,
         &binding.name,
         binding.local_id,
@@ -941,6 +952,7 @@ fn eval_function_stmt(
             then_branch,
             else_branch,
         } => eval_if_stmt(cond, then_branch, else_branch.as_ref(), env),
+        ComptimeStmtKind::ForIn(for_in) => eval_for_in_stmt(stmt.span, for_in, env),
         ComptimeStmtKind::While { cond, body } => eval_while_stmt(stmt.span, cond, body, env),
         ComptimeStmtKind::Loop { body } => eval_loop_stmt(stmt.span, body, env),
     }
@@ -1032,6 +1044,180 @@ fn assign_op_binary(op: nia_ast::AssignOp) -> Option<BinaryOp> {
         nia_ast::AssignOp::BitXor => BinaryOp::BitXor,
         nia_ast::AssignOp::BitOr => BinaryOp::BitOr,
     })
+}
+
+fn eval_range_expr_flow(
+    range: &ComptimeRange,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let start = match eval_optional_range_bound(range.start.as_deref(), env)? {
+        ComptimeRangeBoundFlow::Value(value) => value,
+        ComptimeRangeBoundFlow::Flow(flow) => return Ok(flow),
+    };
+    let end = match eval_optional_range_bound(range.end.as_deref(), env)? {
+        ComptimeRangeBoundFlow::Value(value) => value,
+        ComptimeRangeBoundFlow::Flow(flow) => return Ok(flow),
+    };
+    Ok(ComptimeEvalFlow::Value(ComptimeValue::Range(
+        ComptimeRangeValue {
+            start,
+            end,
+            inclusive: range.inclusive,
+        },
+    )))
+}
+
+enum ComptimeRangeBoundFlow {
+    Value(Option<i128>),
+    Flow(ComptimeEvalFlow),
+}
+
+fn eval_optional_range_bound(
+    expr: Option<&ComptimeExpr>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
+    let Some(expr) = expr else {
+        return Ok(ComptimeRangeBoundFlow::Value(None));
+    };
+    eval_range_bound(expr, env)
+}
+
+fn eval_range_bound(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
+    match eval_comptime_expr_flow(expr, env)? {
+        ComptimeEvalFlow::Value(ComptimeValue::Int(value)) => {
+            Ok(ComptimeRangeBoundFlow::Value(Some(value)))
+        }
+        ComptimeEvalFlow::Value(_) => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime range bound must be an integer".to_string(),
+        }),
+        ComptimeEvalFlow::Return(value) => Ok(ComptimeRangeBoundFlow::Flow(
+            ComptimeEvalFlow::Return(value),
+        )),
+        ComptimeEvalFlow::Propagate(value) => Ok(ComptimeRangeBoundFlow::Flow(
+            ComptimeEvalFlow::Propagate(value),
+        )),
+        ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime range bound cannot contain loop control flow".to_string(),
+        }),
+        ComptimeEvalFlow::Void => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime range bound requires a value".to_string(),
+        }),
+    }
+}
+
+fn eval_for_in_stmt(
+    span: Span,
+    for_in: &ComptimeForIn,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let iter = match eval_comptime_expr_flow(&for_in.iter, env)? {
+        ComptimeEvalFlow::Value(value) => value,
+        flow @ (ComptimeEvalFlow::Return(_)
+        | ComptimeEvalFlow::Propagate(_)
+        | ComptimeEvalFlow::Break
+        | ComptimeEvalFlow::Continue) => return Ok(flow),
+        ComptimeEvalFlow::Void => {
+            return Err(ComptimeError {
+                span: for_in.iter.span,
+                message: "comptime for-in iterator requires a value".to_string(),
+            });
+        }
+    };
+    match iter {
+        ComptimeValue::Array(values) => {
+            eval_for_in_values(span, &for_in.binding, &for_in.body, values, env)
+        }
+        ComptimeValue::Range(range) => {
+            eval_for_in_range(span, &for_in.binding, &for_in.body, &range, env)
+        }
+        _ => Err(ComptimeError {
+            span: for_in.iter.span,
+            message: "comptime for-in requires an array or range value".to_string(),
+        }),
+    }
+    .map(|flow| match flow {
+        ComptimeEvalFlow::Break => ComptimeEvalFlow::Void,
+        flow => flow,
+    })
+}
+
+fn eval_for_in_values(
+    span: Span,
+    binding: &ComptimeForBinding,
+    body: &ComptimeBlock,
+    values: Vec<ComptimeValue>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    for value in values {
+        match eval_for_in_iteration(span, binding, body, value, env)? {
+            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
+            flow @ (ComptimeEvalFlow::Break
+            | ComptimeEvalFlow::Return(_)
+            | ComptimeEvalFlow::Propagate(_)) => return Ok(flow),
+        }
+    }
+    Ok(ComptimeEvalFlow::Void)
+}
+
+fn eval_for_in_range(
+    span: Span,
+    binding: &ComptimeForBinding,
+    body: &ComptimeBlock,
+    range: &ComptimeRangeValue,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let Some(mut current) = range.start else {
+        return Err(ComptimeError {
+            span,
+            message: "comptime for-in range requires a start bound".to_string(),
+        });
+    };
+    for _ in 0..COMPTIME_LOOP_LIMIT {
+        if let Some(end) = range.end {
+            let done = if range.inclusive {
+                current > end
+            } else {
+                current >= end
+            };
+            if done {
+                return Ok(ComptimeEvalFlow::Void);
+            }
+        }
+        match eval_for_in_iteration(span, binding, body, ComptimeValue::Int(current), env)? {
+            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
+            flow @ (ComptimeEvalFlow::Break
+            | ComptimeEvalFlow::Return(_)
+            | ComptimeEvalFlow::Propagate(_)) => return Ok(flow),
+        }
+        current = current.checked_add(1).ok_or_else(|| ComptimeError {
+            span,
+            message: "integer overflow in comptime for-in range".to_string(),
+        })?;
+    }
+    Err(ComptimeError {
+        span,
+        message: format!("comptime for-in range exceeded {COMPTIME_LOOP_LIMIT} iterations"),
+    })
+}
+
+fn eval_for_in_iteration(
+    span: Span,
+    binding: &ComptimeForBinding,
+    body: &ComptimeBlock,
+    value: ComptimeValue,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    env.push_comptime_scope(span)?;
+    let bind_result = env.bind_pattern_local(binding.span, &binding.name, binding.local_id, value);
+    let result = bind_result.and_then(|()| eval_function_block(body, env));
+    env.pop_comptime_scope();
+    result
 }
 
 fn eval_while_stmt(
@@ -1272,6 +1458,7 @@ fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
         (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => Some(lhs == rhs),
         (ComptimeValue::Bool(lhs), ComptimeValue::Bool(rhs)) => Some(lhs == rhs),
         (ComptimeValue::String(lhs), ComptimeValue::String(rhs)) => Some(lhs == rhs),
+        (ComptimeValue::Range(lhs), ComptimeValue::Range(rhs)) => Some(lhs == rhs),
         (ComptimeValue::Array(lhs), ComptimeValue::Array(rhs)) => {
             if lhs.len() != rhs.len() {
                 return Some(false);
@@ -1687,7 +1874,7 @@ fn main() bool {
             self.scopes.pop();
         }
 
-        fn bind_switch_pattern_local(
+        fn bind_pattern_local(
             &mut self,
             span: Span,
             name: &str,

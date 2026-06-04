@@ -734,6 +734,100 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_for_in_arrays_drive_array_lengths() {
+    let root = temp_dir("comptime_function_for_in_arrays_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(values: [4]usize) usize {
+    var total: usize = 0;
+    for value in values {
+        total += value;
+    }
+    total
+}
+
+comptime let n: usize = width([1, 2, 3, 4]);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_for_in_ranges_drive_array_lengths() {
+    let root = temp_dir("comptime_function_for_in_ranges_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var total: usize = 0;
+    for value in 0..=5 {
+        if value == 2 {
+            continue;
+        }
+        if value == 5 {
+            break;
+        }
+        total += value;
+    }
+    total
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_rejects_for_in_ranges_without_start_bound() {
+    let root = temp_dir("comptime_function_rejects_for_in_ranges_without_start_bound");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var total: usize = 0;
+    for value in ..5 {
+        total += value;
+    }
+    total
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("comptime for-in range requires a start bound")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_rejects_escaped_loop_control_flow() {
     let root = temp_dir("comptime_function_rejects_escaped_loop_control_flow");
     write(
