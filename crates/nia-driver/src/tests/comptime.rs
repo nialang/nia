@@ -625,7 +625,10 @@ fn comptime_function_mutable_locals_drive_loop_array_lengths() {
         r#"
 comptime fn width() usize {
     var i: usize = 0;
-    while i != 6 {
+    while true {
+        if i == 6 {
+            break;
+        }
         i += 1;
     }
     i
@@ -700,6 +703,34 @@ fn main() i32 {
         "{:?}",
         program.diagnostics
     );
+}
+
+#[test]
+fn comptime_function_if_statement_flows_return_and_else_if() {
+    let root = temp_dir("comptime_function_if_statement_flows_return_and_else_if");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(bits: usize) usize {
+    if bits == 16 {
+        return 2;
+    } else if bits == 32 {
+        return 4;
+    }
+    return 8;
+}
+
+comptime let n: usize = width(32);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]

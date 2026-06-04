@@ -425,15 +425,11 @@ fn eval_comptime_if_expr_flow(
     else_branch: Option<&ComptimeExpr>,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let cond_value = match eval_value_or_return_flow!(cond, env) {
-        ComptimeValue::Bool(value) => value,
-        _ => {
-            return Err(ComptimeError {
-                span: cond.span,
-                message: "comptime expression must evaluate to bool".to_string(),
-            });
-        }
-    };
+    let cond_value =
+        match eval_condition_flow(cond, env, "comptime expression must evaluate to bool")? {
+            ComptimeConditionFlow::Value(value) => value,
+            ComptimeConditionFlow::Flow(flow) => return Ok(flow),
+        };
     if cond_value {
         return eval_function_block(then_branch, env);
     }
@@ -940,6 +936,11 @@ fn eval_function_stmt(
         }
         ComptimeStmtKind::Break => Ok(ComptimeEvalFlow::Break),
         ComptimeStmtKind::Continue => Ok(ComptimeEvalFlow::Continue),
+        ComptimeStmtKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => eval_if_stmt(cond, then_branch, else_branch.as_ref(), env),
         ComptimeStmtKind::While { cond, body } => eval_while_stmt(stmt.span, cond, body, env),
         ComptimeStmtKind::Loop { body } => eval_loop_stmt(stmt.span, body, env),
     }
@@ -1040,29 +1041,12 @@ fn eval_while_stmt(
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for _ in 0..COMPTIME_LOOP_LIMIT {
-        let cond_value = match eval_comptime_expr_flow(cond, env)? {
-            ComptimeEvalFlow::Value(ComptimeValue::Bool(value)) => value,
-            ComptimeEvalFlow::Value(_) => {
-                return Err(ComptimeError {
-                    span: cond.span,
-                    message: "comptime while condition must evaluate to bool".to_string(),
-                });
-            }
-            ComptimeEvalFlow::Return(value) => return Ok(ComptimeEvalFlow::Return(value)),
-            ComptimeEvalFlow::Propagate(value) => return Ok(ComptimeEvalFlow::Propagate(value)),
-            ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => {
-                return Err(ComptimeError {
-                    span: cond.span,
-                    message: "comptime loop condition cannot contain loop control flow".to_string(),
-                });
-            }
-            ComptimeEvalFlow::Void => {
-                return Err(ComptimeError {
-                    span: cond.span,
-                    message: "comptime while condition requires a value".to_string(),
-                });
-            }
-        };
+        let cond_value =
+            match eval_condition_flow(cond, env, "comptime while condition must evaluate to bool")?
+            {
+                ComptimeConditionFlow::Value(value) => value,
+                ComptimeConditionFlow::Flow(flow) => return Ok(flow),
+            };
         if !cond_value {
             return Ok(ComptimeEvalFlow::Void);
         }
@@ -1096,6 +1080,61 @@ fn eval_loop_stmt(
         span,
         message: format!("comptime loop exceeded {COMPTIME_LOOP_LIMIT} iterations"),
     })
+}
+
+enum ComptimeConditionFlow {
+    Value(bool),
+    Flow(ComptimeEvalFlow),
+}
+
+fn eval_if_stmt(
+    cond: &ComptimeExpr,
+    then_branch: &ComptimeBlock,
+    else_branch: Option<&ComptimeBlock>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let cond_value =
+        match eval_condition_flow(cond, env, "comptime if condition must evaluate to bool")? {
+            ComptimeConditionFlow::Value(value) => value,
+            ComptimeConditionFlow::Flow(flow) => return Ok(flow),
+        };
+    if cond_value {
+        eval_function_block(then_branch, env)
+    } else {
+        else_branch.map_or(Ok(ComptimeEvalFlow::Void), |else_branch| {
+            eval_function_block(else_branch, env)
+        })
+    }
+}
+
+fn eval_condition_flow(
+    cond: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+    type_error: &'static str,
+) -> Result<ComptimeConditionFlow, ComptimeError> {
+    match eval_comptime_expr_flow(cond, env)? {
+        ComptimeEvalFlow::Value(ComptimeValue::Bool(value)) => {
+            Ok(ComptimeConditionFlow::Value(value))
+        }
+        ComptimeEvalFlow::Value(_) => Err(ComptimeError {
+            span: cond.span,
+            message: type_error.to_string(),
+        }),
+        ComptimeEvalFlow::Return(value) => {
+            Ok(ComptimeConditionFlow::Flow(ComptimeEvalFlow::Return(value)))
+        }
+        ComptimeEvalFlow::Propagate(value) => Ok(ComptimeConditionFlow::Flow(
+            ComptimeEvalFlow::Propagate(value),
+        )),
+        ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
+            span: cond.span,
+            message: "comptime condition cannot contain loop control flow".to_string(),
+        }),
+        ComptimeEvalFlow::Void => Err(ComptimeError {
+            span: cond.span,
+            message: "comptime condition requires a value".to_string(),
+        }),
+    }
 }
 
 pub fn eval_int_literal(text: &str) -> Result<i128, String> {
