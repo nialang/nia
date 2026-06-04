@@ -102,7 +102,9 @@ impl StaticChecker<'_> {
                     ArrayElements::List(elems) => elems
                         .iter()
                         .find_map(|elem| self.static_init_reject_reason(elem)),
-                    ArrayElements::Repeat { value, .. } => self.static_init_reject_reason(value),
+                    ArrayElements::Repeat { value, count } => self
+                        .static_init_reject_reason(value)
+                        .or_else(|| self.static_array_repeat_count_reject_reason(count)),
                 }
             }
             ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
@@ -285,6 +287,12 @@ impl StaticChecker<'_> {
             }
         })?;
         nia_comptime_engine::eval_comptime_array_len_expr(&expr, &mut env)
+    }
+
+    fn static_array_repeat_count_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
+        self.eval_static_array_index(expr)
+            .err()
+            .map(|_| "array repeat count is not a static usize constant")
     }
 
     fn eval_static_int_expr(
@@ -620,6 +628,36 @@ var value: i32 = base + 2;
         );
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn accepts_static_array_repeat_count_from_comptime_value() {
+        let checked = check(
+            r#"
+comptime let n = 3;
+var values: [3]i32 = [1; n];
+"#,
+        );
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn rejects_static_array_repeat_count_from_runtime_global() {
+        let checked = check(
+            r#"
+var n: usize = 3;
+var values: [3]i32 = [1; n];
+"#,
+        );
+
+        assert!(
+            checked.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("array repeat count is not a static usize constant")),
+            "{:?}",
+            checked.diagnostics
+        );
     }
 
     #[test]
