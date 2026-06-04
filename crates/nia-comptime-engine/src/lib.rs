@@ -16,6 +16,12 @@ pub enum ComptimeValue {
     Struct(BTreeMap<String, ComptimeValue>),
 }
 
+enum ComptimeEvalFlow {
+    Value(ComptimeValue),
+    Return(ComptimeValue),
+    Void,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComptimeError {
     pub span: Span,
@@ -252,22 +258,51 @@ pub fn eval_comptime_expr(
             message: format!("unsupported unary operator in comptime expression: {op:?}"),
         }),
         ComptimeExprKind::Binary { lhs, op, rhs } => eval_binary(expr.span, lhs, *op, rhs, env),
+        ComptimeExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => eval_comptime_if_expr(expr.span, cond, then_branch, else_branch.as_deref(), env),
         ComptimeExprKind::Cast { expr: inner } => eval_comptime_expr(inner, env),
-        ComptimeExprKind::Block(block) => {
-            if !block.stmts.is_empty() {
-                return Err(ComptimeError {
-                    span: expr.span,
-                    message: "comptime expression block cannot contain statements".to_string(),
-                });
-            }
-            let Some(tail) = &block.tail else {
-                return Err(ComptimeError {
-                    span: expr.span,
-                    message: "comptime expression block requires a tail expression".to_string(),
-                });
-            };
-            eval_comptime_expr(tail, env)
-        }
+        ComptimeExprKind::Block(block) => eval_value_block(block, env, "comptime expression block"),
+    }
+}
+
+fn eval_comptime_if_expr(
+    span: Span,
+    cond: &ComptimeExpr,
+    then_branch: &ComptimeBlock,
+    else_branch: Option<&ComptimeExpr>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    if eval_comptime_bool_expr(cond, env)? {
+        return eval_value_block(then_branch, env, "comptime if branch");
+    }
+    if let Some(else_branch) = else_branch {
+        eval_comptime_expr(else_branch, env)
+    } else {
+        Err(ComptimeError {
+            span,
+            message: "comptime if expression requires an else branch".to_string(),
+        })
+    }
+}
+
+fn eval_value_block(
+    block: &ComptimeBlock,
+    env: &mut impl ComptimeEnv,
+    context: &str,
+) -> Result<ComptimeValue, ComptimeError> {
+    match eval_function_block(block, env)? {
+        ComptimeEvalFlow::Value(value) => Ok(value),
+        ComptimeEvalFlow::Return(_) => Err(ComptimeError {
+            span: block.span,
+            message: format!("{context} cannot return from a comptime function"),
+        }),
+        ComptimeEvalFlow::Void => Err(ComptimeError {
+            span: block.span,
+            message: format!("{context} requires a tail expression"),
+        }),
     }
 }
 
@@ -346,11 +381,12 @@ pub fn eval_comptime_function_call(
             return Err(err);
         }
     }
-    let result = eval_function_block(&function.body, env).and_then(|value| {
-        value.ok_or_else(|| ComptimeError {
+    let result = eval_function_block(&function.body, env).and_then(|flow| match flow {
+        ComptimeEvalFlow::Value(value) | ComptimeEvalFlow::Return(value) => Ok(value),
+        ComptimeEvalFlow::Void => Err(ComptimeError {
             span: function.body.span,
             message: "comptime function must return a value".to_string(),
-        })
+        }),
     });
     env.pop_function_frame();
     result
@@ -359,27 +395,66 @@ pub fn eval_comptime_function_call(
 fn eval_function_block(
     block: &ComptimeBlock,
     env: &mut impl ComptimeEnv,
-) -> Result<Option<ComptimeValue>, ComptimeError> {
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    if block.stmts.is_empty() {
+        return eval_function_block_without_scope(block, env);
+    }
+    env.push_function_frame(block.span)?;
+    let result = eval_function_block_without_scope(block, env);
+    env.pop_function_frame();
+    result
+}
+
+fn eval_function_block_without_scope(
+    block: &ComptimeBlock,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
     for stmt in &block.stmts {
-        if let Some(value) = eval_function_stmt(stmt, env)? {
-            return Ok(Some(value));
+        if let ComptimeEvalFlow::Return(value) = eval_function_stmt(stmt, env)? {
+            return Ok(ComptimeEvalFlow::Return(value));
         }
     }
     block
         .tail
         .as_deref()
-        .map_or(Ok(None), |tail| eval_comptime_expr(tail, env).map(Some))
+        .map_or(Ok(ComptimeEvalFlow::Void), |tail| {
+            eval_function_tail_expr(tail, env)
+        })
+}
+
+fn eval_function_tail_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    match &expr.kind {
+        ComptimeExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            if eval_comptime_bool_expr(cond, env)? {
+                return eval_function_block(then_branch, env);
+            }
+            else_branch
+                .as_deref()
+                .map_or(Ok(ComptimeEvalFlow::Void), |else_branch| {
+                    eval_function_tail_expr(else_branch, env)
+                })
+        }
+        ComptimeExprKind::Block(block) => eval_function_block(block, env),
+        _ => eval_comptime_expr(expr, env).map(ComptimeEvalFlow::Value),
+    }
 }
 
 fn eval_function_stmt(
     stmt: &ComptimeStmt,
     env: &mut impl ComptimeEnv,
-) -> Result<Option<ComptimeValue>, ComptimeError> {
+) -> Result<ComptimeEvalFlow, ComptimeError> {
     match &stmt.kind {
         ComptimeStmtKind::Binding(binding) => {
             let value = eval_comptime_expr(&binding.value, env)?;
             env.bind_function_local(stmt.span, binding, value)?;
-            Ok(None)
+            Ok(ComptimeEvalFlow::Void)
         }
         ComptimeStmtKind::Return(value) => {
             let Some(value) = value else {
@@ -388,7 +463,15 @@ fn eval_function_stmt(
                     message: "comptime function must return a value".to_string(),
                 });
             };
-            eval_comptime_expr(value, env).map(Some)
+            match eval_function_tail_expr(value, env)? {
+                ComptimeEvalFlow::Value(value) | ComptimeEvalFlow::Return(value) => {
+                    Ok(ComptimeEvalFlow::Return(value))
+                }
+                ComptimeEvalFlow::Void => Err(ComptimeError {
+                    span: stmt.span,
+                    message: "comptime function must return a value".to_string(),
+                }),
+            }
         }
     }
 }

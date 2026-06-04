@@ -112,6 +112,11 @@ pub enum ComptimeExprKind {
         op: BinaryOp,
         rhs: Box<ComptimeExpr>,
     },
+    If {
+        cond: Box<ComptimeExpr>,
+        then_branch: ComptimeBlock,
+        else_branch: Option<Box<ComptimeExpr>>,
+    },
     Cast {
         expr: Box<ComptimeExpr>,
     },
@@ -193,6 +198,19 @@ pub fn lower_expr_with_context(
             lhs: Box::new(lower_expr_with_context(lhs, context)?),
             op: *op,
             rhs: Box::new(lower_expr_with_context(rhs, context)?),
+        },
+        nia_ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => ComptimeExprKind::If {
+            cond: Box::new(lower_expr_with_context(cond, context)?),
+            then_branch: lower_block_with_context(then_branch, context)?,
+            else_branch: else_branch
+                .as_deref()
+                .map(|else_branch| lower_expr_with_context(else_branch, context))
+                .transpose()?
+                .map(Box::new),
         },
         nia_ast::ExprKind::Cast { expr, .. } => ComptimeExprKind::Cast {
             expr: Box::new(lower_expr_with_context(expr, context)?),

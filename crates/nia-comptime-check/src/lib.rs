@@ -268,11 +268,184 @@ impl ComptimeModuleLowerer<'_> {
 
     fn collect_block_locals(&self, block: &nia_ast::Block, out: &mut HashSet<LocalId>) {
         for stmt in &block.stmts {
-            if let nia_ast::StmtKind::Binding(_) = &stmt.kind
-                && let Some(local_id) = self.input.locals.local_defs.get(&stmt.span).copied()
-            {
-                out.insert(local_id);
+            self.collect_stmt_locals(stmt, out);
+        }
+        if let Some(tail) = block.tail.as_deref() {
+            self.collect_expr_locals(tail, out);
+        }
+    }
+
+    fn collect_stmt_locals(&self, stmt: &nia_ast::Stmt, out: &mut HashSet<LocalId>) {
+        match &stmt.kind {
+            nia_ast::StmtKind::Binding(binding) => {
+                if let Some(local_id) = self.input.locals.local_defs.get(&stmt.span).copied() {
+                    out.insert(local_id);
+                }
+                if let Some(value) = &binding.value {
+                    self.collect_expr_locals(value, out);
+                }
             }
+            nia_ast::StmtKind::Expr(expr)
+            | nia_ast::StmtKind::Return(Some(expr))
+            | nia_ast::StmtKind::Defer(expr) => self.collect_expr_locals(expr, out),
+            nia_ast::StmtKind::ForIn(for_stmt) => {
+                if let Some(local_id) = self
+                    .input
+                    .locals
+                    .local_defs
+                    .get(&for_stmt.binding.span)
+                    .copied()
+                {
+                    out.insert(local_id);
+                }
+                self.collect_expr_locals(&for_stmt.iter, out);
+                self.collect_block_locals(&for_stmt.body, out);
+            }
+            nia_ast::StmtKind::While(while_stmt) => {
+                self.collect_expr_locals(&while_stmt.cond, out);
+                self.collect_block_locals(&while_stmt.body, out);
+            }
+            nia_ast::StmtKind::Loop(loop_stmt) => self.collect_block_locals(&loop_stmt.body, out),
+            nia_ast::StmtKind::Using(_)
+            | nia_ast::StmtKind::Return(None)
+            | nia_ast::StmtKind::Break
+            | nia_ast::StmtKind::Continue => {}
+        }
+    }
+
+    fn collect_expr_locals(&self, expr: &nia_ast::Expr, out: &mut HashSet<LocalId>) {
+        match &expr.kind {
+            nia_ast::ExprKind::BracketSuffix { callee, args } => {
+                self.collect_expr_locals(callee, out);
+                for arg in args {
+                    if let Some(expr) = &arg.expr {
+                        self.collect_expr_locals(expr, out);
+                    }
+                }
+            }
+            nia_ast::ExprKind::ArrayLiteral { elems }
+            | nia_ast::ExprKind::TypedArrayLiteral { elems, .. } => match elems {
+                nia_ast::ArrayElements::List(elems) => {
+                    for elem in elems {
+                        self.collect_expr_locals(elem, out);
+                    }
+                }
+                nia_ast::ArrayElements::Repeat { value, count } => {
+                    self.collect_expr_locals(value, out);
+                    self.collect_expr_locals(count, out);
+                }
+            },
+            nia_ast::ExprKind::StructLiteral { fields }
+            | nia_ast::ExprKind::TypedStructLiteral { fields, .. } => {
+                for field in fields {
+                    self.collect_expr_locals(&field.value, out);
+                }
+            }
+            nia_ast::ExprKind::Unary { expr, .. }
+            | nia_ast::ExprKind::OptionalSome { expr }
+            | nia_ast::ExprKind::ErrorOk { expr }
+            | nia_ast::ExprKind::ErrorErr { expr }
+            | nia_ast::ExprKind::Try { expr }
+            | nia_ast::ExprKind::Cast { expr, .. } => self.collect_expr_locals(expr, out),
+            nia_ast::ExprKind::Binary { lhs, rhs, .. }
+            | nia_ast::ExprKind::Assign { lhs, rhs, .. } => {
+                self.collect_expr_locals(lhs, out);
+                self.collect_expr_locals(rhs, out);
+            }
+            nia_ast::ExprKind::Call { callee, args } => {
+                self.collect_expr_locals(callee, out);
+                for arg in args {
+                    self.collect_expr_locals(arg, out);
+                }
+            }
+            nia_ast::ExprKind::Qualified { lhs, .. } | nia_ast::ExprKind::Field { lhs, .. } => {
+                self.collect_expr_locals(lhs, out);
+            }
+            nia_ast::ExprKind::Index { lhs, index } => {
+                self.collect_expr_locals(lhs, out);
+                match index {
+                    nia_ast::IndexArg::Expr(index) => self.collect_expr_locals(index, out),
+                    nia_ast::IndexArg::Range(range) => self.collect_range_locals(range, out),
+                }
+            }
+            nia_ast::ExprKind::Range(range) => self.collect_range_locals(range, out),
+            nia_ast::ExprKind::Block(block) => self.collect_block_locals(block, out),
+            nia_ast::ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_expr_locals(cond, out);
+                self.collect_block_locals(then_branch, out);
+                if let Some(else_branch) = else_branch.as_deref() {
+                    self.collect_expr_locals(else_branch, out);
+                }
+            }
+            nia_ast::ExprKind::ComptimeIf(comptime_if) => {
+                self.collect_expr_locals(&comptime_if.cond, out);
+                self.collect_block_locals(&comptime_if.then_branch, out);
+                if let Some(else_branch) = comptime_if.else_branch.as_deref() {
+                    self.collect_expr_locals(else_branch, out);
+                }
+            }
+            nia_ast::ExprKind::Switch(switch) => {
+                self.collect_expr_locals(&switch.target, out);
+                for arm in &switch.arms {
+                    for pattern in &arm.patterns {
+                        self.collect_switch_pattern_locals(pattern, out);
+                    }
+                    match &arm.body {
+                        nia_ast::SwitchArmBody::Expr(expr) => self.collect_expr_locals(expr, out),
+                        nia_ast::SwitchArmBody::Stmt(stmt) => self.collect_stmt_locals(stmt, out),
+                        nia_ast::SwitchArmBody::Block(block) => {
+                            self.collect_block_locals(block, out)
+                        }
+                    }
+                }
+            }
+            nia_ast::ExprKind::Error
+            | nia_ast::ExprKind::Integer(_)
+            | nia_ast::ExprKind::Float(_)
+            | nia_ast::ExprKind::String(_)
+            | nia_ast::ExprKind::ByteString(_)
+            | nia_ast::ExprKind::CString(_)
+            | nia_ast::ExprKind::Char(_)
+            | nia_ast::ExprKind::ByteChar(_)
+            | nia_ast::ExprKind::Raw(_)
+            | nia_ast::ExprKind::Bool(_)
+            | nia_ast::ExprKind::Null
+            | nia_ast::ExprKind::Ident(_)
+            | nia_ast::ExprKind::Underscore
+            | nia_ast::ExprKind::Builtin { .. }
+            | nia_ast::ExprKind::TypeTarget { .. } => {}
+        }
+    }
+
+    fn collect_range_locals(&self, range: &nia_ast::SliceRange, out: &mut HashSet<LocalId>) {
+        if let Some(start) = range.start.as_deref() {
+            self.collect_expr_locals(start, out);
+        }
+        if let Some(end) = range.end.as_deref() {
+            self.collect_expr_locals(end, out);
+        }
+    }
+
+    fn collect_switch_pattern_locals(
+        &self,
+        pattern: &nia_ast::SwitchPattern,
+        out: &mut HashSet<LocalId>,
+    ) {
+        match pattern {
+            nia_ast::SwitchPattern::Expr(expr) => self.collect_expr_locals(expr, out),
+            nia_ast::SwitchPattern::Range { start, end, .. } => {
+                self.collect_expr_locals(start, out);
+                self.collect_expr_locals(end, out);
+            }
+            nia_ast::SwitchPattern::Default
+            | nia_ast::SwitchPattern::OptionalSome { .. }
+            | nia_ast::SwitchPattern::OptionalNull { .. }
+            | nia_ast::SwitchPattern::ErrorOk { .. }
+            | nia_ast::SwitchPattern::ErrorErr { .. } => {}
         }
     }
 
