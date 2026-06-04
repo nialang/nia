@@ -2454,6 +2454,36 @@ var value: i32 = n as i32;
 }
 
 #[test]
+fn comptime_float_values_validate_target_range() {
+    let root = temp_dir("comptime_float_values_validate_target_range");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let literal: f32 = 1e40f32;
+comptime let casted: f32 = 1e40f64 as f32;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("out of range for f32")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("cannot be represented as `f32`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_string_literals_are_typed_arrays");
     write(
