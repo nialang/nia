@@ -41,6 +41,10 @@ pub enum ComptimeValueType {
     Int,
     Bool,
     String,
+    Array {
+        elem: Box<ComptimeValueType>,
+        len: Option<u64>,
+    },
     Struct(Vec<ComptimeValueFieldType>),
 }
 
@@ -60,7 +64,7 @@ impl ComptimeValueType {
     fn runtime(&self) -> Option<InternedTyId> {
         match self {
             Self::Runtime(ty) => Some(*ty),
-            Self::Int | Self::Bool | Self::String | Self::Struct(_) => None,
+            Self::Int | Self::Bool | Self::String | Self::Array { .. } | Self::Struct(_) => None,
         }
     }
 }
@@ -1687,6 +1691,10 @@ impl Analyzer<'_> {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_field_type(lhs_ty, name)
             }
+            nia_comptime_engine::ComptimeExprKind::Index { lhs, index } => {
+                let lhs_ty = self.comptime_expr_type(lhs, None)?;
+                self.comptime_index_type(expr.span, lhs_ty, index)
+            }
             nia_comptime_engine::ComptimeExprKind::Block(block) => {
                 self.comptime_block_tail_type(block, expected)
             }
@@ -1707,8 +1715,61 @@ impl Analyzer<'_> {
             ComptimeValueType::Runtime(ty) => self
                 .comptime_nominal_struct_field_type(ty, name)
                 .map(ComptimeValueType::Runtime),
-            ComptimeValueType::Int | ComptimeValueType::Bool | ComptimeValueType::String => None,
+            ComptimeValueType::Array { .. }
+            | ComptimeValueType::Int
+            | ComptimeValueType::Bool
+            | ComptimeValueType::String => None,
         }
+    }
+
+    fn comptime_index_type(
+        &mut self,
+        span: Span,
+        lhs: ComptimeValueType,
+        index: &ComptimeExpr,
+    ) -> Option<ComptimeValueType> {
+        match lhs {
+            ComptimeValueType::Array { elem, len } => {
+                if let Some(len) = len {
+                    let index =
+                        nia_comptime_engine::eval_comptime_array_len_expr(index, self).ok()?;
+                    if index >= len {
+                        return None;
+                    }
+                } else {
+                    nia_comptime_engine::eval_comptime_int_expr(index, self).ok()?;
+                }
+                Some(*elem)
+            }
+            ComptimeValueType::Runtime(ty) => self.comptime_runtime_index_type(span, ty, index),
+            ComptimeValueType::Struct(_)
+            | ComptimeValueType::Int
+            | ComptimeValueType::Bool
+            | ComptimeValueType::String => None,
+        }
+    }
+
+    fn comptime_runtime_index_type(
+        &mut self,
+        _span: Span,
+        lhs: InternedTyId,
+        index: &ComptimeExpr,
+    ) -> Option<ComptimeValueType> {
+        let (len, elem) = match self.ty_kind(lhs)? {
+            TyKind::Array { len, elem } => (Some(len), elem),
+            TyKind::Slice { elem, .. } => (None, elem),
+            _ => return None,
+        };
+        if let Some(ArrayLenTy::ConstValue(len)) = len {
+            let index = nia_comptime_engine::eval_comptime_array_len_expr(index, self).ok()?;
+            if index >= len {
+                return None;
+            }
+        } else {
+            nia_comptime_engine::eval_comptime_int_expr(index, self).ok()?;
+        }
+        self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
+            .map(ComptimeValueType::Runtime)
     }
 
     fn import_comptime_value_type(
@@ -1720,6 +1781,10 @@ impl Analyzer<'_> {
             ComptimeValueType::Runtime(ty) => self
                 .import_ty_into_module_or_none(ty, target_module_id)
                 .map(ComptimeValueType::Runtime),
+            ComptimeValueType::Array { elem, len } => Some(ComptimeValueType::Array {
+                elem: Box::new(self.import_comptime_value_type(*elem, target_module_id)?),
+                len,
+            }),
             ComptimeValueType::Struct(fields) => fields
                 .into_iter()
                 .map(|field| {
@@ -1742,6 +1807,11 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
         let expected_parts = expected.and_then(|expected| self.expected_array_parts(expected));
+        if expected_parts.is_none()
+            && let Some(ty) = self.structural_comptime_array_literal_type(elems)
+        {
+            return Some(ty);
+        }
         let (elem_ty, actual_len) = match elems {
             nia_comptime_engine::ComptimeArrayElements::List(elems) => {
                 let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
@@ -1763,6 +1833,33 @@ impl Analyzer<'_> {
             self.current_execution_module_id(),
         )
         .map(ComptimeValueType::Runtime)
+    }
+
+    fn structural_comptime_array_literal_type(
+        &mut self,
+        elems: &nia_comptime_engine::ComptimeArrayElements,
+    ) -> Option<ComptimeValueType> {
+        let (elem_ty, len) = match elems {
+            nia_comptime_engine::ComptimeArrayElements::List(elems) => {
+                let first = elems.first()?;
+                let elem_ty = self.comptime_expr_type(first, None)?;
+                for elem in &elems[1..] {
+                    if self.comptime_expr_type(elem, None)? != elem_ty {
+                        return None;
+                    }
+                }
+                (elem_ty, Some(elems.len() as u64))
+            }
+            nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
+                let elem_ty = self.comptime_expr_type(value, None)?;
+                let len = nia_comptime_engine::eval_comptime_array_len_expr(count, self).ok();
+                (elem_ty, len)
+            }
+        };
+        Some(ComptimeValueType::Array {
+            elem: Box::new(elem_ty),
+            len,
+        })
     }
 
     fn expected_array_parts(&self, expected: InternedTyId) -> Option<(ArrayLenTy, InternedTyId)> {

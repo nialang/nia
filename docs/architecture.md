@@ -646,7 +646,11 @@ produces a concrete type as the anchor, then type the remaining elements from
 that anchor; this lets contextual forms such as `[null, ?value]` infer the
 optional element type without treating unresolved generic placeholders as real
 types. Repeat literals use the repeated value type and the comptime repeat
-count to build the array runtime type.
+count to build the array runtime type. When no runtime array context exists,
+array literals can still be typed as structural comptime-only arrays. Their
+element type is another `ComptimeValueType`, so arrays of structural comptime
+structs behave like ordinary compile-time data tables and indexed elements can
+feed field access and generic comptime call inference.
 
 Comptime struct literals have two typed surfaces. When an expected nominal
 struct type exists, the checker uses that struct type, substitutes its generic

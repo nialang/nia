@@ -345,6 +345,7 @@ impl<'a> BodyChecker<'a> {
         match self.comptime_field_expr_type(lhs, name)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             ComptimeValueType::Struct(_)
+            | ComptimeValueType::Array { .. }
             | ComptimeValueType::Int
             | ComptimeValueType::Bool
             | ComptimeValueType::String => Some(self.interner.intern(TyKind::ComptimeOnly)),
@@ -375,6 +376,12 @@ impl<'a> BodyChecker<'a> {
                 self.comptime_global_value_type(global_id)
             }
             ExprKind::Field { lhs, name } => self.comptime_field_expr_type(lhs, name),
+            ExprKind::Index { lhs, index } => self.comptime_index_arg_expr_type(lhs, index),
+            ExprKind::BracketSuffix { callee, args } if args.len() == 1 => {
+                let arg = args.first()?;
+                let index = arg.expr.as_ref()?;
+                self.comptime_index_expr_type(callee, index)
+            }
             _ => None,
         }
     }
@@ -434,6 +441,50 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(crate) fn comptime_index_expr_runtime_type(
+        &mut self,
+        lhs: &Expr,
+        index: &Expr,
+    ) -> Option<InternedTyId> {
+        match self.comptime_index_expr_type(lhs, index)? {
+            ComptimeValueType::Runtime(ty) => Some(ty),
+            ComptimeValueType::Struct(_)
+            | ComptimeValueType::Array { .. }
+            | ComptimeValueType::Int
+            | ComptimeValueType::Bool
+            | ComptimeValueType::String => Some(self.interner.intern(TyKind::ComptimeOnly)),
+        }
+    }
+
+    fn comptime_index_arg_expr_type(
+        &mut self,
+        lhs: &Expr,
+        index: &nia_ast::IndexArg,
+    ) -> Option<ComptimeValueType> {
+        let nia_ast::IndexArg::Expr(index) = index else {
+            return None;
+        };
+        self.comptime_index_expr_type(lhs, index)
+    }
+
+    fn comptime_index_expr_type(&mut self, lhs: &Expr, index: &Expr) -> Option<ComptimeValueType> {
+        let lhs_ty = self.comptime_expr_value_type(lhs)?;
+        match lhs_ty {
+            ComptimeValueType::Array { elem, len } => {
+                let index = self.lower_comptime_expr(index).ok().and_then(|index| {
+                    nia_comptime_engine::eval_comptime_array_len_expr(&index, self).ok()
+                })?;
+                if let Some(len) = len
+                    && index >= len
+                {
+                    return None;
+                }
+                Some(*elem)
+            }
+            _ => None,
+        }
+    }
+
     fn import_comptime_value_type(
         &mut self,
         source: &TyInterner,
@@ -443,6 +494,10 @@ impl<'a> BodyChecker<'a> {
             ComptimeValueType::Runtime(ty) => Some(ComptimeValueType::Runtime(
                 self.import_type_from(source, ty),
             )),
+            ComptimeValueType::Array { elem, len } => Some(ComptimeValueType::Array {
+                elem: Box::new(self.import_comptime_value_type(source, *elem)?),
+                len,
+            }),
             ComptimeValueType::Struct(fields) => fields
                 .into_iter()
                 .map(|field| {
