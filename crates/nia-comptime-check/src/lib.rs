@@ -976,6 +976,9 @@ impl Analyzer<'_> {
         let Some(ty) = self.comptime_value_type_for_key(key) else {
             return;
         };
+        if let Some(span) = self.initializer_span_for_key(key) {
+            self.validate_typed_value(span, &value, &ty);
+        }
         self.typed_values
             .insert(key, TypedComptimeValue { value, ty });
     }
@@ -1003,6 +1006,55 @@ impl Analyzer<'_> {
         match key {
             ComptimeKey::Global(global_id) => global_id.module_id,
             ComptimeKey::Local(_) => self.input.defs.module_id,
+        }
+    }
+
+    fn initializer_span_for_key(&self, key: ComptimeKey) -> Option<Span> {
+        self.initializer_for_key(key).map(|expr| expr.span)
+    }
+
+    fn validate_typed_value(&mut self, span: Span, value: &ComptimeValue, ty: &ComptimeValueType) {
+        let ComptimeValueType::Runtime(ty) = ty else {
+            return;
+        };
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(*ty) else {
+            return;
+        };
+        match (value, primitive) {
+            (ComptimeValue::Int(value), primitive) => {
+                let Some((min, max)) =
+                    primitive_integer_range_for_target(primitive, self.input.target.pointer_width)
+                else {
+                    return;
+                };
+                if *value < min || *value > max {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        format!(
+                            "comptime integer value {value} is out of range for {}",
+                            primitive_ty_name(primitive)
+                        ),
+                    ));
+                }
+            }
+            (ComptimeValue::Float(value), PrimitiveTy::F32) => {
+                let value = *value as f32;
+                if !value.is_finite() {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "comptime float value is out of range for f32",
+                    ));
+                }
+            }
+            (ComptimeValue::Float(value), PrimitiveTy::F64) => {
+                if !value.is_finite() {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        "comptime float value is out of range for f64",
+                    ));
+                }
+            }
+            _ => {}
         }
     }
 
@@ -3612,7 +3664,16 @@ impl ComptimeEnv for Analyzer<'_> {
         let value = match value {
             ComptimeValue::Int(value) => {
                 if is_float_primitive(primitive) {
-                    ComptimeValue::Float(cast_int_to_float(value, primitive))
+                    let Some(value) = cast_int_to_float(value, primitive) else {
+                        return Err(ComptimeError {
+                            span,
+                            message: format!(
+                                "comptime cast result cannot be represented as `{}`",
+                                primitive_ty_name(primitive)
+                            ),
+                        });
+                    };
+                    ComptimeValue::Float(value)
                 } else {
                     let Some(value) =
                         cast_comptime_integer(value, primitive, self.input.target.pointer_width)
@@ -3630,7 +3691,16 @@ impl ComptimeEnv for Analyzer<'_> {
             }
             ComptimeValue::Float(value) => {
                 if is_float_primitive(primitive) {
-                    ComptimeValue::Float(cast_float_to_float(value, primitive))
+                    let Some(value) = cast_float_to_float(value, primitive) else {
+                        return Err(ComptimeError {
+                            span,
+                            message: format!(
+                                "comptime cast result cannot be represented as `{}`",
+                                primitive_ty_name(primitive)
+                            ),
+                        });
+                    };
+                    ComptimeValue::Float(value)
                 } else if primitive_integer_layout(primitive, self.input.target.pointer_width)
                     .is_some()
                 {
@@ -3895,17 +3965,18 @@ fn cast_comptime_integer(value: i128, ty: PrimitiveTy, pointer_width: u32) -> Op
     }
 }
 
-fn cast_int_to_float(value: i128, ty: PrimitiveTy) -> f64 {
+fn cast_int_to_float(value: i128, ty: PrimitiveTy) -> Option<f64> {
     let value = value as f64;
     cast_float_to_float(value, ty)
 }
 
-fn cast_float_to_float(value: f64, ty: PrimitiveTy) -> f64 {
-    match ty {
+fn cast_float_to_float(value: f64, ty: PrimitiveTy) -> Option<f64> {
+    let value = match ty {
         PrimitiveTy::F32 => f64::from(value as f32),
         PrimitiveTy::F64 => value,
         _ => value,
-    }
+    };
+    value.is_finite().then_some(value)
 }
 
 fn cast_float_to_integer(value: f64, ty: PrimitiveTy, pointer_width: u32) -> Option<i128> {
