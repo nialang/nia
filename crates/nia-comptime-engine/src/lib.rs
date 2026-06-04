@@ -2,7 +2,8 @@
 use nia_ast::{BinaryOp, UnaryOp};
 pub use nia_comptime_ir::{
     ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeFunction,
-    ComptimeNameResolution, ComptimeParam, ComptimeStmt, ComptimeStmtKind,
+    ComptimeNameResolution, ComptimeParam, ComptimeStmt, ComptimeStmtKind, ComptimeSwitch,
+    ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern,
 };
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
@@ -263,6 +264,7 @@ pub fn eval_comptime_expr(
             then_branch,
             else_branch,
         } => eval_comptime_if_expr(expr.span, cond, then_branch, else_branch.as_deref(), env),
+        ComptimeExprKind::Switch(switch) => eval_comptime_switch_expr(switch, env),
         ComptimeExprKind::Cast { expr: inner } => eval_comptime_expr(inner, env),
         ComptimeExprKind::Block(block) => eval_value_block(block, env, "comptime expression block"),
     }
@@ -303,6 +305,98 @@ fn eval_value_block(
             span: block.span,
             message: format!("{context} requires a tail expression"),
         }),
+    }
+}
+
+fn eval_comptime_switch_expr(
+    switch: &ComptimeSwitch,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    let target = eval_comptime_expr(&switch.target, env)?;
+    let Some(arm) = matching_switch_arm(&target, switch, env)? else {
+        return Err(ComptimeError {
+            span: switch.span,
+            message: "comptime switch expression did not match any arm".to_string(),
+        });
+    };
+    match eval_comptime_switch_arm_body(&arm.body, env)? {
+        ComptimeEvalFlow::Value(value) => Ok(value),
+        ComptimeEvalFlow::Return(_) => Err(ComptimeError {
+            span: arm.span,
+            message: "comptime switch arm cannot return from a comptime function".to_string(),
+        }),
+        ComptimeEvalFlow::Void => Err(ComptimeError {
+            span: arm.span,
+            message: "comptime switch arm requires a value".to_string(),
+        }),
+    }
+}
+
+fn matching_switch_arm<'a>(
+    target: &ComptimeValue,
+    switch: &'a ComptimeSwitch,
+    env: &mut impl ComptimeEnv,
+) -> Result<Option<&'a ComptimeSwitchArm>, ComptimeError> {
+    let mut default = None;
+    for arm in &switch.arms {
+        for pattern in &arm.patterns {
+            match pattern {
+                ComptimeSwitchPattern::Default => {
+                    default = Some(arm);
+                }
+                ComptimeSwitchPattern::Expr(pattern) => {
+                    let pattern = eval_comptime_expr(pattern, env)?;
+                    if values_equal(target, &pattern).unwrap_or(false) {
+                        return Ok(Some(arm));
+                    }
+                }
+                ComptimeSwitchPattern::Range {
+                    start,
+                    end,
+                    inclusive,
+                    span,
+                } => {
+                    if switch_range_matches(target, start, end, *inclusive, *span, env)? {
+                        return Ok(Some(arm));
+                    }
+                }
+            }
+        }
+    }
+    Ok(default)
+}
+
+fn switch_range_matches(
+    target: &ComptimeValue,
+    start: &ComptimeExpr,
+    end: &ComptimeExpr,
+    inclusive: bool,
+    span: Span,
+    env: &mut impl ComptimeEnv,
+) -> Result<bool, ComptimeError> {
+    let ComptimeValue::Int(target) = target else {
+        return Err(ComptimeError {
+            span,
+            message: "comptime switch range requires an integer target".to_string(),
+        });
+    };
+    let start = eval_comptime_int_expr(start, env)?;
+    let end = eval_comptime_int_expr(end, env)?;
+    Ok(if inclusive {
+        start <= *target && *target <= end
+    } else {
+        start <= *target && *target < end
+    })
+}
+
+fn eval_comptime_switch_arm_body(
+    body: &ComptimeSwitchArmBody,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    match body {
+        ComptimeSwitchArmBody::Expr(expr) => eval_function_tail_expr(expr, env),
+        ComptimeSwitchArmBody::Stmt(stmt) => eval_function_stmt(stmt, env),
+        ComptimeSwitchArmBody::Block(block) => eval_function_block(block, env),
     }
 }
 
@@ -441,9 +535,24 @@ fn eval_function_tail_expr(
                     eval_function_tail_expr(else_branch, env)
                 })
         }
+        ComptimeExprKind::Switch(switch) => eval_function_switch_tail_expr(switch, env),
         ComptimeExprKind::Block(block) => eval_function_block(block, env),
         _ => eval_comptime_expr(expr, env).map(ComptimeEvalFlow::Value),
     }
+}
+
+fn eval_function_switch_tail_expr(
+    switch: &ComptimeSwitch,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let target = eval_comptime_expr(&switch.target, env)?;
+    let Some(arm) = matching_switch_arm(&target, switch, env)? else {
+        return Err(ComptimeError {
+            span: switch.span,
+            message: "comptime switch expression did not match any arm".to_string(),
+        });
+    };
+    eval_comptime_switch_arm_body(&arm.body, env)
 }
 
 fn eval_function_stmt(
@@ -791,6 +900,29 @@ fn main() bool {
 
         let value = eval_comptime_bool_expr(&lowered, &mut BuiltinEnv).unwrap();
         assert!(value);
+    }
+
+    #[test]
+    fn evaluates_lowered_switch_with_string_patterns() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() usize {
+    switch "linux" {
+        "linux" => 8,
+        "windows" => 4,
+        _ => 2,
+    }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+            panic!("expected function");
+        };
+        let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let value = eval_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
+        assert_eq!(value, 8);
     }
 
     struct BuiltinEnv;

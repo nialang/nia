@@ -186,6 +186,62 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_switch_expression_drives_array_lengths() {
+    let root = temp_dir("comptime_function_switch_expression_drives_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn word_bytes(bits: usize) usize {
+    switch bits {
+        16 => 2,
+        32 => 4,
+        64 => 8,
+        _ => 16,
+    }
+}
+
+comptime let bits: usize = @builtin().target.pointer_width;
+comptime let n: usize = word_bytes(bits);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_switch_ranges_and_return_arms_drive_array_lengths() {
+    let root = temp_dir("comptime_function_switch_ranges_and_return_arms_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn bucket(value: usize) usize {
+    switch value {
+        0..4 => return 4,
+        4..8 => 8,
+        _ => return 16,
+    }
+}
+
+comptime let n: usize = bucket(6);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn function_body_comptime_if_uses_comptime_function_condition() {
     let root = temp_dir("function_body_comptime_if_uses_comptime_function_condition");
     write(
