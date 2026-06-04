@@ -194,6 +194,8 @@ pub enum ComptimeExprKind {
     Char(String),
     ByteChar(String),
     String(StringLiteral),
+    ByteString(StringLiteral),
+    CString(StringLiteral),
     Bool(bool),
     Null,
     Ident {
@@ -337,6 +339,8 @@ pub fn lower_expr_with_context(
         nia_ast::ExprKind::Char(text) => ComptimeExprKind::Char(text.clone()),
         nia_ast::ExprKind::ByteChar(text) => ComptimeExprKind::ByteChar(text.clone()),
         nia_ast::ExprKind::String(literal) => ComptimeExprKind::String(literal.clone()),
+        nia_ast::ExprKind::ByteString(literal) => ComptimeExprKind::ByteString(literal.clone()),
+        nia_ast::ExprKind::CString(literal) => ComptimeExprKind::CString(literal.clone()),
         nia_ast::ExprKind::Bool(value) => ComptimeExprKind::Bool(*value),
         nia_ast::ExprKind::Null => ComptimeExprKind::Null,
         nia_ast::ExprKind::Ident(name) => ComptimeExprKind::Ident {
