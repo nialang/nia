@@ -1560,6 +1560,78 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_array_literal() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_array_literal");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn second[T](values: [2]T) T {
+    values[1]
+}
+
+comptime let n: usize = second([4usize, 8usize]);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_array_repeat_literal() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_array_repeat_literal");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn first[T](values: [2]T) T {
+    values[0]
+}
+
+comptime let n: usize = first([8usize; 2]);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_contextual_array_literal() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_contextual_array_literal");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn first_some[T](values: [2]?T) T {
+    switch values[0] {
+        ?payload => payload,
+        null => values[1].?,
+    }
+}
+
+comptime let n: usize = first_some([null, ?8usize]);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_typed_comptime_value() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_comptime_value");
     write(

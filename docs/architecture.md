@@ -599,11 +599,11 @@ comptime structs one shared typed representation.
 Typed comptime expression inference belongs to this checker as well. It derives
 runtime types for source-shaped comptime expressions only when the type is a
 semantic consequence of the expression and available tables, such as suffixed
-integer literals, typed aggregate literals, `@builtin()` field access, and
-optional constructors whose payload type is already known. Constructors that
-need missing context, such as `null` or one-sided error-union values, remain
-untyped until an explicit binding, parameter, or call context supplies the full
-type.
+integer literals, typed aggregate literals, inferable array literals,
+`@builtin()` field access, and optional constructors whose payload type is
+already known. Constructors that need missing context, such as `null` or
+one-sided error-union values, remain untyped until an explicit binding,
+parameter, or call context supplies the full type.
 
 Propagation expressions use the same typed value surface: when the operand type
 is known as `?T` or `E!T`, `operand.?` has payload type `T` for later comptime
@@ -630,6 +630,14 @@ types from explicit annotations or inferable initializer expressions, and then
 types the tail inside that scope. This remains a semantic typing operation; the
 engine still owns value execution and the checker does not execute statement
 effects just to discover a block tail type.
+
+Comptime array literals are typed by expected array context when one exists,
+or by peer element inference otherwise. List literals choose an element that
+produces a concrete type as the anchor, then type the remaining elements from
+that anchor; this lets contextual forms such as `[null, ?value]` infer the
+optional element type without treating unresolved generic placeholders as real
+types. Repeat literals use the repeated value type and the comptime repeat
+count to build the array runtime type.
 
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
