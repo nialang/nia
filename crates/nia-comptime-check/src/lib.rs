@@ -844,6 +844,12 @@ impl Analyzer<'_> {
         for item_enum in &enums {
             self.eval_enum(item_enum);
         }
+        let const_exprs = self.input.module.const_exprs.clone();
+        for (id, expr) in const_exprs {
+            if let Some(value) = self.eval_array_len_expr(&expr) {
+                self.array_lengths.insert(id, value);
+            }
+        }
         let global_initializers = self
             .input
             .module
@@ -875,12 +881,6 @@ impl Analyzer<'_> {
                 .map(|local| local.span)
                 .unwrap_or(Span::new(0, 0));
             let _ = self.eval_key(ComptimeKey::Local(local_id), span);
-        }
-        let const_exprs = self.input.module.const_exprs.clone();
-        for (id, expr) in const_exprs {
-            if let Some(value) = self.eval_array_len_expr(&expr) {
-                self.array_lengths.insert(id, value);
-            }
         }
     }
 
@@ -970,24 +970,26 @@ impl Analyzer<'_> {
         });
         self.active.remove(&key);
         if let Some(value) = result.clone() {
-            self.insert_typed_key_value(key, value.clone());
+            let value = self.insert_typed_key_value(key, value);
             self.values.insert(key, value);
         }
         result
     }
 
-    fn insert_typed_key_value(&mut self, key: ComptimeKey, value: ComptimeValue) {
+    fn insert_typed_key_value(&mut self, key: ComptimeKey, value: ComptimeValue) -> ComptimeValue {
         let module_id = self.key_module_id(key);
         self.with_execution_module(module_id, |this| {
             let Some(ty) = this.comptime_value_type_for_key(key) else {
-                return;
+                return value;
             };
+            let value = this.normalize_typed_comptime_value(value, &ty);
             if let Some(span) = this.initializer_span_for_key(key) {
                 this.validate_typed_value(span, &value, &ty);
             }
             this.typed_values
-                .insert(key, TypedComptimeValue { value, ty });
-        });
+                .insert(key, TypedComptimeValue { value: value.clone(), ty });
+            value
+        })
     }
 
     fn typed_value_for_key(&self, key: ComptimeKey) -> Option<&TypedComptimeValue> {
@@ -1083,6 +1085,112 @@ impl Analyzer<'_> {
         }
     }
 
+    fn normalize_typed_comptime_value(
+        &mut self,
+        value: ComptimeValue,
+        ty: &ComptimeValueType,
+    ) -> ComptimeValue {
+        match ty {
+            ComptimeValueType::Runtime(ty) => {
+                self.normalize_runtime_typed_comptime_value(value, *ty)
+            }
+            ComptimeValueType::Array { elem, .. } => match value {
+                ComptimeValue::Array(values) => ComptimeValue::Array(
+                    values
+                        .into_iter()
+                        .map(|value| self.normalize_typed_comptime_value(value, elem))
+                        .collect(),
+                ),
+                value => value,
+            },
+            ComptimeValueType::Struct(fields) => match value {
+                ComptimeValue::Struct(mut values) => {
+                    for field in fields {
+                        if let Some(value) = values.remove(&field.name) {
+                            values.insert(
+                                field.name.clone(),
+                                self.normalize_typed_comptime_value(value, &field.ty),
+                            );
+                        }
+                    }
+                    ComptimeValue::Struct(values)
+                }
+                value => value,
+            },
+            ComptimeValueType::Int | ComptimeValueType::Bool | ComptimeValueType::String => value,
+        }
+    }
+
+    fn normalize_runtime_typed_comptime_value(
+        &mut self,
+        value: ComptimeValue,
+        ty: InternedTyId,
+    ) -> ComptimeValue {
+        match self.ty_kind(ty) {
+            Some(TyKind::Array { elem, .. }) => {
+                if self.runtime_array_accepts_comptime_string(&value, ty)
+                    && let ComptimeValue::String(value) = value
+                {
+                    return ComptimeValue::Array(comptime_string_to_char_array(&value));
+                }
+                match value {
+                    ComptimeValue::Array(values) => ComptimeValue::Array(
+                        values
+                            .into_iter()
+                            .map(|value| self.normalize_runtime_typed_comptime_value(value, elem))
+                            .collect(),
+                    ),
+                    value => value,
+                }
+            }
+            Some(TyKind::Optional { elem }) => match value {
+                ComptimeValue::Optional(Some(value)) => ComptimeValue::Optional(Some(Box::new(
+                    self.normalize_runtime_typed_comptime_value(*value, elem),
+                ))),
+                value => value,
+            },
+            Some(TyKind::ErrorUnion { error, value: ok }) => match value {
+                ComptimeValue::ErrorUnion(Ok(value)) => ComptimeValue::ErrorUnion(Ok(Box::new(
+                    self.normalize_runtime_typed_comptime_value(*value, ok),
+                ))),
+                ComptimeValue::ErrorUnion(Err(value)) => ComptimeValue::ErrorUnion(Err(Box::new(
+                    self.normalize_runtime_typed_comptime_value(*value, error),
+                ))),
+                value => value,
+            },
+            Some(TyKind::Nominal { .. }) => self.normalize_nominal_struct_value(value, ty),
+            _ => value,
+        }
+    }
+
+    fn normalize_nominal_struct_value(
+        &mut self,
+        value: ComptimeValue,
+        ty: InternedTyId,
+    ) -> ComptimeValue {
+        let ComptimeValue::Struct(mut values) = value else {
+            return value;
+        };
+        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+            return ComptimeValue::Struct(values);
+        };
+        if self.def_kind_of(def_id) != Some(DefKind::Struct) {
+            return ComptimeValue::Struct(values);
+        }
+        let Some(signature) = self.struct_signature_for(def_id) else {
+            return ComptimeValue::Struct(values);
+        };
+        let Some(field_tys) = self.comptime_struct_field_types(&signature, &args) else {
+            return ComptimeValue::Struct(values);
+        };
+        for (name, ty) in field_tys {
+            if let Some(value) = values.remove(&name) {
+                values.insert(name, self.normalize_runtime_typed_comptime_value(value, ty));
+            }
+        }
+        ComptimeValue::Struct(values)
+    }
+
     fn validate_runtime_typed_value(
         &mut self,
         span: Span,
@@ -1094,6 +1202,22 @@ impl Analyzer<'_> {
                 self.validate_primitive_typed_value(span, value, primitive)
             }
             Some(TyKind::Array { elem, .. }) => {
+                if self.runtime_array_accepts_comptime_string(value, ty) {
+                    return;
+                }
+                if let ComptimeValue::String(value) = value
+                    && self.runtime_array_is_char_array(ty)
+                    && let Some(expected_len) = self.runtime_array_len(ty)
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        span,
+                        format!(
+                            "comptime array length {} does not match expected length {expected_len}",
+                            value.chars().count()
+                        ),
+                    ));
+                    return;
+                }
                 let ComptimeValue::Array(values) = value else {
                     self.push_comptime_type_mismatch(span, "array");
                     return;
@@ -1230,6 +1354,28 @@ impl Analyzer<'_> {
             return None;
         };
         self.array_len_const_value(len)
+    }
+
+    fn runtime_array_accepts_comptime_string(
+        &self,
+        value: &ComptimeValue,
+        ty: InternedTyId,
+    ) -> bool {
+        let ComptimeValue::String(value) = value else {
+            return false;
+        };
+        if !self.runtime_array_is_char_array(ty) {
+            return false;
+        }
+        self.runtime_array_len(ty)
+            .is_none_or(|len| value.chars().count() as u64 == len)
+    }
+
+    fn runtime_array_is_char_array(&self, ty: InternedTyId) -> bool {
+        let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty) else {
+            return false;
+        };
+        matches!(self.ty_kind(elem), Some(TyKind::Primitive(PrimitiveTy::Char)))
     }
 
     fn push_comptime_type_mismatch(&mut self, span: Span, expected: &str) {
@@ -4350,6 +4496,13 @@ impl Analyzer<'_> {
         value: ComptimeValue,
         ty: Option<ComptimeValueType>,
     ) -> Result<(), ComptimeError> {
+        let (value, ty) = if let Some(ty) = ty {
+            let value = self.normalize_typed_comptime_value(value, &ty);
+            self.validate_typed_value(span, &value, &ty);
+            (value, Some(ty))
+        } else {
+            (value, None)
+        };
         let Some(frame) = self.call_locals.last_mut() else {
             return Err(ComptimeError {
                 span,
@@ -4388,9 +4541,13 @@ impl Analyzer<'_> {
             }
             let previous_ty = self.call_locals[index].local_types.get(&local_id).cloned();
             let previous_value = self.call_locals[index].locals.get(&local_id).cloned();
-            if let Some(previous_ty) = previous_ty.as_ref() {
+            let value = if let Some(previous_ty) = previous_ty.as_ref() {
+                let value = self.normalize_typed_comptime_value(value, previous_ty);
                 self.validate_typed_value(span, &value, previous_ty);
-            }
+                value
+            } else {
+                value
+            };
             if let Some(previous_value) = previous_value.as_ref() {
                 validate_assignment_shape(&mut self.diagnostics, span, &value, previous_value);
             }
@@ -4464,6 +4621,13 @@ fn validate_assignment_shape(
         }
         _ => {}
     }
+}
+
+fn comptime_string_to_char_array(value: &str) -> Vec<ComptimeValue> {
+    value
+        .chars()
+        .map(|value| ComptimeValue::Int(value as i128))
+        .collect()
 }
 
 fn cast_comptime_integer(value: i128, ty: PrimitiveTy, pointer_width: u32) -> Option<i128> {
@@ -4613,8 +4777,8 @@ fn integer_range(ty: PrimitiveTy) -> Option<(i128, i128)> {
         PrimitiveTy::U64 => Some((u64::MIN as i128, u64::MAX as i128)),
         PrimitiveTy::U128 => Some((0, i128::MAX)),
         PrimitiveTy::Usize => Some((0, usize::MAX as i128)),
+        PrimitiveTy::Char => Some((0, 0x10FFFF)),
         PrimitiveTy::Bool
-        | PrimitiveTy::Char
         | PrimitiveTy::F32
         | PrimitiveTy::F64
         | PrimitiveTy::Void

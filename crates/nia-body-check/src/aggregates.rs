@@ -1158,7 +1158,7 @@ impl<'a> BodyChecker<'a> {
         self.comptime_expr_type_for_ir_with_expected(expr, None)
     }
 
-    fn comptime_expr_type_for_ir_with_expected(
+    pub(crate) fn comptime_expr_type_for_ir_with_expected(
         &self,
         expr: &ComptimeExpr,
         expected: Option<InternedTyId>,
