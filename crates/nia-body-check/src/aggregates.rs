@@ -948,14 +948,22 @@ impl ComptimeEnv for BodyChecker<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        let Some(signature) = self.resolved_function_signature(function_id).map(|resolved| resolved.signature) else {
+        let Some(signature) = self
+            .resolved_function_signature(function_id)
+            .map(|resolved| resolved.signature)
+        else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        let type_substitutions =
-            self.instantiate_comptime_function_generics(span, &signature, type_args, arg_exprs)?;
+        let type_substitutions = self.instantiate_comptime_function_generics(
+            span,
+            function_id,
+            &signature,
+            type_args,
+            arg_exprs,
+        )?;
         let Some(function) = self.comptime_function_body(function_id).cloned() else {
             return Err(ComptimeError {
                 span,
@@ -1013,7 +1021,12 @@ impl ComptimeEnv for BodyChecker<'_> {
                 message: "failed to bind comptime function parameter".to_string(),
             });
         };
-        self.bind_comptime_call_local_value(span, local_id, &param.name, false, value)
+        let ty = param.ty.map(|ty| {
+            nia_comptime_check::ComptimeValueType::Runtime(
+                self.substitute_current_comptime_generics(ty),
+            )
+        });
+        self.bind_comptime_call_local_value(span, local_id, &param.name, false, value, ty)
     }
 
     fn bind_function_local(
@@ -1031,12 +1044,21 @@ impl ComptimeEnv for BodyChecker<'_> {
                 message: "failed to bind comptime function local".to_string(),
             });
         };
+        let ty = binding
+            .explicit_type
+            .map(|ty| {
+                nia_comptime_check::ComptimeValueType::Runtime(
+                    self.substitute_current_comptime_generics(ty),
+                )
+            })
+            .or_else(|| self.comptime_expr_type_for_ir(&binding.value));
         self.bind_comptime_call_local_value(
             span,
             local_id,
             &binding.name,
             binding.is_mutable,
             value,
+            ty,
         )
     }
 
@@ -1053,7 +1075,12 @@ impl ComptimeEnv for BodyChecker<'_> {
                 message: "failed to bind comptime switch pattern local".to_string(),
             });
         };
-        self.bind_comptime_call_local_value(span, local_id, name, false, value)
+        let ty = self
+            .local_types
+            .get(&local_id)
+            .copied()
+            .map(nia_comptime_check::ComptimeValueType::Runtime);
+        self.bind_comptime_call_local_value(span, local_id, name, false, value, ty)
     }
 
     fn assign_local(
@@ -1153,43 +1180,85 @@ impl<'a> BodyChecker<'a> {
     fn instantiate_comptime_function_generics(
         &mut self,
         span: Span,
+        function_id: GlobalDefId,
         signature: &nia_item_signatures::FunctionSignature,
         type_args: &[nia_comptime_engine::ComptimeTypeArg],
-        _arg_exprs: &[nia_comptime_engine::ComptimeExpr],
+        arg_exprs: &[nia_comptime_engine::ComptimeExpr],
     ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
-        if !type_args.is_empty() && type_args.len() != signature.generics.len() {
-            return Err(ComptimeError {
-                span,
-                message: format!(
-                    "generic argument count mismatch for comptime function: expected {}, got {}",
-                    signature.generics.len(),
-                    type_args.len()
-                ),
-            });
+        let frames = self.typed_comptime_frames();
+        nia_comptime_check::instantiate_comptime_function_generics(
+            nia_comptime_check::ComptimeInstantiationInput {
+                module: self.comptime_module,
+                defs: self.defs,
+                values: self.values,
+                locals: self.locals,
+                signatures: self.signatures,
+                interner: &self.interner,
+                type_uses: self.type_uses,
+                normalized: &self.normalization.normalized,
+                target: self.target,
+                program: nia_comptime_check::ComptimeProgramContext {
+                    modules: Some(self.program_comptime_modules),
+                    defs: self.program.defs,
+                    type_lowerings: None,
+                    type_normalizations: None,
+                    signatures: None,
+                },
+                typed_values: &self.comptime.typed_values,
+                frames: &frames,
+            },
+            span,
+            function_id,
+            self.interner.interner_id(),
+            signature,
+            type_args,
+            arg_exprs,
+        )
+    }
+
+    fn comptime_instantiation_input(&self) -> nia_comptime_check::ComptimeInstantiationInput<'_> {
+        nia_comptime_check::ComptimeInstantiationInput {
+            module: self.comptime_module,
+            defs: self.defs,
+            values: self.values,
+            locals: self.locals,
+            signatures: self.signatures,
+            interner: &self.interner,
+            type_uses: self.type_uses,
+            normalized: &self.normalization.normalized,
+            target: self.target,
+            program: nia_comptime_check::ComptimeProgramContext {
+                modules: Some(self.program_comptime_modules),
+                defs: self.program.defs,
+                type_lowerings: None,
+                type_normalizations: None,
+                signatures: None,
+            },
+            typed_values: &self.comptime.typed_values,
+            frames: &[],
         }
-        let mut substitutions = HashMap::new();
-        if type_args.is_empty() {
-            for generic in &signature.generics {
-                if !substitutions.contains_key(generic) {
-                    return Err(ComptimeError {
-                        span,
-                        message: format!("cannot infer comptime generic type argument `{generic}`"),
-                    });
-                }
-            }
-        } else {
-            for (generic, arg) in signature.generics.iter().zip(type_args) {
-                let Some(ty) = arg.ty else {
-                    return Err(ComptimeError {
-                        span: arg.span,
-                        message: "cannot resolve comptime generic function type argument"
-                            .to_string(),
-                    });
-                };
-                substitutions.insert(generic.clone(), ty);
-            }
-        }
-        Ok(substitutions)
+    }
+
+    fn typed_comptime_frames(&self) -> Vec<nia_comptime_check::TypedComptimeFrame> {
+        self.comptime_call_locals
+            .iter()
+            .map(|frame| nia_comptime_check::TypedComptimeFrame {
+                module_id: None,
+                local_types: frame.local_types.clone(),
+                name_types: frame.name_types.clone(),
+                type_substitutions: frame.type_substitutions.clone(),
+            })
+            .collect()
+    }
+
+    fn comptime_expr_type_for_ir(
+        &self,
+        expr: &nia_comptime_engine::ComptimeExpr,
+    ) -> Option<nia_comptime_check::ComptimeValueType> {
+        let frames = self.typed_comptime_frames();
+        let mut input = self.comptime_instantiation_input();
+        input.frames = &frames;
+        nia_comptime_check::infer_comptime_expr_type(input, expr, None)
     }
 
     fn comptime_type_arg_for_span(&mut self, span: Span) -> InternedTyId {
@@ -1243,6 +1312,7 @@ impl<'a> BodyChecker<'a> {
         name: &str,
         is_mutable: bool,
         value: ComptimeValue,
+        ty: Option<nia_comptime_check::ComptimeValueType>,
     ) -> Result<(), ComptimeError> {
         let Some(frame) = self.comptime_call_locals.last_mut() else {
             return Err(ComptimeError {
@@ -1255,6 +1325,10 @@ impl<'a> BodyChecker<'a> {
         }
         frame.locals.insert(local_id, value.clone());
         frame.names.insert(name.to_string(), value);
+        if let Some(ty) = ty {
+            frame.local_types.insert(local_id, ty.clone());
+            frame.name_types.insert(name.to_string(), ty);
+        }
         Ok(())
     }
 

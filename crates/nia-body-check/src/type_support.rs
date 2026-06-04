@@ -691,6 +691,7 @@ impl<'a> BodyChecker<'a> {
             type_uses: self.type_uses,
             signatures: self.signatures,
             normalization: self.normalization,
+            target: self.target,
             comptime: self.comptime,
             comptime_module: self.comptime_module,
             layouts: self.layouts,

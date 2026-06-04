@@ -39,6 +39,7 @@ use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
 use nia_source::SourceVersion;
 use nia_span::Span;
+use nia_target_config::TargetConfig;
 use nia_ty::{PrimitiveTy, RangeTyKind, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
@@ -86,6 +87,7 @@ pub struct BodyCheckInput<'a> {
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
+    pub target: &'a TargetConfig,
     pub comptime: &'a ComptimeCheck,
     pub comptime_module: &'a ComptimeModule,
     pub layouts: &'a Layouts,
@@ -107,6 +109,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
+    pub target: &'a TargetConfig,
     pub comptime: &'a ComptimeCheck,
     pub comptime_module: &'a ComptimeModule,
     pub extensions: &'a VisibleExtensionMethods,
@@ -152,6 +155,7 @@ pub fn check_module_bodies(
     let empty_trait_impls = Vec::new();
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
+    let target = TargetConfig::host();
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: None,
         origins: &NodeOriginTable::default(),
@@ -162,6 +166,7 @@ pub fn check_module_bodies(
         lowered,
         signatures,
         normalization: &empty_normalization,
+        target: &target,
         comptime: &empty_comptime,
         comptime_module: &empty_comptime_module,
         layouts: &layouts,
@@ -212,6 +217,7 @@ pub fn check_module_bodies_with_program_signatures(
         lowered: input.lowered,
         signatures: input.signatures,
         normalization: input.normalization,
+        target: input.target,
         comptime: input.comptime,
         comptime_module: input.comptime_module,
         layouts: &layouts,
@@ -246,6 +252,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         type_uses: &input.lowered.type_uses,
         signatures: input.signatures,
         normalization: input.normalization,
+        target: input.target,
         comptime: input.comptime,
         comptime_module: input.comptime_module,
         layouts: input.layouts,
@@ -339,6 +346,7 @@ struct BodyChecker<'a> {
     type_uses: &'a HashMap<Span, InternedTyId>,
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
+    target: &'a TargetConfig,
     comptime: &'a ComptimeCheck,
     comptime_module: &'a ComptimeModule,
     layouts: &'a Layouts,
@@ -389,8 +397,10 @@ struct BodyChecker<'a> {
 #[derive(Debug, Clone, Default)]
 struct ComptimeCallFrame {
     locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
+    local_types: HashMap<LocalId, nia_comptime_check::ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
     names: HashMap<String, nia_comptime_check::ComptimeValue>,
+    name_types: HashMap<String, nia_comptime_check::ComptimeValueType>,
     type_substitutions: HashMap<String, InternedTyId>,
 }
 
