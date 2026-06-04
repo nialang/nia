@@ -28,6 +28,7 @@ members = [
     "crates/nia-item-signatures",
     "crates/nia-type-normalize",
     "crates/nia-trait-solve",
+    "crates/nia-comptime-ir",
     "crates/nia-comptime-engine",
     "crates/nia-comptime-check",
     "crates/nia-static-check",
@@ -83,6 +84,7 @@ nia-type-lower = { path = "crates/nia-type-lower" }
 nia-item-signatures = { path = "crates/nia-item-signatures" }
 nia-type-normalize = { path = "crates/nia-type-normalize" }
 nia-trait-solve = { path = "crates/nia-trait-solve" }
+nia-comptime-ir = { path = "crates/nia-comptime-ir" }
 nia-comptime-engine = { path = "crates/nia-comptime-engine" }
 nia-comptime-check = { path = "crates/nia-comptime-check" }
 nia-static-check = { path = "crates/nia-static-check" }

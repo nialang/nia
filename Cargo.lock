@@ -274,9 +274,19 @@ name = "nia-comptime-engine"
 version = "0.3.2"
 dependencies = [
  "nia-ast",
+ "nia-comptime-ir",
  "nia-diagnostic",
  "nia-ids",
  "nia-parser",
+ "nia-span",
+]
+
+[[package]]
+name = "nia-comptime-ir"
+version = "0.3.2"
+dependencies = [
+ "nia-ast",
+ "nia-ids",
  "nia-span",
 ]
 

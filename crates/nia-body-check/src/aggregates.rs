@@ -2,7 +2,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
-use nia_ast::{Expr, ExprKind, ItemKind, TypeRef};
+use nia_ast::{Expr, ExprKind, ItemKind};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -659,9 +659,9 @@ impl ComptimeEnv for BodyChecker<'_> {
         &mut self,
         span: Span,
         builtin: LayoutBuiltin,
-        ty: &TypeRef,
+        type_arg_span: Span,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let ty_id = self.ty_for_span(ty.span);
+        let ty_id = self.ty_for_span(type_arg_span);
         let Some(layout) = self.layout_of(ty_id) else {
             return Err(ComptimeError {
                 span,
@@ -681,7 +681,7 @@ impl ComptimeEnv for BodyChecker<'_> {
     fn call_function(
         &mut self,
         span: Span,
-        callee: &Expr,
+        callee: &nia_comptime_engine::ComptimeExpr,
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let Some((function_span, function)) = self.comptime_function(callee) else {
@@ -705,7 +705,7 @@ impl ComptimeEnv for BodyChecker<'_> {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &nia_ast::Param,
+        param: &nia_comptime_engine::ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(local_id) = self.locals.local_defs.get(&param.span).copied() else {
@@ -720,7 +720,7 @@ impl ComptimeEnv for BodyChecker<'_> {
     fn bind_function_local(
         &mut self,
         span: Span,
-        _binding: &nia_ast::BindingStmt,
+        _binding: &nia_comptime_engine::ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(local_id) = self.locals.local_defs.get(&span).copied() else {
@@ -801,8 +801,11 @@ impl<'a> BodyChecker<'a> {
             .map(|def| def.kind)
     }
 
-    fn comptime_function(&self, callee: &Expr) -> Option<(Span, nia_ast::FunctionItem)> {
-        let ExprKind::Ident(_) = &callee.kind else {
+    fn comptime_function(
+        &self,
+        callee: &nia_comptime_engine::ComptimeExpr,
+    ) -> Option<(Span, nia_ast::FunctionItem)> {
+        let nia_comptime_engine::ComptimeExprKind::Ident(_) = &callee.kind else {
             return None;
         };
         let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =

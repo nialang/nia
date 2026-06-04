@@ -1644,9 +1644,9 @@ impl nia_comptime_engine::ComptimeEnv for BirComptimeEnv<'_, '_> {
         &mut self,
         span: Span,
         builtin: nia_ids::LayoutBuiltin,
-        ty: &nia_ast::TypeRef,
+        type_arg_span: Span,
     ) -> Result<nia_comptime_check::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let ty_id = self.checker.ty_for_span(ty.span);
+        let ty_id = self.checker.ty_for_span(type_arg_span);
         let Some(layout) = self.checker.layout_of(ty_id) else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
