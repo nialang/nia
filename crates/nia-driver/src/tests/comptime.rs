@@ -2454,6 +2454,41 @@ var value: i32 = n as i32;
 }
 
 #[test]
+fn comptime_float_compound_assignments_update_values() {
+    let root = temp_dir("comptime_float_compound_assignments_update_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    comptime var value: f64 = 1.5f64;
+    value += 2.5f64;
+    value *= 2.0f64;
+    value as usize
+}
+
+comptime let n: usize = width();
+var value: i32 = n as i32;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let value = main_module
+        .globals
+        .iter()
+        .find(|global| global.name == "value")
+        .expect("value global");
+    assert_eq!(value.init, Some(StaticInit::Int(8)));
+}
+
+#[test]
 fn comptime_float_values_validate_target_range() {
     let root = temp_dir("comptime_float_values_validate_target_range");
     write(

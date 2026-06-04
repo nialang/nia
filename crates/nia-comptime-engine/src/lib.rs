@@ -1192,14 +1192,7 @@ fn eval_assignment_value_flow(
         span,
         message: "unsupported comptime assignment operator".to_string(),
     })?;
-    let (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) = (lhs, rhs) else {
-        return Err(ComptimeError {
-            span,
-            message: "comptime compound assignment requires integer operands".to_string(),
-        });
-    };
-    eval_binary_int(lhs, op, rhs)
-        .map(ComptimeValue::Int)
+    eval_numeric_binary_value(lhs, op, rhs)
         .map(ComptimeEvalFlow::Value)
         .map_err(|message| ComptimeError { span, message })
 }
@@ -1750,6 +1743,20 @@ fn eval_binary_int(lhs: i128, op: BinaryOp, rhs: i128) -> Result<i128, String> {
     })
 }
 
+fn eval_numeric_binary_value(
+    lhs: ComptimeValue,
+    op: BinaryOp,
+    rhs: ComptimeValue,
+) -> Result<ComptimeValue, String> {
+    match (lhs, rhs) {
+        (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => {
+            eval_binary_int(lhs, op, rhs).map(ComptimeValue::Int)
+        }
+        (ComptimeValue::Float(lhs), ComptimeValue::Float(rhs)) => eval_binary_float(lhs, op, rhs),
+        _ => Err("comptime numeric operation requires matching operand types".to_string()),
+    }
+}
+
 fn eval_numeric_operand_flow(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -1851,22 +1858,8 @@ fn eval_binary_flow(
                 Ok(value) => value,
                 Err(flow) => return Ok(flow),
             };
-            match (lhs, rhs) {
-                (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => eval_binary_int(lhs, op, rhs)
-                    .map(ComptimeValue::Int)
-                    .map_err(|message| ComptimeError { span, message })?,
-                (ComptimeValue::Float(lhs), ComptimeValue::Float(rhs)) => {
-                    eval_binary_float(lhs, op, rhs)
-                        .map_err(|message| ComptimeError { span, message })?
-                }
-                _ => {
-                    return Err(ComptimeError {
-                        span,
-                        message: "comptime numeric operation requires matching operand types"
-                            .to_string(),
-                    });
-                }
-            }
+            eval_numeric_binary_value(lhs, op, rhs)
+                .map_err(|message| ComptimeError { span, message })?
         }
     };
     Ok(ComptimeEvalFlow::Value(value))
