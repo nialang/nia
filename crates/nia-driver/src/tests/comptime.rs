@@ -2656,6 +2656,56 @@ var value: i32 = n as i32;
 }
 
 #[test]
+fn generic_comptime_function_rejects_non_numeric_cast_operand() {
+    let root = temp_dir("generic_comptime_function_rejects_non_numeric_cast_operand");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(true as usize);
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("cast")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn generic_comptime_function_rejects_structural_cast_operand() {
+    let root = temp_dir("generic_comptime_function_rejects_structural_cast_operand");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(({width: 4usize}) as usize);
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("cast")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_float_compound_assignments_update_values() {
     let root = temp_dir("comptime_float_compound_assignments_update_values");
     write(
