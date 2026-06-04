@@ -48,20 +48,14 @@ pub struct PruneResult {
 }
 
 pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneResult {
-    let functions = module
-        .items
-        .iter()
-        .filter_map(|item| {
-            let ItemKind::Function(function) = &item.kind else {
-                return None;
-            };
-            Some((function.name.clone(), function.clone()))
-        })
-        .collect();
+    let EarlyComptimeFunctions {
+        functions,
+        diagnostics,
+    } = lower_early_comptime_functions(&module);
     let mut pruner = Pruner {
         config,
         functions,
-        diagnostics: Vec::new(),
+        diagnostics,
     };
     let pruned = pruner.prune_module(module);
     PruneResult {
@@ -96,7 +90,7 @@ pub fn eval_config_bool(
 
 struct TargetComptimeEnv<'a> {
     config: &'a TargetConfig,
-    functions: &'a HashMap<String, nia_ast::FunctionItem>,
+    functions: &'a HashMap<String, nia_comptime_ir::ComptimeFunction>,
     call_locals: Vec<TargetComptimeFrame>,
 }
 
@@ -168,23 +162,16 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
                 message: "target condition can only call same-module `comptime fn`".to_string(),
             });
         };
-        let Some(function) = self.functions.get(name).cloned() else {
+        let Some(function) = self.functions.get(name) else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
                 message: format!("unknown target comptime function `{name}`"),
             });
         };
-        let function =
-            nia_comptime_ir::lower_function(function.span, &function).map_err(|err| {
-                nia_comptime_engine::ComptimeError {
-                    span: err.span,
-                    message: err.message,
-                }
-            })?;
         nia_comptime_engine::eval_comptime_function_call(
             span,
             nia_ids::ModuleId(0),
-            &function,
+            function,
             Vec::new(),
             args,
             self,
@@ -332,7 +319,7 @@ pub fn target_comptime_value(config: &TargetConfig) -> nia_comptime_engine::Comp
 
 struct Pruner<'a> {
     config: &'a TargetConfig,
-    functions: HashMap<String, nia_ast::FunctionItem>,
+    functions: HashMap<String, nia_comptime_ir::ComptimeFunction>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -767,6 +754,34 @@ impl ComptimeBranchResolver for Pruner<'_> {
     }
 }
 
+struct EarlyComptimeFunctions {
+    functions: HashMap<String, nia_comptime_ir::ComptimeFunction>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn lower_early_comptime_functions(module: &Module) -> EarlyComptimeFunctions {
+    let mut functions = HashMap::new();
+    let mut diagnostics = Vec::new();
+    for item in &module.items {
+        let ItemKind::Function(function) = &item.kind else {
+            continue;
+        };
+        if !function.is_comptime {
+            continue;
+        }
+        match nia_comptime_ir::lower_function(function.span, function) {
+            Ok(lowered) => {
+                functions.insert(function.name.clone(), lowered);
+            }
+            Err(err) => diagnostics.push(Diagnostic::error(err.span, err.message)),
+        }
+    }
+    EarlyComptimeFunctions {
+        functions,
+        diagnostics,
+    }
+}
+
 fn endian() -> &'static str {
     if cfg!(target_endian = "little") {
         "little"
@@ -811,5 +826,40 @@ comptime if @builtin().target.os == "linux" and @builtin().target.pointer_width 
             panic!("expected selected function");
         };
         assert_eq!(function.name, "selected");
+    }
+
+    #[test]
+    fn target_condition_cannot_call_runtime_function() {
+        let (module, errors) = parse_module(
+            r#"
+fn enabled() bool { true }
+
+comptime if enabled() {
+    fn selected() i32 { 1 }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let result = prune_module_for_target(
+            module,
+            &TargetConfig {
+                arch: "x86_64".to_string(),
+                vendor: "unknown".to_string(),
+                os: "linux".to_string(),
+                env: String::new(),
+                abi: String::new(),
+                endian: "little".to_string(),
+                pointer_width: 64,
+            },
+        );
+
+        assert!(
+            result.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("unknown target comptime function `enabled`")),
+            "{:?}",
+            result.diagnostics
+        );
     }
 }
