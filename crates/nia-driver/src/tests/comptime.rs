@@ -2348,6 +2348,29 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_array_len_method_evaluates_array_values() {
+    let root = temp_dir("comptime_array_len_method_evaluates_array_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn total(values: [3]usize, text: [4]char) usize {
+    values.len() + text.len() + values[1..].len()
+}
+
+comptime let n: usize = total([1usize, 2usize, 3usize], "nia!");
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_target_strings_compare_with_string_literals() {
     let root = temp_dir("comptime_target_strings_compare_with_string_literals");
     write(

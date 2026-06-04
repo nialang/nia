@@ -1878,6 +1878,10 @@ impl Analyzer<'_> {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_field_type(lhs_ty, name)
             }
+            nia_comptime_engine::ComptimeExprKind::Len { lhs } => {
+                let lhs_ty = self.comptime_expr_type(lhs, None)?;
+                self.comptime_len_type(lhs_ty)
+            }
             nia_comptime_engine::ComptimeExprKind::Index { lhs, index } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_index_type(expr.span, lhs_ty, index)
@@ -1904,6 +1908,24 @@ impl Analyzer<'_> {
                 .comptime_nominal_struct_field_type(*ty, name)
                 .map(ComptimeValueType::Runtime),
             ComptimeValueType::Array { .. }
+            | ComptimeValueType::Int
+            | ComptimeValueType::Bool
+            | ComptimeValueType::String => None,
+        }
+    }
+
+    fn comptime_len_type(&mut self, lhs: ComptimeValueType) -> Option<ComptimeValueType> {
+        match lhs {
+            ComptimeValueType::Array { .. } => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Usize),
+            )),
+            ComptimeValueType::Runtime(ty) => match self.ty_kind(ty)? {
+                TyKind::Array { .. } => Some(ComptimeValueType::Runtime(
+                    self.current_runtime_primitive_type(PrimitiveTy::Usize),
+                )),
+                _ => None,
+            },
+            ComptimeValueType::Struct(_)
             | ComptimeValueType::Int
             | ComptimeValueType::Bool
             | ComptimeValueType::String => None,

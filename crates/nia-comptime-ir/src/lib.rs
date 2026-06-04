@@ -210,6 +210,9 @@ pub enum ComptimeExprKind {
         lhs: Box<ComptimeExpr>,
         name: String,
     },
+    Len {
+        lhs: Box<ComptimeExpr>,
+    },
     Index {
         lhs: Box<ComptimeExpr>,
         index: Box<ComptimeExpr>,
@@ -485,6 +488,14 @@ fn lower_call_with_context(
     args: &[nia_ast::Expr],
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeExprKind, ComptimeLowerError> {
+    if args.is_empty()
+        && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
+        && name == "len"
+    {
+        return Ok(ComptimeExprKind::Len {
+            lhs: Box::new(lower_expr_with_context(lhs, context)?),
+        });
+    }
     let (callee, type_args) = match &callee.kind {
         nia_ast::ExprKind::BracketSuffix {
             callee: generic_callee,

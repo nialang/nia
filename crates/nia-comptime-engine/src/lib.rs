@@ -331,6 +331,20 @@ fn eval_comptime_expr_flow(
                     });
                 }
             },
+            ComptimeExprKind::Len { lhs } => match eval_value_or_return_flow!(lhs, env) {
+                ComptimeValue::Array(values) => {
+                    ComptimeValue::Int(i128::try_from(values.len()).map_err(|_| ComptimeError {
+                        span: expr.span,
+                        message: "comptime array length is too large".to_string(),
+                    })?)
+                }
+                _ => {
+                    return Err(ComptimeError {
+                        span: expr.span,
+                        message: "comptime len requires an array value".to_string(),
+                    });
+                }
+            },
             ComptimeExprKind::Index { lhs, index } => {
                 return eval_array_index_flow(expr.span, lhs, index, env);
             }
