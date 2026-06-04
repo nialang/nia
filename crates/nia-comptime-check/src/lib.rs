@@ -2904,29 +2904,29 @@ impl Analyzer<'_> {
                 else_branch,
             } => {
                 self.check_comptime_bool_condition(cond)?;
-                self.check_comptime_block_stmts(then_branch)?;
+                self.check_comptime_block(then_branch)?;
                 if let Some(else_branch) = else_branch {
-                    self.check_comptime_block_stmts(else_branch)?;
+                    self.check_comptime_block(else_branch)?;
                 }
                 Some(())
             }
             ComptimeStmtKind::ForIn(for_in) => self.check_comptime_for_in_stmt(for_in),
             ComptimeStmtKind::While { cond, body } => {
                 self.check_comptime_bool_condition(cond)?;
-                self.check_comptime_block_stmts(body)
+                self.check_comptime_block(body)
             }
-            ComptimeStmtKind::Loop { body } => self.check_comptime_block_stmts(body),
+            ComptimeStmtKind::Loop { body } => self.check_comptime_block(body),
             ComptimeStmtKind::Return(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
                 None
             }
         }
     }
 
-    fn check_comptime_block_stmts(&mut self, block: &ComptimeBlock) -> Option<()> {
+    fn check_comptime_block(&mut self, block: &ComptimeBlock) -> Option<()> {
         self.push_typed_comptime_scope();
         let result = (|| {
             for stmt in &block.stmts {
-                self.bind_typed_comptime_stmt(stmt)?;
+                self.check_comptime_stmt(stmt)?;
             }
             if let Some(tail) = block.tail.as_deref() {
                 self.comptime_expr_type(tail, None)?;
@@ -2935,6 +2935,24 @@ impl Analyzer<'_> {
         })();
         self.pop_typed_comptime_scope();
         result
+    }
+
+    fn check_comptime_stmt(&mut self, stmt: &nia_comptime_ir::ComptimeStmt) -> Option<()> {
+        match &stmt.kind {
+            ComptimeStmtKind::Binding(_)
+            | ComptimeStmtKind::If { .. }
+            | ComptimeStmtKind::ForIn(_)
+            | ComptimeStmtKind::While { .. }
+            | ComptimeStmtKind::Loop { .. } => self.bind_typed_comptime_stmt(stmt),
+            ComptimeStmtKind::Expr(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
+                Some(())
+            }
+            ComptimeStmtKind::Return(Some(expr)) => {
+                self.comptime_expr_type(expr, None)?;
+                Some(())
+            }
+            ComptimeStmtKind::Return(None) => Some(()),
+        }
     }
 
     fn check_comptime_for_in_stmt(
@@ -2954,7 +2972,7 @@ impl Analyzer<'_> {
             })?;
             self.bind_comptime_local_type(local_id, &for_in.binding.name, binding_ty);
             for stmt in &for_in.body.stmts {
-                self.bind_typed_comptime_stmt(stmt)?;
+                self.check_comptime_stmt(stmt)?;
             }
             if let Some(tail) = for_in.body.tail.as_deref() {
                 self.comptime_expr_type(tail, None)?;

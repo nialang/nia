@@ -750,6 +750,42 @@ comptime let n: usize = width();
 }
 
 #[test]
+fn comptime_statement_type_check_allows_loop_control_flow() {
+    let root = temp_dir("comptime_statement_type_check_allows_loop_control_flow");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(flag: bool) usize {
+    if flag {
+        return 4usize;
+    }
+    var total: usize = 0;
+    for value in 0usize..4usize {
+        if value == 2usize {
+            continue;
+        }
+        total += value;
+    }
+    while true {
+        break;
+    }
+    total
+}
+
+comptime let n: usize = width(false);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_function_mutable_locals_drive_loop_array_lengths() {
     let root = temp_dir("comptime_function_mutable_locals_drive_loop_array_lengths");
     write(
