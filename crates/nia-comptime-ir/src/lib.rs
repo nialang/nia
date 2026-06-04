@@ -447,6 +447,9 @@ pub fn lower_expr_with_context(
                 .transpose()?
                 .map(Box::new),
         },
+        nia_ast::ExprKind::ComptimeIf(comptime_if) => {
+            lower_comptime_if_with_context(comptime_if, context)?
+        }
         nia_ast::ExprKind::Switch(switch) => ComptimeExprKind::Switch(Box::new(
             lower_switch_with_context(expr.span, switch, context)?,
         )),
@@ -524,6 +527,22 @@ fn lower_slice_range_with_context(
         start: range.start,
         end: range.end,
         inclusive: range.inclusive,
+    })
+}
+
+fn lower_comptime_if_with_context(
+    comptime_if: &nia_ast::ComptimeIfExpr,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeExprKind, ComptimeLowerError> {
+    Ok(ComptimeExprKind::If {
+        cond: Box::new(lower_expr_with_context(&comptime_if.cond, context)?),
+        then_branch: lower_block_with_context(&comptime_if.then_branch, context)?,
+        else_branch: comptime_if
+            .else_branch
+            .as_deref()
+            .map(|else_branch| lower_expr_with_context(else_branch, context))
+            .transpose()?
+            .map(Box::new),
     })
 }
 

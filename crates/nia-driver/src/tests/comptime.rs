@@ -2210,6 +2210,61 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_if_expr_is_an_ordinary_comptime_value() {
+    let root = temp_dir("comptime_if_expr_is_an_ordinary_comptime_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let config = comptime if true {
+    {width: 4usize}
+} else {
+    {width: 8usize}
+};
+comptime let n: usize = id(config.width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_fn_returns_comptime_if_expr_value() {
+    let root = temp_dir("comptime_fn_returns_comptime_if_expr_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn select() usize {
+    comptime if true {
+        4usize
+    } else {
+        8usize
+    }
+}
+
+comptime let n: usize = select();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_switch_structural_struct_fields_have_typed_values() {
     let root = temp_dir("comptime_switch_structural_struct_fields_have_typed_values");
     write(
