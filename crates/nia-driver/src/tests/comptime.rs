@@ -911,6 +911,33 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_rejects_assignment_value_type_mismatch() {
+    let root = temp_dir("comptime_function_rejects_assignment_value_type_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var i: usize = 2;
+    i = true;
+    i
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("primitive type usize")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_mutates_struct_fields() {
     let root = temp_dir("comptime_function_mutates_struct_fields");
     write(
@@ -1067,6 +1094,37 @@ fn main() i32 {
             .diagnostic
             .message
             .contains("cannot assign to immutable comptime local `p`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_field_assignment_value_type_mismatch() {
+    let root = temp_dir("comptime_function_rejects_field_assignment_value_type_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: usize,
+}
+
+comptime fn width() usize {
+    var p: Point = Point{x: 1};
+    p.x = true;
+    p.x
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("primitive type usize")),
         "{:?}",
         program.diagnostics
     );
