@@ -244,6 +244,7 @@ pub struct TypedComptimeQueryInput<'a> {
     pub target: &'a TargetConfig,
     pub program: ComptimeProgramContext<'a>,
     pub typed_values: &'a HashMap<ComptimeKey, TypedComptimeValue>,
+    pub array_lengths: &'a HashMap<GlobalConstExprId, u64>,
     pub frames: &'a [TypedComptimeFrame],
 }
 
@@ -827,7 +828,7 @@ impl Analyzer<'_> {
             execution_module_overrides: Vec::new(),
             enum_values: HashMap::new(),
             typed_enum_values: HashMap::new(),
-            array_lengths: HashMap::new(),
+            array_lengths: input.array_lengths.clone(),
             diagnostics: Vec::new(),
             active: HashSet::new(),
             working_interners: HashMap::from([(
@@ -1864,6 +1865,10 @@ impl Analyzer<'_> {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_index_type(expr.span, lhs_ty, index)
             }
+            nia_comptime_engine::ComptimeExprKind::Slice { lhs, range } => {
+                let lhs_ty = self.comptime_expr_type(lhs, None)?;
+                self.comptime_slice_type(lhs_ty, range, expected)
+            }
             nia_comptime_engine::ComptimeExprKind::Block(block) => {
                 self.comptime_block_tail_type(block, expected)
             }
@@ -1936,6 +1941,116 @@ impl Analyzer<'_> {
         }
         self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
             .map(ComptimeValueType::Runtime)
+    }
+
+    fn comptime_slice_type(
+        &mut self,
+        lhs: ComptimeValueType,
+        range: &nia_comptime_engine::ComptimeSliceRange,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        match lhs {
+            ComptimeValueType::Array { .. } => {
+                let (elem, len) = lhs.array_elem()?;
+                let actual_len =
+                    self.comptime_slice_len(len, self.expected_const_array_len(expected), range)?;
+                self.comptime_slice_result_type(elem.clone(), actual_len, expected)
+            }
+            ComptimeValueType::Runtime(ty) => self.comptime_runtime_slice_type(ty, range, expected),
+            ComptimeValueType::Struct(_)
+            | ComptimeValueType::Int
+            | ComptimeValueType::Bool
+            | ComptimeValueType::String => None,
+        }
+    }
+
+    fn comptime_runtime_slice_type(
+        &mut self,
+        lhs: InternedTyId,
+        range: &nia_comptime_engine::ComptimeSliceRange,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        let (len, elem) = match self.ty_kind(lhs)? {
+            TyKind::Array { len, elem } => (Some(len), elem),
+            TyKind::Slice { elem, .. } => (None, elem),
+            _ => return None,
+        };
+        let known_len = len.and_then(|len| self.array_len_const_value(len));
+        let actual_len =
+            self.comptime_slice_len(known_len, self.expected_const_array_len(expected), range)?;
+        let elem = self.import_ty_into_module_or_none(elem, self.current_execution_module_id())?;
+        self.comptime_slice_result_type(ComptimeValueType::Runtime(elem), actual_len, expected)
+    }
+
+    fn comptime_slice_result_type(
+        &mut self,
+        elem: ComptimeValueType,
+        actual_len: u64,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        if let Some((expected_len, expected_elem)) =
+            expected.and_then(|expected| self.expected_array_parts(expected))
+            && elem.runtime() == Some(expected_elem)
+        {
+            let actual = Some(actual_len);
+            let len =
+                self.comptime_array_literal_len(Some((expected_len, expected_elem)), actual)?;
+            return self
+                .comptime_runtime_type(
+                    expected_elem,
+                    |elem| TyKind::Array { len, elem },
+                    self.current_execution_module_id(),
+                )
+                .map(ComptimeValueType::Runtime);
+        }
+        Some(ComptimeValueType::Array {
+            elem: Box::new(elem),
+            len: Some(actual_len),
+        })
+    }
+
+    fn comptime_slice_len(
+        &mut self,
+        source_len: Option<u64>,
+        expected_len: Option<u64>,
+        range: &nia_comptime_engine::ComptimeSliceRange,
+    ) -> Option<u64> {
+        let start = match range.start.as_deref() {
+            Some(start) => self.probe_comptime_array_len_expr(start)?,
+            None => 0,
+        };
+        let mut end = match range.end.as_deref() {
+            Some(end) => self.probe_comptime_array_len_expr(end)?,
+            None => source_len.or_else(|| expected_len.and_then(|len| start.checked_add(len)))?,
+        };
+        if range.inclusive {
+            end = end.checked_add(1)?;
+        }
+        if start > end {
+            return None;
+        }
+        if let Some(source_len) = source_len
+            && end > source_len
+        {
+            return None;
+        }
+        Some(end - start)
+    }
+
+    fn expected_const_array_len(&self, expected: Option<InternedTyId>) -> Option<u64> {
+        let expected = expected?;
+        let TyKind::Array { len, .. } = self.ty_kind(expected)? else {
+            return None;
+        };
+        self.array_len_const_value(len)
+    }
+
+    fn array_len_const_value(&self, len: ArrayLenTy) -> Option<u64> {
+        match len {
+            ArrayLenTy::ConstValue(len) => Some(len),
+            ArrayLenTy::ConstExpr(id) => self.array_lengths.get(&id).copied(),
+            ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
+        }
     }
 
     fn import_comptime_value_type(

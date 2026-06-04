@@ -210,6 +210,10 @@ pub enum ComptimeExprKind {
         lhs: Box<ComptimeExpr>,
         index: Box<ComptimeExpr>,
     },
+    Slice {
+        lhs: Box<ComptimeExpr>,
+        range: ComptimeSliceRange,
+    },
     ArrayLiteral {
         ty: Option<InternedTyId>,
         elems: ComptimeArrayElements,
@@ -264,6 +268,13 @@ pub enum ComptimeExprKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeRange {
+    pub start: Option<Box<ComptimeExpr>>,
+    pub end: Option<Box<ComptimeExpr>>,
+    pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeSliceRange {
     pub start: Option<Box<ComptimeExpr>>,
     pub end: Option<Box<ComptimeExpr>>,
     pub inclusive: bool,
@@ -360,12 +371,10 @@ pub fn lower_expr_with_context(
                 lhs: Box::new(lower_expr_with_context(lhs, context)?),
                 index: Box::new(lower_expr_with_context(index, context)?),
             },
-            nia_ast::IndexArg::Range(_) => {
-                return Err(ComptimeLowerError {
-                    span: expr.span,
-                    message: "comptime array slicing is not supported".to_string(),
-                });
-            }
+            nia_ast::IndexArg::Range(range) => ComptimeExprKind::Slice {
+                lhs: Box::new(lower_expr_with_context(lhs, context)?),
+                range: lower_slice_range_with_context(range, context)?,
+            },
         },
         nia_ast::ExprKind::ArrayLiteral { elems } => ComptimeExprKind::ArrayLiteral {
             ty: None,
@@ -422,21 +431,9 @@ pub fn lower_expr_with_context(
                 rhs: lower_expr_with_context(rhs, context)?,
             }))
         }
-        nia_ast::ExprKind::Range(range) => ComptimeExprKind::Range(ComptimeRange {
-            start: range
-                .start
-                .as_deref()
-                .map(|start| lower_expr_with_context(start, context))
-                .transpose()?
-                .map(Box::new),
-            end: range
-                .end
-                .as_deref()
-                .map(|end| lower_expr_with_context(end, context))
-                .transpose()?
-                .map(Box::new),
-            inclusive: range.inclusive,
-        }),
+        nia_ast::ExprKind::Range(range) => {
+            ComptimeExprKind::Range(lower_comptime_range_with_context(range, context)?)
+        }
         nia_ast::ExprKind::If {
             cond,
             then_branch,
@@ -494,6 +491,39 @@ fn lower_call_with_context(
             .iter()
             .map(|arg| lower_expr_with_context(arg, context))
             .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+fn lower_comptime_range_with_context(
+    range: &nia_ast::SliceRange,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeRange, ComptimeLowerError> {
+    Ok(ComptimeRange {
+        start: range
+            .start
+            .as_deref()
+            .map(|start| lower_expr_with_context(start, context))
+            .transpose()?
+            .map(Box::new),
+        end: range
+            .end
+            .as_deref()
+            .map(|end| lower_expr_with_context(end, context))
+            .transpose()?
+            .map(Box::new),
+        inclusive: range.inclusive,
+    })
+}
+
+fn lower_slice_range_with_context(
+    range: &nia_ast::SliceRange,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeSliceRange, ComptimeLowerError> {
+    let range = lower_comptime_range_with_context(range, context)?;
+    Ok(ComptimeSliceRange {
+        start: range.start,
+        end: range.end,
+        inclusive: range.inclusive,
     })
 }
 

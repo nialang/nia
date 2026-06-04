@@ -207,6 +207,12 @@ impl<'a> BodyChecker<'a> {
                     self.check_expr(index);
                     return ty;
                 }
+                if matches!(index, IndexArg::Range(_))
+                    && self.in_comptime_context()
+                    && let Some(ty) = self.comptime_slice_expr_runtime_type(expr, expected)
+                {
+                    return ty;
+                }
                 let lhs_expected = match index {
                     IndexArg::Expr(_) => self.array_expected_from_index_expected(expected),
                     IndexArg::Range(_) => None,
