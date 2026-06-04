@@ -605,6 +605,10 @@ need missing context, such as `null` or one-sided error-union values, remain
 untyped until an explicit binding, parameter, or call context supplies the full
 type.
 
+Propagation expressions use the same typed value surface: when the operand type
+is known as `?T` or `E!T`, `operand.?` has payload type `T` for later comptime
+generic inference.
+
 Expected types are an input to this semantic query, not a fallback evaluator
 rule. This lets generic comptime calls infer through partially-known parameter
 types, for example `E!T` can type `!value` when `E` is already concrete, while
