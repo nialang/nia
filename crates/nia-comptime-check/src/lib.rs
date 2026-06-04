@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{Expr, ItemKind, Module};
+use nia_ast::{BinaryOp, Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
     ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeLocalInitializer,
@@ -1352,6 +1352,9 @@ impl Analyzer<'_> {
                 self.import_ty_into_module_or_none(payload, self.current_execution_module_id())
                     .map(ComptimeValueType::Runtime)
             }
+            nia_comptime_engine::ComptimeExprKind::Binary { lhs, op, rhs } => {
+                self.comptime_binary_expr_type(lhs, *op, rhs)
+            }
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,
@@ -1379,6 +1382,67 @@ impl Analyzer<'_> {
             }
             _ => None,
         }
+    }
+
+    fn comptime_binary_expr_type(
+        &mut self,
+        lhs: &ComptimeExpr,
+        op: BinaryOp,
+        rhs: &ComptimeExpr,
+    ) -> Option<ComptimeValueType> {
+        match op {
+            BinaryOp::And
+            | BinaryOp::Or
+            | BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Bool),
+            )),
+            BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Rem
+            | BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::BitAnd
+            | BinaryOp::BitXor
+            | BinaryOp::BitOr => {
+                let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
+                let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
+                (lhs_ty == rhs_ty && self.is_integer_runtime_type(lhs_ty))
+                    .then_some(ComptimeValueType::Runtime(lhs_ty))
+            }
+        }
+    }
+
+    fn current_runtime_primitive_type(&self, primitive: PrimitiveTy) -> InternedTyId {
+        self.source_interner_for_module(self.current_execution_module_id())
+            .unwrap_or(self.input.interner)
+            .primitive(primitive)
+    }
+
+    fn is_integer_runtime_type(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.ty_kind(ty),
+            Some(TyKind::Primitive(
+                PrimitiveTy::I8
+                    | PrimitiveTy::I16
+                    | PrimitiveTy::I32
+                    | PrimitiveTy::I64
+                    | PrimitiveTy::I128
+                    | PrimitiveTy::Isize
+                    | PrimitiveTy::U8
+                    | PrimitiveTy::U16
+                    | PrimitiveTy::U32
+                    | PrimitiveTy::U64
+                    | PrimitiveTy::U128
+                    | PrimitiveTy::Usize
+            ))
+        )
     }
 
     fn comptime_call_return_type(
