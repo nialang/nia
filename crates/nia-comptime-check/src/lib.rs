@@ -232,7 +232,7 @@ pub struct TypedComptimeFrame {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ComptimeInstantiationInput<'a> {
+pub struct TypedComptimeQueryInput<'a> {
     pub module: &'a ComptimeModule,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
@@ -248,7 +248,7 @@ pub struct ComptimeInstantiationInput<'a> {
 }
 
 pub fn instantiate_comptime_function_generics(
-    input: ComptimeInstantiationInput<'_>,
+    input: TypedComptimeQueryInput<'_>,
     span: Span,
     function_id: GlobalDefId,
     signature_module_id: ModuleId,
@@ -268,7 +268,7 @@ pub fn instantiate_comptime_function_generics(
 }
 
 pub fn infer_comptime_expr_type(
-    input: ComptimeInstantiationInput<'_>,
+    input: TypedComptimeQueryInput<'_>,
     expr: &ComptimeExpr,
     expected: Option<InternedTyId>,
 ) -> Option<ComptimeValueType> {
@@ -799,7 +799,7 @@ impl From<TypedComptimeFrame> for ComptimeCallFrame {
 }
 
 impl Analyzer<'_> {
-    fn for_typed_query(input: ComptimeInstantiationInput<'_>) -> Analyzer<'_> {
+    fn for_typed_query(input: TypedComptimeQueryInput<'_>) -> Analyzer<'_> {
         Analyzer {
             input: ComptimeInput {
                 module: input.module,

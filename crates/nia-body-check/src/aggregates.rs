@@ -1056,7 +1056,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
         let frames = self.typed_comptime_frames();
         nia_comptime_check::instantiate_comptime_function_generics(
-            nia_comptime_check::ComptimeInstantiationInput {
+            nia_comptime_check::TypedComptimeQueryInput {
                 module: self.comptime_module,
                 defs: self.defs,
                 values: self.values,
@@ -1085,8 +1085,8 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    fn comptime_instantiation_input(&self) -> nia_comptime_check::ComptimeInstantiationInput<'_> {
-        nia_comptime_check::ComptimeInstantiationInput {
+    fn typed_comptime_query_input(&self) -> nia_comptime_check::TypedComptimeQueryInput<'_> {
+        nia_comptime_check::TypedComptimeQueryInput {
             module: self.comptime_module,
             defs: self.defs,
             values: self.values,
@@ -1125,7 +1125,7 @@ impl<'a> BodyChecker<'a> {
         expr: &nia_comptime_engine::ComptimeExpr,
     ) -> Option<nia_comptime_check::ComptimeValueType> {
         let frames = self.typed_comptime_frames();
-        let mut input = self.comptime_instantiation_input();
+        let mut input = self.typed_comptime_query_input();
         input.frames = &frames;
         nia_comptime_check::infer_comptime_expr_type(input, expr, None)
     }
