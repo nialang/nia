@@ -2510,6 +2510,35 @@ comptime let selected: u8 = config.values[1];
 }
 
 #[test]
+fn comptime_nominal_struct_values_validate_field_ranges() {
+    let root = temp_dir("comptime_nominal_struct_values_validate_field_ranges");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Packet[T] {
+    tag: u8,
+    payload: T,
+}
+
+comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let count = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("out of range for u8")
+        })
+        .count();
+    assert!(count >= 1, "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_string_literals_are_typed_arrays");
     write(
