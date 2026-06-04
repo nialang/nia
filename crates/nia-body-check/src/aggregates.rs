@@ -9,7 +9,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
@@ -307,6 +307,9 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         name: &str,
     ) -> InternedTyId {
+        if let Some(ty) = self.builtin_field_access_type(lhs, name) {
+            return ty;
+        }
         if self.values.qualified_values.contains_key(&span) {
             return self
                 .qualified_global_type(span)
@@ -317,6 +320,49 @@ impl<'a> BodyChecker<'a> {
         }
         let lhs_ty = self.check_expr(lhs);
         self.field_access_type_from_lhs_ty(span, lhs_ty, name)
+    }
+
+    fn builtin_field_access_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
+        match &lhs.kind {
+            nia_ast::ExprKind::Call { callee, args }
+                if args.is_empty()
+                    && matches!(
+                        &callee.kind,
+                        nia_ast::ExprKind::Builtin {
+                            name,
+                            type_arg: None
+                        } if name == "builtin"
+                    ) =>
+            {
+                (name == "target").then(|| self.interner.intern(TyKind::ComptimeOnly))
+            }
+            nia_ast::ExprKind::Field {
+                lhs: builtin,
+                name: target,
+            } if target == "target" && self.is_builtin_call_expr(builtin) => match name {
+                "pointer_width" => Some(self.primitive(PrimitiveTy::Usize)),
+                "arch" | "vendor" | "os" | "env" | "abi" | "endian" => {
+                    Some(self.interner.intern(TyKind::ComptimeOnly))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn is_builtin_call_expr(&self, expr: &Expr) -> bool {
+        matches!(
+            &expr.kind,
+            nia_ast::ExprKind::Call { callee, args }
+                if args.is_empty()
+                    && matches!(
+                        &callee.kind,
+                        nia_ast::ExprKind::Builtin {
+                            name,
+                            type_arg: None
+                        } if name == "builtin"
+                    )
+        )
     }
 
     pub(crate) fn field_access_type_from_lhs_ty(

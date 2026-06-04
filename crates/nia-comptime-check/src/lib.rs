@@ -31,7 +31,31 @@ pub struct ComptimeCheck {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedComptimeValue {
     pub value: ComptimeValue,
-    pub ty: InternedTyId,
+    pub ty: ComptimeValueType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComptimeValueType {
+    Runtime(InternedTyId),
+    Int,
+    Bool,
+    String,
+    Struct(Vec<ComptimeValueFieldType>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComptimeValueFieldType {
+    pub name: String,
+    pub ty: ComptimeValueType,
+}
+
+impl ComptimeValueType {
+    fn runtime(&self) -> Option<InternedTyId> {
+        match self {
+            Self::Runtime(ty) => Some(*ty),
+            Self::Int | Self::Bool | Self::String | Self::Struct(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -691,7 +715,7 @@ impl Analyzer<'_> {
                 variant.def_id.def_id,
                 TypedComptimeValue {
                     value: ComptimeValue::Int(value),
-                    ty,
+                    ty: ComptimeValueType::Runtime(ty),
                 },
             );
             next_value = value.saturating_add(1);
@@ -747,8 +771,13 @@ impl Analyzer<'_> {
         let Some(ty) = self.explicit_type_for_key(key) else {
             return;
         };
-        self.typed_values
-            .insert(key, TypedComptimeValue { value, ty });
+        self.typed_values.insert(
+            key,
+            TypedComptimeValue {
+                value,
+                ty: ComptimeValueType::Runtime(ty),
+            },
+        );
     }
 
     fn explicit_type_for_key(&self, key: ComptimeKey) -> Option<InternedTyId> {
@@ -1178,7 +1207,7 @@ impl Analyzer<'_> {
         let mut substitutions = HashMap::new();
         if type_args.is_empty() {
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
-                let Some(arg_ty) = self.comptime_arg_type(arg_expr) else {
+                let Some(arg_ty) = self.comptime_arg_runtime_type(arg_expr) else {
                     continue;
                 };
                 self.infer_generics_from_tys(
@@ -1213,7 +1242,11 @@ impl Analyzer<'_> {
         Ok(substitutions)
     }
 
-    fn comptime_arg_type(&self, expr: &ComptimeExpr) -> Option<InternedTyId> {
+    fn comptime_arg_runtime_type(&self, expr: &ComptimeExpr) -> Option<InternedTyId> {
+        self.comptime_expr_type(expr).and_then(|ty| ty.runtime())
+    }
+
+    fn comptime_expr_type(&self, expr: &ComptimeExpr) -> Option<ComptimeValueType> {
         match &expr.kind {
             nia_comptime_engine::ComptimeExprKind::Ident {
                 resolution: Some(nia_comptime_engine::ComptimeNameResolution::Local(local_id)),
@@ -1225,7 +1258,7 @@ impl Analyzer<'_> {
                 .or_else(|| {
                     self.typed_values
                         .get(&ComptimeKey::Local(*local_id))
-                        .map(|typed| typed.ty)
+                        .map(|typed| typed.ty.clone())
                 }),
             nia_comptime_engine::ComptimeExprKind::Ident {
                 resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
@@ -1237,15 +1270,45 @@ impl Analyzer<'_> {
             } => self
                 .typed_values
                 .get(&ComptimeKey::Global(*global_id))
-                .map(|typed| typed.ty),
+                .map(|typed| typed.ty.clone()),
             nia_comptime_engine::ComptimeExprKind::Integer(text) => integer_literal_suffix_ty(text)
                 .map(|primitive| {
-                    self.source_interner_for_module(self.current_execution_module_id())
-                        .unwrap_or(self.input.interner)
-                        .primitive(primitive)
+                    ComptimeValueType::Runtime(
+                        self.source_interner_for_module(self.current_execution_module_id())
+                            .unwrap_or(self.input.interner)
+                            .primitive(primitive),
+                    )
                 }),
+            nia_comptime_engine::ComptimeExprKind::Builtin {
+                name,
+                type_arg_span: None,
+            } if name == "builtin" => Some(self.builtin_comptime_type()),
+            nia_comptime_engine::ComptimeExprKind::Call { callee, args, .. }
+                if args.is_empty() && self.is_builtin_value_callee(callee, "builtin") =>
+            {
+                Some(self.builtin_comptime_type())
+            }
+            nia_comptime_engine::ComptimeExprKind::Field { lhs, name } => {
+                let ComptimeValueType::Struct(fields) = self.comptime_expr_type(lhs)? else {
+                    return None;
+                };
+                fields
+                    .into_iter()
+                    .find(|field| field.name == *name)
+                    .map(|field| field.ty)
+            }
             _ => None,
         }
+    }
+
+    fn is_builtin_value_callee(&self, callee: &ComptimeExpr, expected: &str) -> bool {
+        matches!(
+            &callee.kind,
+            nia_comptime_engine::ComptimeExprKind::Builtin {
+                name,
+                type_arg_span: None
+            } if name == expected
+        )
     }
 
     fn call_local_typed_value(&self, local_id: LocalId) -> Option<TypedComptimeValue> {
@@ -1260,6 +1323,44 @@ impl Analyzer<'_> {
             .iter()
             .rev()
             .find_map(|frame| frame.typed_names.get(name).cloned())
+    }
+
+    fn builtin_comptime_type(&self) -> ComptimeValueType {
+        ComptimeValueType::Struct(vec![ComptimeValueFieldType {
+            name: "target".to_string(),
+            ty: ComptimeValueType::Struct(vec![
+                ComptimeValueFieldType {
+                    name: "arch".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "vendor".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "os".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "env".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "abi".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "endian".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "pointer_width".to_string(),
+                    ty: ComptimeValueType::Runtime(
+                        self.input.interner.primitive(PrimitiveTy::Usize),
+                    ),
+                },
+            ]),
+        }])
     }
 
     fn infer_generics_from_tys(
@@ -2050,7 +2151,10 @@ impl Analyzer<'_> {
         frame.locals.insert(local_id, value.clone());
         frame.names.insert(name.to_string(), value.clone());
         if let Some(ty) = ty {
-            let typed = TypedComptimeValue { value, ty };
+            let typed = TypedComptimeValue {
+                value,
+                ty: ComptimeValueType::Runtime(ty),
+            };
             frame.typed_locals.insert(local_id, typed.clone());
             frame.typed_names.insert(name.to_string(), typed);
         }
@@ -2158,7 +2262,7 @@ fn numeric_literal_suffix(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ComptimeInput, ComptimeKey, ComptimeModuleInput, ComptimeProgramContext,
+        ComptimeInput, ComptimeKey, ComptimeModuleInput, ComptimeProgramContext, ComptimeValueType,
         check_module_comptime, lower_module_comptime,
     };
     use nia_defs::{DefKind, ModuleId, collect_module_defs};
@@ -2227,13 +2331,13 @@ fn main() i32 {
                 def_id: width_def,
             }))
             .expect("typed global comptime value");
-        assert_eq!(width.ty, usize_ty);
+        assert_eq!(width.ty, ComptimeValueType::Runtime(usize_ty));
         assert!(locals.locals.iter().any(|(local_id, local)| {
             local.kind == nia_local_resolve::LocalKind::ComptimeBinding
                 && checked
                     .typed_values
                     .get(&ComptimeKey::Local(local_id))
-                    .is_some_and(|typed| typed.ty == usize_ty)
+                    .is_some_and(|typed| typed.ty == ComptimeValueType::Runtime(usize_ty))
         }));
     }
 
@@ -2286,9 +2390,9 @@ enum Code: u8 {
                 .typed_enum_values
                 .get(&variant)
                 .expect("typed enum variant value");
-            assert_eq!(typed.ty, u8_ty);
+            assert_eq!(typed.ty, ComptimeValueType::Runtime(u8_ty));
             assert!(matches!(
-                lowered.interner.get(typed.ty),
+                typed.ty.runtime().and_then(|ty| lowered.interner.get(ty)),
                 Some(TyKind::Primitive(PrimitiveTy::U8))
             ));
         }

@@ -1295,6 +1295,30 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_builtin_target_field() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_builtin_target_field");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let bits: usize = id(@builtin().target.pointer_width);
+comptime let n: usize = bits / 8usize;
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_generic_comptime_function_infers_type_arg_from_typed_value() {
     let root = temp_dir("imported_generic_comptime_function_infers_type_arg_from_typed_value");
     write(
