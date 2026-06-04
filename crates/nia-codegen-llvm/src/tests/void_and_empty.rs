@@ -198,7 +198,7 @@ fn emits_discarded_void_calls() {
     std::fs::write(
         &main,
         r#"
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: & u8, ...);
 
 fn effect() {}
 fn value() i32 { 7 }

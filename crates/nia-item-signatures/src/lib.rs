@@ -230,7 +230,7 @@ pub struct TypeAliasSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlobalSignature {
     pub explicit_type: Option<InternedTyId>,
-    pub is_const: bool,
+    pub is_let: bool,
     pub is_extern: bool,
     pub span: Span,
 }
@@ -542,7 +542,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             GlobalSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_span(ty.span)),
-                is_const: binding.is_const,
+                is_let: binding.is_let,
                 is_extern: binding.is_extern,
                 span: item_span,
             },
@@ -724,7 +724,7 @@ mod tests {
         let (module, errors) = parse_module(
             r#"
 extern fn printf(fmt: &u8, ...);
-extern const errno: i32;
+extern let errno: i32;
 
 struct Point {
     x: i32,

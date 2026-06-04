@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, BinaryOp, Block, ComptimeIfExpr, ComptimeIfItem, ComptimeIfItemElse, Expr,
-    ExprKind, FieldInit, IndexArg, Item, ItemKind, Module, SliceRange, Stmt, StmtKind,
-    StringLiteral, SwitchArmBody, SwitchPattern, UnaryOp,
+    ArrayElements, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
+    Module, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
 };
 use nia_diagnostic::Diagnostic;
+use nia_item_tree::ActiveModuleItemTree;
+use nia_item_tree::{ComptimeBranch, ComptimeBranchResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetConfig {
@@ -41,6 +43,7 @@ impl Default for TargetConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PruneResult {
     pub module: Module,
+    pub active_item_tree: ActiveModuleItemTree,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -49,18 +52,12 @@ pub fn prune_module_for_target(module: Module, config: &TargetConfig) -> PruneRe
         config,
         diagnostics: Vec::new(),
     };
-    let module = pruner.prune_module(module);
+    let pruned = pruner.prune_module(module);
     PruneResult {
-        module,
+        module: pruned.module,
+        active_item_tree: pruned.active_item_tree,
         diagnostics: pruner.diagnostics,
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ConfigValue {
-    Bool(bool),
-    String(String),
-    Int(u64),
 }
 
 pub fn eval_config_bool(
@@ -68,243 +65,92 @@ pub fn eval_config_bool(
     config: &TargetConfig,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<bool> {
-    match eval_config_value(expr, config, diagnostics) {
-        Some(ConfigValue::Bool(value)) => Some(value),
-        Some(_) => {
-            diagnostics.push(Diagnostic::error(
-                expr.span,
-                "comptime if condition must evaluate to bool",
-            ));
-            None
-        }
-        None => None,
-    }
+    let mut env = TargetComptimeEnv { config };
+    nia_comptime_engine::eval_bool_expr(expr, &mut env)
+        .map_err(|err| diagnostics.push(Diagnostic::error(err.span, err.message)))
+        .ok()
 }
 
-fn eval_config_value(
-    expr: &Expr,
-    config: &TargetConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<ConfigValue> {
-    match &expr.kind {
-        ExprKind::Bool(value) => Some(ConfigValue::Bool(*value)),
-        ExprKind::String(literal) => literal_string(literal).map(ConfigValue::String),
-        ExprKind::Integer(text) => parse_u64_literal(text).map(ConfigValue::Int).or_else(|| {
-            diagnostics.push(Diagnostic::error(
-                expr.span,
-                "target config integer literal must fit in u64",
-            ));
-            None
-        }),
-        ExprKind::Unary {
-            op: UnaryOp::Not,
-            expr,
-        } => eval_config_bool(expr, config, diagnostics).map(|value| ConfigValue::Bool(!value)),
-        ExprKind::Binary { lhs, op, rhs } => {
-            eval_config_binary(expr.span, lhs, *op, rhs, config, diagnostics)
-        }
-        ExprKind::Field { lhs, name } => {
-            eval_config_field(expr.span, lhs, name, config, diagnostics)
-        }
-        ExprKind::Call { .. } => {
-            diagnostics.push(Diagnostic::error(
-                expr.span,
-                "target config calls are only supported as `@builtin()` field roots",
-            ));
-            None
-        }
-        ExprKind::Block(block) => {
-            if !block.stmts.is_empty() {
-                diagnostics.push(Diagnostic::error(
-                    expr.span,
-                    "target config block conditions cannot contain statements",
-                ));
-                return None;
-            }
-            block
-                .tail
-                .as_deref()
-                .and_then(|tail| eval_config_value(tail, config, diagnostics))
-        }
-        _ => {
-            diagnostics.push(Diagnostic::error(
-                expr.span,
-                "unsupported expression in target config condition",
-            ));
-            None
-        }
-    }
+struct TargetComptimeEnv<'a> {
+    config: &'a TargetConfig,
 }
 
-fn eval_config_binary(
-    span: Span,
-    lhs: &Expr,
-    op: BinaryOp,
-    rhs: &Expr,
-    config: &TargetConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<ConfigValue> {
-    match op {
-        BinaryOp::And => {
-            let lhs = eval_config_bool(lhs, config, diagnostics)?;
-            if !lhs {
-                return Some(ConfigValue::Bool(false));
-            }
-            eval_config_bool(rhs, config, diagnostics).map(ConfigValue::Bool)
-        }
-        BinaryOp::Or => {
-            let lhs = eval_config_bool(lhs, config, diagnostics)?;
-            if lhs {
-                return Some(ConfigValue::Bool(true));
-            }
-            eval_config_bool(rhs, config, diagnostics).map(ConfigValue::Bool)
-        }
-        BinaryOp::Eq | BinaryOp::Ne => {
-            let lhs = eval_config_value(lhs, config, diagnostics)?;
-            let rhs = eval_config_value(rhs, config, diagnostics)?;
-            let equal = config_values_equal(&lhs, &rhs).unwrap_or_else(|| {
-                diagnostics.push(Diagnostic::error(
-                    span,
-                    "target config equality requires matching operand types",
-                ));
-                false
+impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
+    fn resolve_ident(
+        &mut self,
+        span: Span,
+        name: &str,
+    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        Err(nia_comptime_engine::ComptimeError {
+            span,
+            message: format!("unknown target comptime value `{name}`"),
+        })
+    }
+
+    fn resolve_builtin_value(
+        &mut self,
+        span: Span,
+        name: &str,
+    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        if name != "builtin" {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: format!("unsupported builtin value in target condition: @{name}"),
             });
-            Some(ConfigValue::Bool(if op == BinaryOp::Eq {
-                equal
-            } else {
-                !equal
-            }))
         }
-        _ => {
-            diagnostics.push(Diagnostic::error(
-                span,
-                "unsupported operator in target config condition",
-            ));
-            None
-        }
+        Ok(builtin_comptime_value(self.config))
     }
-}
 
-fn eval_config_field(
-    span: Span,
-    lhs: &Expr,
-    name: &str,
-    config: &TargetConfig,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<ConfigValue> {
-    let Some(root) = target_field_root(lhs) else {
-        diagnostics.push(Diagnostic::error(
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        _builtin: nia_ids::LayoutBuiltin,
+        _ty: &nia_ast::TypeRef,
+    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        Err(nia_comptime_engine::ComptimeError {
             span,
-            "target config fields are only available on `@builtin().target`",
-        ));
-        return None;
-    };
-    if root != "target" {
-        diagnostics.push(Diagnostic::error(
-            span,
-            "target config fields are only available on `@builtin().target`",
-        ));
-        return None;
-    }
-    match name {
-        "arch" => Some(ConfigValue::String(config.arch.clone())),
-        "vendor" => Some(ConfigValue::String(config.vendor.clone())),
-        "os" => Some(ConfigValue::String(config.os.clone())),
-        "env" => Some(ConfigValue::String(config.env.clone())),
-        "abi" => Some(ConfigValue::String(config.abi.clone())),
-        "endian" => Some(ConfigValue::String(config.endian.clone())),
-        "pointer_width" => Some(ConfigValue::Int(config.pointer_width as u64)),
-        _ => {
-            diagnostics.push(Diagnostic::error(
-                span,
-                format!("unknown target config field `{name}`"),
-            ));
-            None
-        }
+            message: "layout builtins are not available in target conditions".to_string(),
+        })
     }
 }
 
-fn target_field_root(expr: &Expr) -> Option<&str> {
-    let ExprKind::Field { lhs, name } = &expr.kind else {
-        return None;
-    };
-    if name != "target" {
-        return None;
-    }
-    let ExprKind::Call { callee, args } = &lhs.kind else {
-        return None;
-    };
-    if !args.is_empty() {
-        return None;
-    }
-    let ExprKind::Builtin { name, type_arg } = &callee.kind else {
-        return None;
-    };
-    if name == "builtin" && type_arg.is_none() {
-        Some("target")
-    } else {
-        None
-    }
+pub fn builtin_comptime_value(config: &TargetConfig) -> nia_comptime_engine::ComptimeValue {
+    let mut fields = BTreeMap::new();
+    fields.insert("target".to_string(), target_comptime_value(config));
+    nia_comptime_engine::ComptimeValue::Struct(fields)
 }
 
-fn config_values_equal(lhs: &ConfigValue, rhs: &ConfigValue) -> Option<bool> {
-    match (lhs, rhs) {
-        (ConfigValue::Bool(lhs), ConfigValue::Bool(rhs)) => Some(lhs == rhs),
-        (ConfigValue::String(lhs), ConfigValue::String(rhs)) => Some(lhs == rhs),
-        (ConfigValue::Int(lhs), ConfigValue::Int(rhs)) => Some(lhs == rhs),
-        _ => None,
-    }
-}
-
-fn literal_string(literal: &StringLiteral) -> Option<String> {
-    if literal.parts.len() != 1 {
-        return None;
-    }
-    let text = literal.parts[0].as_str();
-    text.strip_prefix('"')?
-        .strip_suffix('"')
-        .map(unescape_simple)
-}
-
-fn unescape_simple(text: &str) -> String {
-    let mut out = String::new();
-    let mut chars = text.chars();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('n') => out.push('\n'),
-            Some('r') => out.push('\r'),
-            Some('t') => out.push('\t'),
-            Some('\\') => out.push('\\'),
-            Some('"') => out.push('"'),
-            Some('0') => out.push('\0'),
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
-            }
-            None => out.push('\\'),
-        }
-    }
-    out
-}
-
-fn parse_u64_literal(text: &str) -> Option<u64> {
-    let text = text.replace('_', "");
-    let digits = text
-        .trim_end_matches(|ch: char| ch.is_ascii_alphabetic())
-        .trim_end_matches(['8', '6', '3', '2']);
-    if let Some(hex) = digits.strip_prefix("0x") {
-        u64::from_str_radix(hex, 16).ok()
-    } else if let Some(binary) = digits.strip_prefix("0b") {
-        u64::from_str_radix(binary, 2).ok()
-    } else if let Some(octal) = digits.strip_prefix("0o") {
-        u64::from_str_radix(octal, 8).ok()
-    } else {
-        digits.parse().ok()
-    }
+pub fn target_comptime_value(config: &TargetConfig) -> nia_comptime_engine::ComptimeValue {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "arch".to_string(),
+        nia_comptime_engine::ComptimeValue::String(config.arch.clone()),
+    );
+    fields.insert(
+        "vendor".to_string(),
+        nia_comptime_engine::ComptimeValue::String(config.vendor.clone()),
+    );
+    fields.insert(
+        "os".to_string(),
+        nia_comptime_engine::ComptimeValue::String(config.os.clone()),
+    );
+    fields.insert(
+        "env".to_string(),
+        nia_comptime_engine::ComptimeValue::String(config.env.clone()),
+    );
+    fields.insert(
+        "abi".to_string(),
+        nia_comptime_engine::ComptimeValue::String(config.abi.clone()),
+    );
+    fields.insert(
+        "endian".to_string(),
+        nia_comptime_engine::ComptimeValue::String(config.endian.clone()),
+    );
+    fields.insert(
+        "pointer_width".to_string(),
+        nia_comptime_engine::ComptimeValue::Int(i128::from(config.pointer_width)),
+    );
+    nia_comptime_engine::ComptimeValue::Struct(fields)
 }
 
 struct Pruner<'a> {
@@ -312,20 +158,39 @@ struct Pruner<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+struct PrunedModule {
+    module: Module,
+    active_item_tree: ActiveModuleItemTree,
+}
+
 impl Pruner<'_> {
-    fn prune_module(&mut self, module: Module) -> Module {
-        Module {
-            items: module
+    fn prune_module(&mut self, module: Module) -> PrunedModule {
+        let tree = ModuleItemTree::from_module(&module);
+        let active_item_tree = match tree.active_items(self) {
+            Ok(active) => active,
+            Err(err) => {
+                self.diagnostics
+                    .push(Diagnostic::error(err.span, err.message));
+                ActiveModuleItemTree::new(Vec::new(), Default::default())
+            }
+        };
+        let module = Module {
+            items: active_item_tree
                 .items
-                .into_iter()
+                .iter()
+                .map(|item| item.to_ast_item())
                 .flat_map(|item| self.prune_item(item))
                 .collect(),
+        };
+        PrunedModule {
+            module,
+            active_item_tree,
         }
     }
 
     fn prune_item(&mut self, item: Item) -> Vec<Item> {
         match item.kind {
-            ItemKind::ComptimeIf(comptime_if) => self.prune_comptime_if_item(comptime_if),
+            ItemKind::ComptimeIf(_) => Vec::new(),
             ItemKind::Struct(item_struct) => {
                 vec![Item {
                     kind: ItemKind::Struct(item_struct),
@@ -366,27 +231,6 @@ impl Pruner<'_> {
                 }]
             }
             _ => vec![item],
-        }
-    }
-
-    fn prune_comptime_if_item(&mut self, comptime_if: ComptimeIfItem) -> Vec<Item> {
-        match eval_config_bool(&comptime_if.cond, self.config, &mut self.diagnostics) {
-            Some(true) => comptime_if
-                .then_items
-                .into_iter()
-                .flat_map(|item| self.prune_item(item))
-                .collect(),
-            Some(false) => match comptime_if.else_branch {
-                Some(ComptimeIfItemElse::If(comptime_if)) => {
-                    self.prune_comptime_if_item(*comptime_if)
-                }
-                Some(ComptimeIfItemElse::Items(items)) => items
-                    .into_iter()
-                    .flat_map(|item| self.prune_item(item))
-                    .collect(),
-                None => Vec::new(),
-            },
-            None => Vec::new(),
         }
     }
 
@@ -708,10 +552,66 @@ impl Pruner<'_> {
     }
 }
 
+impl ComptimeBranchResolver for Pruner<'_> {
+    fn resolve_comptime_if(
+        &mut self,
+        span: Span,
+        cond: &Expr,
+    ) -> Result<ComptimeBranch, ItemTreeError> {
+        let _ = span;
+        Ok(
+            match eval_config_bool(cond, self.config, &mut self.diagnostics) {
+                Some(true) => ComptimeBranch::Then,
+                Some(false) => ComptimeBranch::Else,
+                None => ComptimeBranch::None,
+            },
+        )
+    }
+}
+
 fn endian() -> &'static str {
     if cfg!(target_endian = "little") {
         "little"
     } else {
         "big"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ast::ItemKind;
+    use nia_parser::parse_module;
+
+    #[test]
+    fn prunes_item_comptime_if_with_builtin_target_fields() {
+        let (module, errors) = parse_module(
+            r#"
+comptime if @builtin().target.os == "linux" and @builtin().target.pointer_width == 64 {
+    fn selected() i32 { 1 }
+} else {
+    fn skipped() i32 { 0 }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let result = prune_module_for_target(
+            module,
+            &TargetConfig {
+                arch: "x86_64".to_string(),
+                vendor: "unknown".to_string(),
+                os: "linux".to_string(),
+                env: String::new(),
+                abi: String::new(),
+                endian: "little".to_string(),
+                pointer_width: 64,
+            },
+        );
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+        assert_eq!(result.module.items.len(), 1);
+        let ItemKind::Function(function) = &result.module.items[0].kind else {
+            panic!("expected selected function");
+        };
+        assert_eq!(function.name, "selected");
     }
 }

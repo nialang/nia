@@ -559,7 +559,7 @@ pub(crate) fn contains_generic_param(
                     .iter()
                     .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut()))
         }
-        Some(TyKind::Primitive(_) | TyKind::Error) | None => false,
+        Some(TyKind::Primitive(_) | TyKind::ComptimeOnly | TyKind::Error) | None => false,
     };
     if let Some(cache) = cache {
         cache.insert(ty, contains);
@@ -587,7 +587,7 @@ mod tests {
                 match ty.index.index() {
                     0 => Some(TyKind::GenericParam("T".to_string())),
                     1 => Some(TyKind::Pointer {
-                        is_const: true,
+                        is_readonly: true,
                         elem: generic,
                     }),
                     _ => None,
@@ -625,7 +625,7 @@ mod tests {
                 match ty.index.index() {
                     0 => Some(TyKind::Primitive(PrimitiveTy::I32)),
                     1 => Some(TyKind::Slice {
-                        is_const: false,
+                        is_readonly: false,
                         elem: int,
                     }),
                     _ => None,

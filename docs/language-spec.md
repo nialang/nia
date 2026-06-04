@@ -60,7 +60,7 @@ fn main() i32 {
 CLI-style programs may receive arguments from the host C runtime:
 
 ```nia
-fn main(argc: i32, argv: &const &const u8) i32 {
+fn main(argc: i32, argv: &&u8) i32 {
     0
 }
 ```
@@ -79,7 +79,7 @@ entry signatures is exported as the C ABI symbol `main`:
 
 ```nia
 fn main() i32
-fn main(argc: i32, argv: &const &const u8) i32
+fn main(argc: i32, argv: &&u8) i32
 ```
 
 Other Nia functions, including imported functions named `main`, use normal Nia
@@ -115,7 +115,6 @@ as
 bool
 break
 comptime
-const
 continue
 defer
 else
@@ -287,7 +286,7 @@ For adjacent C string literals, the trailing NUL is appended once to the final
 combined byte sequence. For example, `c"foo" c"bar"` has type `[7]u8` and is
 equivalent to `b"foobar\0"`.
 
-In an expected `&u8` or `&const u8` context, a C string literal may be coerced to
+In an expected `&u8` context, a C string literal may be coerced to
 a pointer to its first byte. This creates a block-scoped array temporary; it does
 not promote the literal to static storage. The coercion is specific to C string
 literals and does not apply to byte string literals or arbitrary `[N]u8` arrays.
@@ -385,13 +384,15 @@ Pointer types:
 
 ```nia
 &T
-&const T
+&mut T
 ```
 
-`&T` is a writable object pointer. `&const T` is a read-only object pointer.
+`&T` is a read-only object pointer. `&mut T` is a writable object pointer.
+Whitespace is insignificant: `& T` parses as `&T`, not as a different pointer
+kind.
 
-Pointers are ordinary values. Nia has no borrow checker. `&T` and `&const T` are
-different types. Pointer conversions must be explicit:
+Pointers are ordinary values. Nia has no borrow checker. Read-only and writable
+pointers are different types. Pointer conversions must be explicit:
 
 ```nia
 var addr = ptr as usize;
@@ -403,14 +404,14 @@ Address-of and dereference syntax:
 ```nia
 var value = 1;
 var p = &value;
-var cp = &const value;
+var mp = &mut value;
 var x = p.*;
-p.* = 1;
+mp.* = 1;
 ```
 
-`&place` takes a writable reference to a place. `&const place` takes a read-only
-reference to an addressable place. Identifiers, field access, array indexing,
-slice indexing, and pointer dereference may be places. Field access and indexing
+`&place` takes a read-only reference to a place. `&mut place` takes a writable
+reference to a writable place. Identifiers, field access, array indexing, slice
+indexing, and pointer dereference may be places. Field access and indexing
 inherit place-ness from their left-hand side.
 
 When the operand is a typed value expression rather than a place, address-of
@@ -418,7 +419,7 @@ materializes a block-scoped temporary object and returns a pointer to that
 temporary. The temporary has the expression's runtime value type. `void` and
 `never` expressions cannot be materialized.
 
-When the pointee type is a trait name, `&Trait[...]` and `&const Trait[...]`
+When the pointee type is a trait name, `&Trait[...]` and `&mut Trait[...]`
 denote trait object pointers, not thin object pointers. A trait object is a Nia
 fat pointer carrying an object pointer plus implementation metadata. Bare
 `Trait[...]` remains a trait type for bounds and projections; it is not a valid
@@ -429,7 +430,7 @@ trait Source {
     type Item;
 }
 
-fn consume(source: &const Source[Item = i32]) void {}
+fn consume(source: &Source[Item = i32]) void {}
 ```
 
 Trait object syntax uses the same bracket list as trait bounds: positional trait
@@ -452,8 +453,8 @@ var temp = &Point { x: 1, y: 2 };
 var answer = &42i32;
 var returned = &make_i32();
 
-const hello = c"hello";
-_ = &const hello[0];
+let hello = c"hello";
+_ = & hello[0];
 ```
 
 ### 4.3 Arrays
@@ -509,7 +510,7 @@ alone, when nested array shape should be explicit, or when the literal is
 immediately materialized, for example:
 
 ```nia
-var s = &const ([3]i32[1, 2, 3])[..];
+var s = & ([3]i32[1, 2, 3])[..];
 ```
 
 Repeated array literals use semicolon syntax:
@@ -551,10 +552,10 @@ reference forms:
 
 ```nia
 &[T]
-&const [T]
+&mut [T]
 ```
 
-`&[T]` is a writable contiguous range. `&const [T]` is a read-only contiguous
+`&[T]` is a read-only contiguous range. `&mut [T]` is a writable contiguous
 range. The language does not expose slice fields; an implementation may represent
 a slice as `{ ptr, len }`, where `ptr` points to the first element and `len` has
 type `usize`.
@@ -563,49 +564,49 @@ Slices may be constructed by combining range indexing with address-of:
 
 ```nia
 var hello = "hello";
-var s = &const hello[..];       // &const [char]
-var t = &const hello[0..2];     // &const [char]
-var u = &const hello[0..=1];    // &const [char]
-var v = &const hello[1..];      // &const [char]
-var w = &const hello[..3];      // &const [char]
-var x = &const hello[..=3];     // &const [char]
+var s = &hello[..];       // &[char]
+var t = &hello[0..2];     // &[char]
+var u = &hello[0..=1];    // &[char]
+var v = &hello[1..];      // &[char]
+var w = &hello[..3];      // &[char]
+var x = &hello[..=3];     // &[char]
 ```
 
-Writable slices use `&` and require a writable base place:
+Writable slices use `&mut` and require a writable base place:
 
 ```nia
 var xs: [4]i32 = [1, 2, 3, 4];
-var s = &xs[1..3]; // &[i32]
+var s = &mut xs[1..3]; // &mut [i32]
 s[0] = 10;
 ```
 
 Bare range indexing is not a value expression:
 
 ```nia
-xs[..]; // error; use &const xs[..] or &xs[..]
+xs[..]; // error; use &xs[..] or &mut xs[..]
 ```
 
 An array value may be implicitly converted to a full-range slice when the
-expected type is exactly `&[T]` or `&const [T]`. This is the only array decay
+expected type is exactly `&[T]` or `&mut [T]`. This is the only array decay
 rule:
 
 ```nia
-fn read(xs: &const [i32]) i32 {
+fn read(xs: &[i32]) i32 {
     xs[0]
 }
 
-fn write(xs: &[i32]) {
+fn write(xs: &mut [i32]) {
     xs[0] = 10;
 }
 
-var ro: &const [i32] = [1, 2, 3];
-var rw: &[i32] = [1, 2, 3];
+var ro: &[i32] = [1, 2, 3];
+var rw: &mut [i32] = [1, 2, 3];
 read([1, 2, 3]);
 write([1, 2, 3]);
 ```
 
-If the source expression is an array place, conversion to `&const [T]` requires
-an addressable place; conversion to `&[T]` requires a writable place. Array and
+If the source expression is an array place, conversion to `&[T]` requires an
+addressable place; conversion to `&mut [T]` requires a writable place. Array and
 string literals used by this conversion create block-scoped array temporaries.
 The same rvalue materialization rule used by address-of also permits explicit
 temporary slice construction from typed array values.
@@ -661,11 +662,11 @@ var d = &p[0..1];      // len = 1
 var e = &p[0..12];     // allowed; programmer owns the length claim
 ```
 
-For `&T` and `&const T`, an omitted upper bound uses a base length of 1. An
+For `&T` and `&mut T`, an omitted upper bound uses a base length of 1. An
 explicit upper bound uses the explicit range length.
 
-`slice[index]` accesses an element. Indexing `&const [T]` produces an addressable
-but non-writable place. Indexing `&[T]` produces a writable place.
+`slice[index]` accesses an element. Indexing `&[T]` produces an addressable but
+non-writable place. Indexing `&mut [T]` produces a writable place.
 
 ### 4.5 Optional And Error Union Types
 
@@ -733,7 +734,7 @@ Struct declaration:
 
 ```nia
 struct String {
-    ptr: &const u8,
+    ptr: &u8,
     len: usize,
 }
 ```
@@ -741,7 +742,7 @@ struct String {
 Struct value construction:
 
 ```nia
-var s: String = { ptr: &const bytes[0], len: 3 };
+var s: String = { ptr: & bytes[0], len: 3 };
 ```
 
 The common struct literal form does not carry a nominal type by itself. The
@@ -762,7 +763,7 @@ A struct literal may also carry an explicit nominal type prefix:
 ```nia
 var p = Point { x: 10, y: 20 };
 var q = Point{x: 1, y: 2};
-var ptr = &const Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
+var ptr = &Point { x: 3, y: 4 }; // &(Point { ... }) as read-only
 ```
 
 Field access:
@@ -848,20 +849,20 @@ fn add(a: i32, b: i32) i32 {
 If the return type is omitted, it is `void`:
 
 ```nia
-const log_fmt = c"value=%d\n";
+let log_fmt = c"value=%d\n";
 
 fn log(value: i32) {
-    printf(&const log_fmt[0], value);
+    printf(& log_fmt[0], value);
 }
 ```
 
-Use top-level `const` rather than `comptime` for data that must have a stable
+Use top-level `let` rather than `comptime` for data that must have a stable
 address, such as a C format string.
 
 Function pointer type:
 
 ```nia
-&const fn(i32, i32) i32
+&fn(i32, i32) i32
 ```
 
 A function declaration name is a function item, not an ordinary runtime value.
@@ -875,11 +876,11 @@ fn add(a: i32, b: i32) i32 {
 var f = add; // error
 ```
 
-Addressing a function item with `&const` creates a function pointer:
+Addressing a function item with `&` creates a function pointer:
 
 ```nia
-var f = &const add;                  // &const fn(i32, i32) i32
-var g: &const fn(i32, i32) i32 = &const add;   // allowed
+var f = & add;                  // &fn(i32, i32) i32
+var g: &fn(i32, i32) i32 = & add;   // allowed
 ```
 
 Generic functions must be explicitly instantiated before taking a function
@@ -890,11 +891,11 @@ fn id[T](x: T) T {
     x
 }
 
-var f = &const id[i32]; // &const fn(i32) i32
-var g = &const id;      // error
+var f = & id[i32]; // &fn(i32) i32
+var g = & id;      // error
 ```
 
-`&const function_item` is a specific function-item address rule. It does not
+`& function_item` is a specific function-item address rule. It does not
 require the function item to be a place. `&function_item` is not allowed.
 
 ## 5. Declarations
@@ -966,7 +967,7 @@ fn abs(x: i32) i32 {
 visibility first and `extern` second:
 
 ```nia
-pub extern fn printf(fmt: &const u8, ...);
+pub extern fn printf(fmt: &u8, ...);
 ```
 
 `extern pub fn` is not valid syntax.
@@ -974,7 +975,7 @@ pub extern fn printf(fmt: &const u8, ...);
 An `extern fn` without a body declares an external C ABI symbol:
 
 ```nia
-pub extern fn printf(fmt: &const u8, ...);
+pub extern fn printf(fmt: &u8, ...);
 ```
 
 An `extern fn` with a body defines a C ABI-visible symbol in the current module:
@@ -991,7 +992,7 @@ internal mangling.
 Extern global bindings declare external symbols:
 
 ```nia
-extern const errno: i32;
+extern let errno: i32;
 extern var global_counter: usize;
 ```
 
@@ -1005,7 +1006,7 @@ Nia does not provide `extern { ... }` blocks or explicit ABI strings. All
 
 ```nia
 type Byte = u8;
-type CString = &const u8;
+type CString = &u8;
 ```
 
 Type aliases do not create new nominal types.
@@ -1130,45 +1131,45 @@ through `return`, `break`, or `continue`. Switches over closed enums must cover
 all variants or provide `_`. Switches over open enums must provide `_`, even if
 every named variant is covered.
 
-### 5.6 Const And Comptime Bindings
+### 5.6 Let And Comptime Bindings
 
-`const` is an immutable binding, not a general compile-time execution mechanism
+`let` is an immutable binding, not a general compile-time execution mechanism
 and not macro substitution.
 
 ```nia
-const name = "nia";
-const mask: u32 = 0xff;
+let name = "nia";
+let mask: u32 = 0xff;
 ```
 
 Use `comptime` for named compile-time values:
 
 ```nia
-comptime size: usize = 16;
+comptime let size: usize = 16;
 ```
 
-Local `const` bindings cannot be assigned after declaration:
+Local `let` bindings cannot be assigned after declaration:
 
 ```nia
-const x = 1;
+let x = 1;
 x = 2; // error
 ```
 
-`const x: T;` is a valid local declaration. Like `var x: T;`, it creates
+`let x: T;` is a valid local declaration. Like `var x: T;`, it creates
 uninitialized automatic storage of type `T`; the difference is that the binding
 cannot be assigned and cannot form writable `&T`:
 
 ```nia
-const p: Point;
+let p: Point;
 
-p.inspect();     // allowed if the receiver is Point or &const Point
-_ = &const p;    // allowed
-p.init();        // error if init requires &Point
+p.inspect();     // allowed if the receiver is Point or &Point
+_ = &p;          // allowed
+p.init();        // error if init requires &mut Point
 p = { };         // error
-_ = &p;          // error
+_ = &mut p;      // error
 ```
 
 Nia does not perform definite initialization analysis. Reading uninitialized
-storage is the programmer's responsibility. `const` only controls binding-level
+storage is the programmer's responsibility. `let` only controls binding-level
 assignment and writable borrowing; it does not provide deep immutability and does
 not prove that the value was initialized.
 
@@ -1176,44 +1177,47 @@ Top-level uninitialized bindings require explicit types. Non-extern top-level
 uninitialized bindings create static storage initialized to zero. Extern
 top-level uninitialized bindings only declare external symbols.
 
-Top-level `const` creates immutable global static storage. Implementations should
+Top-level `let` creates immutable global static storage. Implementations should
 place it in read-only data where possible:
 
 ```nia
-const hello = c"hello\n";
+let hello = c"hello\n";
 ```
 
-Top-level `const` initializers must be expressible as static initialization data.
+Top-level `let` initializers must be expressible as static initialization data.
 They do not execute arbitrary compile-time programs:
 
 ```nia
-const a = 1 + 2;           // allowed: integer static expression
-const hello = c"hi";       // allowed: byte-array static data
-const p = &const hello[0]; // allowed: global static address
-const bad = { 1 + 2 };     // error: block execution is not static data
+let a = 1 + 2;           // allowed: integer static expression
+let hello = c"hi";       // allowed: byte-array static data
+let p = & hello[0]; // allowed: global static address
+let bad = { 1 + 2 };     // error: block execution is not static data
 ```
 
 Contexts requiring compile-time values, such as non-literal array lengths, read
-`comptime` bindings rather than top-level static `const` storage.
+`comptime` bindings rather than top-level static `let` storage.
 
 `comptime` creates a compile-time value binding with no runtime storage and no
 address:
 
 ```nia
-comptime width: usize = 4;
+comptime let width: usize = 4;
 
 fn main() i32 {
-    comptime local_width: usize = width;
+    comptime let local_width: usize = width;
     var xs: [local_width]i32 = [1, 2, 3, 4];
     xs[0]
 }
 ```
 
-`comptime` may appear wherever `var` or `const` binding syntax is accepted. A
+`comptime` may appear wherever `var` or `let` binding syntax is accepted. A
 `comptime` binding must have an initializer. Its initializer must be evaluable
 with the current compile-time value evaluator. Current compile-time values cover
-integer literals, casts that preserve the underlying value, simple arithmetic and
-bit operations, and references to other visible `comptime` bindings. Cyclic
+integer, boolean, string, and struct literal values; builtin-provided struct
+values such as `@builtin()`; struct field access; casts that preserve the
+underlying value; boolean `not`, `and`, and `or`; equality comparisons between
+matching primitive comptime value kinds; simple integer arithmetic and bit
+operations; and references to other visible `comptime` bindings. Cyclic
 `comptime` dependencies are errors.
 
 Top-level `pub comptime` bindings participate in normal module visibility and
@@ -1221,14 +1225,43 @@ may be used through imports:
 
 ```nia
 // config.nia
-pub comptime width: usize = 4;
+pub comptime let width: usize = 4;
 
 // main.nia
 import .config;
 var xs: [config::width]i32 = [1, 2, 3, 4];
 ```
 
-Taking the address of a `comptime` binding is invalid because it has no storage.
+Taking the address of a `comptime` binding is invalid because it has no runtime
+storage.
+
+Struct comptime values are ordinary field-keyed comptime values:
+
+```nia
+struct Point {
+    x: usize,
+    y: usize,
+}
+
+comptime let p: Point = Point{x: 2, y: 3};
+comptime let width: usize = p.x + p.y;
+```
+
+`@builtin()` returns an ordinary comptime struct value. Its currently specified
+field is `target`, which is itself a comptime struct with these fields:
+
+```nia
+@builtin().target.arch
+@builtin().target.vendor
+@builtin().target.os
+@builtin().target.env
+@builtin().target.abi
+@builtin().target.endian
+@builtin().target.pointer_width
+```
+
+These fields are ordinary comptime values, not a second target-condition
+language.
 
 `comptime if` selects source for the active target configuration:
 
@@ -1249,16 +1282,15 @@ fn mode() i32 {
 ```
 
 The whole file must still parse, so unselected branches must be syntactically
-valid Nia. After parsing, unselected branches are pruned before import
-collection, definition collection, name resolution, type checking, and lowering.
-This means invalid names, types, imports, or calls in an unselected branch are
-not diagnosed for the current target. Multi-target validation is expected to run
-the compiler for each target that a project supports.
+valid Nia. After parsing, item-level branches are represented in the module item
+tree and an active item surface is selected for the current target. Unselected
+item branches do not contribute imports or definitions for that target. Function
+body `comptime if` uses the same comptime condition semantics while checking the
+body.
 
-Current target conditions are intentionally restricted to early configuration
-expressions: boolean literals, `not`, `and`, `or`, `==`, `!=`, string and integer
-literals, and fields on `@builtin().target`. The currently exposed target fields
-are `arch`, `vendor`, `os`, `env`, `abi`, `endian`, and `pointer_width`.
+Invalid names, types, imports, or calls in an unselected branch are not
+diagnosed for the current target. Multi-target validation is expected to run the
+compiler for each target that a project supports.
 
 ### 5.7 Global Storage
 
@@ -1279,7 +1311,7 @@ Top-level bindings may infer their type or write it explicitly:
 ```nia
 var hello = "hello\n";
 var counter: i32 = 0;
-const banner = c"nia";
+let banner = c"nia";
 ```
 
 Non-extern top-level initialized bindings must satisfy static initialization
@@ -1296,9 +1328,9 @@ is controlled by the module system.
 
 ## 6. Local Bindings And Assignment
 
-`var` introduces mutable bindings. `const` introduces immutable bindings with
-storage. `comptime` introduces immutable compile-time value bindings with no
-storage.
+`var` introduces mutable bindings. `let` introduces immutable bindings with
+storage. `comptime let` and `comptime var` introduce compile-time value bindings
+with no runtime storage.
 
 Inferred type declaration:
 
@@ -1331,8 +1363,8 @@ x *= 2;
 x /= 2;
 ```
 
-There is no `let` keyword. `var` introduces a mutable binding. `const`
-introduces an immutable binding. `var x: T;` and `const x: T;` are valid
+`var` introduces a mutable binding. `let` introduces an immutable binding.
+`var x: T;` and `let x: T;` are valid
 uninitialized declarations. A declaration without an explicit type must have an
 initializer.
 
@@ -1343,11 +1375,11 @@ Nia uses semicolons for statement boundaries.
 Statements requiring semicolons:
 
 ```nia
-const int_fmt = c"%d\n";
+let int_fmt = c"%d\n";
 
 var x = 1;
 x = x + 1;
-printf(&const int_fmt[0], x);
+printf(& int_fmt[0], x);
 return x;
 break;
 continue;
@@ -1400,24 +1432,24 @@ Iterator loop:
 
 ```nia
 for i in 0..10 {
-    printf(&const int_fmt[0], i);
+    printf(& int_fmt[0], i);
 }
 ```
 
 `for name in expr` requires `expr` to be an iterator expression. The loop does
-not implicitly call `.iter()` or `.iter_const()` and does not infer mutable
+not implicitly call `.iter()` or `.iter_read()` and does not infer mutable
 iteration from the source expression. Ranges with a start bound are iterator
 values directly, whether written inline or stored in a range-typed value.
 Start-bound ranges also provide the compiler built-in method `.iter()`, which
 returns the same range iterator value. Collection iteration should be written
 explicitly through iterator-producing methods such as `xs.iter()` or
-`xs.iter_const()` once those methods are provided.
+`xs.iter_read()` once those methods are provided.
 
 The loop binding may be annotated:
 
 ```nia
 for i: usize in 0..len {
-    printf(&const int_fmt[0], i);
+    printf(& int_fmt[0], i);
 }
 ```
 
@@ -1501,7 +1533,8 @@ Unary operators:
 not     boolean not
 ~       bitwise not
 &       writable address
-&const  read-only address
+&mut    writable address
+&       read-only address
 .*      pointer dereference
 ```
 
@@ -1619,7 +1652,7 @@ block for the receiver type. `.` does not imply dynamic dispatch. Field function
 pointer calls remain possible; they are used only if no receiver method matches.
 
 Field access and method selection support limited automatic dereference. If `p`
-has type `&Point` or `&const Point`, then:
+has type `&Point` or `&mut Point`, then:
 
 ```nia
 p.x
@@ -1656,7 +1689,7 @@ Nia provides a small builtin surface:
 @builtin().target.pointer_width
 value.len()
 range.iter()
-slice.get_ptr_const()
+slice.get_ptr_read()
 slice.get_ptr()
 @asm({...})
 ```
@@ -1682,18 +1715,18 @@ and ordinary expressions. In generic code they remain layout values until the
 generic function is instantiated.
 
 `value.len()` is a compiler built-in method for arrays and slices. For `[N]T`,
-it returns `N`; for `&[T]` and `&const [T]`, it returns the runtime slice
+it returns `N`; for `&[T]` and `&mut [T]`, it returns the runtime slice
 length. `len` is not a trait method and user types cannot implement a built-in
 `Len` capability.
 
 `range.iter()` is a compiler built-in method for start-bound ranges. It returns
 the same range value as an iterator value.
 
-`slice.get_ptr_const()` and `slice.get_ptr()` call the built-in `GetPtrConst`
-and `GetPtr` trait methods. `&[T]` and `&const [T]` have compiler-proven
-`GetPtrConst` implementations. Mutable slices also have compiler-proven
-`GetPtr` implementations, whose `get_ptr()` method returns `&T`. Arrays
-intentionally do not implement `GetPtrConst` or `GetPtr`; form a slice first
+`slice.get_ptr_read()` and `slice.get_ptr()` call the built-in `GetPtrRead`
+and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven
+`GetPtrRead` implementations. Mutable slices also have compiler-proven
+`GetPtr` implementations, whose `get_ptr()` method returns `&mut T`. Arrays
+intentionally do not implement `GetPtrRead` or `GetPtr`; form a slice first
 with `&array[..]`. User types may implement these traits for custom contiguous
 storage abstractions, but may not overlap compiler-proven slice implementations.
 
@@ -1769,7 +1802,7 @@ function-item, method, or other expression positions:
 
 ```nia
 var x = id[i32](1);
-var f = &const id[i32];
+var f = & id[i32];
 ```
 
 In expressions, `expr[...]` is parsed uniformly and disambiguated semantically.
@@ -1789,7 +1822,7 @@ Generic declarations may use a `where` clause after the parameter list, target
 type, or generic parameter list:
 
 ```nia
-fn eq[T](a: &const T, b: &const T) bool
+fn eq[T](a: &T, b: &T) bool
 where T: Eq[T] {
     a == b
 }
@@ -1801,7 +1834,7 @@ struct Box[T] where T: Eq[T] {
 
 Generics are implemented by monomorphization. Type parameters have no runtime
 representation. The current generic surface is explicit type parameters on
-functions, structs, unions, traits, and methods. User-declared const generics
+functions, structs, unions, traits, and methods. User-declared let generics
 are reserved for future design; array length is part of array type syntax.
 
 ## 10. Methods
@@ -1816,7 +1849,7 @@ struct Vec2 {
 }
 
 extend Vec2 {
-    fn len2(&const self) i32 {
+    fn len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
@@ -1834,15 +1867,15 @@ forms:
 
 ```nia
 fn method(&self, ...)
-fn method(&const self, ...)
+fn method(&mut self, ...)
 fn method(self, ...)
 fn method(...)
 ```
 
 Receiver meaning:
 
-- `&self` borrows the receiver as writable `&Type`;
-- `&const self` borrows the receiver as read-only `&const Type`;
+- `&self` borrows the receiver as read-only `&Type`;
+- `&mut self` borrows the receiver as writable `&mut Type`;
 - `self` passes the receiver by value;
 - no `self` means the function is an associated function called as
   `Type::method(...)`.
@@ -1854,7 +1887,7 @@ imported type:
 import .math;
 
 extend math::Point {
-    fn len2(&const self) i32 {
+    fn len2(&self) i32 {
         4
     }
 }
@@ -1864,7 +1897,7 @@ extend math::Point {
 
 ```nia
 extend Point {
-    pub fn len2(&const self) i32 {
+    pub fn len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
@@ -1881,7 +1914,7 @@ Receiver methods may also be called through their associated type path by
 passing the receiver explicitly:
 
 ```nia
-var n = Vec2::len2(&const v);
+var n = Vec2::len2(& v);
 ```
 
 The same associated path can be used as an unbound function item when forming a
@@ -1889,7 +1922,7 @@ function pointer. This does not capture a receiver; the receiver remains the
 first explicit function parameter:
 
 ```nia
-var f: &const fn(&const Vec2) i32 = &const Vec2::len2;
+var f: &fn(&Vec2) i32 = &Vec2::len2;
 var n = f(&v);
 ```
 
@@ -1901,7 +1934,7 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(&const self) T {
+    fn get(&self) T {
         self.value
     }
 }
@@ -1912,7 +1945,7 @@ Methods may have their own type parameters. Explicit generic method calls use
 
 ```nia
 extend[T] Box[T] {
-    fn replace[U](&const self, value: U) U {
+    fn replace[U](&self, value: U) U {
         value
     }
 }
@@ -1924,10 +1957,10 @@ var x = box.replace[bool](true);
 Associated paths use the same brackets for generic type and method arguments:
 
 ```nia
-var make: &const fn(i32) Box[i32] = &const Box[i32]::make;
-var replace: &const fn(&const Box[i32], bool) bool =
-    &const Box[i32]::replace[bool];
-var y = Box[i32]::replace[bool](&const box, true);
+var make: &fn(i32) Box[i32] = & Box[i32]::make;
+var replace: &fn(&Box[i32], bool) bool =
+    &Box[i32]::replace[bool];
+var y = Box[i32]::replace[bool](&box, true);
 ```
 
 Structural extension targets use `[type]::name` as their explicit associated
@@ -1946,7 +1979,7 @@ extend[T] &T {
 
 var p: &u8 = [&u8]::zero() as &u8;
 var n = [&u8]::null(p);
-var f: &const fn(&u8) bool = &const [&u8]::null;
+var f: &fn(&u8) bool = &[&u8]::null;
 ```
 
 `[type]::name` is only an associated target path. It does not introduce a
@@ -1959,7 +1992,7 @@ dispatch:
 
 ```nia
 trait Show {
-    fn show(&const self) i32;
+    fn show(&self) i32;
 }
 ```
 
@@ -1974,11 +2007,11 @@ struct Point {
 }
 
 extend Point : Eq {
-    fn eq(&const self, other: &const Point) bool {
+    fn eq(&self, other: &Point) bool {
         self.x == other.x
     }
 
-    fn ne(&const self, other: &const Point) bool {
+    fn ne(&self, other: &Point) bool {
         self.x != other.x
     }
 }
@@ -2015,51 +2048,51 @@ traits use `add`, `sub`, `mul`, `div`, `rem`, `bit_and`, `bit_or`, `bit_xor`,
 `shl`, and `shr`. Unary traits use `neg`, `not`, and `bit_not`. `Eq` requires
 both `eq` and `ne`; `Ord` requires `lt`, `le`, `gt`, and `ge`.
 
-`Sized`, `DerefConst`, `Deref`, `IndexConst`, `Index`, `SliceConst`, `Slice`,
-`GetPtrConst`, and `GetPtr` are also builtin capability traits. Their names and
+`Sized`, `DerefRead`, `Deref`, `IndexRead`, `Index`, `SliceRead`, `Slice`,
+`GetPtrRead`, and `GetPtr` are also builtin capability traits. Their names and
 required members are fixed by the language:
 
 ```nia
 trait Sized {}
 
-trait DerefConst {
+trait DerefRead {
     type Target;
-    fn deref_const(&const self) &const [Self as DerefConst]::Target;
+    fn deref_read(&self) &[Self as DerefRead]::Target;
 }
 
-trait Deref : DerefConst {
+trait Deref : DerefRead {
     type Target;
-    fn deref(&self) &[Self as Deref]::Target;
+    fn deref(&mut self) &mut [Self as Deref]::Target;
 }
 
-trait IndexConst[I] {
+trait IndexRead[I] {
     type Output;
-    fn index_const(&const self, index: I) &const [Self as IndexConst[I]]::Output;
+    fn index_read(&self, index: I) &[Self as IndexRead[I]]::Output;
 }
 
-trait Index[I] : IndexConst[I] {
+trait Index[I] : IndexRead[I] {
     type Output;
-    fn index(&self, index: I) &[Self as Index[I]]::Output;
+    fn index(&mut self, index: I) &mut [Self as Index[I]]::Output;
 }
 
-trait SliceConst[R] {
+trait SliceRead[R] {
     type Output;
-    fn slice_const(&const self, range: R) [Self as SliceConst[R]]::Output;
+    fn slice_read(&self, range: R) [Self as SliceRead[R]]::Output;
 }
 
-trait Slice[R] : SliceConst[R] {
+trait Slice[R] : SliceRead[R] {
     type Output;
-    fn slice(&self, range: R) [Self as Slice[R]]::Output;
+    fn slice(&mut self, range: R) [Self as Slice[R]]::Output;
 }
 
-trait GetPtrConst {
+trait GetPtrRead {
     type Target;
-    fn get_ptr_const(&const self) &const [Self as GetPtrConst]::Target;
+    fn get_ptr_read(&self) &[Self as GetPtrRead]::Target;
 }
 
-trait GetPtr : GetPtrConst {
+trait GetPtr : GetPtrRead {
     type Target;
-    fn get_ptr(&self) &[Self as GetPtr]::Target;
+    fn get_ptr(&mut self) &mut [Self as GetPtr]::Target;
 }
 ```
 
@@ -2067,12 +2100,12 @@ The compiler proves builtin implementations for primitive operations,
 layout-known types, pointers, arrays, and slices where the operation is native
 to the language. User implementations of builtin traits are allowed when they
 do not overlap a compiler-proven implementation. For example, a custom
-container may implement `SliceConst[..]`, but `[N]T` may not provide a manual
-`SliceConst[..]` implementation because array slicing is already
+container may implement `SliceRead[..]`, but `[N]T` may not provide a manual
+`SliceRead[..]` implementation because array slicing is already
 compiler-proven. Length remains a built-in method only for arrays and slices.
 
-Index expressions lower through `IndexConst` or `Index`; slice expressions
-lower through `SliceConst` or `Slice`. Native array, pointer, and slice
+Index expressions lower through `IndexRead` or `Index`; slice expressions
+lower through `SliceRead` or `Slice`. Native array, pointer, and slice
 implementations require integer indices or range types whose bounds are
 `usize`.
 
@@ -2086,9 +2119,9 @@ method instantiate the default body with `Self` set to the implementing type:
 
 ```nia
 trait Comparable {
-    fn same(&const self, other: &const Self) bool;
+    fn same(&self, other: &Self) bool;
 
-    fn different(&const self, other: &const Self) bool {
+    fn different(&self, other: &Self) bool {
         not self.same(other)
     }
 }
@@ -2099,11 +2132,11 @@ Traits may declare supertraits after `:`. Multiple supertraits are joined with
 
 ```nia
 trait Ordered : Comparable {
-    fn lt(&const self, other: &const Self) bool;
+    fn lt(&self, other: &Self) bool;
 }
 
 trait IndexedSource[I] : Source + Index[I] {
-    fn valid_index(&const self, index: I) bool;
+    fn valid_index(&self, index: I) bool;
 }
 ```
 
@@ -2114,29 +2147,29 @@ implementation must be written explicitly:
 
 ```nia
 extend Point : Eq {
-    fn eq(&const self, other: &const Point) bool {
+    fn eq(&self, other: &Point) bool {
         self.x == other.x
     }
 
-    fn ne(&const self, other: &const Point) bool {
+    fn ne(&self, other: &Point) bool {
         self.x != other.x
     }
 }
 
 extend Point : Ord {
-    fn lt(&const self, other: &const Point) bool {
+    fn lt(&self, other: &Point) bool {
         self.x < other.x
     }
 
-    fn le(&const self, other: &const Point) bool {
+    fn le(&self, other: &Point) bool {
         self.x <= other.x
     }
 
-    fn gt(&const self, other: &const Point) bool {
+    fn gt(&self, other: &Point) bool {
         self.x > other.x
     }
 
-    fn ge(&const self, other: &const Point) bool {
+    fn ge(&self, other: &Point) bool {
         self.x >= other.x
     }
 }
@@ -2150,14 +2183,14 @@ arguments:
 trait Source {
     type Item;
 
-    fn get(&const self) [Self as Source]::Item;
+    fn get(&self) [Self as Source]::Item;
 }
 
 trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fn map(&self, a: A, b: B) [Self as Mapper[A, B]]::C;
 }
 ```
 
@@ -2172,7 +2205,7 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(&const self) i32 {
+    fn get(&self) i32 {
         self.value
     }
 }
@@ -2199,12 +2232,12 @@ list. Positional trait arguments come first, followed by named associated type
 bindings:
 
 ```nia
-fn add_same[T](a: &const T, b: T) T
+fn add_same[T](a: &T, b: T) T
 where T: Add[T, Output = T] {
     a.add(b)
 }
 
-fn mapped[T](value: &const T) i32
+fn mapped[T](value: &T) i32
 where T: Mapper[i32, bool, C = i32, D = bool] {
     value.map_c(1, true)
 }
@@ -2219,7 +2252,7 @@ bound may not bind the same associated type more than once.
 Trait bounds are written in `where` clauses:
 
 ```nia
-fn same[T](a: &const T, b: &const T) bool
+fn same[T](a: &T, b: &T) bool
 where T: Eq[T] {
     a == b
 }
@@ -2229,7 +2262,7 @@ Within a single predicate, multiple trait bounds are joined with `+`; commas
 separate predicates:
 
 ```nia
-fn ordered_show[T, U](value: &const T, other: &const U) bool
+fn ordered_show[T, U](value: &T, other: &U) bool
 where T: Ord[U] + Show, U: Eq[U] {
     value.show() == 0
 }
@@ -2256,10 +2289,10 @@ associated type bindings:
 
 ```nia
 trait Source {
-    fn get(&const self) i32;
+    fn get(&self) i32;
 }
 
-fn read(source: &const Source) i32 {
+fn read(source: & Source) i32 {
     source.get()
 }
 ```
@@ -2270,16 +2303,16 @@ method-level type parameters. By-value trait object receiver calls are rejected.
 Builtin trait objects are not supported in this version.
 
 A trait object pointer may be coerced to a supertrait object pointer when the
-target trait is a declared supertrait of the source trait and the object
-constness matches:
+target trait is a declared supertrait of the source trait and mutability
+matches:
 
 ```nia
 trait Parent {}
 trait Child : Parent {}
 
-fn accept(parent: &const Parent) void {}
+fn accept(parent: & Parent) void {}
 
-fn use_child(child: &const Child) void {
+fn use_child(child: & Child) void {
     accept(child)
 }
 ```
@@ -2292,7 +2325,7 @@ keys:
 
 ```nia
 fn use_child(
-    child: &const Child[
+    child: & Child[
         [Self as FatherA]::Item = i32,
         [Self as FatherB]::Item = usize,
     ],
@@ -2506,7 +2539,7 @@ fn hidden() i32 {
 }
 ```
 
-`pub` may be applied to `fn`, `struct`, `enum`, `type`, `const`, `var`, `extern`
+`pub` may be applied to `fn`, `struct`, `enum`, `type`, `let`, `var`, `extern`
 declarations, and `using`. It may not be applied to `import`.
 
 Nia has no `mod` or `use` syntax. Package management is outside the language
@@ -2520,7 +2553,7 @@ hidden allocator.
 Extern interop uses the C ABI:
 
 ```nia
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 ```
 
 When calling C string APIs, use `c"..."` to produce NUL-terminated byte arrays:
@@ -2531,9 +2564,9 @@ printf(c"hello\n");
 
 String, byte string, and C string literals are array values, not places. They
 may be passed through array-to-slice conversion when a slice is expected. C
-string literals may also be passed directly when `&u8` or `&const u8` is
+string literals may also be passed directly when `&u8` is
 expected; this produces a pointer to a block-scoped temporary. If a stable C
-string address is required, bind the C string to top-level `const` storage.
+string address is required, bind the C string to top-level `let` storage.
 
 ### 13.1 Internal Symbol Names
 
@@ -2569,10 +2602,10 @@ Generic function or method instances append an instance suffix:
 Type encoding rules:
 
 - primitive types use their names, such as `i32`, `u8`, `bool`, `void`;
-- `&T` encodes as `ptr__<T>`;
-- `&const T` encodes as `ptr_const__<T>`;
+- `&T` encodes as `ptr_read__<T>`;
+- `&mut T` encodes as `ptr__<T>`;
 - trait object pointers encode as `trait_obj__<trait>...` or
-  `trait_obj_const__<trait>...`;
+  `trait_obj_read__<trait>...`;
 - `[N]T` encodes as `arr__<len>__<elem>`;
 - function pointers encode as `fnptr__pc<N>__<p1>__...__ret__<ret>`, with
   `__variadic` appended for variadic function pointers;
@@ -2600,15 +2633,15 @@ A conforming Nia compiler supports:
 - primitive type checking;
 - arrays, slices, pointers, optional types, error union types, structs, unions,
   C-style enums, and function types;
-- `var`, `const`, and `comptime` bindings;
+- `var`, `let`, and `comptime` bindings;
 - expression blocks and tail expressions;
 - `if` expressions;
 - the three `for` forms;
 - `defer`;
 - `switch` and enum exhaustiveness checks;
-- `@size[T]()`, `@align[T]()`, `value.len()`, `slice.get_ptr_const()`, and `@asm({...})`;
+- `@size[T]()`, `@align[T]()`, `value.len()`, `slice.get_ptr_read()`, and `@asm({...})`;
 - relative file imports and module-map bare imports;
-- global static storage from top-level `var` and `const`;
+- global static storage from top-level `var` and `let`;
 - top-level `pub` visibility;
 - `extern` C declarations, definitions, and calls;
 - generic functions and structs via monomorphization;
@@ -2687,14 +2720,14 @@ this document:
 ## 16. Example
 
 ```nia
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
-const hello_fmt = c"hello, %s\n";
-const not_answer_fmt = c"not answer\n";
-const len2_fmt = c"len2=%d\n";
+let hello_fmt = c"hello, %s\n";
+let not_answer_fmt = c"not answer\n";
+let len2_fmt = c"len2=%d\n";
 
 struct String {
-    ptr: &const u8,
+    ptr: &u8,
     len: usize,
 }
 
@@ -2709,7 +2742,7 @@ struct Vec2 {
 }
 
 extend Vec2 {
-    fn len2(&const self) i32 {
+    fn len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
@@ -2723,13 +2756,13 @@ fn main() i32 {
     var x = add(40, 2);
 
     if x == 42 {
-        printf(&const hello_fmt[0], &const name[0]);
+        printf(& hello_fmt[0], & name[0]);
     } else {
-        printf(&const not_answer_fmt[0]);
+        printf(& not_answer_fmt[0]);
     }
 
     var v: Vec2 = { x: 3, y: 4 };
-    printf(&const len2_fmt[0], v.len2());
+    printf(& len2_fmt[0], v.len2());
 
     0
 }

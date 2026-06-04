@@ -25,7 +25,7 @@ pub using defs::answer;
     write(
         &root.join("defs.nia"),
         r#"
-pub comptime answer: i32 = 42;
+pub comptime let answer: i32 = 42;
 "#,
     );
 
@@ -47,12 +47,61 @@ fn comptime_values_drive_array_lengths() {
     write(
         &root.join("main.nia"),
         r#"
-pub comptime width: usize = 2 + 2;
+pub comptime let width: usize = 2 + 2;
 
 fn main() i32 {
-    comptime local_width: usize = width;
+    comptime let local_width: usize = width;
     var values: [local_width]i32 = [1, 2, 3, 4];
     values[3]
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_struct_values_drive_field_access() {
+    let root = temp_dir("comptime_struct_values_drive_field_access");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: usize,
+    y: usize,
+}
+
+comptime let p: Point = Point{x: 2, y: 3};
+comptime let width: usize = p.x + p.y;
+
+fn main() i32 {
+    var values: [width]i32 = [0; width];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn function_local_comptime_struct_values_drive_field_access() {
+    let root = temp_dir("function_local_comptime_struct_values_drive_field_access");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: usize,
+    y: usize,
+}
+
+fn main() i32 {
+    comptime let p: Point = Point{x: 4, y: 2};
+    comptime let width: usize = p.x + p.y;
+    var values: [width]i32 = [0; width];
+    values.len() as i32
 }
 "#,
     );
@@ -103,6 +152,50 @@ fn main() i32 {
 }
 
 #[test]
+fn builtin_target_fields_are_ordinary_comptime_values() {
+    let root = temp_dir("builtin_target_fields_are_ordinary_comptime_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let bits: usize = @builtin().target.pointer_width;
+comptime let word_bytes: usize = bits / 8;
+
+fn main() i32 {
+    var bytes: [word_bytes]u8 = [0; word_bytes];
+    bytes.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn builtin_struct_cannot_be_bound_as_runtime_value() {
+    let root = temp_dir("builtin_struct_cannot_be_bound_as_runtime_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    let builtin = @builtin();
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("comptime-only value")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_if_rejects_old_target_predicate_builtins() {
     let root = temp_dir("comptime_if_rejects_old_target_predicate_builtins");
     write(
@@ -123,7 +216,7 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .message
-            .contains("target config calls are only supported as `@builtin()` field roots")),
+            .contains("unsupported comptime expression")),
         "{:?}",
         program.diagnostics
     );
@@ -146,7 +239,7 @@ fn main() i32 {
     write(
         &root.join("config.nia"),
         r#"
-pub comptime width: usize = 4;
+pub comptime let width: usize = 4;
 "#,
     );
 
@@ -165,8 +258,8 @@ struct Pair {
     b: i32,
 }
 
-comptime pair_size: usize = @size[Pair]();
-comptime pair_align: usize = @align[Pair]();
+comptime let pair_size: usize = @size[Pair]();
+comptime let pair_align: usize = @align[Pair]();
 
 fn main() i32 {
     var bytes: [pair_size]u8 = [0; pair_size];
@@ -185,7 +278,7 @@ fn imported_struct_field_array_length_accepts_literal_repeat_count() {
     write(
         &root.join("defs.nia"),
         r#"
-pub comptime N: usize = 4;
+pub comptime let N: usize = 4;
 
 pub struct Item {
     value: u32,
@@ -231,7 +324,7 @@ fn imported_struct_field_array_length_accepts_imported_repeat_count() {
     write(
         &root.join("defs.nia"),
         r#"
-pub comptime N: usize = 4;
+pub comptime let N: usize = 4;
 
 pub struct Item {
     value: u32,
@@ -277,8 +370,8 @@ fn comptime_dependency_cycles_are_diagnosed() {
     write(
         &root.join("main.nia"),
         r#"
-comptime a: i32 = b;
-comptime b: i32 = a;
+comptime let a: i32 = b;
+comptime let b: i32 = a;
 
 fn main() i32 { 0 }
 "#,
@@ -303,7 +396,7 @@ fn comptime_rejects_runtime_local_dependency() {
         r#"
 fn main() i32 {
     var runtime = 4;
-    comptime n: usize = runtime;
+    comptime let n: usize = runtime;
     var values: [n]i32 = [1, 2, 3, 4];
     values[0]
 }

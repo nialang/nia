@@ -15,20 +15,20 @@ struct Pair[A, B] {
 }
 
 fn take_pair(value: Pair[i32, usize]) void {}
-fn take_const_point_ptr(value: &const Point) void {}
+fn take_read_point_ptr(value: &Point) void {}
 fn take_array(value: [3]i32) void {}
-fn take_slice(value: &const [i32]) void {}
-fn take_fn_ptr(value: &const fn(i32, usize) bool) void {}
+fn take_slice(value: &[i32]) void {}
+fn take_fn_ptr(value: &fn(i32, usize) bool) void {}
 fn pred(value: i32, width: usize) void {}
 
-fn main(value: void, ptr: &const u8) void {
+fn main(value: void, ptr: &u8) void {
     var short = [1, 2];
     _ = value as usize;
     take_pair(true);
-    take_const_point_ptr(ptr);
+    take_read_point_ptr(ptr);
     take_array(short);
     take_slice(true);
-    take_fn_ptr(&const pred);
+    take_fn_ptr(& pred);
 }
 "#,
     );
@@ -54,7 +54,7 @@ fn main(value: void, ptr: &const u8) void {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("expected &const Point, got &const u8")),
+            .any(|message| message.contains("expected &Point, got &u8")),
         "{:?}",
         checked.diagnostics
     );
@@ -68,14 +68,14 @@ fn main(value: void, ptr: &const u8) void {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("expected &const [i32], got bool")),
+            .any(|message| message.contains("expected &[i32], got bool")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("expected &const fn(i32, usize) bool")),
+            .any(|message| message.contains("expected &fn(i32, usize) bool")),
         "{:?}",
         checked.diagnostics
     );

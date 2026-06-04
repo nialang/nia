@@ -561,7 +561,7 @@ impl FunctionLowerer {
             name: "__for_range".to_string(),
             ty: range.ty,
             value: Some(range_value),
-            is_const: true,
+            is_let: true,
         }));
         let range_expr = FunctionExpr {
             span: range.span,
@@ -579,7 +579,7 @@ impl FunctionLowerer {
             name: for_stmt.name.clone(),
             ty: for_stmt.ty,
             value: Some(start),
-            is_const: false,
+            is_let: false,
         }));
 
         let loop_header = self.alloc_block();

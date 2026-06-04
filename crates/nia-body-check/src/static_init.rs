@@ -144,7 +144,7 @@ impl<'a> BodyChecker<'a> {
                     })
             }
             ExprKind::Unary {
-                op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefConst,
+                op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
                 expr,
             } => self.lower_static_address_init(expr),
             ExprKind::Cast { expr, .. } => self.lower_static_init(expr),
@@ -284,6 +284,7 @@ impl<'a> BodyChecker<'a> {
         if let Some(global_id) = self.global_comptime_use(expr.span) {
             return match self.global_comptime_value(global_id)? {
                 nia_comptime_check::ComptimeValue::Int(value) => Some(value),
+                _ => None,
             };
         }
         if let Some(local_id) = self.local_comptime_use(expr.span) {
@@ -293,6 +294,7 @@ impl<'a> BodyChecker<'a> {
                 .get(&nia_comptime_check::ComptimeKey::Local(local_id))?
             {
                 nia_comptime_check::ComptimeValue::Int(value) => Some(*value),
+                _ => None,
             };
         }
         None

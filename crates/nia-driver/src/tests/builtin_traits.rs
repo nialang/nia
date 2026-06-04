@@ -302,8 +302,8 @@ fn builtin_place_traits_allow_constrained_generic_deref_index_and_slice() {
     write(
         &root.join("main.nia"),
         r##"
-fn read_ptr[P](ptr: P) [P as DerefConst]::Target
-where P: DerefConst {
+fn read_ptr[P](ptr: P) [P as DerefRead]::Target
+where P: DerefRead {
     ptr.*
 }
 
@@ -312,8 +312,8 @@ where P: Deref {
     ptr.* = value;
 }
 
-fn read_index[C](items: C, index: usize) [C as IndexConst[usize]]::Output
-where C: IndexConst[usize] {
+fn read_index[C](items: C, index: usize) [C as IndexRead[usize]]::Output
+where C: IndexRead[usize] {
     items[index]
 }
 
@@ -327,24 +327,24 @@ where C: Index[i32] {
     items[index] = value;
 }
 
-fn slice_const[S](items: S) [S as SliceConst[..]]::Output
-where S: SliceConst[..] {
-    &const items[..]
+fn slice_read[S](items: S) [S as SliceRead[..]]::Output
+where S: SliceRead[..] {
+    & items[..]
 }
 
 fn slice_mut[S](items: S) [S as Slice[..]]::Output
 where S: Slice[..] {
-    &items[..]
+    &mut items[..]
 }
 
-fn main(ptr: &i32, ro: &const [i32], rw: &[i32]) i32 {
-    var x = read_ptr[&i32](ptr);
-    write_ptr[&i32](ptr, x);
-    var y = read_index[&const [i32]](ro, 0);
-    write_index[&[i32]](rw, 0, y);
-    write_index_i32[&[i32]](rw, 0, y);
-    var a = slice_const[&const [i32]](ro);
-    var b = slice_mut[&[i32]](rw);
+fn main(ptr: &mut i32, ro: & [i32], rw: &mut [i32]) i32 {
+    var x = read_ptr[&mut i32](ptr);
+    write_ptr[&mut i32](ptr, x);
+    var y = read_index[& [i32]](ro, 0);
+    write_index[&mut [i32]](rw, 0, y);
+    write_index_i32[&mut [i32]](rw, 0, y);
+    var a = slice_read[& [i32]](ro);
+    var b = slice_mut[&mut [i32]](rw);
     a.len() as i32 + b.len() as i32 + x + y
 }
 "##,
@@ -360,9 +360,9 @@ fn builtin_len_method_and_get_ptr_traits_model_arrays_and_slices() {
     write(
         &root.join("main.nia"),
         r##"
-fn ptr_const_value[S](slice: S) [S as GetPtrConst]::Target
-where S: GetPtrConst {
-    var ptr = slice.get_ptr_const();
+fn ptr_read_value[S](slice: S) [S as GetPtrRead]::Target
+where S: GetPtrRead {
+    var ptr = slice.get_ptr_read();
     ptr.*
 }
 
@@ -372,12 +372,12 @@ where S: GetPtr {
     ptr.*
 }
 
-fn main(slice_const: &const [usize], slice_mut: &[usize]) usize {
+fn main(slice_read: & [usize], slice_mut: &mut [usize]) usize {
     var array: [4]i32 = [1, 2, 3, 4];
     array.len()
-        + slice_const.len()
+        + slice_read.len()
         + slice_mut.len()
-        + ptr_const_value(slice_const)
+        + ptr_read_value(slice_read)
         + ptr_value(slice_mut)
 }
 "##,
@@ -395,7 +395,7 @@ fn builtin_get_ptr_traits_do_not_apply_to_arrays() {
         r#"
 fn main() i32 {
     var array: [4]i32 = [1, 2, 3, 4];
-    array.get_ptr_const().*
+    array.get_ptr_read().*
 }
 "#,
     );
@@ -426,7 +426,7 @@ fn bad_index[T](value: T) void {
 }
 
 fn bad_slice[T](value: T) void {
-    _ = &const value[..];
+    _ = & value[..];
 }
 
 fn main() i32 { 0 }
@@ -440,23 +440,17 @@ fn main() i32 { 0 }
         .map(|diagnostic| diagnostic.diagnostic.message.as_str())
         .collect::<Vec<_>>();
     assert!(
-        messages
-            .iter()
-            .any(|message| message.contains("DerefConst")),
+        messages.iter().any(|message| message.contains("DerefRead")),
         "{:?}",
         program.diagnostics
     );
     assert!(
-        messages
-            .iter()
-            .any(|message| message.contains("IndexConst")),
+        messages.iter().any(|message| message.contains("IndexRead")),
         "{:?}",
         program.diagnostics
     );
     assert!(
-        messages
-            .iter()
-            .any(|message| message.contains("SliceConst")),
+        messages.iter().any(|message| message.contains("SliceRead")),
         "{:?}",
         program.diagnostics
     );
@@ -472,40 +466,40 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : DerefConst {
+extend Cell : DerefRead {
     type Target = i32;
 
-    fn deref_const(&const self) &const i32 {
-        &const self.value
+    fn deref_read(& self) & i32 {
+        & self.value
     }
 }
 
 extend Cell : Deref {
     type Target = i32;
 
-    fn deref(&self) &i32 {
-        &self.value
+    fn deref(&mut self) &mut i32 {
+        &mut self.value
     }
 }
 
-extend Cell : IndexConst[usize] {
+extend Cell : IndexRead[usize] {
     type Output = i32;
 
-    fn index_const(&const self, index: usize) &const i32 {
-        &const self.value
+    fn index_read(& self, index: usize) & i32 {
+        & self.value
     }
 }
 
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(&self, index: usize) &i32 {
-        &self.value
+    fn index(&mut self, index: usize) &mut i32 {
+        &mut self.value
     }
 }
 
-fn read_deref[P](value: P) [P as DerefConst]::Target
-where P: DerefConst {
+fn read_deref[P](value: P) [P as DerefRead]::Target
+where P: DerefRead {
     value.*
 }
 
@@ -514,8 +508,8 @@ where P: Deref {
     value.* = next;
 }
 
-fn read_index[C](value: C) [C as IndexConst[usize]]::Output
-where C: IndexConst[usize] {
+fn read_index[C](value: C) [C as IndexRead[usize]]::Output
+where C: IndexRead[usize] {
     value[0]
 }
 
@@ -549,19 +543,19 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : IndexConst[usize] {
+extend Cell : IndexRead[usize] {
     type Output = i32;
 
-    fn index_const(&const self, index: usize) &const i32 {
-        &const self.value
+    fn index_read(& self, index: usize) & i32 {
+        & self.value
     }
 }
 
-extend Cell : IndexConst[i32] {
+extend Cell : IndexRead[i32] {
     type Output = i32;
 
-    fn index_const(&const self, index: i32) &const i32 {
-        &const self.value
+    fn index_read(& self, index: i32) & i32 {
+        & self.value
     }
 }
 
@@ -587,8 +581,8 @@ fn main() i32 {
 }
 
 #[test]
-fn mutable_builtin_place_traits_require_const_supertrait_impls() {
-    let root = temp_dir("mutable_builtin_place_traits_require_const_supertrait_impls");
+fn mutable_builtin_place_traits_require_read_supertrait_impls() {
+    let root = temp_dir("mutable_builtin_place_traits_require_read_supertrait_impls");
     write(
         &root.join("main.nia"),
         r#"
@@ -625,14 +619,14 @@ fn main() i32 { 0 }
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("supertrait `DerefConst`")),
+            .any(|message| message.contains("supertrait `DerefRead`")),
         "{:?}",
         program.diagnostics
     );
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("supertrait `IndexConst`")),
+            .any(|message| message.contains("supertrait `IndexRead`")),
         "{:?}",
         program.diagnostics
     );
@@ -648,17 +642,17 @@ struct Cell {}
 
 var backing: [3]i32 = [1, 2, 3];
 
-extend Cell : SliceConst[..] {
-    type Output = &const [i32];
+extend Cell : SliceRead[..] {
+    type Output = & [i32];
 
-    fn slice_const(&const self, range: ..) &const [i32] {
-        &const backing[..]
+    fn slice_read(& self, range: ..) & [i32] {
+        & backing[..]
     }
 }
 
-fn take[T](value: T) [T as SliceConst[..]]::Output
-where T: SliceConst[..] {
-    &const value[..]
+fn take[T](value: T) [T as SliceRead[..]]::Output
+where T: SliceRead[..] {
+    & value[..]
 }
 
 fn main(cell: Cell) i32 {
@@ -678,19 +672,19 @@ fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
     write(
         &root.join("main.nia"),
         r#"
-extend[T] &[T] : GetPtrConst {
+extend[T] &[T] : GetPtrRead {
     type Target = T;
 
-    fn get_ptr_const(&const self) &const T {
-        self.get_ptr_const()
+    fn get_ptr_read(& self) & T {
+        self.get_ptr_read()
     }
 }
 
-extend[T] [4]T : SliceConst[..] {
-    type Output = &const [T];
+extend[T] [4]T : SliceRead[..] {
+    type Output = & [T];
 
-    fn slice_const(&const self, range: ..) &const [T] {
-        &const self[..]
+    fn slice_read(& self, range: ..) & [T] {
+        & self[..]
     }
 }
 
@@ -749,7 +743,7 @@ fn builtin_slice_ranges_infer_usize_bounds() {
         r#"
 fn main() i32 {
     var items: [4]i32 = [1, 2, 3, 4];
-    var part = &const items[0..2];
+    var part = & items[0..2];
     part.len() as i32
 }
 "#,
@@ -768,7 +762,7 @@ fn builtin_slice_ranges_require_usize_bounds() {
 fn main() i32 {
     var items: [4]i32 = [1, 2, 3, 4];
     var end: i32 = 2;
-    var part = &const items[0..end];
+    var part = & items[0..end];
     part.len() as i32
 }
 "#,

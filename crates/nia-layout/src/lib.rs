@@ -285,6 +285,7 @@ impl<'a> LayoutComputer<'a> {
             Some(TyKind::Nominal { def_id, args }) => self.nominal_layout(span, def_id, &args),
             Some(
                 TyKind::Error
+                | TyKind::ComptimeOnly
                 | TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. },
@@ -690,13 +691,13 @@ fn substitute_generics(
 ) -> InternedTyId {
     match interner.get(ty).cloned() {
         Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
-        Some(TyKind::Pointer { is_const, elem }) => {
+        Some(TyKind::Pointer { is_readonly, elem }) => {
             let elem = substitute_generics(interner, elem, substitutions);
-            interner.intern(TyKind::Pointer { is_const, elem })
+            interner.intern(TyKind::Pointer { is_readonly, elem })
         }
-        Some(TyKind::Slice { is_const, elem }) => {
+        Some(TyKind::Slice { is_readonly, elem }) => {
             let elem = substitute_generics(interner, elem, substitutions);
-            interner.intern(TyKind::Slice { is_const, elem })
+            interner.intern(TyKind::Slice { is_readonly, elem })
         }
         Some(TyKind::Array { len, elem }) => {
             let elem = substitute_generics(interner, elem, substitutions);
@@ -825,6 +826,7 @@ mod tests {
     ) -> ComptimeCheck {
         let values = resolve_module_values(module, defs);
         let locals = resolve_module_locals(module, defs, &values);
+        let target = nia_target_config::TargetConfig::host();
         check_module_comptime(ComptimeInput {
             module,
             defs,
@@ -835,6 +837,7 @@ mod tests {
             type_uses: &lowered.type_uses,
             normalized: &HashMap::new(),
             const_exprs: &lowered.const_exprs,
+            target: &target,
             program: ComptimeProgramContext::empty(),
         })
     }

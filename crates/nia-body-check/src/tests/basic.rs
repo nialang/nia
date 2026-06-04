@@ -82,14 +82,14 @@ fn checks_void_values_empty_structs_and_void_pointers() {
 struct Empty {}
 
 fn take_void(p: &void) {}
-fn take_const_void(p: &const void) {}
+fn take_read_void(p: &void) {}
 
 fn main() {
     var unit: void = {};
     var empty: Empty = {};
     var value: i32 = 1;
     take_void(&value as &void);
-    take_const_void(&const value as &const void);
+    take_read_void(&value as &void);
     unit
 }
 "#,
@@ -255,10 +255,9 @@ fn bad(value: ?i32) i32 {
 "#,
     );
     assert!(
-        missing
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("non-exhaustive optional switch")),
+        missing.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("non-exhaustive optional switch")),
         "{:?}",
         missing.diagnostics
     );

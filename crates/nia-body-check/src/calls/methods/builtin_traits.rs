@@ -242,7 +242,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         match trait_id {
-            BuiltinTrait::SliceConst | BuiltinTrait::Slice => {
+            BuiltinTrait::SliceRead | BuiltinTrait::Slice => {
                 let range = args.first()?;
                 let range_ty = self.check_expr(range);
                 Some(vec![range_ty])
@@ -342,7 +342,7 @@ impl<'a> BodyChecker<'a> {
         trait_args: Vec<InternedTyId>,
     ) -> InternedTyId {
         match trait_id {
-            BuiltinTrait::SliceConst | BuiltinTrait::Slice => {
+            BuiltinTrait::SliceRead | BuiltinTrait::Slice => {
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
@@ -351,7 +351,7 @@ impl<'a> BodyChecker<'a> {
                 });
                 self.normalize_projection(output)
             }
-            BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr => {
+            BuiltinTrait::GetPtrRead | BuiltinTrait::GetPtr => {
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty,
                     trait_id: TraitId::Builtin(trait_id),
@@ -360,7 +360,7 @@ impl<'a> BodyChecker<'a> {
                 });
                 let target = self.normalize_projection(target);
                 self.interner.intern(TyKind::Pointer {
-                    is_const: matches!(trait_id, BuiltinTrait::GetPtrConst),
+                    is_readonly: matches!(trait_id, BuiltinTrait::GetPtrRead),
                     elem: target,
                 })
             }

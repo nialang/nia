@@ -11,7 +11,7 @@ fn associated_types_resolve_explicit_projection_in_trait_methods() {
 trait Source {
     type Item;
 
-    fn get(&const self) [Self as Source]::Item;
+    fn get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -21,19 +21,19 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.value
     }
 }
 
-fn read[T](value: &const T) [T as Source]::Item
+fn read[T](value: & T) [T as Source]::Item
 where T: Source {
     value.get()
 }
 
 fn main() i32 {
     var counter: Counter = { value: 3 };
-    read[Counter](&const counter)
+    read[Counter](& counter)
 }
 "#,
     );
@@ -128,7 +128,7 @@ struct Point {
 extend Point {
     type Item = i32;
 
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.x
     }
 }
@@ -259,7 +259,7 @@ fn impl_method_signature_checks_associated_type_projection() {
 trait Source {
     type Item;
 
-    fn get(&const self) [Self as Source]::Item;
+    fn get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -269,7 +269,7 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(&const self) bool {
+    fn get(& self) bool {
         true
     }
 }
@@ -301,8 +301,8 @@ trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map_c(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
-    fn map_d(&const self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
+    fn map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fn map_d(& self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
         _ = self.map_c(a, b);
         fallback
     }
@@ -316,19 +316,19 @@ extend Pairer : Mapper[i32, i32] {
     type C = i32;
     type D = i32;
 
-    fn map_c(&const self, a: i32, b: i32) i32 {
+    fn map_c(& self, a: i32, b: i32) i32 {
         self.seed + a + b
     }
 }
 
-fn mapped[T](value: &const T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
+fn mapped[T](value: & T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
 where T: Mapper[i32, i32] {
     value.map_d(1, 2, fallback)
 }
 
 fn main() i32 {
     var p: Pairer = { seed: 3 };
-    mapped[Pairer](&const p, 9)
+    mapped[Pairer](& p, 9)
 }
 "#,
     );
@@ -346,7 +346,7 @@ fn associated_type_bindings_normalize_open_projections() {
 trait Combines[Rhs] {
     type Output;
 
-    fn add(&const self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
+    fn add(& self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
 }
 
 struct Number {
@@ -356,12 +356,12 @@ struct Number {
 extend Number : Combines[Number] {
     type Output = Number;
 
-    fn add(&const self, rhs: Number) Number {
+    fn add(& self, rhs: Number) Number {
         { value: self.value + rhs.value }
     }
 }
 
-fn add_same[T](a: &const T, b: T) T
+fn add_same[T](a: & T, b: T) T
 where T: Combines[T, Output = T] {
     a.add(b)
 }
@@ -369,7 +369,7 @@ where T: Combines[T, Output = T] {
 fn main() i32 {
     var one: Number = { value: 1 };
     var two: Number = { value: 2 };
-    add_same[Number](&const one, two).value
+    add_same[Number](& one, two).value
 }
 "#,
     );
@@ -417,10 +417,10 @@ fn associated_type_bindings_do_not_forge_unbound_projection_equality() {
 trait Combines[Rhs] {
     type Output;
 
-    fn add(&const self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
+    fn add(& self, rhs: Rhs) [Self as Combines[Rhs]]::Output;
 }
 
-fn bad[T](a: &const T, b: T) T
+fn bad[T](a: & T, b: T) T
 where T: Combines[T] {
     a.add(b)
 }
@@ -508,8 +508,8 @@ trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map_c(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
-    fn map_d(&const self, a: A, b: B) [Self as Mapper[A, B]]::D;
+    fn map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fn map_d(& self, a: A, b: B) [Self as Mapper[A, B]]::D;
 }
 
 struct Pairer {
@@ -520,28 +520,28 @@ extend Pairer : Mapper[i32, bool] {
     type C = i32;
     type D = bool;
 
-    fn map_c(&const self, a: i32, b: bool) i32 {
+    fn map_c(& self, a: i32, b: bool) i32 {
         if b { self.seed + a } else { self.seed }
     }
 
-    fn map_d(&const self, a: i32, b: bool) bool {
+    fn map_d(& self, a: i32, b: bool) bool {
         if b { a > 0 } else { false }
     }
 }
 
-fn map_c_i32[T](value: &const T) i32
+fn map_c_i32[T](value: & T) i32
 where T: Mapper[i32, bool, C = i32, D = bool] {
     value.map_c(2, true)
 }
 
-fn map_d_bool[T](value: &const T) bool
+fn map_d_bool[T](value: & T) bool
 where T: Mapper[i32, bool, C = i32, D = bool] {
     value.map_d(2, true)
 }
 
 fn main() i32 {
     var p: Pairer = { seed: 3 };
-    if map_d_bool[Pairer](&const p) { map_c_i32[Pairer](&const p) } else { 0 }
+    if map_d_bool[Pairer](& p) { map_c_i32[Pairer](& p) } else { 0 }
 }
 "#,
     );

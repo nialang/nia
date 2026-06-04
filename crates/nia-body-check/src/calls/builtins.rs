@@ -5,7 +5,7 @@ use nia_body_ir::BuiltinValue;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{InternedTyId, LayoutBuiltin, TraitId};
 use nia_span::Span;
-use nia_ty::PrimitiveTy;
+use nia_ty::{PrimitiveTy, TyKind};
 use nia_value_resolve::BuiltinResolution;
 
 impl<'a> BodyChecker<'a> {
@@ -18,6 +18,9 @@ impl<'a> BodyChecker<'a> {
         let Some(resolution) = self.values.builtins.get(&span).copied() else {
             return self.error();
         };
+        if matches!(resolution, BuiltinResolution::Builtin) {
+            return self.interner.intern(TyKind::ComptimeOnly);
+        }
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -27,6 +30,7 @@ impl<'a> BodyChecker<'a> {
         };
         let ty = self.ty_for_span(type_arg.span);
         let builtin = match resolution {
+            BuiltinResolution::Builtin => return self.error(),
             BuiltinResolution::SizeOf => {
                 self.require_sized_type(type_arg.span, ty, name);
                 LayoutBuiltin::Size
@@ -68,6 +72,18 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         };
         match resolution {
+            BuiltinResolution::Builtin => {
+                if !args.is_empty() {
+                    self.diagnostics.push(Diagnostic::error(
+                        call_span,
+                        "builtin `@builtin` does not take value arguments",
+                    ));
+                    for arg in args {
+                        self.check_expr(arg);
+                    }
+                }
+                self.interner.intern(TyKind::ComptimeOnly)
+            }
             BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
                 if !args.is_empty() {
                     self.diagnostics.push(Diagnostic::error(

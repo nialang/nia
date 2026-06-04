@@ -13,7 +13,7 @@ struct Cell {
 }
 
 extend Cell {
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.value
     }
 
@@ -55,35 +55,35 @@ struct Cell {
     value: i32,
 }
 
-extend Cell : DerefConst {
+extend Cell : DerefRead {
     type Target = i32;
 
-    fn deref_const(&const self) &const i32 {
-        &const self.value
+    fn deref_read(& self) & i32 {
+        & self.value
     }
 }
 
 extend Cell : Deref {
     type Target = i32;
 
-    fn deref(&self) &i32 {
-        &self.value
+    fn deref(&mut self) &mut i32 {
+        &mut self.value
     }
 }
 
-extend Cell : IndexConst[usize] {
+extend Cell : IndexRead[usize] {
     type Output = i32;
 
-    fn index_const(&const self, index: usize) &const i32 {
-        &const self.value
+    fn index_read(& self, index: usize) & i32 {
+        & self.value
     }
 }
 
 extend Cell : Index[usize] {
     type Output = i32;
 
-    fn index(&self, index: usize) &i32 {
-        &self.value
+    fn index(&mut self, index: usize) &mut i32 {
+        &mut self.value
     }
 }
 
@@ -105,9 +105,9 @@ fn main() i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__deref_const"), "{ir}");
+    assert!(ir.contains("__deref_read"), "{ir}");
     assert!(ir.contains("__deref"), "{ir}");
-    assert!(ir.contains("__index_const"), "{ir}");
+    assert!(ir.contains("__index_read"), "{ir}");
     assert!(ir.contains("__index"), "{ir}");
     assert!(ir.contains("ret i32"), "{ir}");
 }
@@ -120,7 +120,7 @@ fn emits_trait_object_vtable_and_dynamic_dispatch() {
         &main,
         r#"
 trait Source {
-    fn add(&const self, rhs: i32) i32;
+    fn add(& self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -128,18 +128,18 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(&const self, rhs: i32) i32 {
+    fn add(& self, rhs: i32) i32 {
         self.value + rhs
     }
 }
 
-fn read(source: &const Source) i32 {
+fn read(source: & Source) i32 {
     source.add(4)
 }
 
 fn main() i32 {
     var counter: Counter = { value: 8 };
-    read(&const counter)
+    read(& counter)
 }
 "#,
     )
@@ -164,7 +164,7 @@ fn size_levels_deduplicate_repeated_trait_object_vtables() {
         &main,
         r#"
 trait Source {
-    fn add(&const self, rhs: i32) i32;
+    fn add(& self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -172,23 +172,23 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(&const self, rhs: i32) i32 {
+    fn add(& self, rhs: i32) i32 {
         self.value + rhs
     }
 }
 
-fn read(source: &const Source) i32 {
+fn read(source: & Source) i32 {
     source.add(4)
 }
 
 fn left() i32 {
     var counter: Counter = { value: 8 };
-    read(&const counter)
+    read(& counter)
 }
 
 fn right() i32 {
     var counter: Counter = { value: 9 };
-    read(&const counter)
+    read(& counter)
 }
 
 fn main() i32 {
@@ -231,7 +231,7 @@ fn emits_trait_object_vtable_from_defer_tail_expr() {
 extern fn log(value: i32);
 
 trait Source {
-    fn add(&const self, rhs: i32) i32;
+    fn add(& self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -239,19 +239,19 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(&const self, rhs: i32) i32 {
+    fn add(& self, rhs: i32) i32 {
         self.value + rhs
     }
 }
 
-fn read(source: &const Source) i32 {
+fn read(source: & Source) i32 {
     source.add(4)
 }
 
 fn main() i32 {
     var counter: Counter = { value: 8 };
     defer {
-        log(read(&const counter))
+        log(read(& counter))
     };
     0
 }
@@ -279,11 +279,11 @@ fn emits_trait_object_supertrait_upcast_metadata_offset() {
         &main,
         r#"
 trait Parent {
-    fn parent(&const self) i32;
+    fn parent(& self) i32;
 }
 
 trait Child : Parent {
-    fn child(&const self) i32;
+    fn child(& self) i32;
 }
 
 struct Counter {
@@ -291,24 +291,24 @@ struct Counter {
 }
 
 extend Counter : Parent {
-    fn parent(&const self) i32 {
+    fn parent(& self) i32 {
         self.value
     }
 }
 
 extend Counter : Child {
-    fn child(&const self) i32 {
+    fn child(& self) i32 {
         self.value + 1
     }
 }
 
-fn as_parent(child: &const Child) &const Parent {
+fn as_parent(child: & Child) & Parent {
     child
 }
 
 fn main() i32 {
     var counter: Counter = { value: 8 };
-    var child: &const Child = &const counter;
+    var child: & Child = & counter;
     as_parent(child).parent()
 }
 "#,
@@ -334,17 +334,17 @@ fn emits_trait_object_upcast_to_second_supertrait_with_assoc_bindings() {
 trait FatherA {
     type Item;
 
-    fn a(&const self) [Self as FatherA]::Item;
+    fn a(& self) [Self as FatherA]::Item;
 }
 
 trait FatherB {
     type Item;
 
-    fn b(&const self) [Self as FatherB]::Item;
+    fn b(& self) [Self as FatherB]::Item;
 }
 
 trait Child : FatherA + FatherB {
-    fn child(&const self) i32;
+    fn child(& self) i32;
 }
 
 struct Both {
@@ -354,7 +354,7 @@ struct Both {
 extend Both : FatherA {
     type Item = i32;
 
-    fn a(&const self) i32 {
+    fn a(& self) i32 {
         self.value
     }
 }
@@ -362,30 +362,30 @@ extend Both : FatherA {
 extend Both : FatherB {
     type Item = usize;
 
-    fn b(&const self) usize {
+    fn b(& self) usize {
         2usize
     }
 }
 
 extend Both : Child {
-    fn child(&const self) i32 {
+    fn child(& self) i32 {
         self.value
     }
 }
 
-fn as_b(child: &const Child[
+fn as_b(child: & Child[
     [Self as FatherA]::Item = i32,
     [Self as FatherB]::Item = usize,
-]) &const FatherB[Item = usize] {
+]) & FatherB[Item = usize] {
     child
 }
 
 fn main() usize {
     var both: Both = { value: 8 };
-    var child: &const Child[
+    var child: & Child[
         [Self as FatherA]::Item = i32,
         [Self as FatherB]::Item = usize,
-    ] = &const both;
+    ] = & both;
     as_b(child).b()
 }
 "#,
@@ -409,7 +409,7 @@ fn emits_trait_bound_generic_method_calls() {
         &main,
         r#"
 trait Same {
-    fn eq(&const self, other: &const Self) bool;
+    fn eq(& self, other: & Self) bool;
 }
 
 struct Point {
@@ -417,12 +417,12 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(&const self, other: &const Point) bool {
+    fn eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
 
-fn same[T](a: &const T, b: &const T) bool
+fn same[T](a: & T, b: & T) bool
 where T: Same {
     a.eq(b)
 }
@@ -430,7 +430,7 @@ where T: Same {
 fn main() bool {
     var a: Point = { x: 1 };
     var b: Point = { x: 1 };
-    same[Point](&const a, &const b)
+    same[Point](& a, & b)
 }
 "#,
     )
@@ -454,11 +454,11 @@ fn emits_supertrait_method_calls_from_subtrait_bounds() {
         &main,
         r#"
 trait Same {
-    fn eq(&const self, other: &const Self) bool;
+    fn eq(& self, other: & Self) bool;
 }
 
 trait Ranked : Same {
-    fn lt(&const self, other: &const Self) bool;
+    fn lt(& self, other: & Self) bool;
 }
 
 struct Point {
@@ -466,18 +466,18 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(&const self, other: &const Point) bool {
+    fn eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
 
 extend Point : Ranked {
-    fn lt(&const self, other: &const Point) bool {
+    fn lt(& self, other: & Point) bool {
         self.x < other.x
     }
 }
 
-fn same_ord[T](a: &const T, b: &const T) bool
+fn same_ord[T](a: & T, b: & T) bool
 where T: Ranked {
     a.eq(b)
 }
@@ -485,7 +485,7 @@ where T: Ranked {
 fn main() bool {
     var a: Point = { x: 1 };
     var b: Point = { x: 1 };
-    same_ord[Point](&const a, &const b)
+    same_ord[Point](& a, & b)
 }
 "#,
     )
@@ -511,7 +511,7 @@ fn emits_associated_type_projection_instances() {
 trait Source {
     type Item;
 
-    fn get(&const self) [Self as Source]::Item;
+    fn get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -521,19 +521,19 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.value
     }
 }
 
-fn read[T](value: &const T) [T as Source]::Item
+fn read[T](value: & T) [T as Source]::Item
 where T: Source {
     value.get()
 }
 
 fn main() i32 {
     var counter: Counter = { value: 42 };
-    read[Counter](&const counter)
+    read[Counter](& counter)
 }
 "#,
     )
@@ -560,9 +560,9 @@ trait Mapper[A, B] {
     type C;
     type D;
 
-    fn map_c(&const self, a: A, b: B) [Self as Mapper[A, B]]::C;
+    fn map_c(& self, a: A, b: B) [Self as Mapper[A, B]]::C;
 
-    fn map_d(&const self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
+    fn map_d(& self, a: A, b: B, fallback: [Self as Mapper[A, B]]::D) [Self as Mapper[A, B]]::D {
         _ = self.map_c(a, b);
         fallback
     }
@@ -576,19 +576,19 @@ extend Pairer : Mapper[i32, i32] {
     type C = i32;
     type D = i32;
 
-    fn map_c(&const self, a: i32, b: i32) i32 {
+    fn map_c(& self, a: i32, b: i32) i32 {
         self.seed + a + b
     }
 }
 
-fn mapped[T](value: &const T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
+fn mapped[T](value: & T, fallback: [T as Mapper[i32, i32]]::D) [T as Mapper[i32, i32]]::D
 where T: Mapper[i32, i32] {
     value.map_d(1, 2, fallback)
 }
 
 fn main() i32 {
     var p: Pairer = { seed: 3 };
-    mapped[Pairer](&const p, 9)
+    mapped[Pairer](& p, 9)
 }
 "#,
     )
@@ -612,9 +612,9 @@ fn emits_trait_default_method_instances() {
         &main,
         r#"
 trait Same {
-    fn eq(&const self, other: &const Self) bool;
+    fn eq(& self, other: & Self) bool;
 
-    fn ne(&const self, other: &const Self) bool {
+    fn ne(& self, other: & Self) bool {
         not self.eq(other)
     }
 }
@@ -624,12 +624,12 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(&const self, other: &const Point) bool {
+    fn eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
 
-fn different[T](a: &const T, b: &const T) bool
+fn different[T](a: & T, b: & T) bool
 where T: Same {
     a.ne(b)
 }
@@ -637,7 +637,7 @@ where T: Same {
 fn main() bool {
     var a: Point = { x: 1 };
     var b: Point = { x: 2 };
-    different[Point](&const a, &const b)
+    different[Point](& a, & b)
 }
 "#,
     )

@@ -49,7 +49,7 @@ struct Item {
     value: i32,
 }
 
-fn take(items: &const [Item]) i32 {
+fn take(items: & [Item]) i32 {
     items.len() as i32
 }
 
@@ -110,7 +110,7 @@ fn main() i32 {
     var i32: usize = 1;
     var indexed = xs[i32];
     var called: i32 = id[i32](indexed);
-    var ptr = &const id[i32];
+    var ptr = & id[i32];
     var bad_value = id[i32];
     indexed + ptr(1) + called
 }

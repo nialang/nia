@@ -5,11 +5,12 @@ mod extensions;
 mod public_surface;
 
 use nia_ast::{
-    EnumItem, ExtendAssociatedType, ExtendItem, FunctionItem, ImportPath, Item, ItemKind, Module,
-    StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem, Visibility,
+    EnumItem, ExtendAssociatedType, ExtendItem, FunctionItem, ImportPath, Module, StructItem,
+    TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem, Visibility,
 };
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::{DefId, ModuleId};
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_span::Span;
 
 pub use extensions::{
@@ -41,7 +42,22 @@ pub struct ModuleUsing {
 }
 
 pub fn collect_module_defs(module_id: ModuleId, module: &Module) -> DefCollection {
-    Collector::new(module_id).collect(module)
+    let item_tree = ModuleItemTree::from_module(module);
+    collect_module_defs_from_item_tree(module_id, &item_tree)
+}
+
+pub fn collect_module_defs_from_item_tree(
+    module_id: ModuleId,
+    item_tree: &ModuleItemTree,
+) -> DefCollection {
+    Collector::new(module_id).collect(&item_tree.items)
+}
+
+pub fn collect_module_defs_from_active_item_tree(
+    module_id: ModuleId,
+    item_tree: &ActiveModuleItemTree,
+) -> DefCollection {
+    Collector::new(module_id).collect(&item_tree.items)
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -219,8 +235,8 @@ impl Collector {
         }
     }
 
-    fn collect(mut self, module: &Module) -> DefCollection {
-        for item in &module.items {
+    fn collect(mut self, items: &[ItemTreeNode]) -> DefCollection {
+        for item in items {
             self.collect_item(item);
         }
         DefCollection {
@@ -238,36 +254,36 @@ impl Collector {
         }
     }
 
-    fn collect_item(&mut self, item: &Item) {
+    fn collect_item(&mut self, item: &ItemTreeNode) {
         match &item.kind {
-            ItemKind::Import(import) => {
+            ItemTreeNodeKind::Import(import) => {
                 let name = import
                     .alias
                     .clone()
                     .unwrap_or_else(|| import_default_alias(&import.path));
-                self.add_module_def(name, DefKind::Import, item.vis, item.span);
+                self.add_module_def(name, DefKind::Import, item.visibility, item.span);
             }
-            ItemKind::Using(using) => {
+            ItemTreeNodeKind::Using(using) => {
                 self.collect_using(item, using);
             }
-            ItemKind::ComptimeIf(_) => {}
-            ItemKind::Struct(item_struct) => self.collect_struct(item, item_struct),
-            ItemKind::Union(item_union) => self.collect_union(item, item_union),
-            ItemKind::Trait(item_trait) => self.collect_trait(item, item_trait),
-            ItemKind::Extend(extend) => self.collect_extend(item, extend),
-            ItemKind::Enum(item_enum) => self.collect_enum(item, item_enum),
-            ItemKind::TypeAlias(alias) => self.collect_type_alias(item, alias),
-            ItemKind::Function(function) => {
+            ItemTreeNodeKind::ComptimeIf(_) => {}
+            ItemTreeNodeKind::Struct(item_struct) => self.collect_struct(item, item_struct),
+            ItemTreeNodeKind::Union(item_union) => self.collect_union(item, item_union),
+            ItemTreeNodeKind::Trait(item_trait) => self.collect_trait(item, item_trait),
+            ItemTreeNodeKind::Extend(extend) => self.collect_extend(item, extend),
+            ItemTreeNodeKind::Enum(item_enum) => self.collect_enum(item, item_enum),
+            ItemTreeNodeKind::TypeAlias(alias) => self.collect_type_alias(item, alias),
+            ItemTreeNodeKind::Function(function) => {
                 self.check_duplicate_generics(&function.generics, item.span);
                 self.add_value_def(
                     function.name.clone(),
                     DefKind::Function,
-                    item.vis,
+                    item.visibility,
                     item.span,
                     function.generics.clone(),
                 );
             }
-            ItemKind::Binding(binding) => {
+            ItemTreeNodeKind::Binding(binding) => {
                 self.add_value_def(
                     binding.name.clone(),
                     if binding.is_comptime {
@@ -275,7 +291,7 @@ impl Collector {
                     } else {
                         DefKind::Global
                     },
-                    item.vis,
+                    item.visibility,
                     item.span,
                     Vec::new(),
                 );
@@ -283,21 +299,21 @@ impl Collector {
         }
     }
 
-    fn collect_using(&mut self, item: &Item, using: &UsingItem) {
+    fn collect_using(&mut self, item: &ItemTreeNode, using: &UsingItem) {
         self.module_usings.push(ModuleUsing {
-            visibility: item.vis,
+            visibility: item.visibility,
             span: item.span,
             host: using.host.clone(),
             selector: using.selector.clone(),
         });
     }
 
-    fn collect_struct(&mut self, item: &Item, item_struct: &StructItem) {
+    fn collect_struct(&mut self, item: &ItemTreeNode, item_struct: &StructItem) {
         self.check_duplicate_generics(&item_struct.generics, item.span);
         let struct_id = self.add_type_def(
             item_struct.name.clone(),
             DefKind::Struct,
-            item.vis,
+            item.visibility,
             item.span,
             item_struct.generics.clone(),
         );
@@ -324,12 +340,12 @@ impl Collector {
         self.struct_members.insert(struct_id, members);
     }
 
-    fn collect_union(&mut self, item: &Item, item_union: &UnionItem) {
+    fn collect_union(&mut self, item: &ItemTreeNode, item_union: &UnionItem) {
         self.check_duplicate_generics(&item_union.generics, item.span);
         let union_id = self.add_type_def(
             item_union.name.clone(),
             DefKind::Union,
-            item.vis,
+            item.visibility,
             item.span,
             item_union.generics.clone(),
         );
@@ -356,7 +372,7 @@ impl Collector {
         self.union_members.insert(union_id, members);
     }
 
-    fn collect_extend(&mut self, _item: &Item, extend: &ExtendItem) {
+    fn collect_extend(&mut self, _item: &ItemTreeNode, extend: &ExtendItem) {
         self.check_duplicate_generics(&extend.generics, extend.target.span);
         let mut members = MemberScope::default();
         for associated_type in &extend.associated_types {
@@ -367,12 +383,12 @@ impl Collector {
         }
     }
 
-    fn collect_trait(&mut self, item: &Item, item_trait: &nia_ast::TraitItem) {
+    fn collect_trait(&mut self, item: &ItemTreeNode, item_trait: &nia_ast::TraitItem) {
         self.check_duplicate_generics(&item_trait.generics, item.span);
         let trait_id = self.add_type_def(
             item_trait.name.clone(),
             DefKind::Trait,
-            item.vis,
+            item.visibility,
             item.span,
             item_trait.generics.clone(),
         );
@@ -491,11 +507,11 @@ impl Collector {
         );
     }
 
-    fn collect_enum(&mut self, item: &Item, item_enum: &EnumItem) {
+    fn collect_enum(&mut self, item: &ItemTreeNode, item_enum: &EnumItem) {
         let enum_id = self.add_type_def(
             item_enum.name.clone(),
             DefKind::Enum,
-            item.vis,
+            item.visibility,
             item.span,
             Vec::new(),
         );
@@ -522,12 +538,12 @@ impl Collector {
         self.enum_members.insert(enum_id, members);
     }
 
-    fn collect_type_alias(&mut self, item: &Item, alias: &TypeAliasItem) {
+    fn collect_type_alias(&mut self, item: &ItemTreeNode, alias: &TypeAliasItem) {
         self.check_duplicate_generics(&alias.generics, item.span);
         self.add_type_def(
             alias.name.clone(),
             DefKind::TypeAlias,
-            item.vis,
+            item.visibility,
             item.span,
             alias.generics.clone(),
         );

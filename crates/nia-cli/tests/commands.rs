@@ -310,7 +310,7 @@ fn main() i32 {
     std::fs::write(
         &mapped,
         r#"
-pub comptime answer: i32 = 42;
+pub comptime let answer: i32 = 42;
 "#,
     )
     .expect("write mapped source");
@@ -337,7 +337,7 @@ fn check_can_emit_backend_optimization_report() {
     std::fs::write(
         &main,
         r#"
-const zeroes: [4]i32 = [0; 4];
+let zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
     var unused = 1;

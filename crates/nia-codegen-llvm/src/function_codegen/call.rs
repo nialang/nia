@@ -80,7 +80,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         } = callee
         {
             return match trait_id {
-                BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr => {
+                BuiltinTrait::GetPtrRead | BuiltinTrait::GetPtr => {
                     self.emit_builtin_get_ptr_method(expr.span, *self_ty, receiver)
                 }
                 _ => Err(self.error(

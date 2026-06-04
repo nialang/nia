@@ -29,7 +29,7 @@ fn sum(pair: Pair) i64 {
 The C ABI is used for explicit external boundaries:
 
 ```nia
-extern fn puts(s: &const u8) i32;
+extern fn puts(s: &u8) i32;
 
 extern struct CPoint {
     x: i32,
@@ -158,9 +158,9 @@ Pointers are scalar pointer-sized values:
 
 ```text
 &T              pointer-sized
-&const T        pointer-sized
+&mut T          pointer-sized
 &void           pointer-sized
-&const void     pointer-sized
+&mut void       pointer-sized
 ```
 
 For LP64:
@@ -183,7 +183,7 @@ Pointer erasure to `&void` is explicit:
 
 ```nia
 var p: &void = &value as &void;
-var q: &const void = &const value as &const void;
+var q: &mut void = &mut value as &mut void;
 ```
 
 Nia does not perform implicit `&T -> &void` coercions.
@@ -195,7 +195,7 @@ Function pointers are scalar pointer-sized values.
 For LP64:
 
 ```text
-&const fn(...)  size 8, align 8
+&fn(...)  size 8, align 8
 ```
 
 Function pointer type identity includes:
@@ -203,7 +203,7 @@ Function pointer type identity includes:
 - parameter types;
 - return type;
 - variadic marker;
-- const function pointer marker.
+- let function pointer marker.
 
 Variadic function pointers are not accepted at C ABI boundaries.
 
@@ -236,7 +236,7 @@ For LP64:
 
 ```text
 &[T]        size 16, align 8
-&const [T]  size 16, align 8
+&mut [T]    size 16, align 8
 ```
 
 The pointer component points at the first element. The length component is a
@@ -473,7 +473,7 @@ Receiver lowering follows the receiver type:
 
 ```text
 &self        pointer parameter
-&const self  const pointer parameter
+&mut self    mutable pointer parameter
 self        classified as a normal value parameter
 ```
 
@@ -520,7 +520,7 @@ C-layout types.
 
 ## 16. Static Data ABI
 
-Top-level `const` and `var` storage uses the ABI representation of its type.
+Top-level `let` and `var` storage uses the ABI representation of its type.
 
 Static aggregate initializers must be emitted in physical layout order, not
 source field order.

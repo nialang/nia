@@ -99,29 +99,29 @@ struct Number {
 }
 
 extend Number : Eq[Number] {
-    fn eq(&const self, other: &const Number) bool {
+    fn eq(& self, other: & Number) bool {
         self.value == other.value
     }
 
-    fn ne(&const self, other: &const Number) bool {
+    fn ne(& self, other: & Number) bool {
         self.value != other.value
     }
 }
 
 extend Number : Ord[Number] {
-    fn lt(&const self, other: &const Number) bool {
+    fn lt(& self, other: & Number) bool {
         self.value < other.value
     }
 
-    fn le(&const self, other: &const Number) bool {
+    fn le(& self, other: & Number) bool {
         self.value <= other.value
     }
 
-    fn gt(&const self, other: &const Number) bool {
+    fn gt(& self, other: & Number) bool {
         self.value > other.value
     }
 
-    fn ge(&const self, other: &const Number) bool {
+    fn ge(& self, other: & Number) bool {
         self.value >= other.value
     }
 }

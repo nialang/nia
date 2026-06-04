@@ -14,6 +14,7 @@ use nia_flow_check::FlowCheck;
 use nia_ids::ModuleId;
 use nia_imports::{ImportAliasMap, ModuleGraph};
 use nia_item_signatures::ItemSignatures;
+use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::Monomorphization;
@@ -22,6 +23,7 @@ use nia_opt::OptimizationPolicy;
 use nia_parser::ParseError;
 use nia_source::{SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
+use nia_target_config::TargetConfig;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
@@ -35,6 +37,7 @@ pub use query::check_loaded_program_with_options;
 pub struct LoadedProgram {
     pub graph: ModuleGraph,
     pub imports: ImportAliasMap,
+    pub target: TargetConfig,
     pub modules: Vec<LoadedModule>,
     pub diagnostics: Vec<ProgramDiagnostic>,
 }
@@ -45,7 +48,10 @@ pub struct LoadedModule {
     pub path: SourcePath,
     pub source_version: SourceVersion,
     pub source: String,
+    pub raw_module: Module,
     pub module: Module,
+    pub item_tree: ModuleItemTree,
+    pub active_item_tree: ActiveModuleItemTree,
     pub origins: NodeOriginTable,
     pub parse_errors: Vec<ParseError>,
 }

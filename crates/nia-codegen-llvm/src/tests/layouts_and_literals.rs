@@ -14,7 +14,7 @@ struct Mixed {
     c: u8,
 }
 
-const mixed: Mixed = { a: 1, b: 2, c: 3 };
+let mixed: Mixed = { a: 1, b: 2, c: 3 };
 
 fn main() i32 {
     var local: Mixed = { a: 4, b: 5, c: 6 };
@@ -446,7 +446,7 @@ enum Color: u8 {
     Blue = 3,
 }
 
-fn main(ptr: &const i32) i32 {
+fn main(ptr: & i32) i32 {
     var x = -1;
     var y = not false;
     var n = 1;
@@ -515,7 +515,7 @@ fn size_levels_emit_repeated_byte_static_initializers_as_strings() {
     std::fs::write(
         &main,
         r#"
-const bytes: [4]u8 = b"aaaa";
+let bytes: [4]u8 = b"aaaa";
 
 fn main() i32 {
     bytes[0] as i32
@@ -564,9 +564,9 @@ fn emits_adjacent_string_literal_concatenation() {
     std::fs::write(
         &main,
         r#"
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: & u8, ...);
 
-const fmt =
+let fmt =
     c""
     c"  #  Type      Offset             VirtAddr           FileSiz"
     c""
@@ -587,7 +587,7 @@ fn main() i32 {
         c""
         c"             Flags Align\n"
     );
-    printf(&const fmt[0]);
+    printf(& fmt[0]);
     0
 }
 "#,

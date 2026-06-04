@@ -185,7 +185,7 @@ pub struct Point {
 import .a;
 
 extend a::Point {
-    pub fn len2(&const self) i32 {
+    pub fn len2(& self) i32 {
         4
     }
 }
@@ -204,12 +204,12 @@ fn resolves_imported_extension_method_function_pointers() {
         r#"
 import .math;
 
-fn call(p: &const math::Point, f: &const fn(&const math::Point) i32) i32 {
+fn call(p: & math::Point, f: &fn(& math::Point) i32) i32 {
     f(p)
 }
 
 fn main(p: math::Point) i32 {
-    call(&const p, &const math::Point::len2)
+    call(& p, & math::Point::len2)
 }
 "#,
     );
@@ -222,7 +222,7 @@ pub struct Point {
 }
 
 extend Point {
-    pub fn len2(&const self) i32 {
+    pub fn len2(& self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
@@ -302,7 +302,7 @@ import .core;
 import .helpers;
 
 extend core::Point {
-    pub fn len2(&const self) i32 {
+    pub fn len2(& self) i32 {
         helpers::call_core()
     }
 }
@@ -396,7 +396,7 @@ fn extends_imported_type_in_current_module() {
 import .math;
 
 extend math::Point {
-    fn len2(&const self) i32 {
+    fn len2(& self) i32 {
         4
     }
 }
@@ -439,7 +439,7 @@ fn main(p: math::Point) i32 {
 import .math;
 
 extend math::Point {
-    pub fn len2(&const self) i32 {
+    pub fn len2(& self) i32 {
         4
     }
 }
@@ -475,7 +475,7 @@ fn main(p: math::Point) i32 {
 import .math;
 
 extend math::Point {
-    pub fn len2(&const self) i32 {
+    pub fn len2(& self) i32 {
         4
     }
 }
@@ -494,14 +494,14 @@ fn imports_generic_structural_extension_methods() {
         r#"
 import .ptr;
 
-extern fn read_const() &const u8;
+extern fn read_readonly() &u8;
 
-fn main(mut_ptr: &u8) i32 {
-    var const_ptr = read_const();
+fn main(mut_ptr: &mut u8) i32 {
+    var readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.is_null() {
+    if readonly_ptr.is_null() {
         return 2;
     }
     0
@@ -511,7 +511,7 @@ fn main(mut_ptr: &u8) i32 {
     write(
         &root.join("ptr.nia"),
         r#"
-extend[T] &const T {
+extend[T] &mut T {
     pub fn is_null(self) bool {
         self as usize == 0
     }
@@ -537,14 +537,14 @@ fn imports_generic_structural_extension_methods_through_import_closure() {
         r#"
 import .share;
 
-extern fn read_const() &const u8;
+extern fn read_readonly() &u8;
 
-fn main(mut_ptr: &u8) i32 {
-    var const_ptr = read_const();
+fn main(mut_ptr: &mut u8) i32 {
+    var readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.is_null() {
+    if readonly_ptr.is_null() {
         return 2;
     }
     0
@@ -555,7 +555,7 @@ fn main(mut_ptr: &u8) i32 {
     write(
         &root.join("ptr.nia"),
         r#"
-extend[T] &const T {
+extend[T] &mut T {
     pub fn is_null(self) bool {
         self as usize == 0
     }
@@ -581,14 +581,14 @@ fn lowers_imported_generic_structural_extension_instances() {
         r#"
 import .share;
 
-extern fn read_const() &const u8;
+extern fn read_readonly() &u8;
 
-fn main(mut_ptr: &u8) i32 {
-    var const_ptr = read_const();
+fn main(mut_ptr: &mut u8) i32 {
+    var readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.is_null() {
+    if readonly_ptr.is_null() {
         return 2;
     }
     0
@@ -599,7 +599,7 @@ fn main(mut_ptr: &u8) i32 {
     write(
         &root.join("ptr.nia"),
         r#"
-extend[T] &const T {
+extend[T] &mut T {
     pub fn is_null(self) bool {
         self as usize == 0
     }
@@ -688,7 +688,7 @@ fn main(p: math::Point) i32 {
 import .math;
 
 extend math::Point {
-    fn len2(&const self) i32 {
+    fn len2(& self) i32 {
         4
     }
 }

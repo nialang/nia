@@ -101,7 +101,7 @@ impl<'a> ModuleLowerer<'a> {
             value: binding
                 .value
                 .map(|value| self.resolve_builtin_operator_calls_in_expr(value)),
-            is_const: binding.is_const,
+            is_let: binding.is_let,
         }
     }
 
@@ -248,10 +248,10 @@ impl<'a> ModuleLowerer<'a> {
                         options: asm.options,
                     })
                 }
-                FunctionExprKind::CStringPointer { array, is_const } => {
+                FunctionExprKind::CStringPointer { array, is_readonly } => {
                     FunctionExprKind::CStringPointer {
                         array: Box::new(self.resolve_builtin_operator_calls_in_expr(*array)),
-                        is_const,
+                        is_readonly,
                     }
                 }
                 FunctionExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
@@ -377,11 +377,11 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Slice {
                     lhs,
                     range,
-                    is_const,
+                    is_readonly,
                 } => FunctionExprKind::Slice {
                     lhs: Box::new(self.resolve_builtin_operator_calls_in_expr(*lhs)),
                     range: self.resolve_builtin_operator_calls_in_slice_range(range),
-                    is_const,
+                    is_readonly,
                 },
             },
         }

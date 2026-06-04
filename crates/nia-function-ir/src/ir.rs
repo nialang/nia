@@ -70,7 +70,7 @@ pub struct FunctionBinding {
     pub name: String,
     pub ty: InternedTyId,
     pub value: Option<FunctionExpr>,
-    pub is_const: bool,
+    pub is_let: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -184,7 +184,7 @@ pub enum FunctionExprKind {
     InlineAsm(FunctionInlineAsm),
     CStringPointer {
         array: Box<FunctionExpr>,
-        is_const: bool,
+        is_readonly: bool,
     },
     ArrayLiteral {
         elems: FunctionArrayElements,
@@ -260,7 +260,7 @@ pub enum FunctionExprKind {
     Slice {
         lhs: Box<FunctionExpr>,
         range: FunctionSliceRange,
-        is_const: bool,
+        is_readonly: bool,
     },
 }
 
@@ -412,7 +412,7 @@ impl FunctionBuiltinOperatorOp {
                 UnaryOp::Neg => Some(BuiltinTraitMethod::Neg),
                 UnaryOp::Not => Some(BuiltinTraitMethod::Not),
                 UnaryOp::BitNot => Some(BuiltinTraitMethod::BitNot),
-                UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+                UnaryOp::RefReadOnly | UnaryOp::Ref | UnaryOp::Deref => None,
             },
             Self::Binary(op) => match op {
                 BinaryOp::Add => Some(BuiltinTraitMethod::Add),

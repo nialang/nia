@@ -13,6 +13,7 @@ members = [
     "crates/nia-lexer",
     "crates/nia-syntax",
     "crates/nia-parser",
+    "crates/nia-item-tree",
     "crates/nia-defs",
     "crates/nia-imports",
     "crates/nia-query",
@@ -67,6 +68,7 @@ nia-ast-walk = { path = "crates/nia-ast-walk" }
 nia-lexer = { path = "crates/nia-lexer" }
 nia-syntax = { path = "crates/nia-syntax" }
 nia-parser = { path = "crates/nia-parser" }
+nia-item-tree = { path = "crates/nia-item-tree" }
 nia-defs = { path = "crates/nia-defs" }
 nia-imports = { path = "crates/nia-imports" }
 nia-query = { path = "crates/nia-query" }

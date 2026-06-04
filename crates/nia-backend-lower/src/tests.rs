@@ -24,7 +24,7 @@ use std::collections::HashMap;
 #[test]
 fn lowers_checked_program_shape() {
     let source = r#"
-const hello = c"hello";
+let hello = c"hello";
 
 struct Point {
     x: i32,
@@ -51,6 +51,7 @@ fn main() i32 {
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
+    let target = nia_target_config::TargetConfig::host();
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
         module: &module,
         defs: &defs,
@@ -61,6 +62,7 @@ fn main() i32 {
         type_uses: &type_lowering.type_uses,
         normalized: &normalization.normalized,
         const_exprs: &type_lowering.const_exprs,
+        target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(
@@ -191,10 +193,10 @@ fn main() i32 {
 #[test]
 fn comptime_bindings_do_not_lower_to_storage() {
     let source = r#"
-comptime answer: i32 = 40 + 2;
+comptime let answer: i32 = 40 + 2;
 
 fn main() i32 {
-    comptime local: i32 = answer;
+    comptime let local: i32 = answer;
     local
 }
 "#;
@@ -219,7 +221,7 @@ fn main() i32 {
 #[test]
 fn lowers_large_array_repeat_count_from_comptime_binding() {
     let source = r#"
-comptime N: usize = 1048576;
+comptime let N: usize = 1048576;
 
 fn main() i32 {
     var buffer: [N]u8 = [0u8; N];
@@ -358,13 +360,13 @@ fn inner[T](value: T) T {
     value
 }
 
-fn outer[T](value: &const T) &const T {
-    inner[&const T](value)
+fn outer[T](value: &T) &T {
+    inner[&T](value)
 }
 
 fn main() i32 {
     var value = 1;
-    var ptr = &const value;
+    var ptr = &value;
     _ = outer[i32](ptr);
     0
 }
@@ -379,13 +381,13 @@ fn main() i32 {
             matches!(
                 ty,
                 nia_ty::TyKind::Pointer {
-                    is_const: true,
+                    is_readonly: true,
                     elem,
                 } if *elem == i32_ty
             )
             .then_some(ty_id)
         })
-        .expect("&const i32 type");
+        .expect("&i32 type");
     let instance = module
         .function_instances
         .iter()
@@ -774,7 +776,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_zero_static_initializers() {
     let source = r#"
-const zeroes: [4]i32 = [0; 4];
+let zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
     zeroes[0]
@@ -811,7 +813,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_zero_float_static_initializers() {
     let source = r#"
-const zeroes: [2]f64 = [0.0f64, 0.0];
+let zeroes: [2]f64 = [0.0f64, 0.0];
 
 fn main() i32 {
     0
@@ -848,7 +850,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_empty_repeat_static_initializers() {
     let source = r#"
-const values: [0]i32 = [1; 0];
+let values: [0]i32 = [1; 0];
 
 fn main() i32 {
     0
@@ -885,7 +887,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_repeated_static_array_initializers() {
     let source = r#"
-const values: [3]i32 = [7, 7, 7];
+let values: [3]i32 = [7, 7, 7];
 
 fn main() i32 {
     values[0]
@@ -928,7 +930,7 @@ fn main() i32 {
 #[test]
 fn o2_simplifies_repeated_byte_static_initializers() {
     let source = r#"
-const bytes: [3]u8 = b"aaa";
+let bytes: [3]u8 = b"aaa";
 
 fn main() u8 {
     bytes[0]
@@ -957,7 +959,7 @@ fn main() u8 {
 #[test]
 fn o2_simplifies_repeated_char_static_initializers() {
     let source = r#"
-const text: [3]char = "aaa";
+let text: [3]char = "aaa";
 
 fn main() char {
     text[0]
@@ -986,8 +988,8 @@ fn main() char {
 #[test]
 fn size_levels_simplify_static_initializers_for_size() {
     let source = r#"
-const zeroes: [4]i32 = [0, 0, 0, 0];
-const values: [3]i32 = [7, 7, 7];
+let zeroes: [4]i32 = [0, 0, 0, 0];
+let values: [3]i32 = [7, 7, 7];
 
 fn main() i32 {
     zeroes[0] + values[0]
@@ -1045,7 +1047,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_zero_static_initializers() {
     let source = r#"
-const zeroes: [4]i32 = [0; 4];
+let zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
     zeroes[0]
@@ -1084,7 +1086,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_zero_float_static_initializers() {
     let source = r#"
-const zeroes: [2]f32 = [0.0f32, 0.0f32];
+let zeroes: [2]f32 = [0.0f32, 0.0f32];
 
 fn main() i32 {
     0
@@ -1120,7 +1122,7 @@ fn main() i32 {
 #[test]
 fn o1_preserves_repeated_static_array_initializers() {
     let source = r#"
-const values: [3]i32 = [7, 7, 7];
+let values: [3]i32 = [7, 7, 7];
 
 fn main() i32 {
     values[0]
@@ -1156,8 +1158,8 @@ fn main() i32 {
 #[test]
 fn o1_preserves_repeated_string_static_initializers() {
     let source = r#"
-const bytes: [3]u8 = b"aaa";
-const text: [3]char = "aaa";
+let bytes: [3]u8 = b"aaa";
+let text: [3]char = "aaa";
 
 fn main() u8 {
     bytes[0]
@@ -1267,7 +1269,7 @@ fn main() i32 {
 #[test]
 fn o2_does_not_preserve_function_refs_inside_empty_repeat_static_initializers() {
     let source = r#"
-const values: [0]i32 = [1; 0];
+let values: [0]i32 = [1; 0];
 
 fn unused() i32 {
     1
@@ -1345,7 +1347,7 @@ fn main() i32 {
 #[test]
 fn o2_preserves_function_refs_inside_static_initializers() {
     let source = r#"
-const values: [2]usize = [0, 0];
+let values: [2]usize = [0, 0];
 
 fn kept() i32 {
     1
@@ -2523,7 +2525,7 @@ fn main() [5]i32 {
 fn o3_devirtualizes_direct_trait_object_calls() {
     let source = r#"
 trait Source {
-    fn add(&const self, rhs: i32) i32;
+    fn add(&self, rhs: i32) i32;
 }
 
 struct Counter {
@@ -2531,7 +2533,7 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn add(&const self, rhs: i32) i32 {
+    fn add(&self, rhs: i32) i32 {
         rhs
     }
 }
@@ -2690,7 +2692,7 @@ fn main() i32 {
 fn o3_preserves_direct_trait_object_calls_to_generic_impl_instances() {
     let source = r#"
 trait Source {
-    fn add(&const self, rhs: i32) i32;
+    fn add(&self, rhs: i32) i32;
 }
 
 struct Box[T] {
@@ -2698,7 +2700,7 @@ struct Box[T] {
 }
 
 extend[T] Box[T] : Source {
-    fn add(&const self, rhs: i32) i32 {
+    fn add(&self, rhs: i32) i32 {
         rhs
     }
 }
@@ -3110,7 +3112,7 @@ fn main() i32 {
 #[test]
 fn optimization_report_lists_enabled_pass_inventory_by_scope() {
     let source = r#"
-const zeroes: [4]i32 = [0; 4];
+let zeroes: [4]i32 = [0; 4];
 
 fn answer() i32 {
     42
@@ -3389,7 +3391,7 @@ fn main() i32 {
                         ty,
                         kind: FunctionExprKind::Integer("1".to_string()),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }));
         },
         nia_opt::NiaOptimizationLevel::O1.policy(),
@@ -4080,7 +4082,7 @@ fn main() i32 {
 #[test]
 fn unresolved_array_lengths_in_backend_symbols_are_diagnostic_not_panic() {
     let source = r#"
-comptime N: usize = 3;
+comptime let N: usize = 3;
 
 struct Box[T] {
     value: T,
@@ -4257,6 +4259,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
+    let target = nia_target_config::TargetConfig::host();
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
         module: &module,
         defs: &defs,
@@ -4267,6 +4270,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         type_uses: &type_lowering.type_uses,
         normalized: &normalization.normalized,
         const_exprs: &type_lowering.const_exprs,
+        target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     let layouts = nia_layout::compute_layouts_with_normalized_types(

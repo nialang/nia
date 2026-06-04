@@ -543,7 +543,13 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_struct_instance_ty(arg, seen, out);
                 }
             }
-            Some(TyKind::Error | TyKind::GenericParam(_) | TyKind::Primitive(_)) | None => {}
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::GenericParam(_)
+                | TyKind::Primitive(_),
+            )
+            | None => {}
         }
     }
 
@@ -961,7 +967,13 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_union_instance_ty(arg, seen, out);
                 }
             }
-            Some(TyKind::Error | TyKind::GenericParam(_) | TyKind::Primitive(_)) | None => {}
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::GenericParam(_)
+                | TyKind::Primitive(_),
+            )
+            | None => {}
         }
     }
 

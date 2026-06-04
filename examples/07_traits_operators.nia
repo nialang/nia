@@ -1,11 +1,11 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 trait Same {
-    fn eq(&const self, other: &const Self) bool;
+    fn eq(&self, other: &Self) bool;
 
     // Default trait methods can call required methods on `Self`.
-    fn ne(&const self, other: &const Self) bool {
-        !self.eq(other)
+    fn ne(&self, other: &Self) bool {
+        not self.eq(other)
     }
 }
 
@@ -14,7 +14,7 @@ struct Number {
 }
 
 extend Number : Same {
-    fn eq(&const self, other: &const Number) bool {
+    fn eq(&self, other: &Number) bool {
         self.value == other.value
     }
 }
@@ -29,29 +29,29 @@ extend Number : Add[Number] {
 }
 
 extend Number : Eq[Number] {
-    fn eq(&const self, other: &const Number) bool {
+    fn eq(&self, other: &Number) bool {
         self.value == other.value
     }
 
-    fn ne(&const self, other: &const Number) bool {
+    fn ne(&self, other: &Number) bool {
         self.value != other.value
     }
 }
 
 extend Number : Ord[Number] {
-    fn lt(&const self, other: &const Number) bool {
+    fn lt(&self, other: &Number) bool {
         self.value < other.value
     }
 
-    fn le(&const self, other: &const Number) bool {
+    fn le(&self, other: &Number) bool {
         self.value <= other.value
     }
 
-    fn gt(&const self, other: &const Number) bool {
+    fn gt(&self, other: &Number) bool {
         self.value > other.value
     }
 
-    fn ge(&const self, other: &const Number) bool {
+    fn ge(&self, other: &Number) bool {
         self.value >= other.value
     }
 }
@@ -62,7 +62,7 @@ where T: Add[T, Output = T] {
     a + b
 }
 
-fn different[T](a: &const T, b: &const T) bool
+fn different[T](a: &T, b: &T) bool
 where T: Same {
     a.ne(b)
 }
@@ -72,7 +72,7 @@ fn main() i32 {
     var two: Number = { value: 2 };
     var three = add_same[Number](one, two);
     var four: Number = { value: 4 };
-    var different_flag = if different[Number](&const three, &const four) {
+    var different_flag = if different[Number](&three, &four) {
         1
     } else {
         0

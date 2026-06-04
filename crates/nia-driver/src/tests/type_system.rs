@@ -97,7 +97,7 @@ extend[T] Ptr[T] {
     fn is_null(self) bool { self as usize == 0 }
 }
 
-extend[T] &const [T] {
+extend[T] & [T] {
     fn size(self) usize { self.len() }
 }
 
@@ -105,16 +105,16 @@ extend[T] [3]T {
     fn first(self) T { self[0] }
 }
 
-extend &const fn(i32) i32 {
+extend &fn(i32) i32 {
     fn apply(self, value: i32) i32 { self(value) }
 }
 
 fn inc(value: i32) i32 { value + 1 }
 
-fn main(ptr: &i32, xs: &const [i32], triple: [3]i32) i32 {
+fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
     if 0.is_zero() {}
     if ptr.is_null() {}
-    {}.unit() + xs.size() as i32 + triple.first() + (&const inc).apply(1)
+    {}.unit() + xs.size() as i32 + triple.first() + (& inc).apply(1)
 }
 "#,
     );

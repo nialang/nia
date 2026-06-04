@@ -61,7 +61,7 @@ fn checked_program_emits_llvm_ir_with_each_nia_optimization_level() {
     std::fs::write(
         &main,
         r#"
-const zeroes: [4]i32 = [0; 4];
+let zeroes: [4]i32 = [0; 4];
 
 fn answer() i32 {
     42

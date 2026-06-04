@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{ImportPath, ImportPathKind, ItemKind, Module};
+use nia_ast::{ImportPath, ImportPathKind, Module};
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::ModuleId;
+use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 pub use nia_source::SourcePath;
 use nia_span::Span;
 
@@ -239,10 +240,23 @@ pub fn resolve_module_imports(
     module: &Module,
     module_map: &ModuleMap,
 ) -> Vec<ResolvedImport> {
+    let item_tree = nia_item_tree::ActiveModuleItemTree::new(
+        nia_item_tree::ModuleItemTree::from_module(module).items,
+        Default::default(),
+    );
+    resolve_module_imports_from_active_item_tree(diagnostics, module_path, &item_tree, module_map)
+}
+
+pub fn resolve_module_imports_from_active_item_tree(
+    diagnostics: &mut Vec<Diagnostic>,
+    module_path: &SourcePath,
+    item_tree: &ActiveModuleItemTree,
+    module_map: &ModuleMap,
+) -> Vec<ResolvedImport> {
     let mut aliases = HashMap::<String, Span>::new();
     let mut imports = Vec::new();
-    for item in &module.items {
-        let ItemKind::Import(import) = &item.kind else {
+    for item in &item_tree.items {
+        let ItemTreeNodeKind::Import(import) = &item.kind else {
             continue;
         };
         let alias = import

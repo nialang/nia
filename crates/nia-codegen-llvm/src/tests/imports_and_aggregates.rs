@@ -119,7 +119,7 @@ fn main() i32 {
     var bag = defs::make_bag();
     var i: usize = 2;
     bag.items[i] = defs::make_item(5);
-    var tail = &const bag.items[1..=2];
+    var tail = & bag.items[1..=2];
     bag.items.len() as i32 + tail.len() as i32 + bag.items[i].value
 }
 "#,
@@ -171,7 +171,7 @@ fn emits_imported_aggregate_function_pointer_call_abi() {
 import .defs;
 
 fn main() i32 {
-    var callback: &const fn(defs::Pair) defs::Pair = &const defs::id_pair;
+    var callback: &fn(defs::Pair) defs::Pair = & defs::id_pair;
     var pair = callback(defs::make_pair(2, 5));
     pair.a + pair.b
 }

@@ -289,21 +289,21 @@ impl<'a> TypeLowerer<'a> {
                 ));
                 self.interner.error()
             }),
-            TypeKind::Pointer { is_const, elem } => {
-                if let Some(trait_object) = self.lower_trait_object_type(*is_const, elem) {
+            TypeKind::Pointer { is_readonly, elem } => {
+                if let Some(trait_object) = self.lower_trait_object_type(*is_readonly, elem) {
                     trait_object
                 } else {
                     let elem = self.lower_type_in_context(elem, TypeContext::Value);
                     self.interner.intern(TyKind::Pointer {
-                        is_const: *is_const,
+                        is_readonly: *is_readonly,
                         elem,
                     })
                 }
             }
-            TypeKind::Slice { is_const, elem } => {
+            TypeKind::Slice { is_readonly, elem } => {
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
                 self.interner.intern(TyKind::Slice {
-                    is_const: *is_const,
+                    is_readonly: *is_readonly,
                     elem,
                 })
             }
@@ -483,7 +483,7 @@ impl<'a> TypeLowerer<'a> {
                 TypeArg::Const(expr) => {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
-                        "const generic type arguments are not supported",
+                        "comptime value generic arguments are not supported",
                     ));
                 }
                 TypeArg::AssocBinding {
@@ -535,14 +535,14 @@ impl<'a> TypeLowerer<'a> {
         self.interner.intern(TyKind::Nominal { def_id, args })
     }
 
-    fn lower_trait_object_type(&mut self, is_const: bool, ty: &TypeRef) -> Option<InternedTyId> {
+    fn lower_trait_object_type(&mut self, is_readonly: bool, ty: &TypeRef) -> Option<InternedTyId> {
         let TypeKind::Path { segments } = &ty.kind else {
             return None;
         };
         let type_segment = type_name_segment(segments)?;
         match self.resolved.type_names.get(&ty.span).copied() {
             Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
-                Some(self.lower_builtin_trait_object(ty.span, is_const, type_segment, trait_id))
+                Some(self.lower_builtin_trait_object(ty.span, is_readonly, type_segment, trait_id))
             }
             Some(TypeNameResolution::Def(def_id)) => {
                 let def_id = self
@@ -554,10 +554,10 @@ impl<'a> TypeLowerer<'a> {
                         module_id: self.module_id,
                         def_id,
                     });
-                self.lower_source_trait_object(ty.span, is_const, type_segment, def_id)
+                self.lower_source_trait_object(ty.span, is_readonly, type_segment, def_id)
             }
             Some(TypeNameResolution::External(def_id)) => {
-                self.lower_source_trait_object(ty.span, is_const, type_segment, def_id)
+                self.lower_source_trait_object(ty.span, is_readonly, type_segment, def_id)
             }
             _ => None,
         }
@@ -566,7 +566,7 @@ impl<'a> TypeLowerer<'a> {
     fn lower_source_trait_object(
         &mut self,
         span: Span,
-        is_const: bool,
+        is_readonly: bool,
         segment: &TypePathSegment,
         def_id: GlobalDefId,
     ) -> Option<InternedTyId> {
@@ -576,7 +576,7 @@ impl<'a> TypeLowerer<'a> {
         let object_args = self.lower_trait_object_args(span, segment, TraitId::Source(def_id))?;
         self.check_type_arg_count(span, def_id, object_args.trait_args.len());
         Some(self.interner.intern(TyKind::TraitObject {
-            is_const,
+            is_readonly,
             trait_id: TraitId::Source(def_id),
             trait_args: object_args.trait_args,
             associated_type_bindings: object_args.associated_type_bindings,
@@ -586,7 +586,7 @@ impl<'a> TypeLowerer<'a> {
     fn lower_builtin_trait_object(
         &mut self,
         span: Span,
-        is_const: bool,
+        is_readonly: bool,
         segment: &TypePathSegment,
         trait_id: BuiltinTrait,
     ) -> InternedTyId {
@@ -595,7 +595,7 @@ impl<'a> TypeLowerer<'a> {
             .unwrap_or_default();
         self.check_builtin_trait_arg_count(span, trait_id, object_args.trait_args.len());
         self.interner.intern(TyKind::TraitObject {
-            is_const,
+            is_readonly,
             trait_id: TraitId::Builtin(trait_id),
             trait_args: object_args.trait_args,
             associated_type_bindings: object_args.associated_type_bindings,
@@ -627,7 +627,7 @@ impl<'a> TypeLowerer<'a> {
                 TypeArg::Const(expr) => {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
-                        "const generic type arguments are not supported",
+                        "comptime value generic arguments are not supported",
                     ));
                 }
                 TypeArg::AssocBinding {
@@ -763,7 +763,7 @@ impl<'a> TypeLowerer<'a> {
                 TypeArg::Const(expr) => {
                     self.diagnostics.push(Diagnostic::error(
                         expr.span,
-                        "const generic type arguments are not supported",
+                        "comptime value generic arguments are not supported",
                     ));
                 }
                 TypeArg::AssocBinding {
@@ -973,10 +973,10 @@ impl<'a> TypeLowerer<'a> {
                 Some("`never` is not valid as a value, field, parameter, or array element type")
             }
             Some(TyKind::BuiltinTrait { .. }) => Some(
-                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&const Trait[...]` for a trait object",
+                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
             Some(TyKind::Nominal { def_id, .. }) if self.is_trait_def(*def_id) => Some(
-                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&const Trait[...]` for a trait object",
+                "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
             _ => None,
         }
@@ -1052,7 +1052,7 @@ struct Box[T] {
     value: T,
 }
 
-fn make(ptr: &const u8, cb: &const fn(i32) void) [4]Box[i32] {
+fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
     var tmp: [_]i32 = [1, 2, 3];
     [{ value: 0 }; 4]
 }
@@ -1101,7 +1101,7 @@ fn make(ptr: &const u8, cb: &const fn(i32) void) [4]Box[i32] {
     }
 
     #[test]
-    fn rejects_const_generic_type_arguments() {
+    fn rejects_comptime_value_generic_type_arguments() {
         let (module, errors) = parse_module(
             r#"
 struct Box[T] {
@@ -1121,7 +1121,7 @@ fn make() Box[4] {
             lowered
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("const generic"))
+                .any(|diagnostic| diagnostic.message.contains("comptime value generic"))
         );
     }
 
@@ -1221,8 +1221,8 @@ trait Source[T] {
     type Item;
 }
 
-fn read(source: &const Source[i32, Item = i32]) void {}
-fn write(source: &Source[i32, Item = i32]) void {}
+fn read(source: &Source[i32, Item = i32]) void {}
+fn write(source: &mut Source[i32, Item = i32]) void {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");
@@ -1248,11 +1248,15 @@ fn write(source: &Source[i32, Item = i32]) void {}
             .values()
             .filter_map(|ty| match lowered.interner.get(*ty) {
                 Some(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_args,
                     associated_type_bindings,
                     ..
-                }) => Some((*is_const, trait_args.len(), associated_type_bindings.len())),
+                }) => Some((
+                    *is_readonly,
+                    trait_args.len(),
+                    associated_type_bindings.len(),
+                )),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -1268,8 +1272,8 @@ trait Source {
     type Item;
 }
 
-fn unknown(source: &const Source[Missing = i32]) void {}
-fn duplicate(source: &const Source[Item = i32, Item = bool]) void {}
+fn unknown(source: &Source[Missing = i32]) void {}
+fn duplicate(source: &Source[Item = i32, Item = bool]) void {}
 "#,
         );
         assert!(errors.is_empty(), "{errors:?}");

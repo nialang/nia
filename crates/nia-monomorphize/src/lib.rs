@@ -342,13 +342,13 @@ impl MonoCollector<'_> {
                 .and_then(|substitutions| substitutions.get(&name))
                 .copied()
                 .unwrap_or(ty),
-            TyKind::Pointer { is_const, elem } => {
+            TyKind::Pointer { is_readonly, elem } => {
                 let elem = self.instantiate_ty(module_id, elem, substitutions);
-                self.intern_working_ty(module_id, TyKind::Pointer { is_const, elem })
+                self.intern_working_ty(module_id, TyKind::Pointer { is_readonly, elem })
             }
-            TyKind::Slice { is_const, elem } => {
+            TyKind::Slice { is_readonly, elem } => {
                 let elem = self.instantiate_ty(module_id, elem, substitutions);
-                self.intern_working_ty(module_id, TyKind::Slice { is_const, elem })
+                self.intern_working_ty(module_id, TyKind::Slice { is_readonly, elem })
             }
             TyKind::Array { len, elem } => {
                 let elem = self.instantiate_ty(module_id, elem, substitutions);
@@ -425,7 +425,7 @@ impl MonoCollector<'_> {
                 trait_id,
                 trait_args,
                 associated_type_bindings,
-                is_const,
+                is_readonly,
             } => {
                 let trait_args = trait_args
                     .iter()
@@ -450,11 +450,11 @@ impl MonoCollector<'_> {
                         trait_id,
                         trait_args,
                         associated_type_bindings,
-                        is_const,
+                        is_readonly,
                     },
                 )
             }
-            TyKind::Primitive(_) | TyKind::Error => ty,
+            TyKind::Primitive(_) | TyKind::ComptimeOnly | TyKind::Error => ty,
         };
         self.type_instantiations.insert(key, instantiated);
         instantiated
@@ -801,7 +801,7 @@ fn main() i32 { outer(1) }
         let (module, errors) = parse_module(
             r#"
 fn inner[T](value: T) T { value }
-fn outer[T](value: &const T) &const T { inner[&const T](value) }
+fn outer[T](value: &T) &T { inner[&T](value) }
 fn main() i32 { 0 }
 "#,
         );
@@ -819,11 +819,11 @@ fn main() i32 { 0 }
         let i32_ty = interner.primitive(PrimitiveTy::I32);
         let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
         let generic_ptr = interner.intern(TyKind::Pointer {
-            is_const: true,
+            is_readonly: true,
             elem: generic_t,
         });
         let i32_ptr = interner.intern(TyKind::Pointer {
-            is_const: true,
+            is_readonly: true,
             elem: i32_ty,
         });
         let instantiations = vec![

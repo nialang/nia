@@ -24,7 +24,7 @@ impl Parser {
         }
         if (self.at(TokenKind::Comptime) && !self.at_comptime_if())
             || self.at(TokenKind::Var)
-            || self.at(TokenKind::Const)
+            || self.at(TokenKind::Let)
         {
             let binding = self.parse_binding_stmt()?;
             return Some(self.make_stmt(
@@ -84,13 +84,14 @@ impl Parser {
     }
 
     fn parse_binding_stmt(&mut self) -> Option<BindingStmt> {
-        let (is_const, is_comptime) = if self.eat(TokenKind::Comptime).is_some() {
-            (true, true)
-        } else if self.eat(TokenKind::Const).is_some() {
-            (true, false)
+        let is_comptime = self.eat(TokenKind::Comptime).is_some();
+        let is_let = if self.eat(TokenKind::Let).is_some() {
+            true
+        } else if self.eat(TokenKind::Var).is_some() {
+            false
         } else {
-            self.eat(TokenKind::Var);
-            (false, false)
+            self.error_here("expected `let` or `var` binding");
+            return None;
         };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
         let ty = if self.eat(TokenKind::Colon).is_some() {
@@ -117,7 +118,7 @@ impl Parser {
             name,
             ty,
             value,
-            is_const,
+            is_let,
             is_comptime,
         })
     }
@@ -125,7 +126,7 @@ impl Parser {
     fn parse_for_stmt(&mut self) -> Option<ForInStmt> {
         self.expect(TokenKind::For, "expected `for`")?;
         let binding_start = self.peek().span.start;
-        let is_const = self.eat(TokenKind::Const).is_some();
+        let is_let = self.eat(TokenKind::Let).is_some();
         if self.eat(TokenKind::Var).is_some() {
             self.error_here("`var` is not allowed in for-in bindings; write `for name in iter`");
         }
@@ -147,7 +148,7 @@ impl Parser {
                 span: Span::new(binding_start, binding_end),
                 name,
                 ty,
-                is_const,
+                is_let,
             },
             iter,
             body,
@@ -222,19 +223,28 @@ impl Parser {
         if self.at(TokenKind::Question) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Ident))
         {
             let start = self
-                .expect(TokenKind::Question, "expected `?` in optional switch pattern")?
+                .expect(
+                    TokenKind::Question,
+                    "expected `?` in optional switch pattern",
+                )?
                 .start;
             let name = self.expect_text(TokenKind::Ident, "expected optional payload name")?;
             let span = Span::new(start, self.previous_end());
             return Some(SwitchPattern::OptionalSome { name, span });
         }
         if self.at(TokenKind::Null) {
-            let span = self.expect(TokenKind::Null, "expected `null` in optional switch pattern")?;
+            let span = self.expect(
+                TokenKind::Null,
+                "expected `null` in optional switch pattern",
+            )?;
             return Some(SwitchPattern::OptionalNull { span });
         }
         if self.at(TokenKind::Bang) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Ident)) {
             let start = self
-                .expect(TokenKind::Bang, "expected `!` in error success switch pattern")?
+                .expect(
+                    TokenKind::Bang,
+                    "expected `!` in error success switch pattern",
+                )?
                 .start;
             let name = self.expect_text(TokenKind::Ident, "expected error-union success name")?;
             let span = Span::new(start, self.previous_end());
@@ -320,7 +330,7 @@ impl Parser {
     pub(super) fn starts_stmt(&self) -> bool {
         matches!(
             self.peek().kind,
-            TokenKind::Const
+            TokenKind::Let
                 | TokenKind::Var
                 | TokenKind::Return
                 | TokenKind::Break

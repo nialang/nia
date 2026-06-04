@@ -1,4 +1,4 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 // Inline assembly is target-specific. This example demonstrates the shape of
 // the compiler-consumed `@asm` configuration. The fields are not a runtime

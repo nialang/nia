@@ -25,12 +25,12 @@ impl<'a> BodyChecker<'a> {
             let receiver = signature.params.first()?.receiver?;
             return Some(match receiver {
                 ReceiverKind::Value => self_nominal,
-                ReceiverKind::RefConst => self.interner.intern(TyKind::Pointer {
-                    is_const: true,
+                ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
+                    is_readonly: true,
                     elem: self_nominal,
                 }),
                 ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
-                    is_const: false,
+                    is_readonly: false,
                     elem: self_nominal,
                 }),
             });
@@ -39,12 +39,12 @@ impl<'a> BodyChecker<'a> {
         let receiver = signature.params.first()?.receiver?;
         Some(match receiver {
             ReceiverKind::Value => self_nominal,
-            ReceiverKind::RefConst => self.interner.intern(TyKind::Pointer {
-                is_const: true,
+            ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
+                is_readonly: true,
                 elem: self_nominal,
             }),
             ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
-                is_const: false,
+                is_readonly: false,
                 elem: self_nominal,
             }),
         })
@@ -86,8 +86,8 @@ impl<'a> BodyChecker<'a> {
                 from_pointer,
                 has_readonly_pointer,
             }),
-            Some(TyKind::Pointer { is_const, elem }) => {
-                self.receiver_base_type_inner(*elem, true, has_readonly_pointer || *is_const)
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                self.receiver_base_type_inner(*elem, true, has_readonly_pointer || *is_readonly)
             }
             _ => None,
         }
@@ -129,17 +129,17 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         match self.interner.get(ty) {
             Some(TyKind::GenericParam(name)) => substitutions.get(name).copied().unwrap_or(ty),
-            Some(TyKind::Pointer { is_const, elem }) => {
-                let is_const = *is_const;
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let is_readonly = *is_readonly;
                 let elem = *elem;
                 let elem = self.substitute_generics(elem, substitutions);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
-            Some(TyKind::Slice { is_const, elem }) => {
-                let is_const = *is_const;
+            Some(TyKind::Slice { is_readonly, elem }) => {
+                let is_readonly = *is_readonly;
                 let elem = *elem;
                 let elem = self.substitute_generics(elem, substitutions);
-                self.interner.intern(TyKind::Slice { is_const, elem })
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let len = len.clone();
@@ -203,12 +203,12 @@ impl<'a> BodyChecker<'a> {
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
             }) => {
-                let is_const = *is_const;
+                let is_readonly = *is_readonly;
                 let trait_id = *trait_id;
                 let trait_args = trait_args.clone();
                 let associated_type_bindings = associated_type_bindings.clone();
@@ -230,7 +230,7 @@ impl<'a> BodyChecker<'a> {
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -258,7 +258,7 @@ impl<'a> BodyChecker<'a> {
                     name,
                 })
             }
-            Some(TyKind::Error | TyKind::Primitive(_)) | None => ty,
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => ty,
         }
     }
 }

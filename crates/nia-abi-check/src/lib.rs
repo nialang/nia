@@ -243,6 +243,10 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context} cannot use unresolved associated type projection"),
             )),
+            Some(TyKind::ComptimeOnly) => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("{context} cannot use comptime-only value"),
+            )),
             Some(TyKind::Error) | None => {}
         }
     }
@@ -305,11 +309,11 @@ struct Empty {}
 extern struct BadExtern { flag: bool }
 extern struct ExternEmpty {}
 
-extern fn bad(flag: bool, ch: char, nothing: void, color: Color, xs: [2]u8, pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &const fn(i32, ...) never, ...);
+extern fn bad(flag: bool, ch: char, nothing: void, color: Color, xs: [2]u8, pair: Pair, empty: Empty, extern_empty: ExternEmpty, cb: &fn(i32, ...) never, ...);
 extern fn bad_never_return() never;
 extern fn bad_variadic_definition(fmt: &u8, ...) {
 }
-extern const bad_global: bool;
+extern let bad_global: bool;
 union Bits { i: i32 }
 extern fn bad_union(bits: Bits);
 "#,

@@ -147,7 +147,7 @@ impl FunctionLowerer {
             name: format!("fir.tmp.{}", local_id.0),
             ty: expr.ty,
             value: Some(value),
-            is_const: false,
+            is_let: false,
         }));
         FunctionPlace {
             span: expr.span,
@@ -173,7 +173,7 @@ impl FunctionLowerer {
                 .value
                 .as_ref()
                 .map(|value| self.lower_value_expr(value, scope, current, ops, blocks)),
-            is_const: binding.is_const,
+            is_let: binding.is_let,
         }
     }
 
@@ -198,14 +198,12 @@ impl FunctionLowerer {
 
     pub(super) fn switch_has_range_patterns(&self, switch: &TypedSwitch) -> bool {
         switch.arms.iter().any(|arm| {
-            arm.patterns
-                .iter()
-                .any(|pattern| {
-                    !matches!(
-                        pattern,
-                        TypedSwitchPattern::Expr(_) | TypedSwitchPattern::Default
-                    )
-                })
+            arm.patterns.iter().any(|pattern| {
+                !matches!(
+                    pattern,
+                    TypedSwitchPattern::Expr(_) | TypedSwitchPattern::Default
+                )
+            })
         })
     }
 

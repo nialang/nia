@@ -37,7 +37,7 @@ fn checks_hosted_main_signatures() {
     std::fs::write(
         &good,
         r#"
-fn main(argc: i32, argv: &const &const u8) i32 {
+fn main(argc: i32, argv: & & u8) i32 {
     argc
 }
 "#,
@@ -308,12 +308,12 @@ fn emits_static_function_pointer_in_struct_initializer() {
         &main,
         r#"
 struct Vtable {
-    print: &const fn(&i32)
+    print: &fn(&i32)
 }
 
 fn print_i32(value: &i32) {}
 
-const vtable: Vtable = { print: &const print_i32 };
+let vtable: Vtable = { print: & print_i32 };
 
 fn main() i32 {
     var x = 1;
@@ -525,7 +525,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
                 },
                 name: "buffer".to_string(),
                 ty: array_ty,
-                is_const: false,
+                is_let: false,
                 is_extern: true,
                 init: None,
                 span,
@@ -880,7 +880,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
     let mut interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let object_ty = interner.intern(TyKind::TraitObject {
-        is_const: true,
+        is_readonly: true,
         trait_id: TraitId::Source(GlobalDefId {
             module_id: ModuleId(0),
             def_id: DefId(0),
@@ -957,7 +957,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
     let mut interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let ptr_ty = interner.intern(TyKind::Pointer {
-        is_const: true,
+        is_readonly: true,
         elem: i32_ty,
     });
     let span = Span::default();
@@ -993,7 +993,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
                 },
                 name: "ptr".to_string(),
                 ty: ptr_ty,
-                is_const: true,
+                is_let: true,
                 is_extern: false,
                 init: Some(StaticInit::AddrOfGlobal {
                     global: missing_global,
@@ -1091,7 +1091,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
                 },
                 name: "point".to_string(),
                 ty: struct_ty,
-                is_const: true,
+                is_let: true,
                 is_extern: false,
                 init: Some(StaticInit::Struct(vec![StaticFieldInit {
                     field: Some(missing_field),
@@ -1405,7 +1405,7 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
             },
             name: "ptr".to_string(),
             ty: fn_ptr_ty,
-            is_const: true,
+            is_let: true,
             is_extern: false,
             init: Some(StaticInit::AddrOfFunction {
                 function: missing_function,
@@ -1433,7 +1433,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
     let mut interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
     let ptr_ty = interner.intern(TyKind::Pointer {
-        is_const: true,
+        is_readonly: true,
         elem: i32_ty,
     });
     let span = Span::default();
@@ -1460,7 +1460,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
                 def_id: source_global,
                 name: "value".to_string(),
                 ty: i32_ty,
-                is_const: false,
+                is_let: false,
                 is_extern: false,
                 init: Some(StaticInit::Int(0)),
                 span,
@@ -1472,7 +1472,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
                 },
                 name: "ptr".to_string(),
                 ty: ptr_ty,
-                is_const: true,
+                is_let: true,
                 is_extern: false,
                 init: Some(StaticInit::AddrOfGlobal {
                     global: source_global,

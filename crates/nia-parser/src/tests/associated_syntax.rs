@@ -91,14 +91,14 @@ fn main(ptr: &u8) bool {
 fn parses_deep_pointer_structural_type_target_associated_call() {
     let (module, errors) = parse_module(
         r#"
-extend &&&&&&const &&i32 {
+extend &&&&&& &&i32 {
     fn is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: &&&&&&const &&i32) bool {
-    [&&&&&&const &&i32]::is_null(ptr)
+fn main(ptr: &&&&&& &&i32) bool {
+    [&&&&&& &&i32]::is_null(ptr)
 }
 "#,
     );
@@ -182,10 +182,10 @@ fn parses_explicit_associated_type_projection() {
 trait Source {
     type Item;
 
-    fn get(&const self) [Self as Source]::Item;
+    fn get(&self) [Self as Source]::Item;
 }
 
-fn read[T](value: &const T) [T as Source]::Item
+fn read[T](value: &T) [T as Source]::Item
 where T: Source {
     value.get()
 }
@@ -215,7 +215,7 @@ fn parses_generic_trait_associated_type_projection() {
 trait Add[Rhs] {
     type Output;
 
-    fn add(&const self, rhs: Rhs) [Self as Add[Rhs]]::Output;
+    fn add(&self, rhs: Rhs) [Self as Add[Rhs]]::Output;
 }
 "#,
     );
@@ -246,12 +246,12 @@ trait Add[Rhs] {
 fn parses_range_types_and_expressions() {
     let (module, errors) = parse_module(
         r#"
-trait SliceConst[R] {
+trait SliceRead[R] {
     type Output;
 }
 
-fn take[S](items: S, end: usize) [S as SliceConst[usize..usize]]::Output
-where S: SliceConst[..] {
+fn take[S](items: S, end: usize) [S as SliceRead[usize..usize]]::Output
+where S: SliceRead[..] {
     0..end
 }
 "#,

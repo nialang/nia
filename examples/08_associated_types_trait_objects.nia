@@ -1,33 +1,33 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
-const report_fmt = c"trait objects: direct=%d dyn=%d sized=%d report=%d name=%d\n";
+let report_fmt = c"trait objects: direct=%d dyn=%d sized=%d report=%d name=%d\n";
 
 trait Named {
-    fn name_code(&const self) i32;
+    fn name_code(&self) i32;
 }
 
 trait Source {
     type Item;
 
     // Associated type projections use explicit `[Self as Trait]::Name` syntax.
-    fn get(&const self) [Self as Source]::Item;
+    fn get(&self) [Self as Source]::Item;
 }
 
 // `SizedSource` inherits `Source::Item` from its supertrait.
 trait SizedSource : Source + Named {
-    fn size(&const self) usize;
+    fn size(&self) usize;
 }
 
 trait CountSource {
     type Item;
 
-    fn count(&const self) [Self as CountSource]::Item;
+    fn count(&self) [Self as CountSource]::Item;
 }
 
 // `Report` has two supertraits with associated types. Object types below bind
 // each supertrait output explicitly to avoid ambiguity.
 trait Report : Source + CountSource {
-    fn report_code(&const self) i32;
+    fn report_code(&self) i32;
 }
 
 struct Counter {
@@ -36,7 +36,7 @@ struct Counter {
 }
 
 extend Counter : Named {
-    fn name_code(&const self) i32 {
+    fn name_code(&self) i32 {
         7
     }
 }
@@ -44,13 +44,13 @@ extend Counter : Named {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(&const self) i32 {
+    fn get(&self) i32 {
         self.value
     }
 }
 
 extend Counter : SizedSource {
-    fn size(&const self) usize {
+    fn size(&self) usize {
         self.count
     }
 }
@@ -58,37 +58,37 @@ extend Counter : SizedSource {
 extend Counter : CountSource {
     type Item = usize;
 
-    fn count(&const self) usize {
+    fn count(&self) usize {
         self.count
     }
 }
 
 extend Counter : Report {
-    fn report_code(&const self) i32 {
+    fn report_code(&self) i32 {
         self.value + self.count as i32
     }
 }
 
-fn read[T](source: &const T) [T as Source]::Item
+fn read[T](source: &T) [T as Source]::Item
 where T: Source {
     source.get()
 }
 
-fn dyn_read(source: &const Source[Item = i32]) i32 {
+fn dyn_read(source: &Source[Item = i32]) i32 {
     source.get()
 }
 
 // `SizedSource` does not declare `Item` itself, so the object type binds the
 // inherited supertrait associated type with a projection key.
-fn dyn_size(source: &const SizedSource[[Self as Source]::Item = i32]) usize {
+fn dyn_size(source: &SizedSource[[Self as Source]::Item = i32]) usize {
     source.size()
 }
 
-fn dyn_count(source: &const CountSource[Item = usize]) usize {
+fn dyn_count(source: &CountSource[Item = usize]) usize {
     source.count()
 }
 
-fn report_total(report: &const Report[
+fn report_total(report: &Report[
     [Self as Source]::Item = i32,
     [Self as CountSource]::Item = usize,
 ]) i32 {
@@ -99,21 +99,21 @@ fn report_total(report: &const Report[
 
 fn main() i32 {
     var counter: Counter = { value: 35, count: 4usize };
-    var object: &const Source[Item = i32] = &const counter;
-    var sized: &const SizedSource[[Self as Source]::Item = i32] = &const counter;
-    var report: &const Report[
+    var object: &Source[Item = i32] = &counter;
+    var sized: &SizedSource[[Self as Source]::Item = i32] = &counter;
+    var report: &Report[
         [Self as Source]::Item = i32,
         [Self as CountSource]::Item = usize,
-    ] = &const counter;
+    ] = &counter;
 
-    var direct = read[Counter](&const counter);
+    var direct = read[Counter](&counter);
     var dyn_value = dyn_read(object);
     var sized_value = dyn_size(sized) as i32;
     var report_value = report_total(report);
     var name = counter.name_code();
 
     printf(
-        &const report_fmt[0],
+        &report_fmt[0],
         direct,
         dyn_value,
         sized_value,

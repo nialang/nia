@@ -9,6 +9,7 @@ license.workspace = true
 nia-ast.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
+nia-item-tree.workspace = true
 nia-span.workspace = true
 
 [dev-dependencies]

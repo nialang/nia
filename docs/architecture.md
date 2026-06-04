@@ -10,9 +10,9 @@ maintainable.
 
 ## 1. Architecture Goals
 
-The compiler is a staged, table-driven pipeline. Each crate owns one clear phase,
-accepts only the inputs it needs, and produces data that later phases consume
-explicitly.
+The compiler is a typed query graph with explicit lowering boundaries. Each
+crate owns one clear kind of data, accepts only the inputs it needs, and
+produces immutable tables that dependent queries consume explicitly.
 
 Primary goals:
 
@@ -35,14 +35,16 @@ Forbidden shapes:
 - bypassing existing phases for temporary features by reinterpreting AST in the
   backend.
 
-## 2. Pipeline
+## 2. Query Flow
 
-The full pipeline is:
+The current whole-program query flow is:
 
 ```text
 source files
   -> lexer
   -> parser / AST
+  -> module item tree
+  -> active item surface
   -> definition collection
   -> import graph / import aliases
   -> type name resolution
@@ -51,7 +53,7 @@ source files
   -> type normalization
   -> value path resolution
   -> local name resolution
-  -> comptime checking
+  -> comptime value checking
   -> layout computation
   -> ABI check
   -> static initializer check
@@ -63,8 +65,11 @@ source files
   -> LLVM IR / object / executable
 ```
 
-The driver orchestrates these phases. Individual phases do not load files,
-schedule whole-program work, or call later backends.
+The driver requests top-level query products. Individual crates do not load
+files, schedule whole-program work, or call later backends. Some arrows above
+are query dependencies rather than mandatory eager stages; for example a future
+active item surface query can ask comptime branch queries which in turn depend
+on already-lowered declaration surfaces.
 
 Optimization is configured separately from the phase graph. The CLI accepts
 `-O0`, `-O1`, `-O2`, `-O3`, `-Os`, `-Oz`, and `-O` as `-O2`; these levels are
@@ -393,13 +398,36 @@ Important parser boundary:
 Provides AST traversal helpers for phases that need tree walking. It should stay
 small and generic. It must not embed semantic policy.
 
-### 4.6 Query Frontend
+### 4.6 `nia-item-tree`
+
+Defines the source item tree used as the first semantic-facing representation of
+module contents. It keeps AST syntax out of long-lived semantic tables while
+preserving item boundaries, visibility, nested `comptime if` item branches, and
+source spans.
+
+`nia-item-tree` does not evaluate comptime conditions and does not resolve names
+or types. It exposes a branch-resolver interface so higher-level queries can
+select an active item surface using the same tree shape whether the condition is
+a simple target expression or a full comptime value query.
+
+The loader records both the raw module item tree and the active item tree for
+the current target. Import discovery and definition collection consume the
+active item tree, while the raw tree remains available for future lazy comptime
+branch queries and source-addressable inactive-branch diagnostics.
+
+This boundary is the long-term replacement for phases directly interpreting
+top-level AST `comptime if` as an import or definition pre-pass. Inactive
+branches remain represented and source-addressable; they are not semantically
+checked for a target unless a query selects that branch.
+
+### 4.7 Query Frontend
 
 `nia-loader-query` and `nia-compiler-query` provide the typed query frontend for
 source loading, syntax parsing, AST lowering, import graph construction,
-definition collection, public surfaces, and semantic checks. Query keys use
-source versions where source text matters, and `nia-query` tracks in-memory
-dependencies and invalidation. Public-surface computation builds a temporary
+item-tree lowering, active item surfaces, definition collection, public
+surfaces, and semantic checks. Query keys use source versions where source text
+matters, and `nia-query` tracks in-memory dependencies and invalidation.
+Public-surface computation builds a temporary
 `ModuleId` index over definition collections, so repeated pub-using expansion
 and enum namespace validation do not rescan the module list for every segment.
 Extension-method collection and visible-extension queries depend on a
@@ -416,12 +444,13 @@ LSP scheduling, cancellation, and priority handling are separate future layers.
 
 ### 5.1 `nia-defs`
 
-Collects top-level definitions into module-local definition tables. It assigns
-`DefId`s and tracks namespaces for values, types, modules, enum variants, and
-methods.
+Collects active item-tree definitions into module-local definition tables. It
+assigns `DefId`s and tracks namespaces for values, types, modules, enum
+variants, and methods.
 
 It detects duplicate names in the same namespace and duplicate generic
-parameters. It does not type-check bodies or load other files.
+parameters. It does not evaluate comptime conditions, type-check bodies, or load
+other files.
 
 ### 5.2 `nia-imports`
 
@@ -437,9 +466,10 @@ It does not perform semantic checking of imported items.
 ### 5.3 `nia-driver`
 
 Loads source files, builds the import graph, computes public surfaces, and
-schedules whole-program checking and codegen. It owns the cross-module pipeline.
-The import graph may contain cycles; concrete semantic cycles are diagnosed by
-the phase that owns the affected construct.
+schedules whole-program checking and codegen by requesting query products. It
+owns orchestration across modules, not semantic interpretation. The import graph
+may contain cycles; concrete semantic cycles are diagnosed by the query or crate
+that owns the affected construct.
 
 The driver should remain an orchestrator. It should not become a semantic
 analysis crate.
@@ -507,20 +537,23 @@ Evaluates the pure expression subset used by current compile-time values. It is
 an evaluator, not a language semantic pass: it does not load modules, know
 visibility, own storage rules, or make backend decisions.
 
-Supported evaluation is intentionally small: integer literals, identifiers
-resolved by a caller-provided comptime environment, casts that preserve the
-underlying value, and simple arithmetic and bit operations.
+Supported evaluation is intentionally small: integer, boolean, string, and
+struct literal values; identifiers resolved by a caller-provided comptime
+environment; builtin-provided struct values such as `@builtin()`; struct field
+access; casts that preserve the underlying value; boolean logic; equality over
+matching primitive comptime values; and simple integer arithmetic and bit
+operations.
 
 ### 8.2 `nia-comptime-check`
 
 Consumes language-level semantic tables and uses `nia-comptime-engine` to check
 and collect current compile-time values. It owns `comptime` binding dependency
 resolution, cycle diagnostics, enum discriminant values, and array length values
-that depend on local or imported comptime bindings.
+that depend on local or imported comptime let bindings.
 
 This crate is the semantic boundary for current compile-time value requirements.
 It is separate from static storage because `comptime` bindings have no runtime
-storage or address, while top-level `const` and `var` bindings do.
+storage or address, while top-level `let` and `var` bindings do.
 
 ### 8.3 `nia-static-check`
 
@@ -858,7 +891,7 @@ filesystem paths as semantic identity.
 
 Import cycles are not errors by themselves. Modules in a cycle keep separate
 `ModuleId`s and source paths, and references still go through explicit import
-aliases and normal visibility checks. Recursive aliases, comptime dependencies,
+aliases and normal visibility checks. Recursive aliases, comptime let dependencies,
 layouts, generic expansion, or re-export chains remain concrete semantic errors
 for their owning phases.
 
@@ -873,11 +906,12 @@ New features should be added by extending the correct phase boundary:
 - syntax belongs in lexer/parser/AST;
 - names belong in definition and resolution phases;
 - type identity belongs in type lowering and interning;
+- compile-time branch selection belongs in item-tree/body semantic queries;
 - body semantics belong in body check;
 - backend representation belongs in backend lowering and backend IR;
 - target code belongs in codegen.
 
-Do not add features by tunneling around the pipeline.
+Do not add features by tunneling around query boundaries.
 
 ## 17. Design Principles
 

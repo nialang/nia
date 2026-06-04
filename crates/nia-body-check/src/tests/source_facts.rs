@@ -18,6 +18,7 @@ fn main() i32 {
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
+    let target = nia_target_config::TargetConfig::host();
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
         module: &module,
         defs: &defs,
@@ -28,6 +29,7 @@ fn main() i32 {
         type_uses: &lowered.type_uses,
         normalized: &std::collections::HashMap::new(),
         const_exprs: &lowered.const_exprs,
+        target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     let normalization = TypeNormalization {
@@ -99,9 +101,9 @@ struct Pair {
 }
 
 fn id(value: i32) i32 { value }
-fn call_ptr(f: &const fn(i32) i32, value: i32) i32 { f(value) }
-fn take(xs: &const [i32]) usize { xs.len() }
-fn cstr(value: &const u8) usize { 1 }
+fn call_ptr(f: &fn(i32) i32, value: i32) i32 { f(value) }
+fn take(xs: & [i32]) usize { xs.len() }
+fn cstr(value: & u8) usize { 1 }
 
 fn main() i32 {
     var x = 1;
@@ -109,7 +111,7 @@ fn main() i32 {
     var n = @size[Pair]();
     var s = take([1, 2, 3]);
     var p = cstr(c"ok");
-    var q = call_ptr(&const id, y);
+    var q = call_ptr(& id, y);
     q + n as i32 + s as i32 + p as i32
 }
 "#,
@@ -129,6 +131,7 @@ fn main() i32 {
         &origins,
     );
     let signatures = collect_item_signatures(&module, &defs, &lowered);
+    let target = nia_target_config::TargetConfig::host();
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
         module: &module,
         defs: &defs,
@@ -139,6 +142,7 @@ fn main() i32 {
         type_uses: &lowered.type_uses,
         normalized: &std::collections::HashMap::new(),
         const_exprs: &lowered.const_exprs,
+        target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     let normalization = TypeNormalization {

@@ -228,13 +228,13 @@ impl<'a> BodyChecker<'a> {
                     })
                     .unwrap_or(ty)
             }
-            Some(TyKind::Pointer { is_const, elem }) => {
+            Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
-            Some(TyKind::Slice { is_const, elem }) => {
+            Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
-                self.interner.intern(TyKind::Slice { is_const, elem })
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
@@ -287,7 +287,7 @@ impl<'a> BodyChecker<'a> {
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -312,7 +312,7 @@ impl<'a> BodyChecker<'a> {
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -336,7 +336,13 @@ impl<'a> BodyChecker<'a> {
                     name,
                 })
             }
-            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::GenericParam(_),
+            )
+            | None => ty,
         }
     }
 
@@ -360,13 +366,14 @@ impl<'a> BodyChecker<'a> {
         if receiver_kind != ReceiverKind::Ref {
             return;
         }
-        let Some(TyKind::TraitObject { is_const, .. }) = self.interner.get(call.receiver_ty) else {
+        let Some(TyKind::TraitObject { is_readonly, .. }) = self.interner.get(call.receiver_ty)
+        else {
             return;
         };
-        if *is_const {
+        if *is_readonly {
             self.diagnostics.push(Diagnostic::error(
                 call.receiver.span,
-                "receiver cannot be matched through `&const Trait`",
+                "receiver cannot be matched through read-only `&Trait`",
             ));
         }
     }

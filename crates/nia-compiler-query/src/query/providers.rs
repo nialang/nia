@@ -9,6 +9,9 @@ pub(super) struct CompilerQueryProviders {
     pub(super) import_alias_map: fn(&QueryDb<DriverContext>) -> ImportAliasMap,
     pub(super) parse_ok_module_ids: fn(&QueryDb<DriverContext>) -> Vec<ModuleId>,
     pub(super) loaded_module: fn(&QueryDb<DriverContext>, ModuleId) -> LoadedModule,
+    pub(super) module_item_tree: fn(&QueryDb<DriverContext>, ModuleId) -> ModuleItemTree,
+    pub(super) active_module_item_tree:
+        fn(&QueryDb<DriverContext>, ModuleId) -> ActiveModuleItemTree,
     pub(super) module_defs: fn(&QueryDb<DriverContext>, ModuleId) -> DefCollection,
     pub(super) defs_by_module: fn(&QueryDb<DriverContext>) -> Vec<DefCollection>,
     pub(super) program_defs_by_id: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, DefCollection>,
@@ -52,6 +55,8 @@ impl Default for CompilerQueryProviders {
             import_alias_map: provide_import_alias_map,
             parse_ok_module_ids: provide_parse_ok_module_ids,
             loaded_module: provide_loaded_module,
+            module_item_tree: provide_module_item_tree,
+            active_module_item_tree: provide_active_module_item_tree,
             module_defs: provide_module_defs,
             defs_by_module: provide_defs_by_module,
             program_defs_by_id: provide_program_defs_by_id,
@@ -129,12 +134,29 @@ pub(super) fn provide_loaded_module(
         .clone()
 }
 
+pub(super) fn provide_module_item_tree(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> ModuleItemTree {
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    loaded.item_tree
+}
+
+pub(super) fn provide_active_module_item_tree(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> ActiveModuleItemTree {
+    let _raw_item_tree = db.query(ModuleItemTreeQuery(module_id));
+    let loaded = db.query(LoadedModuleQuery(module_id));
+    loaded.active_item_tree
+}
+
 pub(super) fn provide_module_defs(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> DefCollection {
-    let loaded = db.query(LoadedModuleQuery(module_id));
-    nia_defs::collect_module_defs(loaded.id, &loaded.module)
+    let item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
+    nia_defs::collect_module_defs_from_active_item_tree(module_id, &item_tree)
 }
 
 pub(super) fn provide_defs_by_module(db: &QueryDb<DriverContext>) -> Vec<DefCollection> {
@@ -404,6 +426,7 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
         type_uses: &type_lowering.type_uses,
         normalized: &type_normalization.normalized,
         const_exprs: &type_lowering.const_exprs,
+        target: &db.context().target,
         program: nia_comptime_check::ComptimeProgramContext {
             modules: Some(&program_modules),
             defs: Some(&program_defs),

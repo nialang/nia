@@ -1,4 +1,4 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 struct Pair[T, U] {
     first: T,
@@ -11,12 +11,12 @@ struct Box[T] {
 
 // Generic `extend` blocks add methods to every instance of `Box[T]`.
 extend[T] Box[T] {
-    fn get(&const self) T {
+    fn get(&self) T {
         self.value
     }
 
     // Method-level generics are independent from the receiver type parameter.
-    fn replace[U](&const self, value: U) U {
+    fn replace[U](&self, value: U) U {
         value
     }
 
@@ -59,14 +59,14 @@ fn main() i32 {
     ];
 
     // Associated method paths can be used as function pointers.
-    var method_ptr: &const fn(&const Box[i32]) i32 = &const Box[i32]::get;
+    var method_ptr: &fn(&Box[i32]) i32 = &Box[i32]::get;
     var ptr: &i32 = 0usize as &i32;
     var null_flag = if ptr.is_null() { 1 } else { 0 };
 
     printf(
         c"generics/methods: get=%d method_ptr=%d replace=%d null=%d\n",
         id[i32](box.get()) + argument_value + literal_box.get() + box_row[1].get(),
-        method_ptr(&const box),
+        method_ptr(&box),
         box.replace[i32](5),
         null_flag,
     );

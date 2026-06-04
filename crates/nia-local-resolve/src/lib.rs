@@ -264,7 +264,7 @@ impl<'a> LocalResolver<'a> {
                 }
                 self.define(
                     &for_stmt.binding.name,
-                    if for_stmt.binding.is_const {
+                    if for_stmt.binding.is_let {
                         LocalKind::ConstBinding
                     } else {
                         LocalKind::Binding
@@ -295,7 +295,7 @@ impl<'a> LocalResolver<'a> {
             &binding.name,
             if binding.is_comptime {
                 LocalKind::ComptimeBinding
-            } else if binding.is_const {
+            } else if binding.is_let {
                 LocalKind::ConstBinding
             } else {
                 LocalKind::Binding

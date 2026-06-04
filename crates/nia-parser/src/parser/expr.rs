@@ -189,10 +189,10 @@ impl Parser {
         } else if self.eat(TokenKind::Tilde).is_some() {
             Some(UnaryOp::BitNot)
         } else if self.eat(TokenKind::Amp).is_some() {
-            if self.eat(TokenKind::Const).is_some() {
-                Some(UnaryOp::RefConst)
-            } else {
+            if self.eat(TokenKind::Mut).is_some() {
                 Some(UnaryOp::Ref)
+            } else {
+                Some(UnaryOp::RefReadOnly)
             }
         } else if self.eat(TokenKind::Star).is_some() {
             Some(UnaryOp::Deref)

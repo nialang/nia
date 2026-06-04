@@ -9,7 +9,7 @@ fn rejects_bare_global_as_pointer_initializer() {
         &main,
         r#"
 var target: i32 = 1;
-const p: &i32 = target;
+let p: &i32 = target;
 
 fn main() i32 {
     target
@@ -104,11 +104,11 @@ fn emits_comptime_values_without_runtime_storage() {
     std::fs::write(
         &main,
         r#"
-comptime answer: i32 = 40 + 2;
-const saved: i32 = answer;
+comptime let answer: i32 = 40 + 2;
+let saved: i32 = answer;
 
 fn main() i32 {
-    comptime local: i32 = answer;
+    comptime let local: i32 = answer;
     local
 }
 "#,
@@ -146,7 +146,7 @@ fn main() i32 {
     std::fs::write(
         root.join("config.nia"),
         r#"
-pub comptime width: usize = 4;
+pub comptime let width: usize = 4;
 "#,
     )
     .expect("write config source");
@@ -165,7 +165,7 @@ fn emits_imported_struct_array_field_repeat_literals() {
     std::fs::write(
         root.join("defs.nia"),
         r#"
-pub comptime N: usize = 4;
+pub comptime let N: usize = 4;
 
 pub struct Item {
     value: u32,
@@ -228,7 +228,7 @@ fn emits_large_array_repeat_count_from_comptime_binding() {
     std::fs::write(
         &main,
         r#"
-comptime N: usize = 16;
+comptime let N: usize = 16;
 
 fn main() i32 {
     var buffer: [N]u8 = [0u8; N];

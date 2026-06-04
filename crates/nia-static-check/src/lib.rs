@@ -98,7 +98,9 @@ impl StaticChecker<'_> {
             }
             ExprKind::Unary { op, expr: inner } => match op {
                 UnaryOp::Neg => self.int_const_expr_reject_reason(expr),
-                UnaryOp::Ref | UnaryOp::RefConst => self.static_address_path_reject_reason(inner),
+                UnaryOp::Ref | UnaryOp::RefReadOnly => {
+                    self.static_address_path_reject_reason(inner)
+                }
                 UnaryOp::Not | UnaryOp::BitNot | UnaryOp::Deref => {
                     Some("unsupported unary operator")
                 }
@@ -383,11 +385,11 @@ var q: &i32 = &pair.x;
 var r: &i32 = &xs[1];
 
 struct Vtable {
-    print: &const fn(&i32)
+    print: &fn(&i32)
 }
 
 fn print_i32(value: &i32) {}
-const vtable: Vtable = { print: &const print_i32 };
+let vtable: Vtable = { print: & print_i32 };
 "#,
         );
 

@@ -731,13 +731,13 @@ fn builtin_trait_method_signature_matches(
         return false;
     }
     match (trait_id, method) {
-        (BuiltinTrait::DerefConst, BuiltinTraitMethod::DerefConst)
+        (BuiltinTrait::DerefRead, BuiltinTraitMethod::DerefRead)
         | (BuiltinTrait::Deref, BuiltinTraitMethod::Deref)
-        | (BuiltinTrait::IndexConst, BuiltinTraitMethod::IndexConst)
+        | (BuiltinTrait::IndexRead, BuiltinTraitMethod::IndexRead)
         | (BuiltinTrait::Index, BuiltinTraitMethod::Index) => {
             builtin_place_trait_method_signature_matches(module, extend, actual, trait_id, method)
         }
-        (BuiltinTrait::SliceConst, BuiltinTraitMethod::SliceConst)
+        (BuiltinTrait::SliceRead, BuiltinTraitMethod::SliceRead)
         | (BuiltinTrait::Slice, BuiltinTraitMethod::Slice) => {
             builtin_slice_trait_method_signature_matches(module, extend, actual, trait_id, method)
         }
@@ -764,20 +764,18 @@ fn builtin_place_trait_method_signature_matches(
     if receiver != expected_receiver {
         return false;
     }
-    let Some(TyKind::Pointer { is_const, elem }) = module.lowering.interner.get(actual.return_type)
+    let Some(TyKind::Pointer { is_readonly, elem }) =
+        module.lowering.interner.get(actual.return_type)
     else {
         return false;
     };
-    let expected_const = matches!(
-        trait_id,
-        BuiltinTrait::DerefConst | BuiltinTrait::IndexConst
-    );
-    if *is_const != expected_const {
+    let expected_const = matches!(trait_id, BuiltinTrait::DerefRead | BuiltinTrait::IndexRead);
+    if *is_readonly != expected_const {
         return false;
     }
     let assoc_name = match trait_id {
-        BuiltinTrait::DerefConst | BuiltinTrait::Deref => BuiltinTrait::TARGET_ASSOC_TYPE,
-        BuiltinTrait::IndexConst | BuiltinTrait::Index => BuiltinTrait::OUTPUT_ASSOC_TYPE,
+        BuiltinTrait::DerefRead | BuiltinTrait::Deref => BuiltinTrait::TARGET_ASSOC_TYPE,
+        BuiltinTrait::IndexRead | BuiltinTrait::Index => BuiltinTrait::OUTPUT_ASSOC_TYPE,
         _ => return false,
     };
     let Some(associated_type) = extend
@@ -834,7 +832,7 @@ fn builtin_slice_trait_method_signature_matches(
 
 fn receiver_kind_to_ast_receiver_kind(kind: BuiltinReceiverKind) -> nia_ast::ReceiverKind {
     match kind {
-        BuiltinReceiverKind::RefConst => nia_ast::ReceiverKind::RefConst,
+        BuiltinReceiverKind::RefReadOnly => nia_ast::ReceiverKind::RefReadOnly,
         BuiltinReceiverKind::Ref => nia_ast::ReceiverKind::Ref,
         BuiltinReceiverKind::Value => nia_ast::ReceiverKind::Value,
     }
@@ -1003,21 +1001,21 @@ fn types_equivalent(
         (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
         (
             Some(TyKind::Pointer {
-                is_const: left_const,
+                is_readonly: left_const,
                 elem: left_elem,
             }),
             Some(TyKind::Pointer {
-                is_const: right_const,
+                is_readonly: right_const,
                 elem: right_elem,
             }),
         )
         | (
             Some(TyKind::Slice {
-                is_const: left_const,
+                is_readonly: left_const,
                 elem: left_elem,
             }),
             Some(TyKind::Slice {
-                is_const: right_const,
+                is_readonly: right_const,
                 elem: right_elem,
             }),
         ) => left_const == right_const && types_equivalent(interner, *left_elem, *right_elem),
@@ -1188,8 +1186,8 @@ fn substitute_imported_type(
             .get(name)
             .copied()
             .unwrap_or_else(|| import_type_into(target_interner, source_interner, ty)),
-        Some(TyKind::Pointer { is_const, elem }) => {
-            let is_const = *is_const;
+        Some(TyKind::Pointer { is_readonly, elem }) => {
+            let is_readonly = *is_readonly;
             let elem = substitute_imported_type(
                 target_interner,
                 module,
@@ -1198,10 +1196,10 @@ fn substitute_imported_type(
                 substitutions,
                 projection_context,
             );
-            target_interner.intern(TyKind::Pointer { is_const, elem })
+            target_interner.intern(TyKind::Pointer { is_readonly, elem })
         }
-        Some(TyKind::Slice { is_const, elem }) => {
-            let is_const = *is_const;
+        Some(TyKind::Slice { is_readonly, elem }) => {
+            let is_readonly = *is_readonly;
             let elem = substitute_imported_type(
                 target_interner,
                 module,
@@ -1210,7 +1208,7 @@ fn substitute_imported_type(
                 substitutions,
                 projection_context,
             );
-            target_interner.intern(TyKind::Slice { is_const, elem })
+            target_interner.intern(TyKind::Slice { is_readonly, elem })
         }
         Some(TyKind::Array { len, elem }) => {
             let len = len.clone();
@@ -1338,7 +1336,7 @@ fn substitute_imported_type(
             })
         }
         Some(TyKind::TraitObject {
-            is_const,
+            is_readonly,
             trait_id,
             trait_args,
             associated_type_bindings,
@@ -1386,7 +1384,7 @@ fn substitute_imported_type(
                 })
                 .collect();
             target_interner.intern(TyKind::TraitObject {
-                is_const: *is_const,
+                is_readonly: *is_readonly,
                 trait_id: *trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -1443,7 +1441,7 @@ fn substitute_imported_type(
                 name: name.clone(),
             })
         }
-        Some(TyKind::Error | TyKind::Primitive(_)) | None => {
+        Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {
             import_type_into(target_interner, source_interner, ty)
         }
     }
@@ -1469,7 +1467,7 @@ fn trait_method_signature_matches(
 
 fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> bool {
     match interner.get(ty) {
-        Some(TyKind::Error) | None => false,
+        Some(TyKind::Error | TyKind::ComptimeOnly) | None => false,
         Some(TyKind::Primitive(PrimitiveTy::Never)) => false,
         Some(TyKind::Array { len, .. }) => !matches!(len, nia_ty::ArrayLenTy::Infer),
         Some(

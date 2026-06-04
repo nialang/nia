@@ -259,12 +259,12 @@ impl<'a> BodyChecker<'a> {
         object_ty: InternedTyId,
     ) -> InternedTyId {
         let object_ty = self.normalization.normalize(object_ty);
-        let Some(TyKind::TraitObject { is_const, .. }) = self.interner.get(object_ty).cloned()
+        let Some(TyKind::TraitObject { is_readonly, .. }) = self.interner.get(object_ty).cloned()
         else {
             return object_ty;
         };
         self.interner.intern(TyKind::Pointer {
-            is_const,
+            is_readonly,
             elem: object_ty,
         })
     }
@@ -410,23 +410,23 @@ impl<'a> BodyChecker<'a> {
                 Some(TyKind::Primitive(specific_primitive)) if general_primitive == specific_primitive
             ),
             Some(TyKind::Pointer {
-                is_const: general_const,
+                is_readonly: general_const,
                 elem: general_elem,
             }) => matches!(
                 self.interner.get(specific),
                 Some(TyKind::Pointer {
-                    is_const: specific_const,
+                    is_readonly: specific_const,
                     elem: specific_elem,
                 }) if general_const == specific_const
                     && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
             ),
             Some(TyKind::Slice {
-                is_const: general_const,
+                is_readonly: general_const,
                 elem: general_elem,
             }) => matches!(
                 self.interner.get(specific),
                 Some(TyKind::Slice {
-                    is_const: specific_const,
+                    is_readonly: specific_const,
                     elem: specific_elem,
                 }) if general_const == specific_const
                     && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
@@ -545,13 +545,13 @@ impl<'a> BodyChecker<'a> {
                 _ => false,
             },
             Some(TyKind::TraitObject {
-                is_const: general_const,
+                is_readonly: general_const,
                 trait_id: general_trait,
                 trait_args: general_args,
                 associated_type_bindings: general_bindings,
             }) => match self.interner.get(specific) {
                 Some(TyKind::TraitObject {
-                    is_const: specific_const,
+                    is_readonly: specific_const,
                     trait_id: specific_trait,
                     trait_args: specific_args,
                     associated_type_bindings: specific_bindings,
@@ -622,7 +622,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::Error) | None => false,
+            Some(TyKind::ComptimeOnly | TyKind::Error) | None => false,
         }
     }
 
@@ -748,25 +748,25 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(TyKind::Pointer {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 elem: pattern_elem,
             }) => matches!(
                 self.interner.get(actual),
                 Some(TyKind::Pointer {
-                    is_const,
+                    is_readonly,
                     elem
-                }) if is_const == pattern_const
+                }) if is_readonly == pattern_const
                     && self.match_type_pattern(*pattern_elem, *elem, substitutions)
             ),
             Some(TyKind::Slice {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 elem: pattern_elem,
             }) => matches!(
                 self.interner.get(actual),
                 Some(TyKind::Slice {
-                    is_const,
+                    is_readonly,
                     elem
-                }) if is_const == pattern_const
+                }) if is_readonly == pattern_const
                     && self.match_type_pattern(*pattern_elem, *elem, substitutions)
             ),
             Some(TyKind::Array {
@@ -852,17 +852,17 @@ impl<'a> BodyChecker<'a> {
                 _ => false,
             },
             Some(TyKind::TraitObject {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
                 associated_type_bindings: pattern_bindings,
             }) => match self.interner.get(actual) {
                 Some(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
-                }) if is_const == pattern_const
+                }) if is_readonly == pattern_const
                     && trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
                     && pattern_bindings.len() == associated_type_bindings.len() =>
@@ -929,7 +929,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::Primitive(_)) | Some(TyKind::Error) | None => {
+            Some(TyKind::Primitive(_)) | Some(TyKind::ComptimeOnly | TyKind::Error) | None => {
                 self.types_match(pattern, actual)
             }
         }
@@ -1002,7 +1002,7 @@ impl<'a> BodyChecker<'a> {
             if base.as_ref().is_some_and(|base| base.has_readonly_pointer) {
                 self.diagnostics.push(Diagnostic::error(
                     receiver.span,
-                    "receiver cannot be matched through `&const T`",
+                    "receiver cannot be matched through read-only `&T`",
                 ));
             } else if !base.as_ref().is_some_and(|base| base.from_pointer) {
                 self.check_reference_target(receiver, "receiver", false);

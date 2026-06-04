@@ -305,7 +305,7 @@ impl Parser {
                     | TokenKind::Enum
                     | TokenKind::Type
                     | TokenKind::Fn
-                    | TokenKind::Const
+                    | TokenKind::Let
                     | TokenKind::Var
                     | TokenKind::Pub
             ) {

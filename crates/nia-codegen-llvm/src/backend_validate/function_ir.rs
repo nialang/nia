@@ -300,7 +300,7 @@ impl BackendValidator<'_> {
                     self.validate_type(*arg, span);
                 }
                 self.validate_expr(receiver);
-                if !matches!(trait_id, BuiltinTrait::GetPtrConst | BuiltinTrait::GetPtr) {
+                if !matches!(trait_id, BuiltinTrait::GetPtrRead | BuiltinTrait::GetPtr) {
                     self.diagnostics.push(Diagnostic::error(
                         span,
                         format!(

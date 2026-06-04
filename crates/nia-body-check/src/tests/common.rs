@@ -36,6 +36,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         "{:?}",
         signatures.diagnostics
     );
+    let target = nia_target_config::TargetConfig::host();
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
         module: &module,
         defs: &defs,
@@ -46,6 +47,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         type_uses: &lowered.type_uses,
         normalized: &std::collections::HashMap::new(),
         const_exprs: &lowered.const_exprs,
+        target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
     assert!(

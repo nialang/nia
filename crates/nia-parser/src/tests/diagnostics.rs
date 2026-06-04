@@ -46,11 +46,9 @@ struct Vtable {
     assert_eq!(
         errors
             .iter()
-            .filter(|error| error
-                .message
-                .contains("must be written as `&const fn(...)`"))
+            .filter(|error| error.message.contains("must be written as `&fn(...)`"))
             .count(),
-        2,
+        1,
         "{errors:?}"
     );
 }

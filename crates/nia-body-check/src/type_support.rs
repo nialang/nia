@@ -34,13 +34,13 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty).cloned() {
-            Some(TyKind::Pointer { is_const, elem }) => {
+            Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_projection(elem);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
-            Some(TyKind::Slice { is_const, elem }) => {
+            Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_projection(elem);
-                self.interner.intern(TyKind::Slice { is_const, elem })
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_projection(elem);
@@ -91,7 +91,7 @@ impl<'a> BodyChecker<'a> {
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -114,7 +114,7 @@ impl<'a> BodyChecker<'a> {
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -149,7 +149,13 @@ impl<'a> BodyChecker<'a> {
                     })
                 })
             }
-            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::GenericParam(_),
+            )
+            | None => ty,
         }
     }
 
@@ -295,6 +301,10 @@ impl<'a> BodyChecker<'a> {
         self.expect_type(expr.span, expected, actual, context);
     }
 
+    pub(crate) fn is_comptime_only_ty(&self, ty: InternedTyId) -> bool {
+        matches!(self.interner.get(ty), Some(TyKind::ComptimeOnly))
+    }
+
     pub(crate) fn array_expected_from_slice_expected(
         &mut self,
         expected: Option<InternedTyId>,
@@ -318,13 +328,13 @@ impl<'a> BodyChecker<'a> {
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
         let Some(TyKind::Slice {
-            is_const,
+            is_readonly,
             elem: expected_elem,
         }) = self.interner.get(expected)
         else {
             return None;
         };
-        let is_const = *is_const;
+        let is_readonly = *is_readonly;
         let expected_elem = *expected_elem;
         let Some(TyKind::Array {
             elem: actual_elem, ..
@@ -336,13 +346,18 @@ impl<'a> BodyChecker<'a> {
         if !self.types_match(expected_elem, actual_elem) {
             return None;
         }
-        self.check_reference_target_with_ty(expr, "array-to-slice source", is_const, Some(actual));
+        self.check_reference_target_with_ty(
+            expr,
+            "array-to-slice source",
+            is_readonly,
+            Some(actual),
+        );
         self.record_array_to_slice_coercion(
             expr.span,
             ArrayToSliceCoercion {
                 array_ty: actual,
                 slice_ty: expected,
-                is_const,
+                is_readonly,
             },
         );
         Some(expected)
@@ -360,13 +375,13 @@ impl<'a> BodyChecker<'a> {
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
         let Some(TyKind::Pointer {
-            is_const,
+            is_readonly,
             elem: expected_elem,
         }) = self.interner.get(expected)
         else {
             return None;
         };
-        let is_const = *is_const;
+        let is_readonly = *is_readonly;
         let expected_elem = *expected_elem;
         let Some(TyKind::Array {
             elem: actual_elem, ..
@@ -384,7 +399,7 @@ impl<'a> BodyChecker<'a> {
             CStringPointerCoercion {
                 array_ty: actual,
                 pointer_ty: expected,
-                is_const,
+                is_readonly,
             },
         );
         Some(expected)
@@ -618,13 +633,13 @@ impl<'a> BodyChecker<'a> {
             }
             (
                 Some(TyKind::TraitObject {
-                    is_const: expected_const,
+                    is_readonly: expected_const,
                     trait_id: expected_trait,
                     trait_args: expected_args,
                     associated_type_bindings: expected_bindings,
                 }),
                 Some(TyKind::TraitObject {
-                    is_const: actual_const,
+                    is_readonly: actual_const,
                     trait_id: actual_trait,
                     trait_args: actual_args,
                     associated_type_bindings: actual_bindings,
@@ -785,13 +800,13 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn ty_name(&self, ty: InternedTyId) -> String {
         match self.interner.get(ty) {
             Some(TyKind::Primitive(primitive)) => primitive_ty_name(*primitive).to_string(),
-            Some(TyKind::Pointer { is_const, elem }) => {
-                let const_part = if *is_const { "const " } else { "" };
-                format!("&{const_part}{}", self.ty_name(*elem))
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let mut_part = if *is_readonly { "" } else { "mut " };
+                format!("&{mut_part}{}", self.ty_name(*elem))
             }
-            Some(TyKind::Slice { is_const, elem }) => {
-                let const_part = if *is_const { "const " } else { "" };
-                format!("&{const_part}[{}]", self.ty_name(*elem))
+            Some(TyKind::Slice { is_readonly, elem }) => {
+                let mut_part = if *is_readonly { "" } else { "mut " };
+                format!("&{mut_part}[{}]", self.ty_name(*elem))
             }
             Some(TyKind::Array { len, elem }) => {
                 format!("[{}]{}", self.array_len_name(len), self.ty_name(*elem))
@@ -818,19 +833,19 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     format!(" {}", self.ty_name(*return_type))
                 };
-                format!("&const fn({}){return_part}", params.join(", "))
+                format!("&fn({}){return_part}", params.join(", "))
             }
             Some(TyKind::Nominal { def_id, args }) => self.nominal_ty_name(*def_id, args),
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 self.builtin_trait_ty_name(*trait_id, args)
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
             }) => self.trait_object_ty_name(
-                *is_const,
+                *is_readonly,
                 *trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -846,6 +861,7 @@ impl<'a> BodyChecker<'a> {
                 format!("[{self_ty} as {trait_name}]::{name}")
             }
             Some(TyKind::GenericParam(name)) => name.clone(),
+            Some(TyKind::ComptimeOnly) => "<comptime-only value>".to_string(),
             Some(TyKind::Error) => "<error type>".to_string(),
             None => "<unknown type>".to_string(),
         }
@@ -876,7 +892,7 @@ impl<'a> BodyChecker<'a> {
             ArrayLenTy::ConstExpr(id) => self
                 .array_len_const_expr_value(*id)
                 .map(|value| value.to_string())
-                .unwrap_or_else(|| "<unevaluated const>".to_string()),
+                .unwrap_or_else(|| "<unevaluated comptime value>".to_string()),
             ArrayLenTy::Builtin { builtin, ty } => {
                 format!("@{}[{}]()", builtin.name(), self.ty_name(*ty))
             }
@@ -923,12 +939,12 @@ impl<'a> BodyChecker<'a> {
 
     fn trait_object_ty_name(
         &self,
-        is_const: bool,
+        is_readonly: bool,
         trait_id: TraitId,
         trait_args: &[InternedTyId],
         associated_type_bindings: &[nia_ty::AssociatedTypeBindingTy],
     ) -> String {
-        let const_part = if is_const { "const " } else { "" };
+        let const_part = if is_readonly { "" } else { "mut " };
         let base = match trait_id {
             TraitId::Source(def_id) => self
                 .defs_for_module(def_id.module_id)

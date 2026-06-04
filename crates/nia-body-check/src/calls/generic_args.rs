@@ -166,7 +166,7 @@ impl<'a> BodyChecker<'a> {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
-            Some(TyKind::Error | TyKind::Primitive(_)) | None => {}
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
         }
     }
 }

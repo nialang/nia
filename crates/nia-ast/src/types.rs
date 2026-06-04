@@ -22,11 +22,11 @@ pub enum TypeKind {
         name: String,
     },
     Pointer {
-        is_const: bool,
+        is_readonly: bool,
         elem: Box<TypeRef>,
     },
     Slice {
-        is_const: bool,
+        is_readonly: bool,
         elem: Box<TypeRef>,
     },
     Array {

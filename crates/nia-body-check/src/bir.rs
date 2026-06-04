@@ -203,7 +203,7 @@ impl<'a> BodyChecker<'a> {
                     self.lower_expr(value)
                 }
             }),
-            is_const: binding.is_const,
+            is_let: binding.is_let,
         })
     }
 
@@ -335,7 +335,7 @@ impl<'a> BodyChecker<'a> {
                 ty: coercion.pointer_ty,
                 kind: TypedExprKind::CStringPointer {
                     array: Box::new(self.lower_expr_with_ty(expr, Some(coercion.array_ty))),
-                    is_const: coercion.is_const,
+                    is_readonly: coercion.is_readonly,
                 },
             };
         }
@@ -352,7 +352,7 @@ impl<'a> BodyChecker<'a> {
                         end: None,
                         inclusive: false,
                     },
-                    is_const: coercion.is_const,
+                    is_readonly: coercion.is_readonly,
                 },
             };
         }
@@ -567,10 +567,10 @@ impl<'a> BodyChecker<'a> {
                     lhs,
                     index: IndexArg::Range(range),
                 } = &inner.kind
-                    && matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                    && matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                 {
-                    self.lower_slice_expr(lhs, range, matches!(op, UnaryOp::RefConst))
-                } else if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                    self.lower_slice_expr(lhs, range, matches!(op, UnaryOp::RefReadOnly))
+                } else if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && let Some(function_item) = self.lower_function_item_ref(inner)
                 {
                     TypedExprKind::Unary {
@@ -778,7 +778,7 @@ impl<'a> BodyChecker<'a> {
                 ty,
                 kind: TypedExprKind::BuiltinValue(BuiltinConst::Int(value)),
             },
-            None => TypedExpr {
+            Some(_) | None => TypedExpr {
                 span,
                 ty,
                 kind: TypedExprKind::Error,
@@ -1336,11 +1336,7 @@ impl<'a> BodyChecker<'a> {
         let (trait_id, method, target_const) = if mutable {
             (BuiltinTrait::Deref, BuiltinTraitMethod::Deref, false)
         } else {
-            (
-                BuiltinTrait::DerefConst,
-                BuiltinTraitMethod::DerefConst,
-                true,
-            )
+            (BuiltinTrait::DerefRead, BuiltinTraitMethod::DerefRead, true)
         };
         let resolution = self.current_context_resolve_trait_obligation(
             receiver_ty,
@@ -1361,7 +1357,7 @@ impl<'a> BodyChecker<'a> {
         });
         let target = self.normalize_projection(target);
         let pointer_ty = self.interner.intern(TyKind::Pointer {
-            is_const: target_const,
+            is_readonly: target_const,
             elem: target,
         });
         Some(TypedExpr {
@@ -1395,11 +1391,7 @@ impl<'a> BodyChecker<'a> {
         let (trait_id, method, output_const) = if mutable {
             (BuiltinTrait::Index, BuiltinTraitMethod::Index, false)
         } else {
-            (
-                BuiltinTrait::IndexConst,
-                BuiltinTraitMethod::IndexConst,
-                true,
-            )
+            (BuiltinTrait::IndexRead, BuiltinTraitMethod::IndexRead, true)
         };
         let trait_args = vec![index_ty];
         let resolution = self.current_context_resolve_trait_obligation(
@@ -1421,7 +1413,7 @@ impl<'a> BodyChecker<'a> {
         });
         let output = self.normalize_projection(output);
         let pointer_ty = self.interner.intern(TyKind::Pointer {
-            is_const: output_const,
+            is_readonly: output_const,
             elem: output,
         });
         Some(TypedExpr {
@@ -1452,7 +1444,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         lhs: &Expr,
         range: &SliceRange,
-        is_const: bool,
+        is_readonly: bool,
     ) -> TypedExprKind {
         let lhs_ty = self
             .expr_types
@@ -1460,8 +1452,8 @@ impl<'a> BodyChecker<'a> {
             .copied()
             .unwrap_or_else(|| self.error());
         let range_ty = self.check_slice_range_bounds(range);
-        let (trait_id, method) = if is_const {
-            (BuiltinTrait::SliceConst, BuiltinTraitMethod::SliceConst)
+        let (trait_id, method) = if is_readonly {
+            (BuiltinTrait::SliceRead, BuiltinTraitMethod::SliceRead)
         } else {
             (BuiltinTrait::Slice, BuiltinTraitMethod::Slice)
         };
@@ -1477,7 +1469,7 @@ impl<'a> BodyChecker<'a> {
             return TypedExprKind::Slice {
                 lhs: Box::new(self.lower_expr(lhs)),
                 range: self.lower_slice_range(range),
-                is_const,
+                is_readonly,
             };
         }
         TypedExprKind::Call {
@@ -1519,23 +1511,23 @@ impl<'a> BodyChecker<'a> {
             .place_receiver_kind()
             .unwrap_or_else(|| method.receiver_kind());
         match receiver_kind {
-            BuiltinReceiverKind::RefConst => {
+            BuiltinReceiverKind::RefReadOnly => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
-                    is_const: true,
+                    is_readonly: true,
                     elem: receiver_ty,
                 });
                 TypedExpr {
                     span: receiver.span,
                     ty: pointer_ty,
                     kind: TypedExprKind::Unary {
-                        op: UnaryOp::RefConst,
+                        op: UnaryOp::RefReadOnly,
                         expr: Box::new(self.lower_expr(receiver)),
                     },
                 }
             }
             BuiltinReceiverKind::Ref => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
-                    is_const: false,
+                    is_readonly: false,
                     elem: receiver_ty,
                 });
                 TypedExpr {
@@ -1561,23 +1553,23 @@ impl<'a> BodyChecker<'a> {
             .place_receiver_kind()
             .unwrap_or_else(|| method.receiver_kind());
         match receiver_kind {
-            BuiltinReceiverKind::RefConst => {
+            BuiltinReceiverKind::RefReadOnly => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
-                    is_const: true,
+                    is_readonly: true,
                     elem: receiver_ty,
                 });
                 TypedExpr {
                     span: receiver.span,
                     ty: pointer_ty,
                     kind: TypedExprKind::Unary {
-                        op: UnaryOp::RefConst,
+                        op: UnaryOp::RefReadOnly,
                         expr: Box::new(receiver.clone()),
                     },
                 }
             }
             BuiltinReceiverKind::Ref => {
                 let pointer_ty = self.interner.intern(TyKind::Pointer {
-                    is_const: false,
+                    is_readonly: false,
                     elem: receiver_ty,
                 });
                 TypedExpr {

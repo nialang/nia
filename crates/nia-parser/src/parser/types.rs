@@ -39,10 +39,7 @@ impl Parser {
         self.errors.truncate(errors_len);
         let span = self.collect_until(stops)?;
         if bare_fn_type {
-            self.error_at(
-                span,
-                "function pointer types must be written as `&const fn(...)`",
-            );
+            self.error_at(span, "function pointer types must be written as `&fn(...)`");
         }
         Some(self.error_type_ref(span))
     }
@@ -135,7 +132,7 @@ impl Parser {
         } else if self.eat(TokenKind::Underscore).is_some() {
             TypeKind::Infer
         } else if self.at(TokenKind::Fn) {
-            self.error_here("function pointer types must be written as `&const fn(...)`");
+            self.error_here("function pointer types must be written as `&fn(...)`");
             return None;
         } else if self.eat(TokenKind::SelfType).is_some() {
             TypeKind::SelfType
@@ -236,10 +233,10 @@ impl Parser {
         _start: usize,
         mode: TypeParseMode,
     ) -> Option<TypeKind> {
-        let is_const = self.eat(TokenKind::Const).is_some();
+        let is_readonly = self.eat(TokenKind::Mut).is_none();
         if self.at(TokenKind::Fn) {
-            if !is_const {
-                self.error_here("function pointer types must be written as `&const fn(...)`");
+            if !is_readonly {
+                self.error_here("function pointer types must be written as `&fn(...)`");
             }
             self.bump();
             self.expect(TokenKind::LParen, "expected `(` in function pointer type")?;
@@ -271,13 +268,13 @@ impl Parser {
                 let elem = self.parse_type_with_mode(mode)?;
                 self.expect(TokenKind::RBracket, "expected `]` in slice type")?;
                 Some(TypeKind::Slice {
-                    is_const,
+                    is_readonly,
                     elem: Box::new(elem),
                 })
             } else {
                 let elem = self.parse_type_with_mode(mode)?;
                 Some(TypeKind::Pointer {
-                    is_const,
+                    is_readonly,
                     elem: Box::new(elem),
                 })
             }

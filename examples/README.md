@@ -30,7 +30,7 @@ while still making emitted executables observable.
 ## Reading Order
 
 - `00_hello_main.nia`: hosted `main`, libc `printf`, basic functions.
-- `01_bindings_and_literals.nia`: `var`, `const`, primitive literals, casts.
+- `01_bindings_and_literals.nia`: `let`, `var`, primitive literals, casts.
 - `02_arrays_slices_strings.nia`: arrays, typed array literals, slices,
   strings, C strings, pointers.
 - `03_structs_unions_enums.nia`: aggregates, enum switches, switch pattern
@@ -45,7 +45,10 @@ while still making emitted executables observable.
 - `07_traits_operators.nia`: traits, `where`, default methods, operator traits.
 - `08_associated_types_trait_objects.nia`: associated types, trait objects,
   explicit supertrait associated type bindings, object upcasts.
-- `09_comptime_and_layout.nia`: `comptime`, static data, `@size`, `@align`.
+- `09_comptime_and_layout.nia`: `comptime`, `comptime if`,
+  `@builtin().target`, attributes, static data, `@size`, `@align`.
 - `10_inline_asm.nia`: `@asm` configuration shape.
+- `11_optional_error_union.nia`: `?T`, `E!T`, `null`, `.?`, and `switch`
+  destructuring.
 - `modules/main.nia`: import paths, aliases, `using`, grouped `using`, and
   re-exports.

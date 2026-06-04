@@ -179,22 +179,25 @@ fn statement_switch_pattern_binding_stores_tagged_union_payload() {
             .any(|block| matches!(block.terminator, FunctionTerminator::If { .. })),
         "{function_body:#?}"
     );
-    assert!(function_body.blocks.iter().any(|block| {
-        block.ops.iter().any(|op| {
-            matches!(
-                op,
-                FunctionOp::StoreLocal {
-                    local_id,
-                    value:
-                        FunctionExpr {
-                            kind: FunctionExprKind::TaggedUnionPayload { .. },
-                            ..
-                        },
-                    ..
-                } if *local_id == payload_local
-            )
-        })
-    }), "{function_body:#?}");
+    assert!(
+        function_body.blocks.iter().any(|block| {
+            block.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    FunctionOp::StoreLocal {
+                        local_id,
+                        value:
+                            FunctionExpr {
+                                kind: FunctionExprKind::TaggedUnionPayload { .. },
+                                ..
+                            },
+                        ..
+                    } if *local_id == payload_local
+                )
+            })
+        }),
+        "{function_body:#?}"
+    );
 }
 
 #[test]

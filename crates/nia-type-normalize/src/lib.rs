@@ -51,13 +51,13 @@ impl<'a> TypeNormalizer<'a> {
             return normalized;
         }
         let normalized = match self.interner.get(ty_id).cloned() {
-            Some(TyKind::Pointer { is_const, elem }) => {
+            Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
-            Some(TyKind::Slice { is_const, elem }) => {
+            Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
-                self.interner.intern(TyKind::Slice { is_const, elem })
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
@@ -117,7 +117,7 @@ impl<'a> TypeNormalizer<'a> {
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -140,7 +140,7 @@ impl<'a> TypeNormalizer<'a> {
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -164,7 +164,13 @@ impl<'a> TypeNormalizer<'a> {
                     name,
                 })
             }
-            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty_id,
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::GenericParam(_),
+            )
+            | None => ty_id,
         };
         self.normalized.insert(ty_id, normalized);
         normalized
@@ -215,13 +221,13 @@ impl<'a> TypeNormalizer<'a> {
                 .get(&name)
                 .copied()
                 .unwrap_or_else(|| self.normalize_ty(ty_id, stack)),
-            Some(TyKind::Pointer { is_const, elem }) => {
+            Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
-            Some(TyKind::Slice { is_const, elem }) => {
+            Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
-                self.interner.intern(TyKind::Slice { is_const, elem })
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
@@ -283,7 +289,7 @@ impl<'a> TypeNormalizer<'a> {
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -308,7 +314,7 @@ impl<'a> TypeNormalizer<'a> {
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -332,7 +338,9 @@ impl<'a> TypeNormalizer<'a> {
                     name,
                 })
             }
-            Some(TyKind::Error | TyKind::Primitive(_)) | None => self.normalize_ty(ty_id, stack),
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {
+                self.normalize_ty(ty_id, stack)
+            }
         }
     }
 

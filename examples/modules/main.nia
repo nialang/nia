@@ -3,7 +3,7 @@ import .facade as api;
 
 using api::{Point, add as plus, Color::Green};
 
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 fn main() i32 {
     // `import` keeps names qualified by module, while `using` brings selected

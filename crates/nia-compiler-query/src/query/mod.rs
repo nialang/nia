@@ -22,12 +22,14 @@ use nia_item_signatures::{
     ProgramGlobalSignature, ProgramSignatureMaps, ProgramStructSignature, ProgramTraitSignature,
     ProgramUnionSignature,
 };
+use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_local_resolve::LocalResolution;
 use nia_monomorphize::MonomorphizeModuleInput;
 use nia_opt::{NiaOptimizationLevel, OptimizationPolicy};
 use nia_query::{QueryDb, QueryError, QueryKey};
 use nia_source::SourcePath;
 use nia_span::Span;
+use nia_target_config::TargetConfig;
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_type_resolve::TypeResolution;
@@ -74,10 +76,12 @@ fn check_loaded_program_with_providers(
 ) -> CheckedProgram {
     let graph = loaded.graph.clone();
     let imports = loaded.imports.clone();
+    let target = loaded.target.clone();
     let modules_by_id = index_loaded_modules(&loaded);
     let db = QueryDb::new(DriverContext {
         loaded,
         modules_by_id,
+        target,
         optimization,
         providers,
     });
@@ -143,6 +147,7 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
 struct DriverContext {
     loaded: LoadedProgram,
     modules_by_id: HashMap<ModuleId, usize>,
+    target: TargetConfig,
     optimization: OptimizationPolicy,
     providers: CompilerQueryProviders,
 }
@@ -179,6 +184,7 @@ mod tests {
         LoadedProgram {
             graph: ModuleGraph::new(SourcePath::new("main.nia")),
             imports: ImportAliasMap::default(),
+            target: TargetConfig::host(),
             modules,
             diagnostics: Vec::new(),
         }
@@ -187,6 +193,7 @@ mod tests {
     fn loaded_module(id: ModuleId, path: &str, source: &str) -> LoadedModule {
         let (module, parse_errors) = nia_parser::parse_module(source);
         assert!(parse_errors.is_empty(), "{parse_errors:?}");
+        let item_tree = ModuleItemTree::from_module(&module);
         LoadedModule {
             id,
             path: SourcePath::new(path),
@@ -195,17 +202,25 @@ mod tests {
                 revision: SourceRevision::INITIAL,
             },
             source: source.to_string(),
+            raw_module: module.clone(),
             module,
+            item_tree: item_tree.clone(),
+            active_item_tree: ActiveModuleItemTree::new(
+                item_tree.items.clone(),
+                Default::default(),
+            ),
             parse_errors,
             origins: nia_node_id::NodeOriginTable::default(),
         }
     }
 
     fn query_db(loaded: LoadedProgram) -> QueryDb<DriverContext> {
+        let target = loaded.target.clone();
         let modules_by_id = index_loaded_modules(&loaded);
         QueryDb::new(DriverContext {
             loaded,
             modules_by_id,
+            target,
             optimization: OptimizationPolicy::default(),
             providers: CompilerQueryProviders::default(),
         })
@@ -226,7 +241,7 @@ mod tests {
                     ModuleId(0),
                     "main.nia",
                     r#"
-const zeroes: [4]i32 = [0; 4];
+let zeroes: [4]i32 = [0; 4];
 
 fn main() i32 {
     zeroes[0]
@@ -358,6 +373,30 @@ fn main() i32 {
     }
 
     #[test]
+    fn module_defs_query_uses_active_item_tree_query() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub struct S { value: i32 }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(ModuleDefsQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "module_defs" && dependency.to.name == "active_module_item_tree"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "active_module_item_tree"
+                && dependency.to.name == "module_item_tree"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "module_item_tree" && dependency.to.name == "loaded_module"
+        }));
+    }
+
+    #[test]
     fn extension_queries_use_module_semantic_queries() {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
@@ -412,7 +451,7 @@ fn main() i32 {
         let loaded = loaded_program_with_modules(vec![loaded_module(
             ModuleId(0),
             "main.nia",
-            "const VALUE = 1; fn main() i32 { VALUE }",
+            "let VALUE = 1; fn main() i32 { VALUE }",
         )]);
         let db = query_db(loaded);
 
@@ -476,5 +515,30 @@ fn main() i32 {
         assert!(invalidated.contains(&"type_resolution"), "{invalidated:?}");
 
         let _ = db.query(TypeResolutionQuery(ModuleId(0)));
+    }
+
+    #[test]
+    fn invalidates_module_defs_after_item_tree_changes() {
+        let loaded = loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            "pub struct S { value: i32 }",
+        )]);
+        let db = query_db(loaded);
+
+        let _ = db.query(ModuleDefsQuery(ModuleId(0)));
+        let invalidation = db.invalidate(ModuleItemTreeQuery(ModuleId(0)));
+        let invalidated = invalidation
+            .invalidated
+            .iter()
+            .map(|frame| frame.name)
+            .collect::<Vec<_>>();
+
+        assert!(invalidated.contains(&"module_item_tree"), "{invalidated:?}");
+        assert!(
+            invalidated.contains(&"active_module_item_tree"),
+            "{invalidated:?}"
+        );
+        assert!(invalidated.contains(&"module_defs"), "{invalidated:?}");
     }
 }

@@ -9,7 +9,7 @@ fn trait_impl_methods_are_checked_against_trait_requirements() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(&const self) i32;
+    fn show(& self) i32;
 }
 
 struct Point {
@@ -17,7 +17,7 @@ struct Point {
 }
 
 extend Point : Show {
-    fn show(&const self) i32 {
+    fn show(& self) i32 {
         self.x
     }
 }
@@ -40,8 +40,8 @@ fn trait_impl_rejects_extra_missing_and_mismatched_methods() {
         &root.join("main.nia"),
         r#"
 trait Show {
-    fn show(&const self) i32;
-    fn size(&const self) i32;
+    fn show(& self) i32;
+    fn size(& self) i32;
 }
 
 struct Point {
@@ -49,11 +49,11 @@ struct Point {
 }
 
 extend Point : Show {
-    fn show(&self) i32 {
+    fn show(self) i32 {
         self.x
     }
 
-    fn debug(&const self) i32 {
+    fn debug(& self) i32 {
         self.x
     }
 }
@@ -98,7 +98,7 @@ fn trait_impl_substitutes_self_in_required_signatures() {
         &root.join("main.nia"),
         r#"
 trait Same {
-    fn eq(&const self, other: &const Self) bool;
+    fn eq(& self, other: & Self) bool;
 }
 
 struct Point {
@@ -106,7 +106,7 @@ struct Point {
 }
 
 extend Point : Same {
-    fn eq(&const self, other: &const Point) bool {
+    fn eq(& self, other: & Point) bool {
         self.x == other.x
     }
 }
@@ -114,7 +114,7 @@ extend Point : Same {
 fn main() bool {
     var a: Point = { x: 1 };
     var b: Point = { x: 1 };
-    a.eq(&const b)
+    a.eq(& b)
 }
 "#,
     );
@@ -136,11 +136,11 @@ struct Point {
 }
 
 extend Point : traits::Show {
-    fn show(&const self) i32 {
+    fn show(& self) i32 {
         self.x
     }
 
-    fn debug(&const self) i32 {
+    fn debug(& self) i32 {
         self.x
     }
 }
@@ -154,8 +154,8 @@ fn main() i32 {
         &root.join("traits.nia"),
         r#"
 pub trait Show {
-    fn show(&const self) i32;
-    fn size(&const self) i32;
+    fn show(& self) i32;
+    fn size(& self) i32;
 }
 "#,
     );

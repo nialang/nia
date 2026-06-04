@@ -24,7 +24,7 @@ fn emits_declarations_for_checked_program() {
         &main,
         r#"
 extern fn puts(s: &u8) i32;
-const hello = c"hello";
+let hello = c"hello";
 
 extern struct Point {
     x: i32,

@@ -221,7 +221,7 @@ fn checks_global_initializers_and_inferred_global_types() {
         r#"
 var counter = 1;
 var flag = true;
-const limit = 10;
+let limit = 10;
 var bad: bool = 1;
 
 fn main() i32 {
@@ -241,7 +241,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("global is const"))
+            .any(|diagnostic| diagnostic.message.contains("global is let"))
     );
     assert!(
         !checked

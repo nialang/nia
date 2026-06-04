@@ -540,7 +540,9 @@ impl<'a> BodyChecker<'a> {
             Some(ty) => {
                 let explicit = self.ty_for_span(ty.span);
                 let value_ty = self.check_expr_with_expected(value, Some(explicit));
-                self.expect_expr_type(value, explicit, value_ty, "comptime initializer");
+                if !self.is_comptime_only_ty(value_ty) {
+                    self.expect_expr_type(value, explicit, value_ty, "comptime initializer");
+                }
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
@@ -577,21 +579,34 @@ impl<'a> BodyChecker<'a> {
             Some(ty) => {
                 let explicit = self.ty_for_span(ty.span);
                 let value_ty = self.check_expr_with_expected(value, Some(explicit));
-                self.expect_expr_type(value, explicit, value_ty, "global initializer");
-                self.materialize_inferred_array_type(explicit, value_ty)
-                    .unwrap_or(explicit)
+                if self.is_comptime_only_ty(value_ty) {
+                    self.reject_runtime_comptime_only_value(value.span, "global initializer");
+                    self.error()
+                } else {
+                    self.expect_expr_type(value, explicit, value_ty, "global initializer");
+                    self.materialize_inferred_array_type(explicit, value_ty)
+                        .unwrap_or(explicit)
+                }
             }
             None => {
-                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                let value_ty = if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
                     self.infer_array_literal_expr(value)
                 } else {
                     self.check_expr(value)
+                };
+                if self.is_comptime_only_ty(value_ty) {
+                    self.reject_runtime_comptime_only_value(value.span, "global initializer");
+                    self.error()
+                } else {
+                    value_ty
                 }
             }
         };
         self.global_types.insert(def_id, global_ty);
-        let init = self.lower_static_init(value);
-        self.global_inits.insert(self.global_def_id(def_id), init);
+        if global_ty != self.error() {
+            let init = self.lower_static_init(value);
+            self.global_inits.insert(self.global_def_id(def_id), init);
+        }
     }
 
     fn check_function_item(&mut self, item_span: Span, function: &FunctionItem) {
@@ -883,16 +898,29 @@ impl<'a> BodyChecker<'a> {
             (Some(ty), Some(value)) => {
                 let explicit = self.ty_for_span(ty.span);
                 let value_ty = self.check_expr_with_expected(value, Some(explicit));
-                self.expect_expr_type(value, explicit, value_ty, "binding initializer");
+                if binding.is_comptime && self.is_comptime_only_ty(value_ty) {
+                    // The initializer is validated by nia-comptime-check and has no runtime value.
+                } else if self.is_comptime_only_ty(value_ty) {
+                    self.reject_runtime_comptime_only_value(value.span, "binding initializer");
+                    return self.record_error_local_binding(span);
+                } else {
+                    self.expect_expr_type(value, explicit, value_ty, "binding initializer");
+                }
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
             (Some(ty), None) => self.ty_for_span(ty.span),
             (None, Some(value)) => {
-                if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
+                let value_ty = if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
                     self.infer_array_literal_expr(value)
                 } else {
                     self.check_expr(value)
+                };
+                if !binding.is_comptime && self.is_comptime_only_ty(value_ty) {
+                    self.reject_runtime_comptime_only_value(value.span, "binding initializer");
+                    self.error()
+                } else {
+                    value_ty
                 }
             }
             (None, None) => {
@@ -905,6 +933,19 @@ impl<'a> BodyChecker<'a> {
         };
         if let Some(local_id) = self.locals.local_defs.get(&span).copied() {
             self.local_types.insert(local_id, binding_ty);
+        }
+    }
+
+    fn reject_runtime_comptime_only_value(&mut self, span: Span, context: &str) {
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!("{context} cannot use comptime-only value"),
+        ));
+    }
+
+    fn record_error_local_binding(&mut self, span: Span) {
+        if let Some(local_id) = self.locals.local_defs.get(&span).copied() {
+            self.local_types.insert(local_id, self.error());
         }
     }
 
@@ -1027,11 +1068,7 @@ impl<'a> BodyChecker<'a> {
         result_ty.unwrap_or_else(|| self.void())
     }
 
-    fn check_switch_binding_pattern_is_single(
-        &mut self,
-        span: Span,
-        arm: &nia_ast::SwitchArm,
-    ) {
+    fn check_switch_binding_pattern_is_single(&mut self, span: Span, arm: &nia_ast::SwitchArm) {
         if arm.patterns.len() != 1 {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -1322,6 +1359,7 @@ impl<'a> BodyChecker<'a> {
         }
         match nia_comptime_engine::eval_expr(expr, self).ok()? {
             nia_comptime_engine::ComptimeValue::Int(value) => Some(value),
+            _ => None,
         }
     }
 
