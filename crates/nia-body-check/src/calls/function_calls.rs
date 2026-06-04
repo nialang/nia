@@ -541,6 +541,26 @@ impl<'a> BodyChecker<'a> {
                     );
                 }
             }
+            Some(TyKind::Optional { elem: pattern_elem }) => {
+                if let Some(TyKind::Optional { elem: actual_elem }) =
+                    self.interner.get(actual).cloned()
+                {
+                    self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
+                }
+            }
+            Some(TyKind::ErrorUnion {
+                error: pattern_error,
+                value: pattern_value,
+            }) => {
+                if let Some(TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                }) = self.interner.get(actual).cloned()
+                {
+                    self.infer_generics_from_type(pattern_error, actual_error, substitutions, span);
+                    self.infer_generics_from_type(pattern_value, actual_value, substitutions, span);
+                }
+            }
             Some(TyKind::Nominal {
                 def_id: pattern_def,
                 args: pattern_args,

@@ -223,6 +223,14 @@ impl<'a> FunctionIrValidator<'a> {
                     self.validate_expr(&arm.pattern)?;
                 }
             }
+            FunctionTerminator::Try {
+                value,
+                success_local,
+                ..
+            } => {
+                self.validate_expr(value)?;
+                self.require_local(*success_local, value.span, "try success local")?;
+            }
             FunctionTerminator::Loop { header, .. } => self.validate_for_header(header)?,
             FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
                 if let Some(value) = value {
@@ -266,6 +274,12 @@ impl<'a> FunctionIrValidator<'a> {
             }
             FunctionExprKind::CStringPointer { array: inner, .. }
             | FunctionExprKind::Unary { expr: inner, .. }
+            | FunctionExprKind::OptionalSome { expr: inner }
+            | FunctionExprKind::ErrorOk { expr: inner }
+            | FunctionExprKind::ErrorErr { expr: inner }
+            | FunctionExprKind::TaggedUnionTag { expr: inner }
+            | FunctionExprKind::TaggedUnionPayload { expr: inner }
+            | FunctionExprKind::Try { expr: inner }
             | FunctionExprKind::Discard(inner)
             | FunctionExprKind::Cast { expr: inner, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
@@ -337,6 +351,7 @@ impl<'a> FunctionIrValidator<'a> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
             | FunctionExprKind::FunctionInstance { .. }
@@ -443,6 +458,7 @@ impl FunctionTerminator {
             | FunctionTerminator::Next { span, .. }
             | FunctionTerminator::If { span, .. }
             | FunctionTerminator::Switch { span, .. }
+            | FunctionTerminator::Try { span, .. }
             | FunctionTerminator::Loop { span, .. }
             | FunctionTerminator::Return { span, .. }
             | FunctionTerminator::Tail { span, .. } => *span,

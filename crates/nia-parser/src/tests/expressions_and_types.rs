@@ -341,3 +341,111 @@ fn take(xs: &const &const [u8]) {}
     };
     assert!(matches!(elem.kind, TypeKind::Slice { .. }));
 }
+
+#[test]
+fn parses_optional_and_error_union_syntax() {
+    let (module, errors) = parse_module(
+        r#"
+fn maybe(x: bool, err: i32) i32!i32 {
+    var a: ?i32 = ?10i32;
+    var b: i32!i32 = !20i32;
+    var c: i32!i32 = err!;
+    if not x {
+        return err!;
+    }
+    b.?
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.return_type.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::ErrorUnion { .. })
+    ));
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::Binding(optional) = &body.stmts[0].kind else {
+        panic!("expected optional binding");
+    };
+    assert!(matches!(
+        optional.ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::Optional { .. })
+    ));
+    assert!(matches!(
+        optional.value.as_ref().map(|expr| &expr.kind),
+        Some(ExprKind::OptionalSome { .. })
+    ));
+    let StmtKind::Binding(ok) = &body.stmts[1].kind else {
+        panic!("expected error success binding");
+    };
+    assert!(matches!(
+        ok.value.as_ref().map(|expr| &expr.kind),
+        Some(ExprKind::ErrorOk { .. })
+    ));
+    let StmtKind::Binding(err_binding) = &body.stmts[2].kind else {
+        panic!("expected error value binding");
+    };
+    assert!(matches!(
+        err_binding.value.as_ref().map(|expr| &expr.kind),
+        Some(ExprKind::ErrorErr { .. })
+    ));
+    let StmtKind::Expr(if_expr) = &body.stmts[3].kind else {
+        panic!("expected if statement");
+    };
+    let ExprKind::If { cond, .. } = &if_expr.kind else {
+        panic!("expected if");
+    };
+    assert!(matches!(
+        cond.kind,
+        ExprKind::Unary {
+            op: UnaryOp::Not,
+            ..
+        }
+    ));
+    assert!(matches!(
+        body.tail.as_ref().map(|expr| &expr.kind),
+        Some(ExprKind::Try { .. })
+    ));
+}
+
+#[test]
+fn parses_optional_and_error_union_switch_patterns() {
+    let (module, errors) = parse_module(
+        r#"
+fn optional(value: ?i32) i32 {
+    switch value {
+        ?x => x,
+        null => 0,
+    }
+}
+
+fn error_union(value: i32!i32) i32 {
+    switch value {
+        !x => x,
+        e! => e,
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let Some(tail) = &body.tail else {
+        panic!("expected tail");
+    };
+    let ExprKind::Switch(switch) = &tail.kind else {
+        panic!("expected switch");
+    };
+    assert!(matches!(
+        switch.arms[0].patterns.as_slice(),
+        [SwitchPattern::OptionalSome { name, .. }] if name == "x"
+    ));
+    assert!(matches!(
+        switch.arms[1].patterns.as_slice(),
+        [SwitchPattern::OptionalNull { .. }]
+    ));
+}

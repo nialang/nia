@@ -559,11 +559,20 @@ pub(super) fn provide_function_bodies(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody> {
-    db.query(BodyCheckQuery(module_id))
+    let body_check = db.query(BodyCheckQuery(module_id));
+    body_check
         .ir
         .function_bodies
         .iter()
-        .map(|(def_id, body)| (*def_id, nia_function_lower::lower_function_body(body)))
+        .map(|(def_id, body)| {
+            (
+                *def_id,
+                nia_function_lower::lower_function_body_with_interner(
+                    body,
+                    &body_check.ir.interner,
+                ),
+            )
+        })
         .collect()
 }
 

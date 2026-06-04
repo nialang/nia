@@ -175,6 +175,48 @@ fn main() i32 {
             )],
         },
         EmitSmokeCase {
+            name: "optional_error_union_switch_patterns",
+            root: "main.nia",
+            files: &[(
+                "main.nia",
+                r#"
+fn maybe(flag: bool) ?i32 {
+    if flag {
+        ?4
+    } else {
+        null
+    }
+}
+
+fn wrap(flag: bool) i32!i32 {
+    if flag {
+        !7
+    } else {
+        3!
+    }
+}
+
+fn read_optional(value: ?i32) i32 {
+    switch value {
+        ?x => x,
+        null => 0,
+    }
+}
+
+fn read_error(value: i32!i32) i32 {
+    switch value {
+        !x => x,
+        e! => e,
+    }
+}
+
+fn main() i32 {
+    read_optional(maybe(true)) + read_error(wrap(false))
+}
+"#,
+            )],
+        },
+        EmitSmokeCase {
             name: "structural_associated_function_pointers",
             root: "main.nia",
             files: &[(
@@ -183,7 +225,7 @@ fn main() i32 {
 type Ptr[T] = &T;
 
 extend[T] Ptr[T] {
-    fn null(self) bool {
+    fn is_null(self) bool {
         self as usize == 0
     }
 
@@ -193,9 +235,9 @@ extend[T] Ptr[T] {
 }
 
 fn main(ptr: &i32) i32 {
-    var null: &const fn(&i32) bool = &const [&i32]::null;
+    var is_null: &const fn(&i32) bool = &const [&i32]::is_null;
     var zero: &const fn() usize = &const [&i32]::zero;
-    if null(ptr) or [&i32]::null(ptr) {
+    if is_null(ptr) or [&i32]::is_null(ptr) {
         zero() as i32
     } else {
         0

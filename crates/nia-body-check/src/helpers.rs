@@ -171,6 +171,18 @@ impl<'a> BodyChecker<'a> {
                     is_variadic,
                 })
             }
+            Some(TyKind::Optional { elem }) => {
+                let elem = *elem;
+                let elem = self.substitute_generics(elem, substitutions);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = *error;
+                let value = *value;
+                let error = self.substitute_generics(error, substitutions);
+                let value = self.substitute_generics(value, substitutions);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
             Some(TyKind::Nominal { def_id, args }) => {
                 let def_id = *def_id;
                 let args = args.clone();

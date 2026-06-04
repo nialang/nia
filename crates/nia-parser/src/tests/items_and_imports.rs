@@ -68,6 +68,68 @@ fn main() {
 }
 
 #[test]
+fn parses_item_and_field_attributes() {
+    let (module, errors) = parse_module(
+        r#"
+@[link_name("runtime_start")]
+pub extern fn start(argc: i32) i32;
+
+@[layout.version(1, true)]
+struct Header {
+    @[offset(0)]
+    magic: u32,
+    @[note(@builtin().target.os)]
+    flags: u16,
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+
+    assert_eq!(module.items[0].attributes.len(), 1);
+    let attr = &module.items[0].attributes[0];
+    assert_eq!(attr.path, vec!["link_name"]);
+    assert_eq!(attr.args.len(), 1);
+    assert!(matches!(attr.args[0].kind, ExprKind::String(_)));
+    assert!(matches!(module.items[0].vis, Visibility::Public));
+
+    assert_eq!(module.items[1].attributes.len(), 1);
+    let attr = &module.items[1].attributes[0];
+    assert_eq!(attr.path, vec!["layout", "version"]);
+    assert_eq!(attr.args.len(), 2);
+    assert!(matches!(attr.args[0].kind, ExprKind::Integer(_)));
+    assert!(matches!(attr.args[1].kind, ExprKind::Bool(true)));
+
+    let ItemKind::Struct(item_struct) = &module.items[1].kind else {
+        panic!("expected struct");
+    };
+    assert_eq!(item_struct.fields.len(), 2);
+    assert_eq!(item_struct.fields[0].attributes.len(), 1);
+    assert_eq!(item_struct.fields[0].attributes[0].path, vec!["offset"]);
+    assert_eq!(item_struct.fields[1].attributes.len(), 1);
+    assert_eq!(item_struct.fields[1].attributes[0].path, vec!["note"]);
+    assert!(matches!(
+        &item_struct.fields[1].attributes[0].args[0].kind,
+        ExprKind::Field { .. }
+    ));
+}
+
+#[test]
+fn rejects_bare_at_item_attribute_without_brackets() {
+    let (_, errors) = parse_module(
+        r#"
+@link_name("runtime_start")
+extern fn start() i32;
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected item")),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn rejects_extern_binding_without_var_or_const() {
     let (_module, errors) = parse_module("extern errno: i32;");
     assert!(

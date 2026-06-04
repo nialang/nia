@@ -1237,6 +1237,36 @@ fn substitute_imported_type(
             });
             target_interner.intern(TyKind::Range { kind: *kind, bound })
         }
+        Some(TyKind::Optional { elem }) => {
+            let elem = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *elem,
+                substitutions,
+                projection_context,
+            );
+            target_interner.intern(TyKind::Optional { elem })
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            let error = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *error,
+                substitutions,
+                projection_context,
+            );
+            let value = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *value,
+                substitutions,
+                projection_context,
+            );
+            target_interner.intern(TyKind::ErrorUnion { error, value })
+        }
         Some(TyKind::FunctionPointer {
             params,
             return_type,
@@ -1452,6 +1482,8 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::TraitObject { .. }
             | TyKind::Projection { .. }
             | TyKind::Range { .. }
+            | TyKind::Optional { .. }
+            | TyKind::ErrorUnion { .. }
             | TyKind::GenericParam(_),
         ) => true,
     }

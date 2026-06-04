@@ -51,6 +51,9 @@ pub enum TokenKind {
     In,
     Loop,
     Mut,
+    Never,
+    Not,
+    Null,
     Or,
     Pub,
     Return,
@@ -82,6 +85,7 @@ pub enum TokenKind {
     ColonColon,
     Semicolon,
     At,
+    Question,
     Underscore,
 
     Plus,

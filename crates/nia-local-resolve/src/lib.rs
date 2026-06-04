@@ -196,6 +196,7 @@ impl<'a> LocalResolver<'a> {
                 }
                 ItemKind::Import(_)
                 | ItemKind::Using(_)
+                | ItemKind::ComptimeIf(_)
                 | ItemKind::Struct(_)
                 | ItemKind::Union(_)
                 | ItemKind::TypeAlias(_) => {}
@@ -354,6 +355,11 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_type(return_type);
                 }
             }
+            TypeKind::Optional { elem } => self.resolve_type(elem),
+            TypeKind::ErrorUnion { error, value } => {
+                self.resolve_type(error);
+                self.resolve_type(value);
+            }
         }
     }
 
@@ -382,6 +388,7 @@ impl<'a> LocalResolver<'a> {
             | ExprKind::ByteChar(_)
             | ExprKind::Raw(_)
             | ExprKind::Bool(_)
+            | ExprKind::Null
             | ExprKind::Underscore
             | ExprKind::Error => {}
             ExprKind::BracketSuffix { callee, args } => {
@@ -412,7 +419,11 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(&field.value);
                 }
             }
-            ExprKind::Unary { expr, .. } => self.resolve_expr(expr),
+            ExprKind::Unary { expr, .. }
+            | ExprKind::OptionalSome { expr }
+            | ExprKind::ErrorOk { expr }
+            | ExprKind::ErrorErr { expr }
+            | ExprKind::Try { expr } => self.resolve_expr(expr),
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
                 self.resolve_expr(lhs);
                 self.resolve_expr(rhs);
@@ -468,12 +479,32 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_expr(else_branch);
                 }
             }
+            ExprKind::ComptimeIf(comptime_if) => {
+                self.resolve_expr(&comptime_if.cond);
+                self.resolve_block(&comptime_if.then_branch);
+                if let Some(else_branch) = &comptime_if.else_branch {
+                    self.resolve_expr(else_branch);
+                }
+            }
             ExprKind::Switch(switch) => {
                 self.resolve_expr(&switch.target);
                 for arm in &switch.arms {
+                    self.push_scope();
                     for pattern in &arm.patterns {
                         match pattern {
                             SwitchPattern::Default => {}
+                            SwitchPattern::OptionalSome { name, span }
+                            | SwitchPattern::ErrorOk { name, span }
+                            | SwitchPattern::ErrorErr { name, span } => {
+                                self.define(
+                                    name,
+                                    LocalKind::Binding,
+                                    *span,
+                                    SyntaxKind::Pattern,
+                                    "duplicate switch pattern binding",
+                                );
+                            }
+                            SwitchPattern::OptionalNull { .. } => {}
                             SwitchPattern::Expr(pattern) => self.resolve_expr(pattern),
                             SwitchPattern::Range { start, end, .. } => {
                                 self.resolve_expr(start);
@@ -486,6 +517,7 @@ impl<'a> LocalResolver<'a> {
                         SwitchArmBody::Stmt(stmt) => self.resolve_stmt(stmt),
                         SwitchArmBody::Block(block) => self.resolve_block(block),
                     }
+                    self.pop_scope();
                 }
             }
         }

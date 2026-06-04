@@ -230,6 +230,9 @@ impl<'a> ModuleLowerer<'a> {
                     self.enqueue_function_instances_from_expr(&arm.pattern, seen, queue);
                 }
             }
+            FunctionTerminator::Try { value, .. } => {
+                self.enqueue_function_instances_from_expr(value, seen, queue);
+            }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(expr) => {
                     self.enqueue_function_instances_from_expr(expr, seen, queue);
@@ -281,6 +284,12 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Discard(inner)
             | FunctionExprKind::RangeBound { range: inner, .. }
             | FunctionExprKind::Cast { expr: inner, .. }
+            | FunctionExprKind::OptionalSome { expr: inner }
+            | FunctionExprKind::ErrorOk { expr: inner }
+            | FunctionExprKind::ErrorErr { expr: inner }
+            | FunctionExprKind::TaggedUnionTag { expr: inner }
+            | FunctionExprKind::TaggedUnionPayload { expr: inner }
+            | FunctionExprKind::Try { expr: inner }
             | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
             | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {
                 self.enqueue_function_instances_from_expr(inner, seen, queue);
@@ -363,6 +372,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
@@ -512,6 +522,13 @@ pub(crate) fn contains_generic_param(
                 .iter()
                 .any(|param| contains_generic_param(*param, ty_kind, cache.as_deref_mut()))
                 || contains_generic_param(return_type, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::Optional { elem }) => {
+            contains_generic_param(elem, ty_kind, cache.as_deref_mut())
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            contains_generic_param(error, ty_kind, cache.as_deref_mut())
+                || contains_generic_param(value, ty_kind, cache.as_deref_mut())
         }
         Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
             .iter()

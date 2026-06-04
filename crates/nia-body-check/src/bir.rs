@@ -228,6 +228,63 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .map(|pattern| match pattern {
                             SwitchPattern::Default => TypedSwitchPattern::Default,
+                            SwitchPattern::OptionalSome { name, span } => {
+                                let local_id = self
+                                    .locals
+                                    .local_defs
+                                    .get(span)
+                                    .copied()
+                                    .unwrap_or(nia_ids::LocalId(u32::MAX));
+                                TypedSwitchPattern::OptionalSome {
+                                    local_id,
+                                    name: name.clone(),
+                                    ty: self
+                                        .local_types
+                                        .get(&local_id)
+                                        .copied()
+                                        .unwrap_or_else(|| self.error()),
+                                    span: *span,
+                                }
+                            }
+                            SwitchPattern::OptionalNull { span } => {
+                                TypedSwitchPattern::OptionalNull { span: *span }
+                            }
+                            SwitchPattern::ErrorOk { name, span } => {
+                                let local_id = self
+                                    .locals
+                                    .local_defs
+                                    .get(span)
+                                    .copied()
+                                    .unwrap_or(nia_ids::LocalId(u32::MAX));
+                                TypedSwitchPattern::ErrorOk {
+                                    local_id,
+                                    name: name.clone(),
+                                    ty: self
+                                        .local_types
+                                        .get(&local_id)
+                                        .copied()
+                                        .unwrap_or_else(|| self.error()),
+                                    span: *span,
+                                }
+                            }
+                            SwitchPattern::ErrorErr { name, span } => {
+                                let local_id = self
+                                    .locals
+                                    .local_defs
+                                    .get(span)
+                                    .copied()
+                                    .unwrap_or(nia_ids::LocalId(u32::MAX));
+                                TypedSwitchPattern::ErrorErr {
+                                    local_id,
+                                    name: name.clone(),
+                                    ty: self
+                                        .local_types
+                                        .get(&local_id)
+                                        .copied()
+                                        .unwrap_or_else(|| self.error()),
+                                    span: *span,
+                                }
+                            }
                             SwitchPattern::Expr(expr) => {
                                 TypedSwitchPattern::Expr(self.lower_expr(expr))
                             }
@@ -381,6 +438,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Char(text) => TypedExprKind::Char(decode_char_literal(text).unwrap_or(0)),
             ExprKind::ByteChar(text) => TypedExprKind::ByteChar(text.clone()),
             ExprKind::Bool(value) => TypedExprKind::Bool(*value),
+            ExprKind::Null => TypedExprKind::Null,
             ExprKind::Ident(_) => {
                 if let Some(local_id) = self.local_comptime_use(expr.span) {
                     return self.lower_comptime_value_expr(
@@ -541,6 +599,18 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            ExprKind::OptionalSome { expr: inner } => TypedExprKind::OptionalSome {
+                expr: Box::new(self.lower_expr(inner)),
+            },
+            ExprKind::ErrorOk { expr: inner } => TypedExprKind::ErrorOk {
+                expr: Box::new(self.lower_expr(inner)),
+            },
+            ExprKind::ErrorErr { expr: inner } => TypedExprKind::ErrorErr {
+                expr: Box::new(self.lower_expr(inner)),
+            },
+            ExprKind::Try { expr: inner } => TypedExprKind::Try {
+                expr: Box::new(self.lower_expr(inner)),
+            },
             ExprKind::Binary { lhs, op, rhs }
                 if let Some(trait_id) = BuiltinOperatorOp::Binary(*op).trait_id() =>
             {
@@ -686,6 +756,7 @@ impl<'a> BodyChecker<'a> {
                     .as_ref()
                     .map(|else_branch| Box::new(self.lower_expr(else_branch))),
             },
+            ExprKind::ComptimeIf(_) => TypedExprKind::Error,
             ExprKind::Switch(switch) => TypedExprKind::Switch(Box::new(self.lower_switch(switch))),
         };
         TypedExpr {

@@ -939,6 +939,37 @@ impl<'a> BodyChecker<'a> {
                         }
                         has_default = true;
                     }
+                    nia_ast::SwitchPattern::OptionalSome { span, .. } => {
+                        self.check_switch_binding_pattern_is_single(*span, arm);
+                        self.check_switch_optional_some_pattern(
+                            *span,
+                            target_ty,
+                            &mut covered_intervals,
+                        );
+                    }
+                    nia_ast::SwitchPattern::OptionalNull { span } => {
+                        self.check_switch_optional_null_pattern(
+                            *span,
+                            target_ty,
+                            &mut covered_intervals,
+                        );
+                    }
+                    nia_ast::SwitchPattern::ErrorOk { span, .. } => {
+                        self.check_switch_binding_pattern_is_single(*span, arm);
+                        self.check_switch_error_ok_pattern(
+                            *span,
+                            target_ty,
+                            &mut covered_intervals,
+                        );
+                    }
+                    nia_ast::SwitchPattern::ErrorErr { span, .. } => {
+                        self.check_switch_binding_pattern_is_single(*span, arm);
+                        self.check_switch_error_err_pattern(
+                            *span,
+                            target_ty,
+                            &mut covered_intervals,
+                        );
+                    }
                     nia_ast::SwitchPattern::Expr(pattern) => {
                         self.check_switch_expr_pattern(
                             pattern,
@@ -966,6 +997,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            self.record_switch_pattern_local_types(&arm.patterns, target_ty);
             if has_default && arm_index + 1 != switch.arms.len() {
                 // The following arm will get the concrete unreachable diagnostic
                 // above; this branch only keeps the default state explicit.
@@ -986,7 +1018,194 @@ impl<'a> BodyChecker<'a> {
                 &covered_variants,
             );
         }
+        self.check_optional_error_switch_exhaustive(
+            switch.target.span,
+            target_ty,
+            has_default,
+            &covered_intervals,
+        );
         result_ty.unwrap_or_else(|| self.void())
+    }
+
+    fn check_switch_binding_pattern_is_single(
+        &mut self,
+        span: Span,
+        arm: &nia_ast::SwitchArm,
+    ) {
+        if arm.patterns.len() != 1 {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "switch pattern binding must be the only pattern in its arm",
+            ));
+        }
+    }
+
+    fn record_switch_pattern_local_types(
+        &mut self,
+        patterns: &[nia_ast::SwitchPattern],
+        target_ty: InternedTyId,
+    ) {
+        let normalized = self.normalization.normalize(target_ty);
+        for pattern in patterns {
+            let (span, ty) = match pattern {
+                nia_ast::SwitchPattern::OptionalSome { span, .. } => {
+                    let ty = match self.interner.get(normalized) {
+                        Some(TyKind::Optional { elem }) => *elem,
+                        _ => self.error(),
+                    };
+                    (*span, ty)
+                }
+                nia_ast::SwitchPattern::ErrorOk { span, .. } => {
+                    let ty = match self.interner.get(normalized) {
+                        Some(TyKind::ErrorUnion { value, .. }) => *value,
+                        _ => self.error(),
+                    };
+                    (*span, ty)
+                }
+                nia_ast::SwitchPattern::ErrorErr { span, .. } => {
+                    let ty = match self.interner.get(normalized) {
+                        Some(TyKind::ErrorUnion { error, .. }) => *error,
+                        _ => self.error(),
+                    };
+                    (*span, ty)
+                }
+                _ => continue,
+            };
+            if let Some(local_id) = self.locals.local_defs.get(&span).copied() {
+                self.local_types.insert(local_id, ty);
+            }
+        }
+    }
+
+    fn check_switch_optional_some_pattern(
+        &mut self,
+        span: Span,
+        target_ty: InternedTyId,
+        covered_intervals: &mut Vec<SwitchInterval>,
+    ) {
+        match self.interner.get(self.normalization.normalize(target_ty)) {
+            Some(TyKind::Optional { .. }) => self.check_switch_interval_overlap(
+                SwitchInterval {
+                    start: 1,
+                    end: 1,
+                    span,
+                },
+                covered_intervals,
+            ),
+            _ => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "`?name` switch pattern requires an optional target, found `{}`",
+                    self.ty_name(target_ty)
+                ),
+            )),
+        }
+    }
+
+    fn check_switch_optional_null_pattern(
+        &mut self,
+        span: Span,
+        target_ty: InternedTyId,
+        covered_intervals: &mut Vec<SwitchInterval>,
+    ) {
+        match self.interner.get(self.normalization.normalize(target_ty)) {
+            Some(TyKind::Optional { .. }) => self.check_switch_interval_overlap(
+                SwitchInterval {
+                    start: 0,
+                    end: 0,
+                    span,
+                },
+                covered_intervals,
+            ),
+            _ => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "`null` switch pattern requires an optional target, found `{}`",
+                    self.ty_name(target_ty)
+                ),
+            )),
+        }
+    }
+
+    fn check_switch_error_ok_pattern(
+        &mut self,
+        span: Span,
+        target_ty: InternedTyId,
+        covered_intervals: &mut Vec<SwitchInterval>,
+    ) {
+        match self.interner.get(self.normalization.normalize(target_ty)) {
+            Some(TyKind::ErrorUnion { .. }) => self.check_switch_interval_overlap(
+                SwitchInterval {
+                    start: 0,
+                    end: 0,
+                    span,
+                },
+                covered_intervals,
+            ),
+            _ => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "`!name` switch pattern requires an error union target, found `{}`",
+                    self.ty_name(target_ty)
+                ),
+            )),
+        }
+    }
+
+    fn check_switch_error_err_pattern(
+        &mut self,
+        span: Span,
+        target_ty: InternedTyId,
+        covered_intervals: &mut Vec<SwitchInterval>,
+    ) {
+        match self.interner.get(self.normalization.normalize(target_ty)) {
+            Some(TyKind::ErrorUnion { .. }) => self.check_switch_interval_overlap(
+                SwitchInterval {
+                    start: 1,
+                    end: 1,
+                    span,
+                },
+                covered_intervals,
+            ),
+            _ => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!(
+                    "`name!` switch pattern requires an error union target, found `{}`",
+                    self.ty_name(target_ty)
+                ),
+            )),
+        }
+    }
+
+    fn check_optional_error_switch_exhaustive(
+        &mut self,
+        span: Span,
+        target_ty: InternedTyId,
+        has_default: bool,
+        covered_intervals: &[SwitchInterval],
+    ) {
+        if has_default {
+            return;
+        }
+        let normalized = self.normalization.normalize(target_ty);
+        let Some(kind) = (match self.interner.get(normalized) {
+            Some(TyKind::Optional { .. }) => Some("optional"),
+            Some(TyKind::ErrorUnion { .. }) => Some("error union"),
+            _ => None,
+        }) else {
+            return;
+        };
+        let covers = |tag: i128| {
+            covered_intervals
+                .iter()
+                .any(|interval| interval.start <= tag && tag <= interval.end)
+        };
+        if !covers(0) || !covers(1) {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("non-exhaustive {kind} switch"),
+            ));
+        }
     }
 
     fn check_switch_expr_pattern(

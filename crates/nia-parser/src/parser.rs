@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, ArrayLen, AssignOp, BinaryOp, BindingItem, BindingStmt, Block, BracketArg,
-    EnumItem, EnumVariant, Expr, ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit,
-    ForBinding, ForInStmt, FunctionItem, ImportItem, ImportPath, ImportPathKind, Item, ItemKind,
-    LoopStmt, Module, Param, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm,
-    SwitchArmBody, SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
-    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
-    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
-    WhileStmt,
+    ArrayElements, ArrayLen, AssignOp, Attribute, BinaryOp, BindingItem, BindingStmt, Block,
+    BracketArg, ComptimeIfExpr, ComptimeIfItem, ComptimeIfItemElse, EnumItem, EnumVariant, Expr,
+    ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForBinding, ForInStmt,
+    FunctionItem, ImportItem, ImportPath, ImportPathKind, Item, ItemKind, LoopStmt, Module, Param,
+    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
+    SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg,
+    TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment,
+    UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};
@@ -113,9 +113,20 @@ impl Parser {
         );
     }
 
-    fn make_item(&mut self, span: Span, vis: Visibility, kind: ItemKind) -> Item {
+    fn make_item(
+        &mut self,
+        span: Span,
+        attributes: Vec<Attribute>,
+        vis: Visibility,
+        kind: ItemKind,
+    ) -> Item {
         self.record_origin(NodeSyntaxKind::Item, span);
-        Item { span, vis, kind }
+        Item {
+            span,
+            attributes,
+            vis,
+            kind,
+        }
     }
 
     fn make_param(
@@ -227,6 +238,10 @@ impl Parser {
         self.tokens.at(kind)
     }
 
+    fn at_comptime_if(&self) -> bool {
+        self.at(TokenKind::Comptime) && matches!(self.tokens.nth_kind(1), Some(TokenKind::If))
+    }
+
     fn bump(&mut self) -> SyntaxToken {
         self.tokens.bump()
     }
@@ -277,6 +292,11 @@ impl Parser {
             if self.eat(TokenKind::Semicolon).is_some() {
                 return;
             }
+            if self.at(TokenKind::At)
+                && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket))
+            {
+                return;
+            }
             if matches!(
                 self.peek().kind,
                 TokenKind::Import
@@ -298,6 +318,11 @@ impl Parser {
     fn recover_to_member_boundary(&mut self) {
         while !self.at(TokenKind::Eof) && !self.at(TokenKind::RBrace) {
             if self.eat(TokenKind::Comma).is_some() || self.eat(TokenKind::Semicolon).is_some() {
+                return;
+            }
+            if self.at(TokenKind::At)
+                && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket))
+            {
                 return;
             }
             self.bump();

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, ArrayLen, Block, Expr, ExprKind, FunctionItem, IndexArg, Item, ItemKind, Module,
-    Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind, TypeRef, WhereClause,
+    ArrayElements, ArrayLen, Block, ComptimeIfItemElse, Expr, ExprKind, FunctionItem, IndexArg,
+    Item, ItemKind, Module, Stmt, StmtKind, SwitchArmBody, SwitchPattern, TypeArg, TypeKind,
+    TypeRef, WhereClause,
 };
 
 pub trait Visitor<'ast> {
@@ -39,6 +40,15 @@ pub fn walk_module<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, module: &'a
 pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast Item) {
     match &item.kind {
         ItemKind::Import(_) | ItemKind::Using(_) => {}
+        ItemKind::ComptimeIf(comptime_if) => {
+            visitor.visit_expr(&comptime_if.cond);
+            for item in &comptime_if.then_items {
+                visitor.visit_item(item);
+            }
+            if let Some(else_branch) = &comptime_if.else_branch {
+                walk_comptime_if_item_else(visitor, else_branch);
+            }
+        }
         ItemKind::Binding(binding) => {
             if let Some(ty) = &binding.ty {
                 visitor.visit_type(ty);
@@ -96,6 +106,28 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             visitor.visit_type(&alias.ty);
         }
         ItemKind::Function(function) => visitor.visit_function(function),
+    }
+}
+
+fn walk_comptime_if_item_else<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    else_branch: &'ast ComptimeIfItemElse,
+) {
+    match else_branch {
+        ComptimeIfItemElse::If(comptime_if) => {
+            visitor.visit_expr(&comptime_if.cond);
+            for item in &comptime_if.then_items {
+                visitor.visit_item(item);
+            }
+            if let Some(else_branch) = &comptime_if.else_branch {
+                walk_comptime_if_item_else(visitor, else_branch);
+            }
+        }
+        ComptimeIfItemElse::Items(items) => {
+            for item in items {
+                visitor.visit_item(item);
+            }
+        }
     }
 }
 
@@ -178,6 +210,11 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
                 visitor.visit_type(return_type);
             }
         }
+        TypeKind::Optional { elem } => visitor.visit_type(elem),
+        TypeKind::ErrorUnion { error, value } => {
+            visitor.visit_type(error);
+            visitor.visit_type(value);
+        }
     }
 }
 
@@ -235,6 +272,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
         | ExprKind::ByteChar(_)
         | ExprKind::Raw(_)
         | ExprKind::Bool(_)
+        | ExprKind::Null
         | ExprKind::Ident(_)
         | ExprKind::Underscore => {}
         ExprKind::Builtin { type_arg, .. } => {
@@ -290,7 +328,11 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(&field.value);
             }
         }
-        ExprKind::Unary { expr, .. } => visitor.visit_expr(expr),
+        ExprKind::Unary { expr, .. }
+        | ExprKind::OptionalSome { expr }
+        | ExprKind::ErrorOk { expr }
+        | ExprKind::ErrorErr { expr }
+        | ExprKind::Try { expr } => visitor.visit_expr(expr),
         ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
             visitor.visit_expr(lhs);
             visitor.visit_expr(rhs);
@@ -340,12 +382,23 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, expr: &'ast E
                 visitor.visit_expr(else_branch);
             }
         }
+        ExprKind::ComptimeIf(comptime_if) => {
+            visitor.visit_expr(&comptime_if.cond);
+            visitor.visit_block(&comptime_if.then_branch);
+            if let Some(else_branch) = &comptime_if.else_branch {
+                visitor.visit_expr(else_branch);
+            }
+        }
         ExprKind::Switch(switch) => {
             visitor.visit_expr(&switch.target);
             for arm in &switch.arms {
                 for pattern in &arm.patterns {
                     match pattern {
                         SwitchPattern::Default => {}
+                        SwitchPattern::OptionalSome { .. }
+                        | SwitchPattern::OptionalNull { .. }
+                        | SwitchPattern::ErrorOk { .. }
+                        | SwitchPattern::ErrorErr { .. } => {}
                         SwitchPattern::Expr(pattern) => visitor.visit_expr(pattern),
                         SwitchPattern::Range { start, end, .. } => {
                             visitor.visit_expr(start);

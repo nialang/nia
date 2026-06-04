@@ -405,6 +405,15 @@ impl MonoCollector<'_> {
                     },
                 )
             }
+            TyKind::Optional { elem } => {
+                let elem = self.instantiate_ty(module_id, elem, substitutions);
+                self.intern_working_ty(module_id, TyKind::Optional { elem })
+            }
+            TyKind::ErrorUnion { error, value } => {
+                let error = self.instantiate_ty(module_id, error, substitutions);
+                let value = self.instantiate_ty(module_id, value, substitutions);
+                self.intern_working_ty(module_id, TyKind::ErrorUnion { error, value })
+            }
             TyKind::BuiltinTrait { trait_id, args } => {
                 let args = args
                     .iter()

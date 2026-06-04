@@ -344,6 +344,7 @@ dependencies = [
  "nia-function-ir",
  "nia-ids",
  "nia-span",
+ "nia-ty",
 ]
 
 [[package]]
@@ -436,6 +437,7 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-syntax",
+ "nia-target-config",
 ]
 
 [[package]]
@@ -545,6 +547,15 @@ dependencies = [
  "nia-lexer",
  "nia-node-id",
  "nia-source",
+ "nia-span",
+]
+
+[[package]]
+name = "nia-target-config"
+version = "0.3.2"
+dependencies = [
+ "nia-ast",
+ "nia-diagnostic",
  "nia-span",
 ]
 

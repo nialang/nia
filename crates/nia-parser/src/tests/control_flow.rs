@@ -46,6 +46,35 @@ fn main() {
 }
 
 #[test]
+fn parses_comptime_if_items_and_expressions() {
+    let (module, errors) = parse_module(
+        r#"
+comptime if true {
+    fn selected() i32 { 1 }
+} else {
+    fn skipped() i32 { 2 }
+}
+
+fn main() i32 {
+    comptime if true {
+        1
+    } else {
+        missing_name
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(matches!(module.items[0].kind, ItemKind::ComptimeIf(_)));
+    let ItemKind::Function(function) = &module.items[1].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let tail = body.tail.as_ref().expect("expected tail");
+    assert!(matches!(tail.kind, ExprKind::ComptimeIf(_)));
+}
+
+#[test]
 fn rejects_var_in_for_in_binding() {
     let (_module, errors) = parse_module(
         r#"

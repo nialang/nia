@@ -278,6 +278,10 @@ impl<'a> LayoutComputer<'a> {
             }),
             Some(TyKind::Range { kind, bound }) => self.range_layout(span, kind, bound),
             Some(TyKind::Array { len, elem }) => self.array_layout(span, len, elem),
+            Some(TyKind::Optional { elem }) => self.optional_layout(span, elem),
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.error_union_layout(span, error, value)
+            }
             Some(TyKind::Nominal { def_id, args }) => self.nominal_layout(span, def_id, &args),
             Some(
                 TyKind::Error
@@ -397,6 +401,22 @@ impl<'a> LayoutComputer<'a> {
             ),
             align: bound_layout.align,
         })
+    }
+
+    fn optional_layout(&mut self, span: Span, elem: InternedTyId) -> Option<TypeLayout> {
+        let elem_layout = self.layout_ty(elem, span)?;
+        Some(tagged_union_layout(&[elem_layout]))
+    }
+
+    fn error_union_layout(
+        &mut self,
+        span: Span,
+        error: InternedTyId,
+        value: InternedTyId,
+    ) -> Option<TypeLayout> {
+        let error_layout = self.layout_ty(error, span)?;
+        let value_layout = self.layout_ty(value, span)?;
+        Some(tagged_union_layout(&[error_layout, value_layout]))
     }
 
     fn nominal_layout(
@@ -699,6 +719,15 @@ fn substitute_generics(
                 is_variadic,
             })
         }
+        Some(TyKind::Optional { elem }) => {
+            let elem = substitute_generics(interner, elem, substitutions);
+            interner.intern(TyKind::Optional { elem })
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            let error = substitute_generics(interner, error, substitutions);
+            let value = substitute_generics(interner, value, substitutions);
+            interner.intern(TyKind::ErrorUnion { error, value })
+        }
         Some(TyKind::Nominal { def_id, args }) => {
             let args = args
                 .into_iter()
@@ -754,6 +783,22 @@ fn align_to(value: u64, align: u64) -> u64 {
         value
     } else {
         value.div_ceil(align) * align
+    }
+}
+
+fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
+    let tag = TypeLayout { size: 1, align: 1 };
+    let payload_size = payloads.iter().map(|layout| layout.size).max().unwrap_or(0);
+    let payload_align = payloads
+        .iter()
+        .map(|layout| layout.align)
+        .max()
+        .unwrap_or(1);
+    let align = tag.align.max(payload_align);
+    let payload_offset = align_to(tag.size, payload_align);
+    TypeLayout {
+        size: align_to(payload_offset.saturating_add(payload_size), align),
+        align,
     }
 }
 

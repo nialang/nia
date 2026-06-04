@@ -133,6 +133,80 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(())
     }
 
+    pub(super) fn emit_optional_null(
+        &mut self,
+        expr: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        self.emit_tagged_union(expr, 0, None)
+    }
+
+    pub(super) fn emit_optional_some(
+        &mut self,
+        expr: &FunctionExpr,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        self.emit_tagged_union(expr, 1, Some(value))
+    }
+
+    pub(super) fn emit_error_union_value(
+        &mut self,
+        expr: &FunctionExpr,
+        tag: u8,
+        value: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        self.emit_tagged_union(expr, tag, Some(value))
+    }
+
+    fn emit_tagged_union(
+        &mut self,
+        expr: &FunctionExpr,
+        tag: u8,
+        payload: Option<&FunctionExpr>,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let ptr = self
+            .builder
+            .build_alloca(ty, "taggedtmp")
+            .map_err(|_| self.error(expr.span, "failed to allocate tagged union literal"))?;
+        self.emit_tagged_union_into(expr, tag, payload, ptr)?;
+        self.builder
+            .build_load(ty, ptr, "taggedlit")
+            .map_err(|_| self.error(expr.span, "failed to load tagged union literal"))
+    }
+
+    pub(super) fn emit_tagged_union_into(
+        &mut self,
+        expr: &FunctionExpr,
+        tag: u8,
+        payload: Option<&FunctionExpr>,
+        ptr: PointerValue<'ctx>,
+    ) -> Result<(), Diagnostic> {
+        let ty = self.module.llvm_basic_type(expr.ty, expr.span)?;
+        let tag_ptr = self
+            .builder
+            .build_struct_gep(ty, ptr, 0, "tagptr")
+            .map_err(|_| self.error(expr.span, "failed to build tagged union tag address"))?;
+        let tag_value = self.module.context.i8_type().const_int(tag.into(), false);
+        self.builder
+            .build_store(tag_ptr, tag_value)
+            .map_err(|_| self.error(expr.span, "failed to store tagged union tag"))?;
+        if let Some(payload) = payload
+            && !self.is_zero_sized(payload.ty)
+        {
+            let storage_ptr = self
+                .builder
+                .build_struct_gep(ty, ptr, 1, "payloadptr")
+                .map_err(|_| {
+                    self.error(expr.span, "failed to build tagged union payload address")
+                })?;
+            let value = self.emit_expr(payload)?;
+            self.builder
+                .build_store(storage_ptr, value)
+                .map_err(|_| self.error(payload.span, "failed to store tagged union payload"))?;
+        }
+        Ok(())
+    }
+
     pub(super) fn emit_enum_variant(
         &self,
         expr: &FunctionExpr,

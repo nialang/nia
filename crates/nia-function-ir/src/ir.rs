@@ -107,6 +107,13 @@ pub enum FunctionTerminator {
         fallback: FunctionBlockId,
         span: Span,
     },
+    Try {
+        value: FunctionExpr,
+        kind: FunctionTryKind,
+        success_local: LocalId,
+        success_target: FunctionBlockId,
+        span: Span,
+    },
     Loop {
         header: FunctionForHeader,
         body: FunctionBlockId,
@@ -128,6 +135,12 @@ pub enum FunctionTerminator {
 pub struct FunctionSwitchArm {
     pub pattern: FunctionExpr,
     pub target: FunctionBlockId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionTryKind {
+    Optional,
+    ErrorUnion,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -153,6 +166,7 @@ pub enum FunctionExprKind {
     Char(u32),
     ByteChar(String),
     Bool(bool),
+    Null,
     Local(LocalId),
     Global(nia_ids::GlobalDefId),
     Function(nia_ids::GlobalDefId),
@@ -185,6 +199,24 @@ pub enum FunctionExprKind {
     },
     Unary {
         op: UnaryOp,
+        expr: Box<FunctionExpr>,
+    },
+    OptionalSome {
+        expr: Box<FunctionExpr>,
+    },
+    ErrorOk {
+        expr: Box<FunctionExpr>,
+    },
+    ErrorErr {
+        expr: Box<FunctionExpr>,
+    },
+    TaggedUnionTag {
+        expr: Box<FunctionExpr>,
+    },
+    TaggedUnionPayload {
+        expr: Box<FunctionExpr>,
+    },
+    Try {
         expr: Box<FunctionExpr>,
     },
     AddrOf(FunctionPlace),
@@ -458,6 +490,7 @@ impl FunctionTerminator {
                 .map(|arm| arm.target)
                 .chain(default.or(Some(*fallback)))
                 .collect(),
+            FunctionTerminator::Try { success_target, .. } => vec![*success_target],
             FunctionTerminator::Loop {
                 body, break_target, ..
             } => vec![*body, *break_target],

@@ -128,6 +128,9 @@ for
 if
 import
 mut
+never
+not
+null
 or
 pub
 return
@@ -142,8 +145,9 @@ void
 where
 ```
 
-Primitive type names such as `i32`, `u8`, `usize`, `bool`, `char`, and `void`
-are reserved type names. `!` is the never type marker, not a keyword.
+Primitive type names such as `i32`, `u8`, `usize`, `bool`, `char`, `void`, and
+`never` are reserved type names. A standalone `!` is reserved for error-union
+syntax, not logical negation or the never type.
 
 ### 3.4 Literals
 
@@ -362,17 +366,17 @@ Other primitive types:
 bool
 char
 void
-!
+never
 ```
 
 `void` means the expression or function produces no meaningful value. If a
 function declaration omits its return type, the return type is `void`.
 
-`!` is the never type. It marks expressions that never produce a normal value,
-such as `return`, `break`, `continue`, and calls to functions returning `!`.
-Never expressions may be used where ordinary values are expected because control
-flow does not continue to the use site. `!` may be used as a function return type
-or function pointer return type. It is not a valid variable, field, parameter, or
+`never` marks expressions that never produce a normal value, such as `return`,
+`break`, `continue`, and calls to functions returning `never`. Never expressions
+may be used where ordinary values are expected because control flow does not
+continue to the use site. `never` may be used as a function return type or
+function pointer return type. It is not a valid variable, field, parameter, or
 array element type.
 
 ### 4.2 Pointers
@@ -663,7 +667,67 @@ explicit upper bound uses the explicit range length.
 `slice[index]` accesses an element. Indexing `&const [T]` produces an addressable
 but non-writable place. Indexing `&[T]` produces a writable place.
 
-### 4.5 Structs
+### 4.5 Optional And Error Union Types
+
+Optional types are written `?T`. `null` constructs the empty value and `?value`
+constructs the present value:
+
+```nia
+var a: ?i32 = ?10i32;
+var b: ?i32 = null;
+```
+
+`null` and `?value` require an expected optional type when the full optional
+type cannot otherwise be inferred.
+
+Error union types are written `E!T`, where `E` is the error value type and `T`
+is the success value type. `!value` constructs the success case and `error!`
+constructs the error case:
+
+```nia
+var ok: i32!i32 = !10i32;
+var err: i32!i32 = 2i32!;
+```
+
+Both error-union constructors require an expected `E!T` type. A binding such as
+`var x = !10i32;` is invalid because the error type `E` cannot be inferred from
+the success value alone.
+
+The postfix propagation operator `.?` unwraps an optional or error union inside a
+function. For `?T`, `value.?` returns `T` on the present path and returns `null`
+from the current function on the empty path. For `E!T`, `value.?` returns `T` on
+the success path and propagates the error value from the current function on the
+error path. Optional propagation requires an optional function return type. Error
+propagation requires an error-union function return type with the same error
+type.
+
+```nia
+fn read(value: i32!i32) i32!i32 {
+    var x = value.?;
+    !x
+}
+```
+
+Switch can destructure optional and error-union values:
+
+```nia
+switch maybe {
+    ?x => x,
+    null => 0,
+}
+
+switch result {
+    !x => x,
+    err! => err,
+}
+```
+
+`?name` binds the present optional payload. `null` matches the empty optional
+case. `!name` binds the error-union success payload. `name!` binds the
+error-union error payload. A binding pattern must be the only pattern in its arm,
+because the binding is only initialized on that case.
+
+### 4.6 Structs
 
 Struct declaration:
 
@@ -835,7 +899,39 @@ require the function item to be a place. `&function_item` is not allowed.
 
 ## 5. Declarations
 
-### 5.1 Functions
+### 5.1 Attributes
+
+Attributes are AST marks written before an item or aggregate field:
+
+```nia
+@[link_name("runtime_start")]
+extern fn start(argc: i32) i32;
+
+struct Header {
+    @[offset(0)]
+    magic: u32,
+}
+```
+
+Attribute syntax is `@[name]` or `@[path.name(args...)]`. Attribute names use
+identifier path segments separated by `.`. Attribute arguments use normal
+expression syntax and are stored with the AST node.
+
+Attributes are intentionally separate from builtin expressions. `@foo` remains
+reserved for builtin expression forms such as `@size[T]()` and `@builtin()`.
+AST attributes must use the bracketed `@[...]` form.
+
+The parser accepts attributes on top-level items and on `struct`/`union` fields.
+An unknown attribute is reserved and has no language-defined effect until this
+specification assigns one. Unknown attributes do not change visibility, ABI,
+layout, symbol names, type checking, or code generation.
+
+ABI selection is still expressed by declarations. In particular, Nia does not
+use `@[repr(C)]`: `extern struct` and `extern union` are the C ABI aggregate
+forms. Nia also does not currently define `@[export]`; C ABI symbol definitions
+are written as `extern fn` definitions.
+
+### 5.2 Functions
 
 ```nia
 fn name(param: Type, other: Type) ReturnType {
@@ -864,7 +960,7 @@ fn abs(x: i32) i32 {
 }
 ```
 
-### 5.2 Extern Declarations
+### 5.3 Extern Declarations
 
 `extern` uses an external ABI and external symbol name. Item modifier order is
 visibility first and `extern` second:
@@ -905,7 +1001,7 @@ Variadic functions are only allowed as body-less `extern fn` declarations.
 Nia does not provide `extern { ... }` blocks or explicit ABI strings. All
 `extern` functions, globals, and structs use the C ABI.
 
-### 5.3 Type Aliases
+### 5.4 Type Aliases
 
 ```nia
 type Byte = u8;
@@ -914,7 +1010,7 @@ type CString = &const u8;
 
 Type aliases do not create new nominal types.
 
-### 5.4 Enums
+### 5.5 Enums
 
 Nia enums are C-style named integer sets. They are not algebraic data types.
 
@@ -1011,12 +1107,30 @@ Open-ended switch range patterns are not supported; use `_` for the fallback
 case. Range pattern endpoints must be compile-time integer constants. Empty
 ranges and overlapping integer patterns are rejected.
 
+Optional and error-union switches use dedicated case patterns:
+
+```nia
+switch value {
+    ?x => return x;
+    null => return 0;
+}
+
+switch result {
+    !x => return x;
+    err! => return err;
+}
+```
+
+Optional switches must cover `?name` and `null`, or provide `_`. Error-union
+switches must cover `!name` and `name!`, or provide `_`. Binding patterns may
+not be combined with other patterns in the same arm.
+
 Switch expression arms must produce compatible value types unless an arm exits
 through `return`, `break`, or `continue`. Switches over closed enums must cover
 all variants or provide `_`. Switches over open enums must provide `_`, even if
 every named variant is covered.
 
-### 5.5 Const And Comptime Bindings
+### 5.6 Const And Comptime Bindings
 
 `const` is an immutable binding, not a general compile-time execution mechanism
 and not macro substitution.
@@ -1116,7 +1230,37 @@ var xs: [config::width]i32 = [1, 2, 3, 4];
 
 Taking the address of a `comptime` binding is invalid because it has no storage.
 
-### 5.6 Global Storage
+`comptime if` selects source for the active target configuration:
+
+```nia
+comptime if @builtin().target.os == "linux" {
+    import .linux;
+} else {
+    import .portable;
+}
+
+fn mode() i32 {
+    comptime if @builtin().target.pointer_width == 64 {
+        1
+    } else {
+        0
+    }
+}
+```
+
+The whole file must still parse, so unselected branches must be syntactically
+valid Nia. After parsing, unselected branches are pruned before import
+collection, definition collection, name resolution, type checking, and lowering.
+This means invalid names, types, imports, or calls in an unselected branch are
+not diagnosed for the current target. Multi-target validation is expected to run
+the compiler for each target that a project supports.
+
+Current target conditions are intentionally restricted to early configuration
+expressions: boolean literals, `not`, `and`, `or`, `==`, `!=`, string and integer
+literals, and fields on `@builtin().target`. The currently exposed target fields
+are `arch`, `vendor`, `os`, `env`, `abi`, `endian`, and `pointer_width`.
+
+### 5.7 Global Storage
 
 Top-level value bindings create global static storage. There is no `static`
 keyword.
@@ -1354,7 +1498,7 @@ Unary operators:
 
 ```text
 -       numeric negation
-!       boolean not
+not     boolean not
 ~       bitwise not
 &       writable address
 &const  read-only address
@@ -1486,14 +1630,14 @@ may dereference `p` for field access or receiver matching. This automatic
 dereference is limited to fields, methods, and receiver matching. It is not a
 general implicit conversion.
 
-Expression statements may not silently discard non-`void` and non-`!` values.
+Expression statements may not silently discard non-`void` and non-`never` values.
 Discard explicitly with `_`. Discarding a `void` expression is also valid:
 
 ```nia
 vec.push(2);      // error if push returns non-void
 _ = vec.push(2);  // allowed
 _ = log("done");  // allowed even if log returns void
-abort();          // allowed if abort returns !
+abort();          // allowed if abort returns never
 ```
 
 ### 8.7 Builtins
@@ -1503,6 +1647,13 @@ Nia provides a small builtin surface:
 ```nia
 @size[T]()
 @align[T]()
+@builtin().target.arch
+@builtin().target.vendor
+@builtin().target.os
+@builtin().target.env
+@builtin().target.abi
+@builtin().target.endian
+@builtin().target.pointer_width
 value.len()
 range.iter()
 slice.get_ptr_const()
@@ -1845,7 +1996,7 @@ defined by the language. Operator expressions are checked through these traits:
 | `a / b` | `Div[Rhs]` | `Output` |
 | `a % b` | `Rem[Rhs]` | `Output` |
 | `-a` | `Neg` | `Output` |
-| `!a` | `Not` | `bool` |
+| `not a` | `Not` | `bool` |
 | `~a` | `BitNot` | `Output` |
 | `a & b` | `BitAnd[Rhs]` | `Output` |
 | `a | b` | `BitOr[Rhs]` | `Output` |
@@ -1855,7 +2006,7 @@ defined by the language. Operator expressions are checked through these traits:
 | `a == b`, `a != b` | `Eq[Rhs]` | `bool` |
 | `a < b`, `a <= b`, `a > b`, `a >= b` | `Ord[Rhs]` | `bool` |
 
-`!` is boolean logical not. `~` is bitwise not. Primitive implementations are
+`not` is boolean logical not. `~` is bitwise not. Primitive implementations are
 compiler-proven for the primitive types that support the operation. Non-primitive
 operator support comes from visible `extend Type : Trait[...]` implementations.
 
@@ -1938,7 +2089,7 @@ trait Comparable {
     fn same(&const self, other: &const Self) bool;
 
     fn different(&const self, other: &const Self) bool {
-        !self.same(other)
+        not self.same(other)
     }
 }
 ```
@@ -2425,6 +2576,8 @@ Type encoding rules:
 - `[N]T` encodes as `arr__<len>__<elem>`;
 - function pointers encode as `fnptr__pc<N>__<p1>__...__ret__<ret>`, with
   `__variadic` appended for variadic function pointers;
+- optional types encode as `opt__<T>`;
+- error union types encode as `err_union__<E>__<T>`;
 - nominal types encode as `nom__<base>` and, with arguments, as
   `nom__<base>__argc<N>__<arg1>__...`;
 - generic parameters encode as `gen__<name>`;
@@ -2445,7 +2598,8 @@ A conforming Nia compiler supports:
 - lexing and parsing `.nia` files;
 - source-span diagnostics;
 - primitive type checking;
-- arrays, slices, pointers, structs, unions, C-style enums, and function types;
+- arrays, slices, pointers, optional types, error union types, structs, unions,
+  C-style enums, and function types;
 - `var`, `const`, and `comptime` bindings;
 - expression blocks and tail expressions;
 - `if` expressions;
@@ -2521,7 +2675,6 @@ this document:
 - payload-carrying algebraic data types beyond current enums;
 - pattern matching beyond current switch expressions;
 - closures;
-- builtin option/result syntax;
 - package management semantics;
 - LSP semantics;
 - large standard-library layering;

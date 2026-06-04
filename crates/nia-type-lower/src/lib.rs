@@ -183,7 +183,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                 }
             }
             ItemKind::Function(function) => self.visit_function(function),
-            ItemKind::Import(_) | ItemKind::Using(_) => {}
+            ItemKind::Import(_) | ItemKind::Using(_) | ItemKind::ComptimeIf(_) => {}
         }
     }
 
@@ -273,6 +273,15 @@ impl<'a> TypeLowerer<'a> {
             }
             TypeKind::Void => self.interner.primitive(PrimitiveTy::Void),
             TypeKind::Never => self.interner.primitive(PrimitiveTy::Never),
+            TypeKind::Optional { elem } => {
+                let elem = self.lower_type_in_context(elem, TypeContext::Value);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            TypeKind::ErrorUnion { error, value } => {
+                let error = self.lower_type_in_context(error, TypeContext::Value);
+                let value = self.lower_type_in_context(value, TypeContext::Value);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
             TypeKind::SelfType => self.self_type_stack.last().copied().unwrap_or_else(|| {
                 self.diagnostics.push(Diagnostic::error(
                     ty.span,
@@ -961,7 +970,7 @@ impl<'a> TypeLowerer<'a> {
     fn invalid_value_type_message(&self, ty: InternedTyId) -> Option<&'static str> {
         match self.interner.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => {
-                Some("`!` is not valid as a value, field, parameter, or array element type")
+                Some("`never` is not valid as a value, field, parameter, or array element type")
             }
             Some(TyKind::BuiltinTrait { .. }) => Some(
                 "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&const Trait[...]` for a trait object",
@@ -1170,13 +1179,13 @@ enum Bad: bool {
 struct BadFields {
     field: void,
     array: [1]void,
-    never_field: !,
+    never_field: never,
 }
 
 fn bad_param(x: void) void {}
-fn bad_never_param(x: !) void {}
+fn bad_never_param(x: never) void {}
 fn good_return() void {}
-fn good_never_return() ! {}
+fn good_never_return() never {}
 
 var global_void: void;
 "#,
@@ -1196,7 +1205,7 @@ var global_void: void;
             lowered
                 .diagnostics
                 .iter()
-                .filter(|diagnostic| diagnostic.message.contains("`!` is not valid"))
+                .filter(|diagnostic| diagnostic.message.contains("`never` is not valid"))
                 .count(),
             2,
             "{:?}",

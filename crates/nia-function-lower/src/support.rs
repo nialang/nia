@@ -23,9 +23,30 @@ pub(super) struct SwitchValueArmContext<'a> {
     pub(super) result_local: LocalId,
     pub(super) merge_target: FunctionBlockId,
     pub(super) blocks: &'a mut Vec<FunctionBlock>,
+    pub(super) patterns: &'a [TypedSwitchPattern],
+    pub(super) target: &'a FunctionExpr,
+}
+
+pub(super) struct SwitchStmtArmContext<'a> {
+    pub(super) span: Span,
+    pub(super) scope: FunctionScopeId,
+    pub(super) entry: FunctionBlockId,
+    pub(super) merge_target: FunctionBlockId,
+    pub(super) blocks: &'a mut Vec<FunctionBlock>,
+    pub(super) patterns: &'a [TypedSwitchPattern],
+    pub(super) target: &'a FunctionExpr,
 }
 
 impl FunctionLowerer {
+    pub(super) fn try_kind(&self, ty: InternedTyId) -> Option<FunctionTryKind> {
+        let interner = self.interner.as_ref()?;
+        match interner.get(ty) {
+            Some(TyKind::Optional { .. }) => Some(FunctionTryKind::Optional),
+            Some(TyKind::ErrorUnion { .. }) => Some(FunctionTryKind::ErrorUnion),
+            _ => None,
+        }
+    }
+
     pub(super) fn lower_place(
         &mut self,
         place: &TypedPlace,
@@ -179,8 +200,31 @@ impl FunctionLowerer {
         switch.arms.iter().any(|arm| {
             arm.patterns
                 .iter()
-                .any(|pattern| matches!(pattern, TypedSwitchPattern::Range { .. }))
+                .any(|pattern| {
+                    !matches!(
+                        pattern,
+                        TypedSwitchPattern::Expr(_) | TypedSwitchPattern::Default
+                    )
+                })
         })
+    }
+
+    pub(super) fn switch_pattern_binding(
+        &self,
+        pattern: &TypedSwitchPattern,
+    ) -> Option<(LocalId, InternedTyId, Span)> {
+        match pattern {
+            TypedSwitchPattern::OptionalSome {
+                local_id, ty, span, ..
+            }
+            | TypedSwitchPattern::ErrorOk {
+                local_id, ty, span, ..
+            }
+            | TypedSwitchPattern::ErrorErr {
+                local_id, ty, span, ..
+            } => Some((*local_id, *ty, *span)),
+            _ => None,
+        }
     }
 
     pub(super) fn switch_pattern_condition(
@@ -191,6 +235,18 @@ impl FunctionLowerer {
     ) -> Option<FunctionExpr> {
         match pattern {
             TypedSwitchPattern::Default => None,
+            TypedSwitchPattern::OptionalSome { span, .. } => {
+                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 1))
+            }
+            TypedSwitchPattern::OptionalNull { span } => {
+                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 0))
+            }
+            TypedSwitchPattern::ErrorOk { span, .. } => {
+                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 0))
+            }
+            TypedSwitchPattern::ErrorErr { span, .. } => {
+                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 1))
+            }
             TypedSwitchPattern::Expr(pattern) => {
                 let pattern = self.lower_value_expr(
                     pattern,
@@ -261,6 +317,63 @@ impl FunctionLowerer {
                     },
                 })
             }
+        }
+    }
+
+    pub(super) fn lower_switch_pattern_bindings(
+        &self,
+        patterns: &[TypedSwitchPattern],
+        target: &FunctionExpr,
+        ops: &mut Vec<FunctionOp>,
+    ) {
+        for pattern in patterns {
+            let Some((local_id, ty, span)) = self.switch_pattern_binding(pattern) else {
+                continue;
+            };
+            ops.push(FunctionOp::StoreLocal {
+                local_id,
+                value: FunctionExpr {
+                    span,
+                    ty,
+                    kind: FunctionExprKind::TaggedUnionPayload {
+                        expr: Box::new(target.clone()),
+                    },
+                },
+                span,
+            });
+        }
+    }
+
+    fn tagged_union_tag_condition(
+        &self,
+        target: &FunctionExpr,
+        span: Span,
+        bool_ty: InternedTyId,
+        tag: u8,
+    ) -> FunctionExpr {
+        let tag_ty = self
+            .interner
+            .as_ref()
+            .map(|interner| interner.primitive(nia_ty::PrimitiveTy::U8))
+            .unwrap_or(target.ty);
+        FunctionExpr {
+            span,
+            ty: bool_ty,
+            kind: FunctionExprKind::Binary {
+                lhs: Box::new(FunctionExpr {
+                    span,
+                    ty: tag_ty,
+                    kind: FunctionExprKind::TaggedUnionTag {
+                        expr: Box::new(target.clone()),
+                    },
+                }),
+                op: BinaryOp::Eq,
+                rhs: Box::new(FunctionExpr {
+                    span,
+                    ty: tag_ty,
+                    kind: FunctionExprKind::Integer(tag.to_string()),
+                }),
+            },
         }
     }
 
@@ -431,6 +544,10 @@ impl FunctionLowerer {
                 }
                 TypedExprKind::CStringPointer { array: inner, .. }
                 | TypedExprKind::Unary { expr: inner, .. }
+                | TypedExprKind::OptionalSome { expr: inner }
+                | TypedExprKind::ErrorOk { expr: inner }
+                | TypedExprKind::ErrorErr { expr: inner }
+                | TypedExprKind::Try { expr: inner }
                 | TypedExprKind::Discard(inner)
                 | TypedExprKind::Cast { expr: inner, .. }
                 | TypedExprKind::TraitObjectUpcast { expr: inner, .. }
@@ -502,6 +619,10 @@ impl FunctionLowerer {
                         for pattern in &arm.patterns {
                             match pattern {
                                 TypedSwitchPattern::Default => {}
+                                TypedSwitchPattern::OptionalSome { .. }
+                                | TypedSwitchPattern::OptionalNull { .. }
+                                | TypedSwitchPattern::ErrorOk { .. }
+                                | TypedSwitchPattern::ErrorErr { .. } => {}
                                 TypedSwitchPattern::Expr(pattern) => visit_expr(pattern, max_id),
                                 TypedSwitchPattern::Range { start, end, .. } => {
                                     visit_expr(start, max_id);
@@ -557,6 +678,7 @@ impl FunctionLowerer {
                 | TypedExprKind::Char(_)
                 | TypedExprKind::ByteChar(_)
                 | TypedExprKind::Bool(_)
+                | TypedExprKind::Null
                 | TypedExprKind::Global(_)
                 | TypedExprKind::Function(_)
                 | TypedExprKind::FunctionInstance { .. }

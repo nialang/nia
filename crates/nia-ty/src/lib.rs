@@ -29,6 +29,13 @@ pub enum TyKind {
         return_type: InternedTyId,
         is_variadic: bool,
     },
+    Optional {
+        elem: InternedTyId,
+    },
+    ErrorUnion {
+        error: InternedTyId,
+        value: InternedTyId,
+    },
     Nominal {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
@@ -244,6 +251,15 @@ pub fn import_type_into(
                 return_type,
                 is_variadic: *is_variadic,
             })
+        }
+        Some(TyKind::Optional { elem }) => {
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::Optional { elem })
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            let error = import_type_into(target, source, *error);
+            let value = import_type_into(target, source, *value);
+            target.intern(TyKind::ErrorUnion { error, value })
         }
         Some(TyKind::Nominal { def_id, args }) => {
             let args = args

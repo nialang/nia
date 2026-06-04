@@ -8,7 +8,7 @@ fn checks_unary_operator_builtin_traits() {
 fn main(flag: bool, bits: u32, x: i32) bool {
     var neg = -x;
     var flipped = ~bits;
-    var logical = !flag;
+    var logical = not flag;
     neg < 0 and flipped != bits and logical
 }
 "#,
@@ -22,7 +22,7 @@ fn rejects_unary_operators_without_builtin_trait_impls() {
         r#"
 fn main(flag: bool, x: i32) bool {
     var bad_bits = ~flag;
-    var bad_not = !x;
+    var bad_not = not x;
     bad_bits or bad_not
 }
 "#,

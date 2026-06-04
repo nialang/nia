@@ -9,6 +9,7 @@ use nia_body_ir::{
 };
 use nia_ids::{InternedTyId, LocalId};
 use nia_span::Span;
+use nia_ty::{TyInterner, TyKind};
 
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOption, FunctionAsmOutput, FunctionBinding,
@@ -17,7 +18,7 @@ use nia_function_ir::{
     FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
     FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
     FunctionPlaceElem, FunctionRange, FunctionRangeBound, FunctionScope, FunctionScopeId,
-    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator,
+    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
 };
 
 mod expr;
@@ -28,7 +29,11 @@ mod support;
 mod tests;
 
 pub fn lower_function_body(body: &TypedBody) -> FunctionBody {
-    FunctionLowerer::new().lower_body(body)
+    FunctionLowerer::new(None).lower_body(body)
+}
+
+pub fn lower_function_body_with_interner(body: &TypedBody, interner: &TyInterner) -> FunctionBody {
+    FunctionLowerer::new(Some(interner)).lower_body(body)
 }
 
 struct FunctionLowerer {
@@ -38,6 +43,7 @@ struct FunctionLowerer {
     temp_locals: Vec<FunctionLocal>,
     scopes: Vec<FunctionScope>,
     loop_targets: Vec<LoopTargetIds>,
+    interner: Option<TyInterner>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -63,7 +69,7 @@ struct StatementIf<'a> {
 }
 
 impl FunctionLowerer {
-    fn new() -> Self {
+    fn new(interner: Option<&TyInterner>) -> Self {
         Self {
             next_block: 0,
             next_scope: 0,
@@ -71,6 +77,7 @@ impl FunctionLowerer {
             temp_locals: Vec::new(),
             scopes: Vec::new(),
             loop_targets: Vec::new(),
+            interner: interner.cloned(),
         }
     }
 

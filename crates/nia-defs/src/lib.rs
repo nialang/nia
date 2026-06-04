@@ -250,6 +250,7 @@ impl Collector {
             ItemKind::Using(using) => {
                 self.collect_using(item, using);
             }
+            ItemKind::ComptimeIf(_) => {}
             ItemKind::Struct(item_struct) => self.collect_struct(item, item_struct),
             ItemKind::Union(item_union) => self.collect_union(item, item_union),
             ItemKind::Trait(item_trait) => self.collect_trait(item, item_trait),

@@ -279,7 +279,7 @@ struct SignatureCollector<'a> {
 impl<'a> SignatureCollector<'a> {
     fn collect_item_into(&mut self, signatures: &mut ItemSignatures, item: &nia_ast::Item) {
         match &item.kind {
-            ItemKind::Import(_) | ItemKind::Using(_) => {}
+            ItemKind::Import(_) | ItemKind::Using(_) | ItemKind::ComptimeIf(_) => {}
             ItemKind::Struct(item_struct) => {
                 self.collect_struct(signatures, item.span, item_struct);
             }

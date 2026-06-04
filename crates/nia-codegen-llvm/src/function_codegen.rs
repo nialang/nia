@@ -232,6 +232,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .bool_type()
                 .const_int(u64::from(*value), false)
                 .into()),
+            FunctionExprKind::Null => self.emit_optional_null(expr),
             FunctionExprKind::Local(local_id) => {
                 if self.is_zero_sized(expr.ty) {
                     return Err(self.error(expr.span, "zero-sized local has no runtime value"));
@@ -316,6 +317,29 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionExprKind::UnionLiteral { def_id, field } => {
                 self.emit_union_literal(expr, *def_id, field)
             }
+            FunctionExprKind::OptionalSome { expr: inner } => self.emit_optional_some(expr, inner),
+            FunctionExprKind::ErrorOk { expr: inner } => {
+                self.emit_error_union_value(expr, 0, inner)
+            }
+            FunctionExprKind::ErrorErr { expr: inner } => {
+                self.emit_error_union_value(expr, 1, inner)
+            }
+            FunctionExprKind::TaggedUnionTag { expr: inner } => {
+                let aggregate = self.emit_expr(inner)?.into_struct_value()?;
+                self.builder
+                    .build_extract_value(aggregate, 0, "tagged.tag")
+                    .map_err(|_| self.error(expr.span, "failed to extract tagged union tag"))
+            }
+            FunctionExprKind::TaggedUnionPayload { expr: inner } => {
+                let aggregate = self.emit_expr(inner)?.into_struct_value()?;
+                self.builder
+                    .build_extract_value(aggregate, 1, "tagged.payload")
+                    .map_err(|_| self.error(expr.span, "failed to extract tagged union payload"))
+            }
+            FunctionExprKind::Try { .. } => Err(self.error(
+                expr.span,
+                "`.?` propagation requires control-flow lowering before LLVM codegen",
+            )),
             FunctionExprKind::EnumVariant(def_id) => self.emit_enum_variant(expr, *def_id),
             FunctionExprKind::Binary { lhs, op, rhs } => {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {
@@ -565,6 +589,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         self.module
             .layout_of(ty)
             .is_some_and(|layout| layout.size == 0)
+    }
+
+    fn is_zero_sized_local(&self, local_id: LocalId) -> bool {
+        self.local_tys
+            .get(&local_id)
+            .copied()
+            .is_some_and(|ty| self.is_zero_sized(ty))
+    }
+
+    fn error_union_error_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        match self.module.ty_kind(ty) {
+            Some(TyKind::ErrorUnion { error, .. }) => Some(*error),
+            _ => None,
+        }
     }
 
     fn is_integer_like(&self, ty: InternedTyId) -> bool {

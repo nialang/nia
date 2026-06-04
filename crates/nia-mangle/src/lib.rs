@@ -122,6 +122,19 @@ where
                 None => kind.to_string(),
             }
         }
+        Some(TyKind::Optional { elem }) => {
+            format!(
+                "opt__{}",
+                mangle_type_inner(interner, *elem, nominal_name, array_len)
+            )
+        }
+        Some(TyKind::ErrorUnion { error, value }) => {
+            format!(
+                "erru__{}__{}",
+                mangle_type_inner(interner, *error, nominal_name, array_len),
+                mangle_type_inner(interner, *value, nominal_name, array_len)
+            )
+        }
         Some(TyKind::FunctionPointer {
             params,
             return_type,

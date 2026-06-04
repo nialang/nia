@@ -251,6 +251,27 @@ pub struct TypedSwitchArm {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypedSwitchPattern {
     Default,
+    OptionalSome {
+        local_id: LocalId,
+        name: String,
+        ty: InternedTyId,
+        span: Span,
+    },
+    OptionalNull {
+        span: Span,
+    },
+    ErrorOk {
+        local_id: LocalId,
+        name: String,
+        ty: InternedTyId,
+        span: Span,
+    },
+    ErrorErr {
+        local_id: LocalId,
+        name: String,
+        ty: InternedTyId,
+        span: Span,
+    },
     Expr(TypedExpr),
     Range {
         start: Box<TypedExpr>,
@@ -284,6 +305,7 @@ pub enum TypedExprKind {
     Char(u32),
     ByteChar(String),
     Bool(bool),
+    Null,
     Local(LocalId),
     Global(GlobalDefId),
     Function(GlobalDefId),
@@ -312,6 +334,18 @@ pub enum TypedExprKind {
     },
     Unary {
         op: UnaryOp,
+        expr: Box<TypedExpr>,
+    },
+    OptionalSome {
+        expr: Box<TypedExpr>,
+    },
+    ErrorOk {
+        expr: Box<TypedExpr>,
+    },
+    ErrorErr {
+        expr: Box<TypedExpr>,
+    },
+    Try {
         expr: Box<TypedExpr>,
     },
     Binary {

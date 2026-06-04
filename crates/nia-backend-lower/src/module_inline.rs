@@ -243,6 +243,9 @@ impl<'a> ModuleLowerer<'a> {
                     );
                 }
             }
+            FunctionTerminator::Try { value, .. } => {
+                self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
+            }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(expr) => {
                     self.inline_leaf_calls_in_expr(expr, function_candidates, instance_candidates);
@@ -294,6 +297,12 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::CStringPointer { array, .. }
             | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
+            | FunctionExprKind::OptionalSome { expr: array }
+            | FunctionExprKind::ErrorOk { expr: array }
+            | FunctionExprKind::ErrorErr { expr: array }
+            | FunctionExprKind::TaggedUnionTag { expr: array }
+            | FunctionExprKind::TaggedUnionPayload { expr: array }
+            | FunctionExprKind::Try { expr: array }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
@@ -365,6 +374,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)
@@ -743,6 +753,12 @@ fn substitute_inline_locals(
             substitute_inline_locals(&mut field.value, substitutions, require_local_match)?;
         }
         FunctionExprKind::Unary { expr, .. }
+        | FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr }
+        | FunctionExprKind::Try { expr }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
         | FunctionExprKind::RangeBound { range: expr, .. } => {
@@ -776,6 +792,7 @@ fn substitute_inline_locals(
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
@@ -835,6 +852,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Global(_)
         | FunctionExprKind::Function(_)
         | FunctionExprKind::FunctionInstance { .. }
@@ -867,6 +885,13 @@ fn small_pure_inline_expr_cost_with_local(
         FunctionExprKind::UnionLiteral { field, .. } => {
             1 + small_pure_inline_expr_cost_with_local(&field.value, budget, local_allowed)?
         }
+        FunctionExprKind::OptionalSome { expr }
+        | FunctionExprKind::ErrorOk { expr }
+        | FunctionExprKind::ErrorErr { expr }
+        | FunctionExprKind::TaggedUnionTag { expr }
+        | FunctionExprKind::TaggedUnionPayload { expr } => {
+            1 + small_pure_inline_expr_cost_with_local(expr, budget, local_allowed)?
+        }
         FunctionExprKind::Unary { expr, .. }
         | FunctionExprKind::Discard(expr)
         | FunctionExprKind::Cast { expr, .. }
@@ -895,6 +920,7 @@ fn small_pure_inline_expr_cost_with_local(
         | FunctionExprKind::CStringPointer { .. }
         | FunctionExprKind::AddrOf(_)
         | FunctionExprKind::Assign { .. }
+        | FunctionExprKind::Try { .. }
         | FunctionExprKind::TraitObjectUpcast { .. }
         | FunctionExprKind::TraitObjectCoercion { .. }
         | FunctionExprKind::Call { .. } => return None,

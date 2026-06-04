@@ -8,6 +8,7 @@ use nia_imports::{
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
+use nia_target_config::{TargetConfig, prune_module_for_target};
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
     load_program_with_map(root_path, ModuleMap::default())
@@ -151,6 +152,7 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                     .map(|error| Diagnostic::error(error.span, error.message.clone()))
                     .collect::<Vec<_>>(),
             ));
+            diagnostics.extend(module_diagnostics(&node.path, &parsed.prune_diagnostics));
             diagnostics.extend(module_diagnostics(
                 &node.path,
                 &db.query(module_imports_query(db, node.path.clone()))
@@ -219,13 +221,15 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             version: self.version,
         });
         let (module, parse_errors, origins) = nia_parser::parse_module_syntax_with_origins(&syntax);
+        let prune_result = prune_module_for_target(module, &TargetConfig::host());
         ParsedModule {
             source: source
                 .file
                 .unwrap_or_else(|| db.context().sources.empty_source(&self.path)),
-            module,
+            module: prune_result.module,
             origins,
             parse_errors,
+            prune_diagnostics: prune_result.diagnostics,
             read_diagnostic: source.diagnostic,
         }
     }
@@ -265,6 +269,7 @@ struct ParsedModule {
     module: nia_ast::Module,
     origins: nia_node_id::NodeOriginTable,
     parse_errors: Vec<nia_parser::ParseError>,
+    prune_diagnostics: Vec<Diagnostic>,
     read_diagnostic: Option<Diagnostic>,
 }
 
@@ -328,7 +333,10 @@ impl QueryKey<LoaderContext> for ModuleImportsQuery {
             version: self.version,
         });
         let mut diagnostics = parsed.read_diagnostic.into_iter().collect::<Vec<_>>();
-        let imports = if diagnostics.is_empty() && parsed.parse_errors.is_empty() {
+        let imports = if diagnostics.is_empty()
+            && parsed.parse_errors.is_empty()
+            && parsed.prune_diagnostics.is_empty()
+        {
             resolve_module_imports(
                 &mut diagnostics,
                 &self.path,
@@ -416,6 +424,72 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| { diagnostic.diagnostic.message.contains("failed to read") })
+        );
+    }
+
+    #[test]
+    fn comptime_if_prunes_unselected_imports_before_graph_loading() {
+        let root = temp_dir("comptime_if_prunes_unselected_imports_before_graph_loading");
+        write(
+            &root.join("main.nia"),
+            r#"
+comptime if false {
+    import .missing;
+} else {
+    import .present;
+}
+"#,
+        );
+        write(&root.join("present.nia"), "pub fn value() i32 { 1 }");
+
+        let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.modules.len(), 2);
+        assert!(
+            program
+                .imports
+                .get(program.graph.root(), "present")
+                .is_some()
+        );
+        assert!(
+            program
+                .imports
+                .get(program.graph.root(), "missing")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn comptime_if_uses_builtin_target_fields_for_import_pruning() {
+        let root = temp_dir("comptime_if_uses_builtin_target_fields_for_import_pruning");
+        write(
+            &root.join("main.nia"),
+            r#"
+comptime if @builtin().target.os == "definitely-not-the-host-os" {
+    import .missing;
+} else {
+    import .present;
+}
+"#,
+        );
+        write(&root.join("present.nia"), "pub fn value() i32 { 1 }");
+
+        let program = load_program(root.join("main.nia").to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.modules.len(), 2);
+        assert!(
+            program
+                .imports
+                .get(program.graph.root(), "present")
+                .is_some()
+        );
+        assert!(
+            program
+                .imports
+                .get(program.graph.root(), "missing")
+                .is_none()
         );
     }
 

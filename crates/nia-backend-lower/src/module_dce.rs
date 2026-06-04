@@ -292,6 +292,7 @@ fn collect_function_refs_from_terminator(terminator: &FunctionTerminator, refs: 
                 collect_function_refs_from_expr(&arm.pattern, refs);
             }
         }
+        FunctionTerminator::Try { value, .. } => collect_function_refs_from_expr(value, refs),
         FunctionTerminator::Loop { header, .. } => match header {
             FunctionForHeader::Condition(expr) => collect_function_refs_from_expr(expr, refs),
             FunctionForHeader::Infinite => {}
@@ -330,6 +331,12 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs)
         FunctionExprKind::CStringPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
+        | FunctionExprKind::OptionalSome { expr: array }
+        | FunctionExprKind::ErrorOk { expr: array }
+        | FunctionExprKind::ErrorErr { expr: array }
+        | FunctionExprKind::TaggedUnionTag { expr: array }
+        | FunctionExprKind::TaggedUnionPayload { expr: array }
+        | FunctionExprKind::Try { expr: array }
         | FunctionExprKind::Discard(array)
         | FunctionExprKind::Cast { expr: array, .. }
         | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
@@ -391,6 +398,7 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs)
         | FunctionExprKind::Char(_)
         | FunctionExprKind::ByteChar(_)
         | FunctionExprKind::Bool(_)
+        | FunctionExprKind::Null
         | FunctionExprKind::Local(_)
         | FunctionExprKind::Global(_)
         | FunctionExprKind::EnumVariant(_)

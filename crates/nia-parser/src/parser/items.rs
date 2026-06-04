@@ -3,7 +3,10 @@ use super::*;
 
 impl Parser {
     pub(super) fn parse_item(&mut self) -> Option<Item> {
-        let start = self.peek().span.start;
+        let attributes = self.parse_attributes()?;
+        let start = attributes
+            .first()
+            .map_or_else(|| self.peek().span.start, |attr| attr.span.start);
         let pub_span = self.eat(TokenKind::Pub).map(|token| token.span);
         let vis = if pub_span.is_some() {
             Visibility::Public
@@ -48,6 +51,11 @@ impl Parser {
             ItemKind::TypeAlias(self.parse_type_alias()?)
         } else if self.at(TokenKind::Fn) {
             ItemKind::Function(self.parse_function(false)?)
+        } else if self.at_comptime_if() {
+            if let Some(span) = pub_span {
+                self.error_at(span, "`pub` cannot be applied to `comptime if`");
+            }
+            ItemKind::ComptimeIf(self.parse_comptime_if_item()?)
         } else if self.at(TokenKind::Comptime)
             || self.at(TokenKind::Const)
             || self.at(TokenKind::Var)
@@ -59,7 +67,88 @@ impl Parser {
         };
 
         let end = self.previous_end();
-        Some(self.make_item(Span::new(start, end), vis, kind))
+        Some(self.make_item(Span::new(start, end), attributes, vis, kind))
+    }
+
+    fn parse_attributes(&mut self) -> Option<Vec<Attribute>> {
+        let mut attributes = Vec::new();
+        while self.at(TokenKind::At) && matches!(self.tokens.nth_kind(1), Some(TokenKind::LBracket))
+        {
+            attributes.push(self.parse_attribute()?);
+        }
+        Some(attributes)
+    }
+
+    fn parse_attribute(&mut self) -> Option<Attribute> {
+        let start = self
+            .expect(TokenKind::At, "expected `@` before attribute")?
+            .start;
+        self.expect(TokenKind::LBracket, "expected `[` after `@` in attribute")?;
+        let mut path = Vec::new();
+        path.push(self.expect_text(TokenKind::Ident, "expected attribute name")?);
+        while self.eat(TokenKind::Dot).is_some() {
+            path.push(self.expect_text(TokenKind::Ident, "expected attribute path segment")?);
+        }
+        let args = if self.eat(TokenKind::LParen).is_some() {
+            let mut args = Vec::new();
+            while !self.at(TokenKind::RParen) && !self.at(TokenKind::Eof) {
+                args.push(self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::RParen])?);
+                if self.eat(TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            self.expect(TokenKind::RParen, "expected `)` after attribute arguments")?;
+            args
+        } else {
+            Vec::new()
+        };
+        let end = self
+            .expect(TokenKind::RBracket, "expected `]` after attribute")?
+            .end;
+        Some(Attribute {
+            path,
+            args,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_comptime_if_item(&mut self) -> Option<ComptimeIfItem> {
+        self.expect(TokenKind::Comptime, "expected `comptime`")?;
+        self.expect(TokenKind::If, "expected `if` after `comptime`")?;
+        let cond = self.parse_expr_until_tokens(&[TokenKind::LBrace])?;
+        let then_items = self.parse_item_block("expected `{` after comptime if condition")?;
+        let else_branch = if self.eat(TokenKind::Else).is_some() {
+            if self.at_comptime_if() {
+                Some(ComptimeIfItemElse::If(Box::new(
+                    self.parse_comptime_if_item()?,
+                )))
+            } else {
+                Some(ComptimeIfItemElse::Items(
+                    self.parse_item_block("expected `{` after comptime else")?,
+                ))
+            }
+        } else {
+            None
+        };
+        Some(ComptimeIfItem {
+            cond,
+            then_items,
+            else_branch,
+        })
+    }
+
+    fn parse_item_block(&mut self, message: &str) -> Option<Vec<Item>> {
+        self.expect(TokenKind::LBrace, message)?;
+        let mut items = Vec::new();
+        while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
+            if let Some(item) = self.parse_item() {
+                items.push(item);
+            } else {
+                self.recover_to_item_boundary();
+            }
+        }
+        self.expect(TokenKind::RBrace, "expected `}` after item block")?;
+        Some(items)
     }
 
     fn parse_import(&mut self) -> Option<ImportItem> {
@@ -451,7 +540,10 @@ impl Parser {
     }
 
     fn parse_field(&mut self) -> Option<Field> {
-        let start = self.peek().span.start;
+        let attributes = self.parse_attributes()?;
+        let start = attributes
+            .first()
+            .map_or_else(|| self.peek().span.start, |attr| attr.span.start);
         let name = self.expect_text(TokenKind::Ident, "expected field name")?;
         self.expect(TokenKind::Colon, "expected `:` after field name")?;
         let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RBrace])?;
@@ -460,6 +552,7 @@ impl Parser {
             name,
             span: Span::new(start, ty.span.end),
             ty,
+            attributes,
         })
     }
 

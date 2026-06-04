@@ -124,6 +124,13 @@ impl<'a> BodyChecker<'a> {
                 }
                 self.collect_generic_params_in_ty(*return_type, generics);
             }
+            Some(TyKind::Optional { elem }) => {
+                self.collect_generic_params_in_ty(*elem, generics);
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.collect_generic_params_in_ty(*error, generics);
+                self.collect_generic_params_in_ty(*value, generics);
+            }
             Some(TyKind::Nominal { args, .. }) => {
                 for arg in args {
                     self.collect_generic_params_in_ty(*arg, generics);

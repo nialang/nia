@@ -131,8 +131,17 @@ impl StaticChecker<'_> {
                 self.static_address_path_reject_reason(expr)
             }
             ExprKind::Range(_) => Some("range expression is not static data"),
+            ExprKind::Null => Some("null is not supported in global static data yet"),
+            ExprKind::OptionalSome { .. } => {
+                Some("optional construction is not supported in global static data yet")
+            }
+            ExprKind::ErrorOk { .. } | ExprKind::ErrorErr { .. } => {
+                Some("error union construction is not supported in global static data yet")
+            }
+            ExprKind::Try { .. } => Some("`.?` propagation requires runtime control flow"),
             ExprKind::Block(_) => Some("block expressions require comptime execution"),
             ExprKind::If { .. } => Some("if expressions require comptime execution"),
+            ExprKind::ComptimeIf(_) => Some("comptime if expressions require target pruning"),
             ExprKind::Switch(_) => Some("switch expressions require comptime execution"),
             ExprKind::Call { .. } => Some("function calls require comptime execution"),
             ExprKind::Assign { .. } => Some("assignment cannot initialize global storage"),

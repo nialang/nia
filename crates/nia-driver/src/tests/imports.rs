@@ -498,10 +498,10 @@ extern fn read_const() &const u8;
 
 fn main(mut_ptr: &u8) i32 {
     var const_ptr = read_const();
-    if mut_ptr.null() {
+    if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.null() {
+    if const_ptr.is_null() {
         return 2;
     }
     0
@@ -512,13 +512,13 @@ fn main(mut_ptr: &u8) i32 {
         &root.join("ptr.nia"),
         r#"
 extend[T] &const T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }
@@ -541,10 +541,10 @@ extern fn read_const() &const u8;
 
 fn main(mut_ptr: &u8) i32 {
     var const_ptr = read_const();
-    if mut_ptr.null() {
+    if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.null() {
+    if const_ptr.is_null() {
         return 2;
     }
     0
@@ -556,13 +556,13 @@ fn main(mut_ptr: &u8) i32 {
         &root.join("ptr.nia"),
         r#"
 extend[T] &const T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }
@@ -585,10 +585,10 @@ extern fn read_const() &const u8;
 
 fn main(mut_ptr: &u8) i32 {
     var const_ptr = read_const();
-    if mut_ptr.null() {
+    if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.null() {
+    if const_ptr.is_null() {
         return 2;
     }
     0
@@ -600,13 +600,13 @@ fn main(mut_ptr: &u8) i32 {
         &root.join("ptr.nia"),
         r#"
 extend[T] &const T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }

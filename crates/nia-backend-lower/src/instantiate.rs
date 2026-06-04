@@ -141,6 +141,13 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_generic_params_in_ty(*return_type, generics);
             }
+            Some(TyKind::Optional { elem }) => {
+                self.collect_generic_params_in_ty(*elem, generics);
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.collect_generic_params_in_ty(*error, generics);
+                self.collect_generic_params_in_ty(*value, generics);
+            }
             Some(TyKind::Nominal { args, .. }) => {
                 for arg in args {
                     self.collect_generic_params_in_ty(*arg, generics);
@@ -297,6 +304,13 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 self.collect_generic_params_in_extension_ty(*return_type, generics);
             }
+            Some(TyKind::Optional { elem }) => {
+                self.collect_generic_params_in_extension_ty(*elem, generics);
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.collect_generic_params_in_extension_ty(*error, generics);
+                self.collect_generic_params_in_extension_ty(*value, generics);
+            }
             Some(TyKind::Nominal { args, .. }) => {
                 for arg in args {
                     self.collect_generic_params_in_extension_ty(*arg, generics);
@@ -395,6 +409,17 @@ impl<'a> ModuleLowerer<'a> {
                     return_type,
                     is_variadic,
                 });
+                self.cache_type_instantiation(key, instantiated)
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.instantiate_ty_with_id(elem, substitutions);
+                let instantiated = self.interner.intern(TyKind::Optional { elem });
+                self.cache_type_instantiation(key, instantiated)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.instantiate_ty_with_id(error, substitutions);
+                let value = self.instantiate_ty_with_id(value, substitutions);
+                let instantiated = self.interner.intern(TyKind::ErrorUnion { error, value });
                 self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Nominal { def_id, args }) => {
@@ -632,6 +657,22 @@ impl<'a> ModuleLowerer<'a> {
                         *return_type,
                         substitutions,
                     )
+                }
+                _ => false,
+            },
+            Some(TyKind::Optional { elem: pattern_elem }) => match self.ty_kind(actual) {
+                Some(TyKind::Optional { elem }) => {
+                    self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::ErrorUnion {
+                error: pattern_error,
+                value: pattern_value,
+            }) => match self.ty_kind(actual) {
+                Some(TyKind::ErrorUnion { error, value }) => {
+                    self.match_extension_type_pattern(*pattern_error, *error, substitutions)
+                        && self.match_extension_type_pattern(*pattern_value, *value, substitutions)
                 }
                 _ => false,
             },

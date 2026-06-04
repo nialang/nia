@@ -172,3 +172,113 @@ fn bad(flag: bool) i32 {
             .any(|diagnostic| diagnostic.message.contains("function body"))
     );
 }
+
+#[test]
+fn checks_optional_and_error_union_construction_and_propagation() {
+    let checked = pipeline(
+        r#"
+fn maybe(flag: bool) ?i32 {
+    if flag {
+        return ?1;
+    }
+    null
+}
+
+fn ok(value: i32) i32!i32 {
+    !value
+}
+
+fn fail(error: i32) i32!i32 {
+    error!
+}
+
+fn use_error(value: i32!i32) i32!i32 {
+    var unwrapped = value.?;
+    !unwrapped
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_error_union_construction_without_expected_type() {
+    let checked = pipeline(
+        r#"
+fn bad() i32 {
+    var a = !10i32;
+    var b = 20i32!;
+    a + b
+}
+"#,
+    );
+
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("requires an expected error union type")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
+fn checks_optional_and_error_union_switch_patterns() {
+    let checked = pipeline(
+        r#"
+fn unwrap_optional(value: ?i32) i32 {
+    switch value {
+        ?x => x,
+        null => 0,
+    }
+}
+
+fn unwrap_error(value: i32!i32) i32 {
+    switch value {
+        !x => x,
+        e! => e,
+    }
+}
+"#,
+    );
+
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let missing = pipeline(
+        r#"
+fn bad(value: ?i32) i32 {
+    switch value {
+        ?x => x,
+    }
+}
+"#,
+    );
+    assert!(
+        missing
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("non-exhaustive optional switch")),
+        "{:?}",
+        missing.diagnostics
+    );
+
+    let wrong_target = pipeline(
+        r#"
+fn bad(value: i32) i32 {
+    switch value {
+        ?x => x,
+        _ => 0,
+    }
+}
+"#,
+    );
+    assert!(
+        wrong_target
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("requires an optional target")),
+        "{:?}",
+        wrong_target.diagnostics
+    );
+}

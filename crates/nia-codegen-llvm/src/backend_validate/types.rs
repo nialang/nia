@@ -55,6 +55,11 @@ impl BackendValidator<'_> {
                     self.validate_runtime_type(bound, span);
                 }
             }
+            TyKind::Optional { elem } => self.validate_runtime_type(elem, span),
+            TyKind::ErrorUnion { error, value } => {
+                self.validate_runtime_type(error, span);
+                self.validate_runtime_type(value, span);
+            }
             TyKind::FunctionPointer {
                 params,
                 return_type,
@@ -213,6 +218,15 @@ impl BackendValidator<'_> {
                     size: elem_layout.size.saturating_mul(len),
                     align: elem_layout.align,
                 })
+            }
+            TyKind::Optional { elem } => {
+                let elem_layout = self.layout_of_with_active(*elem, active)?;
+                Some(tagged_union_layout(&[elem_layout]))
+            }
+            TyKind::ErrorUnion { error, value } => {
+                let error_layout = self.layout_of_with_active(*error, active)?;
+                let value_layout = self.layout_of_with_active(*value, active)?;
+                Some(tagged_union_layout(&[error_layout, value_layout]))
             }
             TyKind::Nominal { def_id, args } => {
                 self.index.module(def_id.module_id)?;
@@ -437,5 +451,21 @@ impl BackendValidator<'_> {
 
     pub(super) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
         self.index.module(ty.interner_id)?.interner.get(ty)
+    }
+}
+
+fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
+    let tag_layout = TypeLayout { size: 1, align: 1 };
+    let payload_size = payloads.iter().map(|layout| layout.size).max().unwrap_or(0);
+    let payload_align = payloads
+        .iter()
+        .map(|layout| layout.align)
+        .max()
+        .unwrap_or(1);
+    let align = tag_layout.align.max(payload_align);
+    let payload_offset = align_to(tag_layout.size, payload_align);
+    TypeLayout {
+        size: align_to(payload_offset.saturating_add(payload_size), align),
+        align,
     }
 }

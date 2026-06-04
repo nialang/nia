@@ -87,6 +87,9 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 changed
             }
+            FunctionTerminator::Try { value, .. } => {
+                self.devirtualize_direct_trait_calls_in_expr(value)
+            }
             FunctionTerminator::Loop { header, .. } => match header {
                 FunctionForHeader::Condition(cond) => {
                     self.devirtualize_direct_trait_calls_in_expr(cond)
@@ -135,6 +138,12 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::CStringPointer { array, .. }
             | FunctionExprKind::RangeBound { range: array, .. }
             | FunctionExprKind::Unary { expr: array, .. }
+            | FunctionExprKind::OptionalSome { expr: array }
+            | FunctionExprKind::ErrorOk { expr: array }
+            | FunctionExprKind::ErrorErr { expr: array }
+            | FunctionExprKind::TaggedUnionTag { expr: array }
+            | FunctionExprKind::TaggedUnionPayload { expr: array }
+            | FunctionExprKind::Try { expr: array }
             | FunctionExprKind::Discard(array)
             | FunctionExprKind::Cast { expr: array, .. }
             | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
@@ -194,6 +203,7 @@ impl<'a> ModuleLowerer<'a> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::Global(_)
             | FunctionExprKind::Function(_)

@@ -11,8 +11,16 @@ pub struct Module {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
     pub span: Span,
+    pub attributes: Vec<Attribute>,
     pub vis: Visibility,
     pub kind: ItemKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    pub path: Vec<String>,
+    pub args: Vec<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,6 +34,7 @@ pub enum Visibility {
 pub enum ItemKind {
     Import(ImportItem),
     Using(UsingItem),
+    ComptimeIf(ComptimeIfItem),
     Struct(StructItem),
     Union(UnionItem),
     Trait(TraitItem),
@@ -34,6 +43,19 @@ pub enum ItemKind {
     TypeAlias(TypeAliasItem),
     Function(FunctionItem),
     Binding(BindingItem),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeIfItem {
+    pub cond: Expr,
+    pub then_items: Vec<Item>,
+    pub else_branch: Option<ComptimeIfItemElse>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComptimeIfItemElse {
+    If(Box<ComptimeIfItem>),
+    Items(Vec<Item>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,6 +179,7 @@ pub struct ExtendMethod {
 pub struct Field {
     pub name: String,
     pub ty: TypeRef,
+    pub attributes: Vec<Attribute>,
     pub span: Span,
 }
 

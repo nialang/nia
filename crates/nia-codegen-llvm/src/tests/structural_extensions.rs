@@ -122,10 +122,10 @@ extern fn read_const() &const u8;
 
 fn main(mut_ptr: &u8) i32 {
     var const_ptr = read_const();
-    if mut_ptr.null() {
+    if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.null() {
+    if const_ptr.is_null() {
         return 2;
     }
     0
@@ -138,13 +138,13 @@ fn main(mut_ptr: &u8) i32 {
         root.join("ptr.nia"),
         r#"
 extend[T] &const T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }
 
 extend[T] &T {
-    pub fn null(self) bool {
+    pub fn is_null(self) bool {
         self as usize == 0
     }
 }
@@ -163,7 +163,7 @@ extend[T] &T {
         .map(|module| module.ir.as_str())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(ir.contains("__null__inst__u8"), "{ir}");
+    assert!(ir.contains("__is_null__inst__u8"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
     assert!(ir.contains("define i1 @"), "{ir}");
 }
@@ -334,7 +334,7 @@ fn emits_structural_associated_calls_and_function_pointers() {
         &main,
         r#"
 extend[T] &T {
-    fn null(self) bool {
+    fn is_null(self) bool {
         self as usize == 0
     }
 
@@ -350,10 +350,10 @@ extend[T] [3]T {
 }
 
 fn main(ptr: &u8, triple: [3]i32) i32 {
-    var null: &const fn(&u8) bool = &const [&u8]::null;
+    var is_null: &const fn(&u8) bool = &const [&u8]::is_null;
     var zero: &const fn() usize = &const [&u8]::zero;
-    if null(ptr) {}
-    if [&u8]::null(ptr) {}
+    if is_null(ptr) {}
+    if [&u8]::is_null(ptr) {}
     [[3]i32]::first(triple) + zero() as i32
 }
 "#,
@@ -366,7 +366,7 @@ fn main(ptr: &u8, triple: [3]i32) i32 {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("__null__inst__u8"), "{ir}");
+    assert!(ir.contains("__is_null__inst__u8"), "{ir}");
     assert!(ir.contains("__zero__inst__u8"), "{ir}");
     assert!(ir.contains("__first__inst__i32"), "{ir}");
     assert!(ir.contains("call i1 %"), "{ir}");
@@ -382,14 +382,14 @@ fn emits_deep_pointer_structural_associated_calls_and_function_pointers() {
         &main,
         r#"
 extend &&&&&&const &&i32 {
-    fn null(self) bool {
+    fn is_null(self) bool {
         self as usize == 0
     }
 }
 
 fn main(ptr: &&&&&&const &&i32) bool {
-    var null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::null;
-    null(ptr) and [&&&&&&const &&i32]::null(ptr)
+    var is_null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::is_null;
+    is_null(ptr) and [&&&&&&const &&i32]::is_null(ptr)
 }
 "#,
     )
@@ -401,7 +401,7 @@ fn main(ptr: &&&&&&const &&i32) bool {
     let output = emit_llvm_ir(&checked.backend_lowering.program);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let ir = &output.modules[0].ir;
-    assert!(ir.contains("@nia__m0__d0__null"), "{ir}");
+    assert!(ir.contains("@nia__m0__d0__is_null"), "{ir}");
     assert!(ir.contains("call i1 %"), "{ir}");
     assert!(ir.contains("call i1 @"), "{ir}");
 }

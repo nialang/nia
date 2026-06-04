@@ -74,6 +74,9 @@ impl BackendValidator<'_> {
                     self.validate_expr(&arm.pattern);
                 }
             }
+            FunctionTerminator::Try { value, .. } => {
+                self.validate_expr(value);
+            }
             FunctionTerminator::Loop { header, .. } => match header {
                 nia_function_ir::FunctionForHeader::Infinite => {}
                 nia_function_ir::FunctionForHeader::Condition(expr) => self.validate_expr(expr),
@@ -162,6 +165,12 @@ impl BackendValidator<'_> {
                 self.validate_expr(&field.value);
             }
             FunctionExprKind::Unary { expr, .. }
+            | FunctionExprKind::OptionalSome { expr }
+            | FunctionExprKind::ErrorOk { expr }
+            | FunctionExprKind::ErrorErr { expr }
+            | FunctionExprKind::TaggedUnionTag { expr }
+            | FunctionExprKind::TaggedUnionPayload { expr }
+            | FunctionExprKind::Try { expr }
             | FunctionExprKind::Discard(expr)
             | FunctionExprKind::Cast { expr, .. }
             | FunctionExprKind::TraitObjectUpcast { expr, .. }
@@ -211,6 +220,7 @@ impl BackendValidator<'_> {
             | FunctionExprKind::Char(_)
             | FunctionExprKind::ByteChar(_)
             | FunctionExprKind::Bool(_)
+            | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
             | FunctionExprKind::BuiltinValue(_) => {}
             FunctionExprKind::EnumVariant(def_id) => {
