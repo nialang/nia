@@ -2265,6 +2265,34 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_char_literals_are_typed_scalar_values() {
+    let root = temp_dir("comptime_char_literals_are_typed_scalar_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn choose_char(value: char) char {
+    value
+}
+
+comptime fn widen_byte(value: u8) usize {
+    value as usize
+}
+
+comptime let ch: char = choose_char('A');
+comptime let n: usize = widen_byte(b'\n') + 1usize;
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_switch_structural_struct_fields_have_typed_values() {
     let root = temp_dir("comptime_switch_structural_struct_fields_have_typed_values");
     write(

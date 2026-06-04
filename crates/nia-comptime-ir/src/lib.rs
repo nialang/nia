@@ -191,6 +191,8 @@ pub struct ComptimeExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComptimeExprKind {
     Integer(String),
+    Char(String),
+    ByteChar(String),
     String(StringLiteral),
     Bool(bool),
     Null,
@@ -332,6 +334,8 @@ pub fn lower_expr_with_context(
 ) -> Result<ComptimeExpr, ComptimeLowerError> {
     let kind = match &expr.kind {
         nia_ast::ExprKind::Integer(text) => ComptimeExprKind::Integer(text.clone()),
+        nia_ast::ExprKind::Char(text) => ComptimeExprKind::Char(text.clone()),
+        nia_ast::ExprKind::ByteChar(text) => ComptimeExprKind::ByteChar(text.clone()),
         nia_ast::ExprKind::String(literal) => ComptimeExprKind::String(literal.clone()),
         nia_ast::ExprKind::Bool(value) => ComptimeExprKind::Bool(*value),
         nia_ast::ExprKind::Null => ComptimeExprKind::Null,
