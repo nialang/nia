@@ -935,7 +935,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         builtin: LayoutBuiltin,
         type_arg_span: Span,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let ty_id = self.ty_for_span(type_arg_span);
+        let ty_id = self.comptime_type_arg_for_span(type_arg_span);
         let Some(layout) = self.layout_of(ty_id) else {
             return Err(ComptimeError {
                 span,
@@ -960,14 +960,20 @@ impl ComptimeEnv for BodyChecker<'_> {
         arg_exprs: &[nia_comptime_engine::ComptimeExpr],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let _ = type_args;
-        let _ = arg_exprs;
         let Some(function_id) = self.comptime_function(callee) else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
+        let Some(signature) = self.resolved_function_signature(function_id).map(|resolved| resolved.signature) else {
+            return Err(ComptimeError {
+                span,
+                message: "comptime expression can only call `comptime fn`".to_string(),
+            });
+        };
+        let type_substitutions =
+            self.instantiate_comptime_function_generics(span, &signature, type_args, arg_exprs)?;
         let Some(function) = self.comptime_function_body(function_id).cloned() else {
             return Err(ComptimeError {
                 span,
@@ -978,7 +984,7 @@ impl ComptimeEnv for BodyChecker<'_> {
             span,
             function_id.module_id,
             &function,
-            Vec::new(),
+            type_substitutions.into_iter().collect(),
             args,
             self,
         )
@@ -992,6 +998,22 @@ impl ComptimeEnv for BodyChecker<'_> {
 
     fn pop_comptime_scope(&mut self) {
         self.comptime_call_locals.pop();
+    }
+
+    fn bind_function_context(
+        &mut self,
+        span: Span,
+        _module_id: nia_ids::ModuleId,
+        substitutions: Vec<(String, InternedTyId)>,
+    ) -> Result<(), ComptimeError> {
+        let Some(frame) = self.comptime_call_locals.last_mut() else {
+            return Err(ComptimeError {
+                span,
+                message: "failed to bind comptime function type substitutions".to_string(),
+            });
+        };
+        frame.type_substitutions.extend(substitutions);
+        Ok(())
     }
 
     fn bind_function_param(
@@ -1144,6 +1166,63 @@ impl<'a> BodyChecker<'a> {
             })?;
             nia_comptime_engine::eval_comptime_array_len_expr(&count, this)
         })
+    }
+
+    fn instantiate_comptime_function_generics(
+        &mut self,
+        span: Span,
+        signature: &nia_item_signatures::FunctionSignature,
+        type_args: &[nia_comptime_engine::ComptimeTypeArg],
+        _arg_exprs: &[nia_comptime_engine::ComptimeExpr],
+    ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
+        if !type_args.is_empty() && type_args.len() != signature.generics.len() {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "generic argument count mismatch for comptime function: expected {}, got {}",
+                    signature.generics.len(),
+                    type_args.len()
+                ),
+            });
+        }
+        let mut substitutions = HashMap::new();
+        if type_args.is_empty() {
+            for generic in &signature.generics {
+                if !substitutions.contains_key(generic) {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!("cannot infer comptime generic type argument `{generic}`"),
+                    });
+                }
+            }
+        } else {
+            for (generic, arg) in signature.generics.iter().zip(type_args) {
+                let Some(ty) = arg.ty else {
+                    return Err(ComptimeError {
+                        span: arg.span,
+                        message: "cannot resolve comptime generic function type argument"
+                            .to_string(),
+                    });
+                };
+                substitutions.insert(generic.clone(), ty);
+            }
+        }
+        Ok(substitutions)
+    }
+
+    fn comptime_type_arg_for_span(&mut self, span: Span) -> InternedTyId {
+        let ty = self.ty_for_span(span);
+        self.substitute_current_comptime_generics(ty)
+    }
+
+    fn substitute_current_comptime_generics(&mut self, ty: InternedTyId) -> InternedTyId {
+        let substitutions = self
+            .comptime_call_locals
+            .iter()
+            .flat_map(|frame| frame.type_substitutions.iter())
+            .map(|(name, ty)| (name.clone(), *ty))
+            .collect::<HashMap<_, _>>();
+        self.substitute_generics(ty, &substitutions)
     }
 
     pub(crate) fn local_comptime_use(&self, span: Span) -> Option<LocalId> {

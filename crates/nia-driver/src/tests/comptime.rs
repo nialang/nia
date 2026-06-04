@@ -2517,6 +2517,34 @@ pub comptime fn size_of[T]() usize {
 }
 
 #[test]
+fn function_body_comptime_call_substitutes_type_args_for_layout_builtins() {
+    let root =
+        temp_dir("function_body_comptime_call_substitutes_type_args_for_layout_builtins");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair {
+    a: u8,
+    b: i32,
+}
+
+comptime fn size_of[T]() usize {
+    @size[T]()
+}
+
+fn main() i32 {
+    comptime let n: usize = size_of[Pair]();
+    var bytes: [n]u8 = [0; n];
+    bytes.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_struct_field_array_length_accepts_literal_repeat_count() {
     let root = temp_dir("imported_struct_field_array_length_accepts_literal_repeat_count");
     write(

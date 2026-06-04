@@ -391,6 +391,7 @@ struct ComptimeCallFrame {
     locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
     mutable_locals: HashSet<LocalId>,
     names: HashMap<String, nia_comptime_check::ComptimeValue>,
+    type_substitutions: HashMap<String, InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
