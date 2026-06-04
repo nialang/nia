@@ -694,6 +694,62 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_if_statement_rejects_non_bool_condition() {
+    let root = temp_dir("comptime_function_if_statement_rejects_non_bool_condition");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    if 1usize {
+        return 1usize;
+    }
+    return 2usize;
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_while_statement_rejects_non_bool_condition() {
+    let root = temp_dir("comptime_function_while_statement_rejects_non_bool_condition");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    while 1usize {
+        return 1usize;
+    }
+    return 2usize;
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_mutable_locals_drive_loop_array_lengths() {
     let root = temp_dir("comptime_function_mutable_locals_drive_loop_array_lengths");
     write(
