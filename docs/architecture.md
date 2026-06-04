@@ -596,6 +596,15 @@ instead of teaching the evaluator about Nia's type system, while still giving
 generic comptime calls, `@builtin()` structs, target data, and ordinary user
 comptime structs one shared typed representation.
 
+Typed comptime expression inference belongs to this checker as well. It derives
+runtime types for source-shaped comptime expressions only when the type is a
+semantic consequence of the expression and available tables, such as suffixed
+integer literals, typed aggregate literals, `@builtin()` field access, and
+optional constructors whose payload type is already known. Constructors that
+need missing context, such as `null` or one-sided error-union values, remain
+untyped until an explicit binding, parameter, or call context supplies the full
+type.
+
 Early target pruning is intentionally narrower than full comptime execution: it
 can evaluate target builtins and same-module helper functions before the module
 graph is complete. It lowers its accepted AST conditions to `nia-comptime-ir`

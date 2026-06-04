@@ -1242,11 +1242,11 @@ impl Analyzer<'_> {
         Ok(substitutions)
     }
 
-    fn comptime_arg_runtime_type(&self, expr: &ComptimeExpr) -> Option<InternedTyId> {
+    fn comptime_arg_runtime_type(&mut self, expr: &ComptimeExpr) -> Option<InternedTyId> {
         self.comptime_expr_type(expr).and_then(|ty| ty.runtime())
     }
 
-    fn comptime_expr_type(&self, expr: &ComptimeExpr) -> Option<ComptimeValueType> {
+    fn comptime_expr_type(&mut self, expr: &ComptimeExpr) -> Option<ComptimeValueType> {
         match &expr.kind {
             nia_comptime_engine::ComptimeExprKind::Ident {
                 resolution: Some(nia_comptime_engine::ComptimeNameResolution::Local(local_id)),
@@ -1283,6 +1283,15 @@ impl Analyzer<'_> {
             | nia_comptime_engine::ComptimeExprKind::StructLiteral { ty: Some(ty), .. } => {
                 Some(ComptimeValueType::Runtime(*ty))
             }
+            nia_comptime_engine::ComptimeExprKind::OptionalSome { expr: inner } => {
+                let elem = self.comptime_arg_runtime_type(inner)?;
+                self.comptime_runtime_type(
+                    elem,
+                    |elem| TyKind::Optional { elem },
+                    self.current_execution_module_id(),
+                )
+                .map(ComptimeValueType::Runtime)
+            }
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,
@@ -1303,6 +1312,18 @@ impl Analyzer<'_> {
             }
             _ => None,
         }
+    }
+
+    fn comptime_runtime_type(
+        &mut self,
+        elem: InternedTyId,
+        kind: impl FnOnce(InternedTyId) -> TyKind,
+        target_module_id: ModuleId,
+    ) -> Option<InternedTyId> {
+        let imported_elem = self.import_ty_into_module_or_none(elem, target_module_id)?;
+        self.working_interners
+            .get_mut(&target_module_id)
+            .map(|interner| interner.intern(kind(imported_elem)))
     }
 
     fn is_builtin_value_callee(&self, callee: &ComptimeExpr, expected: &str) -> bool {
@@ -1668,6 +1689,19 @@ impl Analyzer<'_> {
             .get_mut(&target_module_id)
             .expect("target working interner must exist");
         Ok(import_type_into(target, &source_interner, ty))
+    }
+
+    fn import_ty_into_module_or_none(
+        &mut self,
+        ty: InternedTyId,
+        target_module_id: ModuleId,
+    ) -> Option<InternedTyId> {
+        if ty.interner_id == target_module_id {
+            return Some(ty);
+        }
+        let source_interner = self.source_interner_for_module(ty.interner_id)?.clone();
+        let target = self.working_interners.get_mut(&target_module_id)?;
+        Some(import_type_into(target, &source_interner, ty))
     }
 }
 
