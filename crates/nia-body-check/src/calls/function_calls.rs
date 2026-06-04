@@ -383,7 +383,7 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let mut substitutions = HashMap::new();
-        if let Some(expected) = expected {
+        if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
             self.infer_generics_from_type(
                 signature.return_type,
                 expected,
@@ -399,6 +399,7 @@ impl<'a> BodyChecker<'a> {
                     .get(index)
                     .copied()
                     .map(|param| self.substitute_generics(param, &substitutions))
+                    .and_then(|param| self.generic_call_expected(param))
                 {
                     self.check_expr_with_expected(arg, Some(expected))
                 } else {
@@ -451,6 +452,13 @@ impl<'a> BodyChecker<'a> {
         }
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
         self.normalize_projection(return_type)
+    }
+
+    fn generic_call_expected(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        match self.interner.get(ty) {
+            Some(TyKind::GenericParam(_)) => None,
+            _ => Some(ty),
+        }
     }
 
     pub(crate) fn infer_generics_from_type(

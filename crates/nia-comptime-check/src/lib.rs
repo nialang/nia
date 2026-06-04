@@ -1351,6 +1351,13 @@ impl Analyzer<'_> {
             {
                 Some(self.builtin_comptime_type())
             }
+            nia_comptime_engine::ComptimeExprKind::Call {
+                callee,
+                type_args,
+                args,
+            } => self
+                .comptime_call_return_type(expr.span, callee, type_args, args)
+                .map(ComptimeValueType::Runtime),
             nia_comptime_engine::ComptimeExprKind::Field { lhs, name } => {
                 let ComptimeValueType::Struct(fields) = self.comptime_expr_type(lhs, None)? else {
                     return None;
@@ -1362,6 +1369,45 @@ impl Analyzer<'_> {
             }
             _ => None,
         }
+    }
+
+    fn comptime_call_return_type(
+        &mut self,
+        span: Span,
+        callee: &ComptimeExpr,
+        type_args: &[ComptimeTypeArg],
+        args: &[ComptimeExpr],
+    ) -> Option<InternedTyId> {
+        let function_id = self.comptime_function(callee)?;
+        let signature = self
+            .signatures_for_module(function_id.module_id)?
+            .functions
+            .get(&function_id.def_id)?
+            .clone();
+        let substitutions = self
+            .instantiate_function_generics(span, function_id, &signature, type_args, args)
+            .ok()?;
+        self.substitute_ty_into_current_module(
+            function_id.module_id,
+            signature.return_type,
+            &substitutions,
+        )
+    }
+
+    fn substitute_ty_into_current_module(
+        &mut self,
+        source_module_id: ModuleId,
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Option<InternedTyId> {
+        self.ensure_working_interner(source_module_id)?;
+        let substituted = {
+            let interner = self.working_interners.get_mut(&source_module_id)?;
+            substitute_ty_generics_in_interner(interner, ty, &|generic| {
+                substitutions.get(generic).copied()
+            })
+        };
+        self.import_ty_into_module_or_none(substituted, self.current_execution_module_id())
     }
 
     fn expected_error_union_parts(

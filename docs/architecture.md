@@ -611,6 +611,12 @@ types, for example `E!T` can type `!value` when `E` is already concrete, while
 still refusing to invent the missing half of an error union from the value
 shape alone.
 
+Comptime function calls are typed by their signatures in the same layer. Generic
+type arguments are inferred from typed argument expressions, substituted into
+the return type, and then imported into the current execution module's working
+interner. This makes nested comptime calls participate in later generic
+inference without executing the callee solely to discover its type.
+
 Early target pruning is intentionally narrower than full comptime execution: it
 can evaluate target builtins and same-module helper functions before the module
 graph is complete. It lowers its accepted AST conditions to `nia-comptime-ir`
