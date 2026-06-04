@@ -24,14 +24,21 @@ enum ComptimeEvalFlow {
     Value(ComptimeValue),
     Return(ComptimeValue),
     Propagate(ComptimeValue),
+    Break,
+    Continue,
     Void,
 }
+
+const COMPTIME_LOOP_LIMIT: usize = 100_000;
 
 macro_rules! eval_value_or_return_flow {
     ($expr:expr, $env:expr) => {
         match eval_comptime_expr_flow($expr, $env)? {
             ComptimeEvalFlow::Value(value) => value,
-            flow @ (ComptimeEvalFlow::Return(_) | ComptimeEvalFlow::Propagate(_)) => {
+            flow @ (ComptimeEvalFlow::Return(_)
+            | ComptimeEvalFlow::Propagate(_)
+            | ComptimeEvalFlow::Break
+            | ComptimeEvalFlow::Continue) => {
                 return Ok(flow);
             }
             ComptimeEvalFlow::Void => {
@@ -206,6 +213,10 @@ pub fn eval_comptime_expr(
         ComptimeEvalFlow::Propagate(_) => Err(ComptimeError {
             span: expr.span,
             message: "comptime `.?` propagation requires a comptime function".to_string(),
+        }),
+        ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime loop control flow requires an enclosing loop".to_string(),
         }),
         ComptimeEvalFlow::Void => Err(ComptimeError {
             span: expr.span,
@@ -454,7 +465,10 @@ fn eval_try_expr_flow(
             span,
             message: "comptime `.?` requires optional or error union operand".to_string(),
         }),
-        flow @ (ComptimeEvalFlow::Return(_) | ComptimeEvalFlow::Propagate(_)) => Ok(flow),
+        flow @ (ComptimeEvalFlow::Return(_)
+        | ComptimeEvalFlow::Propagate(_)
+        | ComptimeEvalFlow::Break
+        | ComptimeEvalFlow::Continue) => Ok(flow),
         ComptimeEvalFlow::Void => Err(ComptimeError {
             span,
             message: "comptime `.?` requires a value".to_string(),
@@ -803,6 +817,10 @@ pub fn eval_comptime_function_call(
         ComptimeEvalFlow::Value(value)
         | ComptimeEvalFlow::Return(value)
         | ComptimeEvalFlow::Propagate(value) => Ok(value),
+        ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
+            span: function.body.span,
+            message: "comptime loop control flow escaped its loop".to_string(),
+        }),
         ComptimeEvalFlow::Void => Err(ComptimeError {
             span: function.body.span,
             message: "comptime function must return a value".to_string(),
@@ -833,6 +851,8 @@ fn eval_function_block_without_scope(
         match eval_function_stmt(stmt, env)? {
             ComptimeEvalFlow::Return(value) => return Ok(ComptimeEvalFlow::Return(value)),
             ComptimeEvalFlow::Propagate(value) => return Ok(ComptimeEvalFlow::Propagate(value)),
+            ComptimeEvalFlow::Break => return Ok(ComptimeEvalFlow::Break),
+            ComptimeEvalFlow::Continue => return Ok(ComptimeEvalFlow::Continue),
             ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void => {}
         }
     }
@@ -863,10 +883,21 @@ fn eval_function_stmt(
             }
             ComptimeEvalFlow::Return(value) => Ok(ComptimeEvalFlow::Return(value)),
             ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Propagate(value)),
+            ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
+                span: stmt.span,
+                message: "comptime binding value cannot contain loop control flow".to_string(),
+            }),
             ComptimeEvalFlow::Void => Err(ComptimeError {
                 span: stmt.span,
                 message: "comptime function binding requires a value".to_string(),
             }),
+        },
+        ComptimeStmtKind::Expr(expr) => match eval_comptime_expr_flow(expr, env)? {
+            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void => Ok(ComptimeEvalFlow::Void),
+            ComptimeEvalFlow::Return(value) => Ok(ComptimeEvalFlow::Return(value)),
+            ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Propagate(value)),
+            ComptimeEvalFlow::Break => Ok(ComptimeEvalFlow::Break),
+            ComptimeEvalFlow::Continue => Ok(ComptimeEvalFlow::Continue),
         },
         ComptimeStmtKind::Return(value) => {
             let Some(value) = value else {
@@ -879,13 +910,86 @@ fn eval_function_stmt(
                 ComptimeEvalFlow::Value(value)
                 | ComptimeEvalFlow::Return(value)
                 | ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Return(value)),
+                ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
+                    span: stmt.span,
+                    message: "comptime return value cannot contain loop control flow".to_string(),
+                }),
                 ComptimeEvalFlow::Void => Err(ComptimeError {
                     span: stmt.span,
                     message: "comptime function must return a value".to_string(),
                 }),
             }
         }
+        ComptimeStmtKind::Break => Ok(ComptimeEvalFlow::Break),
+        ComptimeStmtKind::Continue => Ok(ComptimeEvalFlow::Continue),
+        ComptimeStmtKind::While { cond, body } => eval_while_stmt(stmt.span, cond, body, env),
+        ComptimeStmtKind::Loop { body } => eval_loop_stmt(stmt.span, body, env),
     }
+}
+
+fn eval_while_stmt(
+    span: Span,
+    cond: &ComptimeExpr,
+    body: &ComptimeBlock,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    for _ in 0..COMPTIME_LOOP_LIMIT {
+        let cond_value = match eval_comptime_expr_flow(cond, env)? {
+            ComptimeEvalFlow::Value(ComptimeValue::Bool(value)) => value,
+            ComptimeEvalFlow::Value(_) => {
+                return Err(ComptimeError {
+                    span: cond.span,
+                    message: "comptime while condition must evaluate to bool".to_string(),
+                });
+            }
+            ComptimeEvalFlow::Return(value) => return Ok(ComptimeEvalFlow::Return(value)),
+            ComptimeEvalFlow::Propagate(value) => return Ok(ComptimeEvalFlow::Propagate(value)),
+            ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => {
+                return Err(ComptimeError {
+                    span: cond.span,
+                    message: "comptime loop condition cannot contain loop control flow".to_string(),
+                });
+            }
+            ComptimeEvalFlow::Void => {
+                return Err(ComptimeError {
+                    span: cond.span,
+                    message: "comptime while condition requires a value".to_string(),
+                });
+            }
+        };
+        if !cond_value {
+            return Ok(ComptimeEvalFlow::Void);
+        }
+        match eval_function_block(body, env)? {
+            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
+            ComptimeEvalFlow::Break => return Ok(ComptimeEvalFlow::Void),
+            ComptimeEvalFlow::Return(value) => return Ok(ComptimeEvalFlow::Return(value)),
+            ComptimeEvalFlow::Propagate(value) => return Ok(ComptimeEvalFlow::Propagate(value)),
+        }
+    }
+    Err(ComptimeError {
+        span,
+        message: format!("comptime while exceeded {COMPTIME_LOOP_LIMIT} iterations"),
+    })
+}
+
+fn eval_loop_stmt(
+    span: Span,
+    body: &ComptimeBlock,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    for _ in 0..COMPTIME_LOOP_LIMIT {
+        match eval_function_block(body, env)? {
+            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
+            ComptimeEvalFlow::Break => return Ok(ComptimeEvalFlow::Void),
+            ComptimeEvalFlow::Return(value) => return Ok(ComptimeEvalFlow::Return(value)),
+            ComptimeEvalFlow::Propagate(value) => return Ok(ComptimeEvalFlow::Propagate(value)),
+        }
+    }
+    Err(ComptimeError {
+        span,
+        message: format!("comptime loop exceeded {COMPTIME_LOOP_LIMIT} iterations"),
+    })
 }
 
 pub fn eval_int_literal(text: &str) -> Result<i128, String> {

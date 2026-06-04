@@ -562,6 +562,125 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_loop_statements_drive_array_lengths() {
+    let root = temp_dir("comptime_function_loop_statements_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    loop {
+        break;
+    }
+    8;
+    return 6;
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_while_statements_drive_array_lengths() {
+    let root = temp_dir("comptime_function_while_statements_drive_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(flag: bool) usize {
+    while false {
+        return 1;
+    }
+    while flag {
+        break;
+    }
+    return 7;
+}
+
+comptime let n: usize = width(true);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_rejects_escaped_loop_control_flow() {
+    let root = temp_dir("comptime_function_rejects_escaped_loop_control_flow");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    break;
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("comptime loop control flow escaped its loop")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_infinite_loop_statements() {
+    let root = temp_dir("comptime_function_rejects_infinite_loop_statements");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    loop {
+        continue;
+    }
+    return 1;
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("comptime loop exceeded")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_if_prunes_unselected_function_body_branch() {
     let root = temp_dir("comptime_if_prunes_unselected_function_body_branch");
     write(
