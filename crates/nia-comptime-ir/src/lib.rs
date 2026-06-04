@@ -67,6 +67,7 @@ pub enum ComptimeStmtKind {
         then_branch: ComptimeBlock,
         else_branch: Option<ComptimeBlock>,
     },
+    ForIn(ComptimeForIn),
     While {
         cond: ComptimeExpr,
         body: ComptimeBlock,
@@ -99,6 +100,20 @@ pub enum ComptimeAssignTarget {
         name: String,
         local_id: Option<LocalId>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeForIn {
+    pub binding: ComptimeForBinding,
+    pub iter: ComptimeExpr,
+    pub body: ComptimeBlock,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeForBinding {
+    pub span: Span,
+    pub name: String,
+    pub local_id: Option<LocalId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -216,6 +231,7 @@ pub enum ComptimeExprKind {
         rhs: Box<ComptimeExpr>,
     },
     Assign(Box<ComptimeAssign>),
+    Range(ComptimeRange),
     If {
         cond: Box<ComptimeExpr>,
         then_branch: ComptimeBlock,
@@ -226,6 +242,13 @@ pub enum ComptimeExprKind {
         expr: Box<ComptimeExpr>,
     },
     Block(ComptimeBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeRange {
+    pub start: Option<Box<ComptimeExpr>>,
+    pub end: Option<Box<ComptimeExpr>>,
+    pub inclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -368,6 +391,21 @@ pub fn lower_expr_with_context(
                 rhs: lower_expr_with_context(rhs, context)?,
             }))
         }
+        nia_ast::ExprKind::Range(range) => ComptimeExprKind::Range(ComptimeRange {
+            start: range
+                .start
+                .as_deref()
+                .map(|start| lower_expr_with_context(start, context))
+                .transpose()?
+                .map(Box::new),
+            end: range
+                .end
+                .as_deref()
+                .map(|end| lower_expr_with_context(end, context))
+                .transpose()?
+                .map(Box::new),
+            inclusive: range.inclusive,
+        }),
         nia_ast::ExprKind::If {
             cond,
             then_branch,
@@ -557,6 +595,17 @@ fn lower_stmt_with_context(
         ),
         nia_ast::StmtKind::Break => ComptimeStmtKind::Break,
         nia_ast::StmtKind::Continue => ComptimeStmtKind::Continue,
+        nia_ast::StmtKind::ForIn(for_in) => ComptimeStmtKind::ForIn(ComptimeForIn {
+            binding: ComptimeForBinding {
+                span: for_in.binding.span,
+                name: for_in.binding.name.clone(),
+                local_id: context
+                    .local_id
+                    .and_then(|local_id| local_id(for_in.binding.span)),
+            },
+            iter: lower_expr_with_context(&for_in.iter, context)?,
+            body: lower_block_with_context(&for_in.body, context)?,
+        }),
         nia_ast::StmtKind::While(while_stmt) => ComptimeStmtKind::While {
             cond: lower_expr_with_context(&while_stmt.cond, context)?,
             body: lower_block_with_context(&while_stmt.body, context)?,

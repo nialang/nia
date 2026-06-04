@@ -796,7 +796,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         )
     }
 
-    fn bind_switch_pattern_local(
+    fn bind_pattern_local(
         &mut self,
         span: Span,
         name: &str,

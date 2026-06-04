@@ -210,7 +210,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         self.bind_named_value(span, &binding.name, binding.is_mutable, value)
     }
 
-    fn bind_switch_pattern_local(
+    fn bind_pattern_local(
         &mut self,
         span: Span,
         name: &str,
