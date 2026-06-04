@@ -160,14 +160,28 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         expr: &Expr,
     ) -> Result<i128, nia_comptime_engine::ComptimeError> {
+        let expr = self.eval_static_comptime_expr(expr)?;
+        nia_comptime_engine::eval_comptime_int_expr(&expr, self)
+    }
+
+    fn eval_static_comptime_array_len_expr(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<u64, nia_comptime_engine::ComptimeError> {
+        let expr = self.eval_static_comptime_expr(expr)?;
+        nia_comptime_engine::eval_comptime_array_len_expr(&expr, self)
+    }
+
+    fn eval_static_comptime_expr(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<nia_comptime_ir::ComptimeExpr, nia_comptime_engine::ComptimeError> {
         self.with_comptime_context(|this| {
-            let expr = this.lower_comptime_expr(expr).map_err(|err| {
-                nia_comptime_engine::ComptimeError {
+            this.lower_comptime_expr(expr)
+                .map_err(|err| nia_comptime_engine::ComptimeError {
                     span: err.span,
                     message: err.message,
-                }
-            })?;
-            nia_comptime_engine::eval_comptime_int_expr(&expr, this)
+                })
         })
     }
 
@@ -278,26 +292,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_static_place_index(&mut self, expr: &Expr) -> u64 {
-        let expr =
-            match self
-                .lower_comptime_expr(expr)
-                .map_err(|err| nia_comptime_engine::ComptimeError {
-                    span: err.span,
-                    message: err.message,
-                }) {
-                Ok(expr) => expr,
-                Err(error) => {
-                    self.diagnostics.push(Diagnostic::error(
-                        expr.span,
-                        format!(
-                            "static address index is not a valid usize constant: {}",
-                            error.message
-                        ),
-                    ));
-                    return 0;
-                }
-            };
-        match nia_comptime_engine::eval_comptime_array_len_expr(&expr, self) {
+        match self.eval_static_comptime_array_len_expr(expr) {
             Ok(value) => value,
             Err(error) => {
                 self.diagnostics.push(Diagnostic::error(
