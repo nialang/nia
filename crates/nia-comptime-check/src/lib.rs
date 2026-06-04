@@ -1349,7 +1349,7 @@ impl Analyzer<'_> {
         }
     }
 
-    fn runtime_array_len(&self, ty: InternedTyId) -> Option<u64> {
+    fn runtime_array_len(&mut self, ty: InternedTyId) -> Option<u64> {
         let Some(TyKind::Array { len, .. }) = self.ty_kind(ty) else {
             return None;
         };
@@ -1357,7 +1357,7 @@ impl Analyzer<'_> {
     }
 
     fn runtime_array_accepts_comptime_string(
-        &self,
+        &mut self,
         value: &ComptimeValue,
         ty: InternedTyId,
     ) -> bool {
@@ -2413,8 +2413,8 @@ impl Analyzer<'_> {
         match lhs {
             ComptimeValueType::Array { .. } => {
                 let (elem, len) = lhs.array_elem()?;
-                let actual_len =
-                    self.comptime_slice_len(len, self.expected_const_array_len(expected), range)?;
+                let expected_len = self.expected_const_array_len(expected);
+                let actual_len = self.comptime_slice_len(len, expected_len, range)?;
                 self.comptime_slice_result_type(elem.clone(), actual_len, expected)
             }
             ComptimeValueType::Runtime(ty) => self.comptime_runtime_slice_type(ty, range, expected),
@@ -2437,8 +2437,8 @@ impl Analyzer<'_> {
             _ => return None,
         };
         let known_len = len.and_then(|len| self.array_len_const_value(len));
-        let actual_len =
-            self.comptime_slice_len(known_len, self.expected_const_array_len(expected), range)?;
+        let expected_len = self.expected_const_array_len(expected);
+        let actual_len = self.comptime_slice_len(known_len, expected_len, range)?;
         let elem = self.import_ty_into_module_or_none(elem, self.current_execution_module_id())?;
         self.comptime_slice_result_type(ComptimeValueType::Runtime(elem), actual_len, expected)
     }
@@ -2498,7 +2498,7 @@ impl Analyzer<'_> {
         Some(end - start)
     }
 
-    fn expected_const_array_len(&self, expected: Option<InternedTyId>) -> Option<u64> {
+    fn expected_const_array_len(&mut self, expected: Option<InternedTyId>) -> Option<u64> {
         let expected = expected?;
         let TyKind::Array { len, .. } = self.ty_kind(expected)? else {
             return None;
@@ -2506,12 +2506,34 @@ impl Analyzer<'_> {
         self.array_len_const_value(len)
     }
 
-    fn array_len_const_value(&self, len: ArrayLenTy) -> Option<u64> {
+    fn array_len_const_value(&mut self, len: ArrayLenTy) -> Option<u64> {
         match len {
             ArrayLenTy::ConstValue(len) => Some(len),
-            ArrayLenTy::ConstExpr(id) => self.array_lengths.get(&id).copied(),
+            ArrayLenTy::ConstExpr(id) => self
+                .array_lengths
+                .get(&id)
+                .copied()
+                .or_else(|| self.eval_array_len_const_expr_id(id)),
             ArrayLenTy::Infer | ArrayLenTy::Builtin { .. } => None,
         }
+    }
+
+    fn eval_array_len_const_expr_id(&mut self, id: GlobalConstExprId) -> Option<u64> {
+        let expr = if id.module_id == self.input.defs.module_id {
+            self.input.module.const_exprs.get(&id)?.clone()
+        } else {
+            self.input
+                .program
+                .modules?
+                .get(&id.module_id)?
+                .const_exprs
+                .get(&id)?
+                .clone()
+        };
+        let value =
+            self.with_execution_module(id.module_id, |this| this.eval_array_len_expr(&expr))?;
+        self.array_lengths.insert(id, value);
+        Some(value)
     }
 
     fn import_comptime_value_type(

@@ -3586,6 +3586,147 @@ comptime let os = target_os();
 }
 
 #[test]
+fn comptime_for_in_binding_preserves_array_element_type() {
+    let root = temp_dir("comptime_for_in_binding_preserves_array_element_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn total(values: [1][5]char) usize {
+    var n: usize = 0usize;
+    for os in values {
+        n += os.len();
+    }
+    n
+}
+
+comptime let n: usize = total([@builtin().target.os]);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_switch_optional_payload_preserves_array_type() {
+    let root = temp_dir("comptime_switch_optional_payload_preserves_array_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn target_os() ?[5]char {
+    ?@builtin().target.os
+}
+
+comptime let n: usize = switch target_os() {
+    ?os => os.len(),
+    null => 0usize,
+};
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_optional_constructor_projects_target_string_payload() {
+    let root = temp_dir("comptime_optional_constructor_projects_target_string_payload");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let os: ?[5]char = ?@builtin().target.os;
+comptime let n: usize = switch os {
+    ?payload => payload.len(),
+    null => 0usize,
+};
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_comptime_function_return_validates_imported_array_length() {
+    let root = temp_dir("imported_comptime_function_return_validates_imported_array_length");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime let os_len: usize = 5usize;
+
+pub comptime fn target_os() [os_len]char {
+    @builtin().target.os
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime let n: usize = config::target_os().len();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_comptime_function_return_rejects_imported_array_length_mismatch() {
+    let root =
+        temp_dir("imported_comptime_function_return_rejects_imported_array_length_mismatch");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime let os_len: usize = 4usize;
+
+pub comptime fn target_os() [os_len]char {
+    @builtin().target.os
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime let os = config::target_os();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 4")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_byte_and_c_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_byte_and_c_string_literals_are_typed_arrays");
     write(
