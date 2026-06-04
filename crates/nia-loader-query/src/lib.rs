@@ -3,8 +3,9 @@ use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
 use nia_diagnostic::Diagnostic;
 use nia_imports::{
     ImportAliasMap, ModuleGraph, ModuleMap, ResolvedImport, add_resolved_imports,
-    collect_import_aliases, resolve_module_imports,
+    collect_import_aliases, resolve_module_imports_from_active_item_tree,
 };
+use nia_item_tree::{ActiveModuleItemTree, ModuleItemTree};
 use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
@@ -19,6 +20,7 @@ pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap
         root_path: SourcePath::new(root_path.into()),
         module_map,
         sources: SourceDatabase::new(),
+        target: TargetConfig::host(),
     });
     db.query(LoadedProgramQuery)
 }
@@ -33,6 +35,7 @@ fn load_program_from_sources(
         root_path: SourcePath::new(root_path.into()),
         module_map,
         sources,
+        target: TargetConfig::host(),
     });
     db.query(LoadedProgramQuery)
 }
@@ -46,6 +49,7 @@ fn load_program_trace(
         root_path: SourcePath::new(root_path.into()),
         module_map,
         sources: SourceDatabase::new(),
+        target: TargetConfig::host(),
     });
     let _ = db.query(LoadedProgramQuery);
     db.query_trace()
@@ -55,6 +59,7 @@ struct LoaderContext {
     root_path: SourcePath,
     module_map: ModuleMap,
     sources: SourceDatabase,
+    target: TargetConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -78,6 +83,7 @@ impl QueryKey<LoaderContext> for LoadedProgramQuery {
         LoadedProgram {
             graph,
             imports,
+            target: db.context().target.clone(),
             modules,
             diagnostics,
         }
@@ -190,7 +196,10 @@ impl QueryKey<LoaderContext> for LoadedModuleQuery {
             path: self.0.clone(),
             source_version: parsed.source.version(),
             source: parsed.source.text,
+            raw_module: parsed.raw_module,
             module: parsed.module,
+            item_tree: parsed.item_tree,
+            active_item_tree: parsed.active_item_tree,
             origins: parsed.origins,
             parse_errors: parsed.parse_errors,
         }
@@ -220,13 +229,18 @@ impl QueryKey<LoaderContext> for ParsedModuleQuery {
             path: self.path.clone(),
             version: self.version,
         });
-        let (module, parse_errors, origins) = nia_parser::parse_module_syntax_with_origins(&syntax);
-        let prune_result = prune_module_for_target(module, &TargetConfig::host());
+        let (raw_module, parse_errors, origins) =
+            nia_parser::parse_module_syntax_with_origins(&syntax);
+        let item_tree = ModuleItemTree::from_module(&raw_module);
+        let prune_result = prune_module_for_target(raw_module.clone(), &db.context().target);
         ParsedModule {
             source: source
                 .file
                 .unwrap_or_else(|| db.context().sources.empty_source(&self.path)),
             module: prune_result.module,
+            raw_module,
+            item_tree,
+            active_item_tree: prune_result.active_item_tree,
             origins,
             parse_errors,
             prune_diagnostics: prune_result.diagnostics,
@@ -266,6 +280,9 @@ impl QueryKey<LoaderContext> for SyntaxModuleQuery {
 #[derive(Debug, Clone, PartialEq)]
 struct ParsedModule {
     source: SourceFile,
+    raw_module: nia_ast::Module,
+    item_tree: ModuleItemTree,
+    active_item_tree: ActiveModuleItemTree,
     module: nia_ast::Module,
     origins: nia_node_id::NodeOriginTable,
     parse_errors: Vec<nia_parser::ParseError>,
@@ -337,10 +354,10 @@ impl QueryKey<LoaderContext> for ModuleImportsQuery {
             && parsed.parse_errors.is_empty()
             && parsed.prune_diagnostics.is_empty()
         {
-            resolve_module_imports(
+            resolve_module_imports_from_active_item_tree(
                 &mut diagnostics,
                 &self.path,
-                &parsed.module,
+                &parsed.active_item_tree,
                 &db.context().module_map,
             )
         } else {
@@ -576,6 +593,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             root_path: main.clone(),
             module_map: ModuleMap::default(),
             sources: sources.clone(),
+            target: TargetConfig::host(),
         });
 
         let first = db.query(LoadedProgramQuery);
@@ -619,6 +637,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             root_path: main.clone(),
             module_map: ModuleMap::default(),
             sources: sources.clone(),
+            target: TargetConfig::host(),
         });
 
         let first = db.query(LoadedProgramQuery);
@@ -645,6 +664,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             root_path: SourcePath::new("main.nia"),
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
+            target: TargetConfig::host(),
         });
 
         let err = db

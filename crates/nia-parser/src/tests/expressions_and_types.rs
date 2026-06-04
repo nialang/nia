@@ -55,7 +55,7 @@ fn parses_structured_types_and_aggregate_literals() {
         r#"
 struct Header {
     bytes: [_]u8,
-    callback: &const fn(i32, ...) void,
+    callback: &fn(i32, ...) void,
 }
 
 fn make() Header {
@@ -118,7 +118,7 @@ struct Pair[T] {
     value: T,
 }
 
-fn make(ptr: &const u8, xs: &[_]i32) Pair[i32] {
+fn make(ptr: &u8, xs: &[_]i32) Pair[i32] {
     var size = @size[Pair[i32]]();
     var addr = ptr as usize;
     var first = xs[0];
@@ -257,13 +257,13 @@ fn make() i32 {
 fn parses_slice_types_and_ranges() {
     let (module, errors) = parse_module(
         r#"
-fn take(xs: &const [i32], ys: &[i32]) usize {
-    var a = &const xs[..];
-    var b = &const xs[0..2];
-    var c = &const xs[0..=2];
-    var d = &const xs[1..];
-    var e = &const xs[..3];
-    var f = &const xs[..=4];
+fn take(xs: &[i32], ys: &mut [i32]) usize {
+    var a = &xs[..];
+    var b = &xs[0..2];
+    var c = &xs[0..=2];
+    var d = &xs[1..];
+    var e = &xs[..3];
+    var f = &xs[..=4];
     a.len() + b.len() + c.len() + d.len() + e.len() + f.len()
 }
 "#,
@@ -274,12 +274,15 @@ fn take(xs: &const [i32], ys: &[i32]) usize {
     };
     assert!(matches!(
         function.params[0].ty.as_ref().map(|ty| &ty.kind),
-        Some(TypeKind::Slice { is_const: true, .. })
+        Some(TypeKind::Slice {
+            is_readonly: true,
+            ..
+        })
     ));
     assert!(matches!(
         function.params[1].ty.as_ref().map(|ty| &ty.kind),
         Some(TypeKind::Slice {
-            is_const: false,
+            is_readonly: false,
             ..
         })
     ));
@@ -326,7 +329,7 @@ fn main(x: u32) u32 {
 fn parses_nested_reference_slice_types() {
     let (module, errors) = parse_module(
         r#"
-fn take(xs: &const &const [u8]) {}
+fn take(xs: &&[u8]) {}
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");

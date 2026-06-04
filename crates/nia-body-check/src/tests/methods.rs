@@ -74,25 +74,25 @@ fn main(pair: Pair[i32, i32]) i32 {
 }
 
 #[test]
-fn checks_assignment_targets_and_const_bindings() {
+fn checks_assignment_targets_and_let_bindings() {
     let checked = pipeline(
         r#"
-const global_const: i32 = 1;
+let global_let: i32 = 1;
 var global_mut: i32 = 0;
 
 struct Cell {
     value: i32,
 }
 
-fn main(param: i32, read: &const i32, write: &i32, cell: Cell, read_cell: &const Cell, write_cell: &Cell) i32 {
-    const local_const = 1;
+fn main(param: i32, read: & i32, write: &mut i32, cell: Cell, read_cell: & Cell, write_cell: &mut Cell) i32 {
+    let local_let = 1;
     var local_mut = 1;
     local_mut = 2;
     param = 3;
     _ += 1;
     global_mut = 4;
-    local_const = 5;
-    global_const = 6;
+    local_let = 5;
+    global_let = 6;
     read.* = 7;
     write.* = 8;
     cell.value = 9;
@@ -106,19 +106,19 @@ fn main(param: i32, read: &const i32, write: &i32, cell: Cell, read_cell: &const
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("local is const"))
+            .any(|diagnostic| diagnostic.message.contains("local is let"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("global is const"))
+            .any(|diagnostic| diagnostic.message.contains("global is let"))
     );
     assert_eq!(
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("pointer is const"))
+            .filter(|diagnostic| diagnostic.message.contains("pointer is read-only"))
             .count(),
         1
     );
@@ -144,16 +144,16 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(&const self) T {
+    fn get(& self) T {
         self.value
     }
 
-    fn set(&self, value: T) {
+    fn set(&mut self, value: T) {
         self.value = value;
     }
 }
 
-fn main(ro: &const Box[i32], rw: &Box[i32]) i32 {
+fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
     var box: Box[i32] = { value: 1 };
     var x: i32 = box.get();
     var y: i32 = ro.get();
@@ -168,7 +168,7 @@ fn main(ro: &const Box[i32], rw: &Box[i32]) i32 {
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .message
-            .contains("receiver cannot be matched through `&const T`")
+            .contains("receiver cannot be matched through read-only `&T`")
     }));
     assert!(
         checked
@@ -200,7 +200,7 @@ struct Point {
 }
 
 extend Point {
-    fn inspect(&const self) i32 { self.x }
+    fn inspect(& self) i32 { self.x }
     fn init(&self) {}
     fn deinit(&self) {}
 }
@@ -209,11 +209,11 @@ fn main() {
     var p: Point;
     p.init();
     defer p.deinit();
-    const origin: Point;
+    let origin: Point;
     _ = origin.inspect();
-    const n: i32;
+    let n: i32;
     var copied: i32 = n;
-    var borrowed: &const i32 = &const n;
+    var borrowed: & i32 = & n;
     _ = copied;
     _ = borrowed;
 }
@@ -223,7 +223,7 @@ fn main() {
 }
 
 #[test]
-fn rejects_mutating_const_uninitialized_bindings() {
+fn rejects_mutating_let_uninitialized_bindings() {
     let checked = pipeline(
         r#"
 struct Point {
@@ -231,13 +231,13 @@ struct Point {
 }
 
 extend Point {
-    fn init(&self) {}
+    fn init(&mut self) {}
 }
 
 fn main() {
-    const origin: Point;
+    let origin: Point;
     origin.init();
-    const n: i32;
+    let n: i32;
     n = 1;
     _ = &n;
 }
@@ -257,7 +257,7 @@ fn main() {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("local is const")),
+            .any(|diagnostic| diagnostic.message.contains("local is let")),
         "{:?}",
         checked.diagnostics
     );
@@ -272,11 +272,11 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn replace[U](&const self, value: U) U {
+    fn replace[U](& self, value: U) U {
         value
     }
 
-    fn get(&const self) T {
+    fn get(& self) T {
         self.value
     }
 }
@@ -338,7 +338,7 @@ struct Box[T] {
 struct EmptyBox[T] {}
 
 extend[T] Box[T] {
-    fn replace[U](&const self, value: U) U {
+    fn replace[U](& self, value: U) U {
         value
     }
 
@@ -369,7 +369,7 @@ fn main() i32 {
 fn checks_function_pointer_calls() {
     let checked = pipeline(
         r#"
-fn main(cb: &const fn(i32, bool) i64, variadic: &const fn(i32, ...) void, flag: bool) i64 {
+fn main(cb: &fn(i32, bool) i64, variadic: &fn(i32, ...) void, flag: bool) i64 {
     var x: i64 = cb(1, flag);
     _ = cb(flag, flag);
     _ = cb(1);
@@ -415,7 +415,7 @@ extend Point {
         { x: x }
     }
 
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.x
     }
 
@@ -425,12 +425,12 @@ extend Point {
 }
 
 fn main() i32 {
-    var make: &const fn(i32) Point = &const Point::new;
-    var get: &const fn(&const Point) i32 = &const Point::get;
-    var set: &const fn(&Point, i32) void = &const Point::set;
+    var make: &fn(i32) Point = & Point::new;
+    var get: &fn(& Point) i32 = & Point::get;
+    var set: &fn(&Point, i32) void = & Point::set;
     var p = make(1);
     set(&p, 2);
-    get(&const p)
+    get(& p)
 }
 "#,
     );
@@ -450,16 +450,16 @@ extend[T] Box[T] {
         { value: value }
     }
 
-    fn replace[U](&const self, value: U) U {
+    fn replace[U](& self, value: U) U {
         value
     }
 }
 
 fn main(flag: bool) i32 {
-    var make: &const fn(i32) Box[i32] = &const Box[i32]::make;
-    var replace: &const fn(&const Box[i32], bool) bool = &const Box[i32]::replace[bool];
+    var make: &fn(i32) Box[i32] = & Box[i32]::make;
+    var replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace[bool];
     var b = make(1);
-    if replace(&const b, flag) { b.value } else { 0 }
+    if replace(& b, flag) { b.value } else { 0 }
 }
 "#,
     );
@@ -487,8 +487,8 @@ extend[T] [3]T {
 }
 
 fn main(ptr: &u8, triple: [3]i32) i32 {
-    var is_null: &const fn(&u8) bool = &const [&u8]::is_null;
-    var zero: &const fn() usize = &const [&u8]::zero;
+    var is_null: &fn(&u8) bool = & [&u8]::is_null;
+    var zero: &fn() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
     [[3]i32]::first(triple) + zero() as i32
@@ -502,15 +502,15 @@ fn main(ptr: &u8, triple: [3]i32) i32 {
 fn checks_deep_pointer_structural_associated_calls_and_function_pointers() {
     let checked = pipeline(
         r#"
-extend &&&&&&const &&i32 {
+extend &&&&&& &&i32 {
     fn is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: &&&&&&const &&i32) bool {
-    var is_null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::is_null;
-    is_null(ptr) and [&&&&&&const &&i32]::is_null(ptr)
+fn main(ptr: &&&&&& &&i32) bool {
+    var is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
+    is_null(ptr) and [&&&&&& &&i32]::is_null(ptr)
 }
 "#,
     );
@@ -530,15 +530,14 @@ extend[T] Box[T] {
         { value: value }
     }
 
-    fn replace[U](&const self, value: U) U {
+    fn replace[U](& self, value: U) U {
         value
     }
 }
 
 fn main() {
-    var bad_make: &const fn(i32) Box[i32] = &const Box::make;
-    var bad_replace: &const fn(&const Box[i32], bool) bool = &const Box[i32]::replace;
-    var mutable_ref = &Box[i32]::make;
+    var bad_make: &fn(i32) Box[i32] = & Box::make;
+    var bad_replace: &fn(& Box[i32], bool) bool = & Box[i32]::replace;
 }
 "#,
     );
@@ -553,13 +552,6 @@ fn main() {
         checked.diagnostics.iter().any(|diagnostic| diagnostic
             .message
             .contains("generic argument count mismatch for function pointer")),
-        "{:?}",
-        checked.diagnostics
-    );
-    assert!(
-        checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("function pointers must be formed with `&const`")),
         "{:?}",
         checked.diagnostics
     );
@@ -578,7 +570,7 @@ extend Point {
         { x: x }
     }
 
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.x
     }
 }

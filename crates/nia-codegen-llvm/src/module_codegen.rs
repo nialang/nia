@@ -149,7 +149,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if !self.is_valid_hosted_entry_signature(function) {
                 return Err(self.error(
                     function.span,
-                    "hosted entry `main` must be `fn main() i32` or `fn main(argc: i32, argv: &const &const u8) i32`",
+                    "hosted entry `main` must be `fn main() i32` or `fn main(argc: i32, argv: &&u8) i32`",
                 ));
             }
         }
@@ -167,7 +167,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             [] => true,
             [argc, argv] => {
                 argc.ty == self.source.interner.primitive(PrimitiveTy::I32)
-                    && self.is_const_argv_ty(argv.ty)
+                    && self.is_readonly_argv_ty(argv.ty)
             }
             _ => false,
         }
@@ -223,16 +223,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         }
     }
 
-    fn is_const_argv_ty(&self, ty: InternedTyId) -> bool {
+    fn is_readonly_argv_ty(&self, ty: InternedTyId) -> bool {
         let Some(TyKind::Pointer {
-            is_const: true,
+            is_readonly: true,
             elem: argv_elem,
         }) = self.ty_kind(ty)
         else {
             return false;
         };
         let Some(TyKind::Pointer {
-            is_const: true,
+            is_readonly: true,
             elem: byte_elem,
         }) = self.ty_kind(*argv_elem)
         else {

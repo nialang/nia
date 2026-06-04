@@ -35,6 +35,7 @@ nia-abi-check.workspace = true
 nia-flow-check.workspace = true
 nia-function-lower.workspace = true
 nia-parser.workspace = true
+nia-target-config.workspace = true
 nia-type-lower.workspace = true
 nia-type-resolve.workspace = true
 

@@ -11,9 +11,9 @@ fn trait_object_supertrait_upcast_is_recorded() {
 trait Parent {}
 trait Child : Parent {}
 
-fn accept(parent: &const Parent) void {}
+fn accept(parent: & Parent) void {}
 
-fn use_child(child: &const Child) void {
+fn use_child(child: & Child) void {
     accept(child)
 }
 "#,
@@ -44,9 +44,9 @@ fn trait_object_non_supertrait_upcast_is_rejected() {
 trait Parent {}
 trait Other {}
 
-fn accept(parent: &const Parent) void {}
+fn accept(parent: & Parent) void {}
 
-fn use_other(other: &const Other) void {
+fn use_other(other: & Other) void {
     accept(other)
 }
 "#,
@@ -70,7 +70,7 @@ fn concrete_pointer_coerces_to_trait_object_and_dispatches_method() {
         &root.join("main.nia"),
         r#"
 trait Source {
-    fn get(&const self) i32;
+    fn get(& self) i32;
 }
 
 struct Counter {
@@ -78,18 +78,18 @@ struct Counter {
 }
 
 extend Counter : Source {
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.value
     }
 }
 
-fn read(source: &const Source) i32 {
+fn read(source: & Source) i32 {
     source.get()
 }
 
 fn main() i32 {
     var counter: Counter = { value: 8 };
-    read(&const counter)
+    read(& counter)
 }
 "#,
     );
@@ -116,7 +116,7 @@ fn trait_object_methods_may_return_bound_associated_types() {
 trait Source {
     type Item;
 
-    fn get(&const self) [Self as Source]::Item;
+    fn get(& self) [Self as Source]::Item;
 }
 
 struct Counter {
@@ -126,18 +126,18 @@ struct Counter {
 extend Counter : Source {
     type Item = i32;
 
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.value
     }
 }
 
-fn read(source: &const Source[Item = i32]) i32 {
+fn read(source: & Source[Item = i32]) i32 {
     source.get()
 }
 
 fn main() i32 {
     var counter: Counter = { value: 42 };
-    read(&const counter)
+    read(& counter)
 }
 "#,
     );
@@ -163,17 +163,17 @@ fn trait_object_upcast_matches_explicit_supertrait_associated_type_bindings() {
 trait FatherA {
     type Item;
 
-    fn a(&const self) [Self as FatherA]::Item;
+    fn a(& self) [Self as FatherA]::Item;
 }
 
 trait FatherB {
     type Item;
 
-    fn b(&const self) [Self as FatherB]::Item;
+    fn b(& self) [Self as FatherB]::Item;
 }
 
 trait Child : FatherA + FatherB {
-    fn child(&const self) i32;
+    fn child(& self) i32;
 }
 
 struct Both {
@@ -183,7 +183,7 @@ struct Both {
 extend Both : FatherA {
     type Item = i32;
 
-    fn a(&const self) i32 {
+    fn a(& self) i32 {
         self.value
     }
 }
@@ -191,26 +191,26 @@ extend Both : FatherA {
 extend Both : FatherB {
     type Item = usize;
 
-    fn b(&const self) usize {
+    fn b(& self) usize {
         1usize
     }
 }
 
 extend Both : Child {
-    fn child(&const self) i32 {
+    fn child(& self) i32 {
         self.value + 1
     }
 }
 
-fn read_a(parent: &const FatherA[Item = i32]) i32 {
+fn read_a(parent: & FatherA[Item = i32]) i32 {
     parent.a()
 }
 
-fn read_b(parent: &const FatherB[Item = usize]) usize {
+fn read_b(parent: & FatherB[Item = usize]) usize {
     parent.b()
 }
 
-fn from_child(child: &const Child[
+fn from_child(child: & Child[
     [Self as FatherA]::Item = i32,
     [Self as FatherB]::Item = usize,
 ]) i32 {
@@ -219,7 +219,7 @@ fn from_child(child: &const Child[
 
 fn main() i32 {
     var both: Both = { value: 41 };
-    from_child(&const both)
+    from_child(& both)
 }
 "#,
     );
@@ -246,24 +246,24 @@ fn trait_object_upcast_rejects_unbound_supertrait_associated_type_fakeref() {
 trait FatherA {
     type Item;
 
-    fn a(&const self) [Self as FatherA]::Item;
+    fn a(& self) [Self as FatherA]::Item;
 }
 
 trait FatherB {
     type Item;
 
-    fn b(&const self) [Self as FatherB]::Item;
+    fn b(& self) [Self as FatherB]::Item;
 }
 
 trait Child : FatherA + FatherB {
-    fn child(&const self) i32;
+    fn child(& self) i32;
 }
 
-fn read_b(parent: &const FatherB[Item = usize]) usize {
+fn read_b(parent: & FatherB[Item = usize]) usize {
     parent.b()
 }
 
-fn forged(child: &const Child[[Self as FatherA]::Item = i32]) usize {
+fn forged(child: & Child[[Self as FatherA]::Item = i32]) usize {
     read_b(child)
 }
 
@@ -292,7 +292,7 @@ trait Bad {
     fn make() i32;
 }
 
-fn read(bad: &const Bad) i32 {
+fn read(bad: & Bad) i32 {
     _ = bad;
     0
 }
@@ -317,10 +317,10 @@ fn trait_object_rejects_method_generics() {
         &root.join("main.nia"),
         r#"
 trait Bad {
-    fn id[T](&const self, value: T) T;
+    fn id[T](& self, value: T) T;
 }
 
-fn read(bad: &const Bad) i32 {
+fn read(bad: & Bad) i32 {
     bad.id[i32](1)
 }
 "#,
@@ -342,10 +342,10 @@ fn trait_object_rejects_self_outside_receiver() {
         &root.join("main.nia"),
         r#"
 trait Bad {
-    fn same(&const self, other: &const Self) bool;
+    fn same(& self, other: & Self) bool;
 }
 
-fn read(bad: &const Bad) bool {
+fn read(bad: & Bad) bool {
     bad.same(bad)
 }
 "#,
@@ -363,13 +363,13 @@ fn read(bad: &const Bad) bool {
 }
 
 #[test]
-fn const_trait_object_rejects_mutable_receiver_method() {
-    let root = temp_dir("const_trait_object_rejects_mutable_receiver_method");
+fn readonly_trait_object_rejects_mutable_receiver_method() {
+    let root = temp_dir("readonly_trait_object_rejects_mutable_receiver_method");
     write(
         &root.join("main.nia"),
         r#"
 trait Mutate {
-    fn set(&self, value: i32);
+    fn set(&mut self, value: i32);
 }
 
 struct Cell {
@@ -377,12 +377,12 @@ struct Cell {
 }
 
 extend Cell : Mutate {
-    fn set(&self, value: i32) {
+    fn set(&mut self, value: i32) {
         self.value = value;
     }
 }
 
-fn write_value(cell: &const Mutate) {
+fn write_value(cell: & Mutate) {
     cell.set(1);
 }
 
@@ -395,7 +395,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .message
-            .contains("receiver cannot be matched through `&const Trait`")),
+            .contains("receiver cannot be matched through read-only `&Trait`")),
         "{:?}",
         program.diagnostics
     );

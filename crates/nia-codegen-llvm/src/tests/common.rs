@@ -85,7 +85,7 @@ using facade::{Box, make_box, read_box};
 
 fn main() i32 {
     var box: Box[i32] = make_box(40);
-    read_box(&const box) + facade::answer
+    read_box(& box) + facade::answer
 }
 "#,
                 ),
@@ -100,14 +100,14 @@ pub using impl::{Box, make_box, read_box, answer};
                 (
                     "impl.nia",
                     r#"
-pub comptime answer: i32 = 2;
+pub comptime let answer: i32 = 2;
 
 pub struct Box[T] {
     value: T,
 }
 
 extend[T] Box[T] {
-    pub fn get(&const self) T {
+    pub fn get(& self) T {
         self.value
     }
 }
@@ -116,7 +116,7 @@ pub fn make_box[T](value: T) Box[T] {
     { value: value }
 }
 
-pub fn read_box(box: &const Box[i32]) i32 {
+pub fn read_box(box: & Box[i32]) i32 {
     box.get()
 }
 "#,
@@ -135,11 +135,11 @@ struct Header {
     flag: u8,
 }
 
-const header: Header = { tag: 1, count: 2, flag: 3 };
-const bytes = c"ok";
-const byte_ptr: &const u8 = &const bytes[0];
+let header: Header = { tag: 1, count: 2, flag: 3 };
+let bytes = c"ok";
+let byte_ptr: & u8 = & bytes[0];
 var global: i32 = 5;
-const global_ptr: &i32 = &global;
+let global_ptr: &i32 = &global;
 
 fn main() i32 {
     global_ptr.* + header.tag as i32 + header.flag as i32 + byte_ptr.* as i32
@@ -153,7 +153,7 @@ fn main() i32 {
             files: &[(
                 "main.nia",
                 r#"
-fn sum(xs: &const [i32]) i32 {
+fn sum(xs: & [i32]) i32 {
     var out = 0;
     for i in 0usize..xs.len() {
         out += xs[i];
@@ -161,14 +161,14 @@ fn sum(xs: &const [i32]) i32 {
     out
 }
 
-fn fill(xs: &[i32]) i32 {
+fn fill(xs: &mut [i32]) i32 {
     xs[0] = 9;
     xs[0]
 }
 
 fn main() i32 {
     var xs: [4]i32 = [1, 2, 3, 4];
-    var part = &const xs[1..=2];
+    var part = & xs[1..=2];
     sum(part) + sum([5, 6]) + fill([0, 1])
 }
 "#,
@@ -235,8 +235,8 @@ extend[T] Ptr[T] {
 }
 
 fn main(ptr: &i32) i32 {
-    var is_null: &const fn(&i32) bool = &const [&i32]::is_null;
-    var zero: &const fn() usize = &const [&i32]::zero;
+    var is_null: &fn(&i32) bool = & [&i32]::is_null;
+    var zero: &fn() usize = & [&i32]::zero;
     if is_null(ptr) or [&i32]::is_null(ptr) {
         zero() as i32
     } else {
@@ -252,7 +252,7 @@ fn main(ptr: &i32) i32 {
             files: &[(
                 "main.nia",
                 r#"
-comptime width: usize = 2 + 2;
+comptime let width: usize = 2 + 2;
 
 union Bits {
     i: i32,

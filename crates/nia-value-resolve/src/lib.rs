@@ -39,6 +39,7 @@ pub enum ValueNameResolution {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinResolution {
+    Builtin,
     SizeOf,
     AlignOf,
     Asm,
@@ -479,6 +480,7 @@ impl<'a> ValueResolver<'a> {
 
     fn resolve_builtin(&mut self, name: &str, span: Span) -> BuiltinResolution {
         match name {
+            "builtin" => BuiltinResolution::Builtin,
             "size" => BuiltinResolution::SizeOf,
             "align" => BuiltinResolution::AlignOf,
             "asm" => BuiltinResolution::Asm,

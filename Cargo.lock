@@ -120,6 +120,7 @@ dependencies = [
  "nia-parser",
  "nia-span",
  "nia-static-ir",
+ "nia-target-config",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -148,6 +149,7 @@ dependencies = [
  "nia-span",
  "nia-static-ir",
  "nia-syntax",
+ "nia-target-config",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -226,6 +228,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-item-signatures",
+ "nia-item-tree",
  "nia-layout",
  "nia-local-resolve",
  "nia-monomorphize",
@@ -236,6 +239,7 @@ dependencies = [
  "nia-source",
  "nia-span",
  "nia-static-check",
+ "nia-target-config",
  "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
@@ -258,6 +262,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-parser",
  "nia-span",
+ "nia-target-config",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
@@ -282,6 +287,7 @@ dependencies = [
  "nia-ast",
  "nia-diagnostic",
  "nia-ids",
+ "nia-item-tree",
  "nia-parser",
  "nia-span",
 ]
@@ -366,6 +372,7 @@ dependencies = [
  "nia-ast",
  "nia-diagnostic",
  "nia-ids",
+ "nia-item-tree",
  "nia-parser",
  "nia-source",
  "nia-span",
@@ -387,6 +394,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nia-item-tree"
+version = "0.3.2"
+dependencies = [
+ "nia-ast",
+ "nia-parser",
+ "nia-span",
+]
+
+[[package]]
 name = "nia-layout"
 version = "0.3.2"
 dependencies = [
@@ -400,6 +416,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-parser",
  "nia-span",
+ "nia-target-config",
  "nia-ty",
  "nia-type-lower",
  "nia-type-resolve",
@@ -431,6 +448,7 @@ dependencies = [
  "nia-compiler-query",
  "nia-diagnostic",
  "nia-imports",
+ "nia-item-tree",
  "nia-node-id",
  "nia-parser",
  "nia-query",
@@ -555,7 +573,11 @@ name = "nia-target-config"
 version = "0.3.2"
 dependencies = [
  "nia-ast",
+ "nia-comptime-engine",
  "nia-diagnostic",
+ "nia-ids",
+ "nia-item-tree",
+ "nia-parser",
  "nia-span",
 ]
 

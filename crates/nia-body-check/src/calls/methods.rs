@@ -153,7 +153,7 @@ impl<'a> BodyChecker<'a> {
             }
         };
         if method == BuiltinMethod::Len {
-            self.check_receiver_match(receiver, receiver_ty, ReceiverKind::RefConst);
+            self.check_receiver_match(receiver, receiver_ty, ReceiverKind::RefReadOnly);
         }
         if let Some(expected) = expected {
             self.expect_type(span, expected, output, "builtin method call");

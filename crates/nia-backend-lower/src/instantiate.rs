@@ -183,7 +183,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_generic_params_in_ty(*arg, generics);
                 }
             }
-            Some(TyKind::Error | TyKind::Primitive(_)) | None => {}
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
         }
     }
 
@@ -346,7 +346,7 @@ impl<'a> ModuleLowerer<'a> {
                     self.collect_generic_params_in_extension_ty(*arg, generics);
                 }
             }
-            Some(TyKind::Error | TyKind::Primitive(_)) | None => {}
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
         }
     }
 
@@ -373,14 +373,14 @@ impl<'a> ModuleLowerer<'a> {
                 let instantiated = self.type_substitution(substitutions, &name).unwrap_or(ty);
                 self.cache_type_instantiation(key, instantiated)
             }
-            Some(TyKind::Pointer { is_const, elem }) => {
+            Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.instantiate_ty_with_id(elem, substitutions);
-                let instantiated = self.interner.intern(TyKind::Pointer { is_const, elem });
+                let instantiated = self.interner.intern(TyKind::Pointer { is_readonly, elem });
                 self.cache_type_instantiation(key, instantiated)
             }
-            Some(TyKind::Slice { is_const, elem }) => {
+            Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.instantiate_ty_with_id(elem, substitutions);
-                let instantiated = self.interner.intern(TyKind::Slice { is_const, elem });
+                let instantiated = self.interner.intern(TyKind::Slice { is_readonly, elem });
                 self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Array { len, elem }) => {
@@ -443,7 +443,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -468,7 +468,7 @@ impl<'a> ModuleLowerer<'a> {
                     })
                     .collect();
                 let instantiated = self.interner.intern(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -499,7 +499,7 @@ impl<'a> ModuleLowerer<'a> {
                     });
                 self.cache_type_instantiation(key, instantiated)
             }
-            Some(TyKind::Error) | Some(TyKind::Primitive(_)) | None => {
+            Some(TyKind::Error | TyKind::ComptimeOnly) | Some(TyKind::Primitive(_)) | None => {
                 self.cache_type_instantiation(key, ty)
             }
         }
@@ -599,21 +599,21 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             Some(TyKind::Pointer {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 elem: pattern_elem,
             }) => matches!(
                 self.ty_kind(actual),
-                Some(TyKind::Pointer { is_const, elem })
-                    if is_const == pattern_const
+                Some(TyKind::Pointer { is_readonly, elem })
+                    if is_readonly == pattern_const
                         && self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
             ),
             Some(TyKind::Slice {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 elem: pattern_elem,
             }) => matches!(
                 self.ty_kind(actual),
-                Some(TyKind::Slice { is_const, elem })
-                    if is_const == pattern_const
+                Some(TyKind::Slice { is_readonly, elem })
+                    if is_readonly == pattern_const
                         && self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
             ),
             Some(TyKind::Array {
@@ -703,17 +703,17 @@ impl<'a> ModuleLowerer<'a> {
                 _ => false,
             },
             Some(TyKind::TraitObject {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
                 associated_type_bindings: pattern_bindings,
             }) => match self.ty_kind(actual) {
                 Some(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
-                }) if is_const == pattern_const
+                }) if is_readonly == pattern_const
                     && trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
                     && pattern_bindings.len() == associated_type_bindings.len() =>
@@ -769,7 +769,7 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
-            Some(TyKind::Primitive(_)) | Some(TyKind::Error) | None => {
+            Some(TyKind::Primitive(_)) | Some(TyKind::ComptimeOnly | TyKind::Error) | None => {
                 self.types_match(pattern, actual)
             }
         }
@@ -783,11 +783,11 @@ impl<'a> ModuleLowerer<'a> {
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (
                 Some(TyKind::Pointer {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             ) => left_const == right_const && self.types_match(*left_elem, *right_elem),
@@ -827,13 +827,13 @@ impl<'a> ModuleLowerer<'a> {
             }
             (
                 Some(TyKind::TraitObject {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     trait_id: left_trait,
                     trait_args: left_args,
                     associated_type_bindings: left_bindings,
                 }),
                 Some(TyKind::TraitObject {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     trait_id: right_trait,
                     trait_args: right_args,
                     associated_type_bindings: right_bindings,

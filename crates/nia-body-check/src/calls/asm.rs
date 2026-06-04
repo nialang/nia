@@ -138,7 +138,13 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Nominal { .. },
             ) => {}
-            Some(TyKind::GenericParam(_) | TyKind::Projection { .. } | TyKind::Error) | None => {}
+            Some(
+                TyKind::GenericParam(_)
+                | TyKind::Projection { .. }
+                | TyKind::ComptimeOnly
+                | TyKind::Error,
+            )
+            | None => {}
         }
     }
 

@@ -31,7 +31,7 @@ impl<'a> BodyChecker<'a> {
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
         let Some(TyKind::TraitObject {
-            is_const: expected_const,
+            is_readonly: expected_const,
             trait_id: expected_trait,
             trait_args: expected_args,
             associated_type_bindings: expected_bindings,
@@ -40,7 +40,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let Some(TyKind::TraitObject {
-            is_const: actual_const,
+            is_readonly: actual_const,
             trait_id: actual_trait,
             trait_args: actual_args,
             associated_type_bindings: actual_bindings,
@@ -114,7 +114,7 @@ impl<'a> BodyChecker<'a> {
         let expected = self.normalization.normalize(expected);
         let actual = self.normalization.normalize(actual);
         let Some(TyKind::TraitObject {
-            is_const: expected_const,
+            is_readonly: expected_const,
             trait_id,
             trait_args,
             associated_type_bindings,
@@ -123,7 +123,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let Some(TyKind::Pointer {
-            is_const: actual_const,
+            is_readonly: actual_const,
             elem: self_ty,
         }) = self.interner.get(actual).cloned()
         else {
@@ -320,7 +320,13 @@ impl<'a> BodyChecker<'a> {
                     self.check_object_safe_type(span, arg);
                 }
             }
-            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => {}
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::GenericParam(_),
+            )
+            | None => {}
         }
     }
 
@@ -460,13 +466,13 @@ impl<'a> BodyChecker<'a> {
                     .then_some(binding.ty)
                 })
                 .unwrap_or(ty),
-            Some(TyKind::Pointer { is_const, elem }) => {
+            Some(TyKind::Pointer { is_readonly, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
-                self.interner.intern(TyKind::Pointer { is_const, elem })
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
-            Some(TyKind::Slice { is_const, elem }) => {
+            Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
-                self.interner.intern(TyKind::Slice { is_const, elem })
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
@@ -517,7 +523,7 @@ impl<'a> BodyChecker<'a> {
                     .intern(TyKind::BuiltinTrait { trait_id, args })
             }
             Some(TyKind::TraitObject {
-                is_const,
+                is_readonly,
                 trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -540,7 +546,7 @@ impl<'a> BodyChecker<'a> {
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
-                    is_const,
+                    is_readonly,
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -564,7 +570,13 @@ impl<'a> BodyChecker<'a> {
                     name,
                 })
             }
-            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => ty,
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::GenericParam(_),
+            )
+            | None => ty,
         }
     }
 
@@ -628,7 +640,13 @@ impl<'a> BodyChecker<'a> {
                         .into_iter()
                         .any(|arg| self.type_mentions_self(arg, self_ty))
             }
-            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => false,
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::GenericParam(_),
+            )
+            | None => false,
         }
     }
 

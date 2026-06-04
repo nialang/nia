@@ -1,13 +1,13 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 // Arrays own a fixed number of elements. Slices are fat pointers over a range of
 // array elements, and string literals are arrays of bytes/characters.
 
-fn first(xs: &const [i32]) i32 {
+fn first(xs: &[i32]) i32 {
     xs[0]
 }
 
-fn fill_first(xs: &[i32], value: i32) i32 {
+fn fill_first(xs: &mut [i32], value: i32) i32 {
     xs[0] = value;
     xs[0]
 }
@@ -16,7 +16,7 @@ fn sum3(xs: [3]i32) i32 {
     xs[0] + xs[1] + xs[2]
 }
 
-fn first_byte(ptr: &const u8) i32 {
+fn first_byte(ptr: &u8) i32 {
     ptr.* as i32
 }
 
@@ -33,23 +33,23 @@ fn main() i32 {
 
     // Use an explicit array type prefix when the literal needs to carry its own
     // type, such as a temporary array that is immediately sliced.
-    var temp_slice = &const ([3]i32[7, 8, 9])[..];
+    var temp_slice = &([3]i32[7, 8, 9])[..];
 
-    var whole = &const xs[..]; // Whole immutable slice.
-    var mid = &const xs[1..=2]; // Inclusive range slice.
-    var writable = &zeros[..];
+    var whole = &xs[..]; // Whole immutable slice.
+    var mid = &xs[1..=2]; // Inclusive range slice.
+    var writable = &mut zeros[..];
 
     // Slices expose their data pointer explicitly. `ptr[..]` forms a one-item
     // slice from a pointer, which is useful at C boundaries and low-level code.
-    var ptr = mid.get_ptr_const();
-    var single = &const ptr[..];
+    var ptr = mid.get_ptr_read();
+    var single = &ptr[..];
 
     // String literal forms are deliberately explicit:
     // - `"..."` is text.
     // - `b"..."` is bytes.
     // - `c"..."` is null-terminated bytes for C APIs such as printf.
     // Adjacent literals concatenate at source level, not at runtime.
-    const name = c"nia";
+    let name = c"nia";
     var text = "ni" "a";
     var bytes = b"ni" b"a";
 
@@ -64,8 +64,8 @@ fn main() i32 {
     var mid_first = first(mid);
     var filled_first = fill_first(writable, 9);
     var matrix_value = matrix[1][2];
-    var name_first = first_byte(&const name[0]);
-    var multi_first = first_byte(&const multi[0]);
+    var name_first = first_byte(&name[0]);
+    var multi_first = first_byte(&multi[0]);
 
     printf(
         c"arrays: xs0=%d mid0=%d filled0=%d matrix[1][2]=%d sum=%d\n",
@@ -84,7 +84,7 @@ fn main() i32 {
     );
     printf(
         c"strings: name=%s text_len=%d bytes_len=%d first=%d multi_first=%d\n",
-        &const name[0],
+        &name[0],
         text.len() as i32,
         bytes.len() as i32,
         name_first,

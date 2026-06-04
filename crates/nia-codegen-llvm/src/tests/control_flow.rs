@@ -173,9 +173,9 @@ fn emits_defer_registered_after_earlier_return_branch() {
         &main,
         r#"
 extern fn fclose(file: &void) i32;
-extern fn fopen(path: &const u8, mode: &const u8) &void;
+extern fn fopen(path: & u8, mode: & u8) &void;
 
-fn inspect(path: &const u8) i32 {
+fn inspect(path: & u8) i32 {
     var file = fopen(path, c"rb");
 
     if file as usize == 0 {
@@ -189,7 +189,7 @@ fn inspect(path: &const u8) i32 {
     0
 }
 
-fn main(argc: i32, argv: &const &const u8) i32 {
+fn main(argc: i32, argv: & & u8) i32 {
     inspect(argv[0])
 }
 "#,

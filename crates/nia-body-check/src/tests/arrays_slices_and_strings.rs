@@ -62,22 +62,22 @@ fn main() u8 {
 fn checks_slices_len_ptr_and_indexing() {
     let checked = pipeline(
         r#"
-fn read(xs: &const [i32]) i32 {
+fn read(xs: & [i32]) i32 {
     xs[0]
 }
 
-fn write(xs: &[i32]) i32 {
+fn write(xs: &mut [i32]) i32 {
     xs[0] = 10;
     xs[0]
 }
 
 fn main() i32 {
     var xs: [4]i32 = [1, 2, 3, 4];
-    var s = &const xs[..];
-    var t = &const xs[1..=2];
-    var p = &const xs[0];
-    var single = &const p[..];
-    _ = s.get_ptr_const();
+    var s = & xs[..];
+    var t = & xs[1..=2];
+    var p = & xs[0];
+    var single = & p[..];
+    _ = s.get_ptr_read();
     xs.len() as i32 + s.len() as i32 + t.len() as i32 + single.len() as i32 + read(s)
 }
 "#,
@@ -89,7 +89,7 @@ fn main() i32 {
 fn rejects_bare_range_index_and_readonly_slice_assignment() {
     let checked = pipeline(
         r#"
-fn main(xs: &const [i32]) i32 {
+fn main(xs: & [i32]) i32 {
     var y = xs[..];
     xs[0] = 1;
     0
@@ -109,7 +109,7 @@ fn main(xs: &const [i32]) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| { diagnostic.message.contains("slice is const") }),
+            .any(|diagnostic| { diagnostic.message.contains("slice is read-only") }),
         "{:?}",
         checked.diagnostics
     );
@@ -266,7 +266,7 @@ fn main() i32 {
 fn checks_large_array_repeat_count_from_comptime_binding() {
     let checked = pipeline(
         r#"
-comptime N: usize = 1048576;
+comptime let N: usize = 1048576;
 
 fn main() i32 {
     var buffer: [N]u8 = [0u8; N];
@@ -342,7 +342,7 @@ fn checks_index_and_address_of_array_elements() {
         r#"
 extern fn puts(ptr: &u8) i32;
 
-const hello = c"hello";
+let hello = c"hello";
 
 fn main(flag: bool) i32 {
     var xs: [2]u8 = [1, 2];
@@ -378,7 +378,7 @@ fn main(flag: bool) i32 {
 fn checks_array_to_slice_coercions_and_rvalue_reference_targets() {
     let checked = pipeline(
         r#"
-fn take(xs: &const [i32]) i32 {
+fn take(xs: & [i32]) i32 {
     xs.len() as i32
 }
 
@@ -387,16 +387,16 @@ fn mutate(xs: &[i32]) i32 {
     xs[0]
 }
 
-fn bytes(xs: &const [u8]) i32 {
+fn bytes(xs: & [u8]) i32 {
     xs.len() as i32
 }
 
 fn main() i32 {
-    var ro: &const [i32] = [1, 2, 3];
+    var ro: & [i32] = [1, 2, 3];
     var rw: &[i32] = [4, 5];
     var arr: [2]i32 = [6, 7];
-    var from_place: &const [i32] = arr;
-    var from_string: &const [u8] = c"hi";
+    var from_place: & [i32] = arr;
+    var from_string: & [u8] = c"hi";
     _ = take([1, 2, 3]);
     _ = mutate([4, 5]);
     _ = bytes(c"hi");
@@ -404,7 +404,7 @@ fn main() i32 {
     var int_ptr: &i32 = &10;
     var sum_ptr: &i32 = &(1 + 2);
     var call_ptr: &i32 = &make();
-    var temp_slice: &const [i32] = &const [1, 2, 3][..];
+    var temp_slice: & [i32] = & [1, 2, 3][..];
     0
 }
 
@@ -456,31 +456,31 @@ fn make() i32 {
 fn checks_c_string_literal_pointer_coercions() {
     let checked = pipeline(
         r#"
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
-fn takes_const(ptr: &const u8) i32 {
+fn takes_read(ptr: &u8) i32 {
     ptr.* as i32
 }
 
-fn takes_mut(ptr: &u8) i32 {
+fn takes_mut(ptr: &mut u8) i32 {
     ptr.* = b'H';
     ptr.* as i32
 }
 
 fn main() i32 {
-    var rw: &u8 = c"hello";
-    var ro: &const u8 = c"world";
-    var adjacent: &const u8 = c"hello, " c"world";
+    var rw: &mut u8 = c"hello";
+    var ro: &u8 = c"world";
+    var adjacent: &u8 = c"hello, " c"world";
     _ = printf(c"hello, world\n");
     _ = printf(
         c"  #  Type      Offset             VirtAddr           FileSiz"
         c"            MemSiz             Flags Align\n"
     );
-    _ = takes_const(
+    _ = takes_read(
         c\\multi
         \\line
     );
-    takes_mut(rw) + takes_const(ro) + takes_const(adjacent)
+    takes_mut(rw) + takes_read(ro) + takes_read(adjacent)
 }
 "#,
     );
@@ -494,8 +494,8 @@ fn rejects_non_c_string_literal_pointer_coercions() {
         r#"
 fn main() void {
     var bytes: [4]u8 = [1, 2, 3, 0];
-    var byte_ptr: &const u8 = b"hello";
-    var array_ptr: &const u8 = bytes;
+    var byte_ptr: &u8 = b"hello";
+    var array_ptr: &u8 = bytes;
     _ = byte_ptr;
     _ = array_ptr;
 }
@@ -509,7 +509,7 @@ fn main() void {
     assert!(
         messages
             .iter()
-            .filter(|message| message.contains("expected &const u8"))
+            .filter(|message| message.contains("expected &u8"))
             .count()
             >= 2,
         "{messages:?}"

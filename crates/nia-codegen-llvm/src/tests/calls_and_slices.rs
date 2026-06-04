@@ -60,21 +60,21 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_slice_construction_len_ptr_and_indexing() {
-    let root = temp_dir("emits_slice_construction_len_ptr_and_indexing");
+fn emits_slice_readruction_len_ptr_and_indexing() {
+    let root = temp_dir("emits_slice_readruction_len_ptr_and_indexing");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
         r#"
-fn first(xs: &const [i32]) i32 {
+fn first(xs: & [i32]) i32 {
     xs[0]
 }
 
 fn main() i32 {
     var xs: [4]i32 = [1, 2, 3, 4];
-    var s = &const xs[1..=2];
-    var p = s.get_ptr_const();
-    var single = &const p[..];
+    var s = & xs[1..=2];
+    var p = s.get_ptr_read();
+    var single = & p[..];
     first(s) + s.len() as i32 + single.len() as i32
 }
 "#,
@@ -100,23 +100,23 @@ fn emits_array_to_slice_coercions() {
     std::fs::write(
         &main,
         r#"
-fn first(xs: &const [i32]) i32 {
+fn first(xs: & [i32]) i32 {
     xs[0]
 }
 
-fn first_byte(xs: &const [u8]) i32 {
+fn first_byte(xs: & [u8]) i32 {
     xs[0] as i32
 }
 
-fn overwrite(xs: &[i32]) i32 {
+fn overwrite(xs: &mut [i32]) i32 {
     xs[1] = 9;
     xs[1]
 }
 
 fn main() i32 {
     var xs: [3]i32 = [1, 2, 3];
-    var borrow = &const xs[..];
-    var literal: &const [i32] = [4, 5, 6];
+    var borrow = & xs[..];
+    var literal: & [i32] = [4, 5, 6];
     first(borrow) + first(literal) + first([7, 8]) + first_byte(c"hi") + overwrite([6, 7])
 }
 "#,
@@ -141,11 +141,11 @@ fn emits_global_string_pointer_call() {
     std::fs::write(
         &main,
         r#"
-extern fn puts(s: &const u8) i32;
-const hello = c"hello";
+extern fn puts(s: & u8) i32;
+let hello = c"hello";
 
 fn main() i32 {
-    _ = puts(&const hello[0]);
+    _ = puts(& hello[0]);
     0
 }
 "#,
@@ -176,14 +176,14 @@ struct Pair {
     b: i32,
 }
 
-fn read(ptr: &const i32) i32 {
+fn read(ptr: & i32) i32 {
     ptr.*
 }
 
 fn main(i: usize) i32 {
     var pair: Pair = { a: 10, b: 20 };
     var xs: [2]i32 = [30, 40];
-    read(&const pair.b) + read(&const xs[i])
+    read(& pair.b) + read(& xs[i])
 }
 "#,
     )
@@ -206,16 +206,16 @@ fn emits_c_string_literal_pointer_coercions() {
     std::fs::write(
         &main,
         r#"
-extern fn puts(s: &const u8) i32;
+extern fn puts(s: & u8) i32;
 
-fn first(ptr: &u8) i32 {
+fn first(ptr: &mut u8) i32 {
     ptr.* = b'J';
     ptr.* as i32
 }
 
 fn main() i32 {
-    var direct: &const u8 = c"hello";
-    var writable: &u8 = c"mutable";
+    var direct: & u8 = c"hello";
+    var writable: &mut u8 = c"mutable";
     _ = puts(c"world");
     _ = puts(
         c\\multi

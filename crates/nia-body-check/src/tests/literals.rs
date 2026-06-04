@@ -149,8 +149,8 @@ fn main() i32 {
 fn infers_binary_numeric_literals_from_the_other_operand() {
     let checked = pipeline(
         r#"
-const a = 10;
-const ptr = &const a;
+let a = 10;
+let ptr = & a;
 
 fn main(x: usize) bool {
     var forward = a as usize == 0;
@@ -323,7 +323,7 @@ enum Color: u8 {
 fn id(x: i32) i32 { x }
 fn gid[T](x: T) T { x }
 
-fn main(ptr: &const u8, other: &const i32, flag: bool) i32 {
+fn main(ptr: & u8, other: & i32, flag: bool) i32 {
     var a: i64 = 1 as i64;
     var b: f64 = 1 as f64;
     var c: i32 = Color::Red as i32;
@@ -334,9 +334,8 @@ fn main(ptr: &const u8, other: &const i32, flag: bool) i32 {
     var bad2: i32 = ptr as i32;
     var bad3: i32 = flag as i32;
     var fn_value = id;
-    var bad_fn_ptr = &id;
-    var fn_ptr = &const id;
-    var generic_ptr = &const gid[i32];
+    var fn_ptr = & id;
+    var generic_ptr = & gid[i32];
     _ = fn_ptr(1);
     _ = generic_ptr(2);
     a as i32 + c + ptr2.* + ptr3.*
@@ -360,18 +359,6 @@ fn main(ptr: &const u8, other: &const i32, flag: bool) i32 {
             .filter(|diagnostic| diagnostic
                 .message
                 .contains("function values are not supported"))
-            .count(),
-        1,
-        "{:?}",
-        checked.diagnostics
-    );
-    assert_eq!(
-        checked
-            .diagnostics
-            .iter()
-            .filter(|diagnostic| diagnostic
-                .message
-                .contains("function pointers must be formed with `&const`"))
             .count(),
         1,
         "{:?}",

@@ -464,7 +464,13 @@ impl<'a> BodyChecker<'a> {
                     ));
                 }
             }
-            Some(TyKind::Error | TyKind::Primitive(_) | TyKind::GenericParam(_)) | None => {}
+            Some(
+                TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::Primitive(_)
+                | TyKind::GenericParam(_),
+            )
+            | None => {}
         }
     }
 
@@ -536,21 +542,21 @@ impl<'a> BodyChecker<'a> {
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (
                 Some(TyKind::Pointer {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             )
             | (
                 Some(TyKind::Slice {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Slice {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             ) => {

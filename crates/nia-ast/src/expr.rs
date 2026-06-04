@@ -41,7 +41,7 @@ pub struct BindingStmt {
     pub name: String,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
-    pub is_const: bool,
+    pub is_let: bool,
     pub is_comptime: bool,
 }
 
@@ -57,7 +57,7 @@ pub struct ForBinding {
     pub span: Span,
     pub name: String,
     pub ty: Option<TypeRef>,
-    pub is_const: bool,
+    pub is_let: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -281,7 +281,7 @@ pub enum UnaryOp {
     Neg,
     Not,
     BitNot,
-    RefConst,
+    RefReadOnly,
     Ref,
     Deref,
 }

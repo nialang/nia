@@ -9,6 +9,7 @@ use nia_ids::{GlobalConstExprId, GlobalDefId, LayoutBuiltin, LocalId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
+use nia_target_config::TargetConfig;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
@@ -39,6 +40,7 @@ pub struct ComptimeInput<'a> {
     pub type_uses: &'a HashMap<Span, nia_ids::InternedTyId>,
     pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
     pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
+    pub target: &'a TargetConfig,
     pub program: ComptimeProgramContext<'a>,
 }
 
@@ -391,6 +393,20 @@ impl ComptimeEnv for Analyzer<'_> {
         self.eval_key(key, span).ok_or_else(|| ComptimeError {
             span,
             message: format!("failed to evaluate comptime value `{name}`"),
+        })
+    }
+
+    fn resolve_builtin_value(
+        &mut self,
+        span: Span,
+        name: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        if name == "builtin" {
+            return Ok(nia_target_config::builtin_comptime_value(self.input.target));
+        }
+        Err(ComptimeError {
+            span,
+            message: format!("unsupported builtin value in comptime expression: @{name}"),
         })
     }
 

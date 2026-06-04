@@ -201,7 +201,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             if global.is_extern || !is_local {
                 value.set_linkage(Linkage::External);
             }
-            if global.is_const {
+            if global.is_let {
                 value.set_constant(true);
             }
             self.globals.insert(global.def_id, value);

@@ -42,13 +42,13 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_function_ref(
         &mut self,
         expr: &Expr,
-        is_const: bool,
+        is_readonly: bool,
     ) -> Option<InternedTyId> {
         let item = self.function_item_ref(expr)?;
-        if !is_const {
+        if !is_readonly {
             self.diagnostics.push(Diagnostic::error(
                 expr.span,
-                "function pointers must be formed with `&const`",
+                "function pointers must be formed with `&fn(...)`",
             ));
             return Some(self.error());
         }
@@ -468,11 +468,11 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(TyKind::Pointer {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 elem: pattern_elem,
             }) => {
                 if let Some(TyKind::Pointer {
-                    is_const: actual_const,
+                    is_readonly: actual_const,
                     elem: actual_elem,
                 }) = self.interner.get(actual).cloned()
                     && pattern_const == actual_const
@@ -481,11 +481,11 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(TyKind::Slice {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 elem: pattern_elem,
             }) => {
                 if let Some(TyKind::Slice {
-                    is_const: actual_const,
+                    is_readonly: actual_const,
                     elem: actual_elem,
                 }) = self.interner.get(actual).cloned()
                     && pattern_const == actual_const
@@ -594,13 +594,13 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(TyKind::TraitObject {
-                is_const: pattern_const,
+                is_readonly: pattern_const,
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
                 associated_type_bindings: pattern_bindings,
             }) => {
                 if let Some(TyKind::TraitObject {
-                    is_const: actual_const,
+                    is_readonly: actual_const,
                     trait_id: actual_trait,
                     trait_args: actual_args,
                     associated_type_bindings: actual_bindings,
@@ -654,7 +654,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            Some(TyKind::Error | TyKind::Primitive(_)) | None => {}
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
         }
     }
 }

@@ -86,15 +86,15 @@ where
 {
     match interner.get(ty) {
         Some(TyKind::Primitive(primitive)) => mangle_primitive(*primitive),
-        Some(TyKind::Pointer { is_const, elem }) => {
-            let prefix = if *is_const { "ptr_const" } else { "ptr" };
+        Some(TyKind::Pointer { is_readonly, elem }) => {
+            let prefix = if *is_readonly { "ptr_read" } else { "ptr" };
             format!(
                 "{prefix}__{}",
                 mangle_type_inner(interner, *elem, nominal_name, array_len)
             )
         }
-        Some(TyKind::Slice { is_const, elem }) => {
-            let prefix = if *is_const { "slice_const" } else { "slice" };
+        Some(TyKind::Slice { is_readonly, elem }) => {
+            let prefix = if *is_readonly { "slice_read" } else { "slice" };
             format!(
                 "{prefix}__{}",
                 mangle_type_inner(interner, *elem, nominal_name, array_len)
@@ -183,13 +183,13 @@ where
             }
         }
         Some(TyKind::TraitObject {
-            is_const,
+            is_readonly,
             trait_id,
             trait_args,
             associated_type_bindings,
         }) => {
-            let prefix = if *is_const {
-                "trait_obj_const"
+            let prefix = if *is_readonly {
+                "trait_obj_read"
             } else {
                 "trait_obj"
             };
@@ -264,6 +264,7 @@ where
             )
         }
         Some(TyKind::GenericParam(name)) => format!("gen__{}", sanitize_symbol_part(name)),
+        Some(TyKind::ComptimeOnly) => "comptime_only".to_string(),
         Some(TyKind::Error) | None => "ty_error".to_string(),
     }
 }

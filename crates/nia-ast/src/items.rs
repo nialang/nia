@@ -229,7 +229,7 @@ pub struct Param {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiverKind {
-    RefConst,
+    RefReadOnly,
     Ref,
     Value,
 }
@@ -239,7 +239,7 @@ pub struct BindingItem {
     pub name: String,
     pub ty: Option<TypeRef>,
     pub value: Option<Expr>,
-    pub is_const: bool,
+    pub is_let: bool,
     pub is_comptime: bool,
     pub is_extern: bool,
 }

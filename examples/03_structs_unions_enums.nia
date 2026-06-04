@@ -1,4 +1,4 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 struct Point {
     x: i32,
@@ -73,7 +73,7 @@ fn main() i32 {
     // Use an explicit type prefix when the literal should stand on its own.
     // A prefixed aggregate can also be used as a temporary reference target.
     var typed_point = Point { x: 8, y: 9 };
-    var temp_point = &const Point { x: 1, y: 2 };
+    var temp_point = &Point { x: 1, y: 2 };
     point.x = point.x + 1;
 
     var c_point: CPoint = { x: 5, y: 6 };

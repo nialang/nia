@@ -7,13 +7,14 @@ use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TyInterner
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TyKind {
     Error,
+    ComptimeOnly,
     Primitive(PrimitiveTy),
     Pointer {
-        is_const: bool,
+        is_readonly: bool,
         elem: InternedTyId,
     },
     Slice {
-        is_const: bool,
+        is_readonly: bool,
         elem: InternedTyId,
     },
     Array {
@@ -45,7 +46,7 @@ pub enum TyKind {
         args: Vec<InternedTyId>,
     },
     TraitObject {
-        is_const: bool,
+        is_readonly: bool,
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
         associated_type_bindings: Vec<AssociatedTypeBindingTy>,
@@ -211,19 +212,20 @@ pub fn import_type_into(
 ) -> InternedTyId {
     match source.get(ty) {
         Some(TyKind::Error) | None => target.error(),
+        Some(TyKind::ComptimeOnly) => target.intern(TyKind::ComptimeOnly),
         Some(TyKind::Primitive(primitive)) => target.primitive(*primitive),
         Some(TyKind::GenericParam(name)) => target.intern(TyKind::GenericParam(name.clone())),
-        Some(TyKind::Pointer { is_const, elem }) => {
+        Some(TyKind::Pointer { is_readonly, elem }) => {
             let elem = import_type_into(target, source, *elem);
             target.intern(TyKind::Pointer {
-                is_const: *is_const,
+                is_readonly: *is_readonly,
                 elem,
             })
         }
-        Some(TyKind::Slice { is_const, elem }) => {
+        Some(TyKind::Slice { is_readonly, elem }) => {
             let elem = import_type_into(target, source, *elem);
             target.intern(TyKind::Slice {
-                is_const: *is_const,
+                is_readonly: *is_readonly,
                 elem,
             })
         }
@@ -282,7 +284,7 @@ pub fn import_type_into(
             })
         }
         Some(TyKind::TraitObject {
-            is_const,
+            is_readonly,
             trait_id,
             trait_args,
             associated_type_bindings,
@@ -305,7 +307,7 @@ pub fn import_type_into(
                 })
                 .collect();
             target.intern(TyKind::TraitObject {
-                is_const: *is_const,
+                is_readonly: *is_readonly,
                 trait_id: *trait_id,
                 trait_args,
                 associated_type_bindings,

@@ -14,7 +14,7 @@ fn unbox[T](box: Box[T]) T { box.value }
 fn deref_id[T](value: &T) T { value.* }
 fn choose[T](left: T, right: T) T { left }
 
-fn main(box: Box[i32], ptr: &const i32, flag: bool) i32 {
+fn main(box: Box[i32], ptr: & i32, flag: bool) i32 {
     var a: i32 = id(1);
     var b: i32 = unbox(box);
     var c: i32 = deref_id(ptr);

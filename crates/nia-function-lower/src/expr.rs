@@ -40,10 +40,12 @@ impl FunctionLowerer {
             TypedExprKind::Range(range) => {
                 FunctionExprKind::Range(self.lower_range(range, scope, current, ops, blocks))
             }
-            TypedExprKind::CStringPointer { array, is_const } => FunctionExprKind::CStringPointer {
-                array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
-                is_const: *is_const,
-            },
+            TypedExprKind::CStringPointer { array, is_readonly } => {
+                FunctionExprKind::CStringPointer {
+                    array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
+                    is_readonly: *is_readonly,
+                }
+            }
             TypedExprKind::ArrayLiteral { elems } => FunctionExprKind::ArrayLiteral {
                 elems: self.lower_array_elements(elems, scope, current, ops, blocks),
             },
@@ -69,7 +71,7 @@ impl FunctionLowerer {
                 }),
             },
             TypedExprKind::Unary { op, expr: inner }
-                if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && !matches!(
                         inner.kind,
                         TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. }
@@ -146,11 +148,11 @@ impl FunctionLowerer {
             TypedExprKind::Slice {
                 lhs,
                 range,
-                is_const,
+                is_readonly,
             } => FunctionExprKind::Slice {
                 lhs: Box::new(self.lower_value_expr(lhs, scope, current, ops, blocks)),
                 range: self.lower_slice_range(range, scope, current, ops, blocks),
-                is_const: *is_const,
+                is_readonly: *is_readonly,
             },
             TypedExprKind::InlineAsm(asm) => {
                 FunctionExprKind::InlineAsm(self.lower_inline_asm(asm, scope, current, ops, blocks))

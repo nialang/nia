@@ -1,16 +1,16 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 // Literals infer their type from context.
-const global_mask: u32 = 0xff;
-const banner = "nia";
+let global_mask: u32 = 0xff;
+let banner = "nia";
 
 // `c"..."` is a null-terminated byte string for C ABI calls. A top-level
-// `const` has a stable address, so it is the usual place for reusable C strings.
-const c_banner = c"nia";
+// `let` has a stable address, so it is the usual place for reusable C strings.
+let c_banner = c"nia";
 
 fn bool_score(a: bool, b: bool) i32 {
     // `if` is an expression, so both branches produce the function result.
-    if a and !b {
+    if a and not b {
         1
     } else {
         0
@@ -49,7 +49,7 @@ fn main() i32 {
     printf(
         c"strings/bools: banner_len=%d c_banner=%s c_len=%d bool_score=%d\n",
         banner.len() as i32,
-        &const c_banner[0],
+        &c_banner[0],
         c_banner.len() as i32,
         bool_score(true, false),
     );

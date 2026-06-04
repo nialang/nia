@@ -1,4 +1,4 @@
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 var cleanup_log: i32 = 0;
 
@@ -7,7 +7,7 @@ fn record_cleanup(tag: i32) void {
     cleanup_log = cleanup_log * 10 + tag;
 }
 
-fn sign_name(value: i32) &const u8 {
+fn sign_name(value: i32) &u8 {
     // `if` is an expression. Every branch must produce the same type.
     if value < 0 {
         c"negative"

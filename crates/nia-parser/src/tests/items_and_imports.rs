@@ -32,12 +32,12 @@ extern struct CPoint {
     x: i32,
     y: i32,
 }
-extern const errno: i32;
+extern let errno: i32;
 extern var global_counter: usize;
 
 fn main() {
     var p: CPoint;
-    const origin: CPoint;
+    let origin: CPoint;
 }
 "#,
     );
@@ -52,7 +52,7 @@ fn main() {
         matches!(&module.items[2].kind, ItemKind::Struct(item_struct) if item_struct.is_extern)
     );
     assert!(
-        matches!(&module.items[3].kind, ItemKind::Binding(binding) if binding.is_extern && binding.is_const && binding.value.is_none())
+        matches!(&module.items[3].kind, ItemKind::Binding(binding) if binding.is_extern && binding.is_let && binding.value.is_none())
     );
     assert!(
         matches!(&module.items[4].kind, ItemKind::Binding(binding) if binding.is_extern && binding.value.is_none())
@@ -63,7 +63,7 @@ fn main() {
     let body = function.body.as_ref().expect("body");
     assert!(matches!(&body.stmts[0].kind, StmtKind::Binding(binding) if binding.value.is_none()));
     assert!(
-        matches!(&body.stmts[1].kind, StmtKind::Binding(binding) if binding.is_const && binding.value.is_none())
+        matches!(&body.stmts[1].kind, StmtKind::Binding(binding) if binding.is_let && binding.value.is_none())
     );
 }
 
@@ -130,12 +130,12 @@ extern fn start() i32;
 }
 
 #[test]
-fn rejects_extern_binding_without_var_or_const() {
+fn rejects_extern_binding_without_let_or_var() {
     let (_module, errors) = parse_module("extern errno: i32;");
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, `var`, or `const` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, `let`, or `var` after `extern`")),
         "{errors:?}"
     );
 }
@@ -287,7 +287,7 @@ fn rejects_extern_before_pub_modifier_order() {
     assert!(
         errors.iter().any(|error| error
             .message
-            .contains("expected `struct`, `union`, `fn`, `var`, or `const` after `extern`")),
+            .contains("expected `struct`, `union`, `fn`, `let`, or `var` after `extern`")),
         "{errors:?}"
     );
 }
@@ -301,7 +301,7 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(&const self) T { self.value }
+    fn get(&self) T { self.value }
 }
 "#,
     );

@@ -3183,7 +3183,7 @@ mod tests {
                         ty,
                         kind: FunctionExprKind::Integer("1".to_string()),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }),
                 FunctionOp::Binding(nia_function_ir::FunctionBinding {
                     local_id: LocalId(1),
@@ -3194,7 +3194,7 @@ mod tests {
                         ty,
                         kind: FunctionExprKind::Local(LocalId(0)),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }),
             ],
             terminator: FunctionTerminator::Tail {
@@ -3264,7 +3264,7 @@ mod tests {
                                 ty,
                                 kind: FunctionExprKind::Integer("1".to_string()),
                             }),
-                            is_const: false,
+                            is_let: false,
                         }),
                         FunctionOp::Binding(nia_function_ir::FunctionBinding {
                             local_id: LocalId(1),
@@ -3275,7 +3275,7 @@ mod tests {
                                 ty,
                                 kind: FunctionExprKind::Local(LocalId(0)),
                             }),
-                            is_const: false,
+                            is_let: false,
                         }),
                     ],
                     terminator: FunctionTerminator::Tail {
@@ -3340,7 +3340,7 @@ mod tests {
                     ty,
                     kind: FunctionExprKind::Integer("42".to_string()),
                 }),
-                is_const: false,
+                is_let: false,
             })],
             terminator: FunctionTerminator::Tail {
                 value: Some(FunctionExpr {
@@ -3402,7 +3402,7 @@ mod tests {
                             ty,
                             kind: FunctionExprKind::Integer("42".to_string()),
                         }),
-                        is_const: false,
+                        is_let: false,
                     })],
                     terminator: FunctionTerminator::Tail {
                         value: Some(FunctionExpr {
@@ -3461,7 +3461,7 @@ mod tests {
                         ty,
                         kind: FunctionExprKind::Integer("1".to_string()),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }),
                 FunctionOp::StoreLocal {
                     local_id: LocalId(0),
@@ -3520,7 +3520,7 @@ mod tests {
                         ty,
                         kind: FunctionExprKind::Integer("1".to_string()),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }),
                 FunctionOp::Binding(nia_function_ir::FunctionBinding {
                     local_id: LocalId(1),
@@ -3531,7 +3531,7 @@ mod tests {
                         ty,
                         kind: FunctionExprKind::Local(LocalId(0)),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }),
                 FunctionOp::StoreLocal {
                     local_id: LocalId(1),
@@ -3599,7 +3599,7 @@ mod tests {
                         ty,
                         kind: FunctionExprKind::Integer("1".to_string()),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }),
                 FunctionOp::Binding(nia_function_ir::FunctionBinding {
                     local_id: LocalId(1),
@@ -3610,7 +3610,7 @@ mod tests {
                         ty,
                         kind: FunctionExprKind::Local(LocalId(0)),
                     }),
-                    is_const: false,
+                    is_let: false,
                 }),
             ],
             terminator: FunctionTerminator::Return { value: None, span },
@@ -3662,7 +3662,7 @@ mod tests {
                         args: Vec::new(),
                     },
                 }),
-                is_const: false,
+                is_let: false,
             })],
             terminator: FunctionTerminator::Return { value: None, span },
         }]);

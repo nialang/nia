@@ -52,7 +52,7 @@ struct Pair[T] {
     right: bool,
 }
 
-fn main(pair: Pair[i32], ptr: &const Pair[i32]) i32 {
+fn main(pair: Pair[i32], ptr: & Pair[i32]) i32 {
     var x: i32 = pair.left;
     var y: bool = ptr.right;
     _ = pair.missing;
@@ -119,7 +119,7 @@ fn rejects_implicit_discard_of_non_void_expression_statements() {
 fn value() i32 { 1 }
 fn effect() {}
 extern fn abort() never;
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: & u8, ...);
 
 fn main() i32 {
     value();
@@ -368,12 +368,12 @@ fn checks_function_pointer_fields_as_void_calls() {
     let checked = pipeline(
         r#"
 struct Vtable {
-    print: &const fn(&i32)
+    print: &fn(&i32)
 }
 
 fn print_i32(value: &i32) {}
 
-const vtable: Vtable = { print: &const print_i32 };
+let vtable: Vtable = { print: & print_i32 };
 
 fn main() i32 {
     var x = 1;

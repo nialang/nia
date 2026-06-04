@@ -1,5 +1,5 @@
 // A hosted executable starts from the platform C runtime and can call libc.
-extern fn printf(fmt: &const u8, ...);
+extern fn printf(fmt: &u8, ...);
 
 fn answer() i32 {
     42 // The last expression in a block is the return value.

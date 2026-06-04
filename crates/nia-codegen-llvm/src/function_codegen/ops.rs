@@ -18,7 +18,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         inner: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
         match op {
-            UnaryOp::Ref | UnaryOp::RefConst
+            UnaryOp::Ref | UnaryOp::RefReadOnly
                 if matches!(
                     inner.kind,
                     FunctionExprKind::Function(_) | FunctionExprKind::FunctionInstance { .. }
@@ -26,7 +26,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             {
                 self.emit_function_pointer(span, inner)
             }
-            UnaryOp::Ref | UnaryOp::RefConst => {
+            UnaryOp::Ref | UnaryOp::RefReadOnly => {
                 Err(self.error(span, "address-of place must be lowered to function IR"))
             }
             UnaryOp::Deref => {

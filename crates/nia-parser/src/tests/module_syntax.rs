@@ -19,12 +19,12 @@ struct Vec2 {
 }
 
 extend Vec2 {
-    fn len2(&const self) i32 {
+    fn len2(&self) i32 {
         self.x * self.x + self.y * self.y
     }
 }
 
-const banner = "nia\0";
+let banner = "nia\0";
 extern var a: usize;
 type Byte = u8;
 fn main() i32 { 0 }

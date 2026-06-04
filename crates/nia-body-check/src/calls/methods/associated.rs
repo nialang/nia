@@ -176,12 +176,12 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         match receiver {
             ReceiverKind::Value => target_ty,
-            ReceiverKind::RefConst => self.interner.intern(nia_ty::TyKind::Pointer {
-                is_const: true,
+            ReceiverKind::RefReadOnly => self.interner.intern(nia_ty::TyKind::Pointer {
+                is_readonly: true,
                 elem: target_ty,
             }),
             ReceiverKind::Ref => self.interner.intern(nia_ty::TyKind::Pointer {
-                is_const: false,
+                is_readonly: false,
                 elem: target_ty,
             }),
         }

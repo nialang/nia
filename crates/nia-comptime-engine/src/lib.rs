@@ -2,10 +2,14 @@
 use nia_ast::{BinaryOp, Expr, ExprKind, TypeRef, UnaryOp};
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComptimeValue {
     Int(i128),
+    Bool(bool),
+    String(String),
+    Struct(BTreeMap<String, ComptimeValue>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +20,17 @@ pub struct ComptimeError {
 
 pub trait ComptimeEnv {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError>;
+
+    fn resolve_builtin_value(
+        &mut self,
+        span: Span,
+        name: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        Err(ComptimeError {
+            span,
+            message: format!("unsupported builtin value in comptime expression: @{name}"),
+        })
+    }
 
     fn resolve_layout_builtin(
         &mut self,
@@ -51,6 +66,13 @@ impl ComptimeEnv for EmptyEnv {
 
 pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValue, ComptimeError> {
     match &expr.kind {
+        ExprKind::Bool(value) => Ok(ComptimeValue::Bool(*value)),
+        ExprKind::String(literal) => literal_string(literal)
+            .map(ComptimeValue::String)
+            .ok_or_else(|| ComptimeError {
+                span: expr.span,
+                message: "unsupported string literal in comptime expression".to_string(),
+            }),
         ExprKind::Integer(text) => {
             eval_int_literal(text)
                 .map(ComptimeValue::Int)
@@ -61,6 +83,21 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
         }
         ExprKind::Ident(name) => env.resolve_ident(expr.span, name),
         ExprKind::Qualified { name, .. } => env.resolve_ident(expr.span, name),
+        ExprKind::Field { lhs, name } => match eval_expr(lhs, env)? {
+            ComptimeValue::Struct(fields) => {
+                fields.get(name).cloned().ok_or_else(|| ComptimeError {
+                    span: expr.span,
+                    message: format!("unknown comptime field `{name}`"),
+                })
+            }
+            _ => Err(ComptimeError {
+                span: expr.span,
+                message: "comptime field access requires a struct value".to_string(),
+            }),
+        },
+        ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
+            eval_struct_literal(fields, env)
+        }
         ExprKind::Builtin {
             name,
             type_arg: Some(type_arg),
@@ -73,19 +110,23 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
             };
             env.resolve_layout_builtin(expr.span, builtin, type_arg)
         }
+        ExprKind::Builtin {
+            name,
+            type_arg: None,
+        } => env.resolve_builtin_value(expr.span, name),
         ExprKind::Call { callee, args } if args.is_empty() => {
-            if let ExprKind::Builtin {
-                name,
-                type_arg: Some(type_arg),
-            } = &callee.kind
-            {
-                let Some(builtin) = LayoutBuiltin::from_name(name) else {
-                    return Err(ComptimeError {
-                        span: expr.span,
-                        message: format!("unsupported builtin in comptime expression: @{name}"),
-                    });
-                };
-                env.resolve_layout_builtin(expr.span, builtin, type_arg)
+            if let ExprKind::Builtin { name, type_arg } = &callee.kind {
+                if let Some(type_arg) = type_arg {
+                    let Some(builtin) = LayoutBuiltin::from_name(name) else {
+                        return Err(ComptimeError {
+                            span: expr.span,
+                            message: format!("unsupported builtin in comptime expression: @{name}"),
+                        });
+                    };
+                    env.resolve_layout_builtin(expr.span, builtin, type_arg)
+                } else {
+                    env.resolve_builtin_value(expr.span, name)
+                }
             } else {
                 Err(ComptimeError {
                     span: expr.span,
@@ -105,23 +146,43 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                         span: expr.span,
                         message: "integer overflow in comptime negation".to_string(),
                     }),
+                _ => Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime negation requires an integer".to_string(),
+                }),
             }
         }
+        ExprKind::Unary {
+            op: UnaryOp::Not,
+            expr: inner,
+        } => match eval_expr(inner, env)? {
+            ComptimeValue::Bool(value) => Ok(ComptimeValue::Bool(!value)),
+            _ => Err(ComptimeError {
+                span: expr.span,
+                message: "comptime `not` requires a bool".to_string(),
+            }),
+        },
         ExprKind::Unary { op, .. } => Err(ComptimeError {
             span: expr.span,
             message: format!("unsupported unary operator in comptime expression: {op:?}"),
         }),
-        ExprKind::Binary { lhs, op, rhs } => {
-            let ComptimeValue::Int(lhs) = eval_expr(lhs, env)?;
-            let ComptimeValue::Int(rhs) = eval_expr(rhs, env)?;
-            eval_binary_int(lhs, *op, rhs)
-                .map(ComptimeValue::Int)
-                .map_err(|message| ComptimeError {
-                    span: expr.span,
-                    message,
-                })
-        }
+        ExprKind::Binary { lhs, op, rhs } => eval_binary(expr.span, lhs, *op, rhs, env),
         ExprKind::Cast { expr: inner, .. } => eval_expr(inner, env),
+        ExprKind::Block(block) => {
+            if !block.stmts.is_empty() {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime expression block cannot contain statements".to_string(),
+                });
+            }
+            let Some(tail) = &block.tail else {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime expression block requires a tail expression".to_string(),
+                });
+            };
+            eval_expr(tail, env)
+        }
         _ => Err(ComptimeError {
             span: expr.span,
             message: "unsupported comptime expression".to_string(),
@@ -129,9 +190,42 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
     }
 }
 
+fn eval_struct_literal(
+    fields: &[nia_ast::FieldInit],
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    let mut values = BTreeMap::new();
+    for field in fields {
+        if values
+            .insert(field.name.clone(), eval_expr(&field.value, env)?)
+            .is_some()
+        {
+            return Err(ComptimeError {
+                span: field.span,
+                message: format!("duplicate comptime struct field `{}`", field.name),
+            });
+        }
+    }
+    Ok(ComptimeValue::Struct(values))
+}
+
 pub fn eval_int_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<i128, ComptimeError> {
     match eval_expr(expr, env)? {
         ComptimeValue::Int(value) => Ok(value),
+        _ => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime expression must evaluate to an integer".to_string(),
+        }),
+    }
+}
+
+pub fn eval_bool_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<bool, ComptimeError> {
+    match eval_expr(expr, env)? {
+        ComptimeValue::Bool(value) => Ok(value),
+        _ => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime expression must evaluate to bool".to_string(),
+        }),
     }
 }
 
@@ -199,6 +293,95 @@ fn eval_binary_int(lhs: i128, op: BinaryOp, rhs: i128) -> Result<i128, String> {
             ));
         }
     })
+}
+
+fn eval_binary(
+    span: Span,
+    lhs: &Expr,
+    op: BinaryOp,
+    rhs: &Expr,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    match op {
+        BinaryOp::And => {
+            let lhs = eval_bool_expr(lhs, env)?;
+            if !lhs {
+                return Ok(ComptimeValue::Bool(false));
+            }
+            eval_bool_expr(rhs, env).map(ComptimeValue::Bool)
+        }
+        BinaryOp::Or => {
+            let lhs = eval_bool_expr(lhs, env)?;
+            if lhs {
+                return Ok(ComptimeValue::Bool(true));
+            }
+            eval_bool_expr(rhs, env).map(ComptimeValue::Bool)
+        }
+        BinaryOp::Eq | BinaryOp::Ne => {
+            let lhs = eval_expr(lhs, env)?;
+            let rhs = eval_expr(rhs, env)?;
+            let equal = values_equal(&lhs, &rhs).ok_or_else(|| ComptimeError {
+                span,
+                message: "comptime equality requires matching operand types".to_string(),
+            })?;
+            Ok(ComptimeValue::Bool(if op == BinaryOp::Eq {
+                equal
+            } else {
+                !equal
+            }))
+        }
+        _ => {
+            let lhs = eval_int_expr(lhs, env)?;
+            let rhs = eval_int_expr(rhs, env)?;
+            eval_binary_int(lhs, op, rhs)
+                .map(ComptimeValue::Int)
+                .map_err(|message| ComptimeError { span, message })
+        }
+    }
+}
+
+fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
+    match (lhs, rhs) {
+        (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => Some(lhs == rhs),
+        (ComptimeValue::Bool(lhs), ComptimeValue::Bool(rhs)) => Some(lhs == rhs),
+        (ComptimeValue::String(lhs), ComptimeValue::String(rhs)) => Some(lhs == rhs),
+        _ => None,
+    }
+}
+
+fn literal_string(literal: &nia_ast::StringLiteral) -> Option<String> {
+    if literal.parts.len() != 1 {
+        return None;
+    }
+    let text = literal.parts[0].as_str();
+    text.strip_prefix('"')?
+        .strip_suffix('"')
+        .map(unescape_simple)
+}
+
+fn unescape_simple(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('\\') => out.push('\\'),
+            Some('"') => out.push('"'),
+            Some('0') => out.push('\0'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 fn checked_shift(lhs: i128, rhs: i128, is_left: bool) -> Result<i128, String> {
@@ -305,6 +488,7 @@ fn digit_value(byte: u8) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn eval_int_literal_ignores_type_suffix() {
@@ -318,5 +502,69 @@ mod tests {
         assert_eq!(eval_float_literal("0.0f64"), Ok(0.0));
         assert_eq!(eval_float_literal("1_024.5f32"), Ok(1024.5));
         assert_eq!(eval_float_literal("1.25e-1f64"), Ok(0.125));
+    }
+
+    #[test]
+    fn evaluates_builtin_struct_field_conditions() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() bool {
+    @builtin().target.os == "linux" and @builtin().target.pointer_width == 64
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+            panic!("expected function");
+        };
+        let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+        let value = eval_bool_expr(expr, &mut BuiltinEnv).unwrap();
+        assert!(value);
+    }
+
+    struct BuiltinEnv;
+
+    impl ComptimeEnv for BuiltinEnv {
+        fn resolve_ident(
+            &mut self,
+            span: Span,
+            name: &str,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            Err(ComptimeError {
+                span,
+                message: format!("unknown comptime value `{name}`"),
+            })
+        }
+
+        fn resolve_builtin_value(
+            &mut self,
+            span: Span,
+            name: &str,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            if name != "builtin" {
+                return Err(ComptimeError {
+                    span,
+                    message: format!("unsupported builtin @{name}"),
+                });
+            }
+            let mut target = BTreeMap::new();
+            target.insert("os".to_string(), ComptimeValue::String("linux".to_string()));
+            target.insert("pointer_width".to_string(), ComptimeValue::Int(64));
+            let mut builtin = BTreeMap::new();
+            builtin.insert("target".to_string(), ComptimeValue::Struct(target));
+            Ok(ComptimeValue::Struct(builtin))
+        }
+
+        fn resolve_layout_builtin(
+            &mut self,
+            span: Span,
+            _builtin: LayoutBuiltin,
+            _ty: &TypeRef,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            Err(ComptimeError {
+                span,
+                message: "layout builtins are not available in this test".to_string(),
+            })
+        }
     }
 }

@@ -153,9 +153,9 @@ where
                 self.patterns_can_match(self_ty, rhs_ty) && self.can_be_numeric(self_ty)
             }
             BuiltinTrait::Sized => self.can_have_known_layout(self_ty),
-            BuiltinTrait::DerefConst => self.can_be_non_void_pointer(self_ty, false),
+            BuiltinTrait::DerefRead => self.can_be_non_void_pointer(self_ty, false),
             BuiltinTrait::Deref => self.can_be_non_void_pointer(self_ty, true),
-            BuiltinTrait::IndexConst => {
+            BuiltinTrait::IndexRead => {
                 let Some(index_ty) = trait_args.first().copied() else {
                     return false;
                 };
@@ -167,7 +167,7 @@ where
                 };
                 self.can_be_array_pointer_or_slice(self_ty, true) && self.can_be_integer(index_ty)
             }
-            BuiltinTrait::SliceConst => {
+            BuiltinTrait::SliceRead => {
                 let Some(range_ty) = trait_args.first().copied() else {
                     return false;
                 };
@@ -181,7 +181,7 @@ where
                 self.can_be_array_pointer_or_slice(self_ty, true)
                     && self.can_be_usize_range(range_ty)
             }
-            BuiltinTrait::GetPtrConst => self.can_be_slice(self_ty, false),
+            BuiltinTrait::GetPtrRead => self.can_be_slice(self_ty, false),
             BuiltinTrait::GetPtr => self.can_be_slice(self_ty, true),
         }
     }
@@ -196,21 +196,21 @@ where
             (Some(TyKind::GenericParam(_)), _) | (_, Some(TyKind::GenericParam(_))) => true,
             (
                 Some(TyKind::Pointer {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             )
             | (
                 Some(TyKind::Slice {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Slice {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             ) => left_const == right_const && self.patterns_can_match(*left_elem, *right_elem),
@@ -320,8 +320,8 @@ where
     fn can_be_non_void_pointer(&self, ty: InternedTyId, mutable: bool) -> bool {
         match self.interner.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Pointer { is_const, elem }) => {
-                (!mutable || !*is_const)
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                (!mutable || !*is_readonly)
                     && !matches!(
                         self.interner.get(self.normalize(*elem)),
                         Some(TyKind::Primitive(PrimitiveTy::Void))
@@ -334,8 +334,8 @@ where
     fn can_be_array_pointer_or_slice(&self, ty: InternedTyId, mutable: bool) -> bool {
         match self.interner.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) | Some(TyKind::Array { .. }) => true,
-            Some(TyKind::Pointer { is_const, .. } | TyKind::Slice { is_const, .. }) => {
-                !mutable || !*is_const
+            Some(TyKind::Pointer { is_readonly, .. } | TyKind::Slice { is_readonly, .. }) => {
+                !mutable || !*is_readonly
             }
             _ => false,
         }
@@ -344,7 +344,7 @@ where
     fn can_be_slice(&self, ty: InternedTyId, mutable: bool) -> bool {
         match self.interner.get(self.normalize(ty)) {
             Some(TyKind::GenericParam(_)) => true,
-            Some(TyKind::Slice { is_const, .. }) => !mutable || !*is_const,
+            Some(TyKind::Slice { is_readonly, .. }) => !mutable || !*is_readonly,
             _ => false,
         }
     }
@@ -488,7 +488,7 @@ where
                 self.types_equivalent(self_ty, *rhs_ty) && self.is_numeric(self_ty)
             }
             BuiltinTrait::Sized => goal.trait_args.is_empty() && self.layout_of(self_ty),
-            BuiltinTrait::DerefConst => {
+            BuiltinTrait::DerefRead => {
                 goal.trait_args.is_empty()
                     && self.intrinsic_deref_target_ty(self_ty, false).is_some()
             }
@@ -496,7 +496,7 @@ where
                 goal.trait_args.is_empty()
                     && self.intrinsic_deref_target_ty(self_ty, true).is_some()
             }
-            BuiltinTrait::IndexConst => {
+            BuiltinTrait::IndexRead => {
                 let [index_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
@@ -510,7 +510,7 @@ where
                 self.intrinsic_index_output_ty(self_ty, *index_ty, true)
                     .is_some()
             }
-            BuiltinTrait::SliceConst => {
+            BuiltinTrait::SliceRead => {
                 let [range_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
@@ -524,7 +524,7 @@ where
                 self.is_usize_range(*range_ty)
                     && self.intrinsic_slice_output_ty(self_ty, true).is_some()
             }
-            BuiltinTrait::GetPtrConst => {
+            BuiltinTrait::GetPtrRead => {
                 goal.trait_args.is_empty()
                     && self.intrinsic_get_ptr_target_ty(self_ty, false).is_some()
             }
@@ -582,7 +582,7 @@ where
                 trait_args.is_empty().then_some(())?;
                 self.is_integer(self_ty).then_some(self.normalize(self_ty))
             }
-            (BuiltinTrait::DerefConst, BuiltinAssociatedType::Target) => {
+            (BuiltinTrait::DerefRead, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
                 self.intrinsic_deref_target_ty(self_ty, false)
             }
@@ -590,7 +590,7 @@ where
                 trait_args.is_empty().then_some(())?;
                 self.intrinsic_deref_target_ty(self_ty, true)
             }
-            (BuiltinTrait::IndexConst, BuiltinAssociatedType::Output) => {
+            (BuiltinTrait::IndexRead, BuiltinAssociatedType::Output) => {
                 let [index_ty] = trait_args else {
                     return None;
                 };
@@ -602,7 +602,7 @@ where
                 };
                 self.intrinsic_index_output_ty(self_ty, *index_ty, true)
             }
-            (BuiltinTrait::SliceConst, BuiltinAssociatedType::Output) => {
+            (BuiltinTrait::SliceRead, BuiltinAssociatedType::Output) => {
                 let [range_ty] = trait_args else {
                     return None;
                 };
@@ -616,7 +616,7 @@ where
                 self.is_usize_range(*range_ty).then_some(())?;
                 self.intrinsic_slice_output_ty(self_ty, true)
             }
-            (BuiltinTrait::GetPtrConst, BuiltinAssociatedType::Target) => {
+            (BuiltinTrait::GetPtrRead, BuiltinAssociatedType::Target) => {
                 trait_args.is_empty().then_some(())?;
                 self.intrinsic_get_ptr_target_ty(self_ty, false)
             }
@@ -635,11 +635,11 @@ where
     ) -> Option<InternedTyId> {
         match self.kind(self_ty) {
             Some(TyKind::Pointer {
-                is_const: false,
+                is_readonly: false,
                 elem,
             }) if !self.is_void(*elem) => Some(*elem),
             Some(TyKind::Pointer {
-                is_const: true,
+                is_readonly: true,
                 elem,
             }) if !require_mutable && !self.is_void(*elem) => Some(*elem),
             _ => None,
@@ -658,19 +658,19 @@ where
         match self.kind(self_ty) {
             Some(TyKind::Array { elem, .. }) => Some(*elem),
             Some(TyKind::Pointer {
-                is_const: false,
+                is_readonly: false,
                 elem,
             })
             | Some(TyKind::Slice {
-                is_const: false,
+                is_readonly: false,
                 elem,
             }) => Some(*elem),
             Some(TyKind::Pointer {
-                is_const: true,
+                is_readonly: true,
                 elem,
             })
             | Some(TyKind::Slice {
-                is_const: true,
+                is_readonly: true,
                 elem,
             }) if !require_mutable => Some(*elem),
             _ => None,
@@ -684,29 +684,29 @@ where
     ) -> Option<InternedTyId> {
         match self.kind(self_ty) {
             Some(TyKind::Array { elem, .. }) => Some(self.interner.intern(TyKind::Slice {
-                is_const: !require_mutable,
+                is_readonly: !require_mutable,
                 elem: *elem,
             })),
             Some(TyKind::Pointer {
-                is_const: false,
+                is_readonly: false,
                 elem,
             })
             | Some(TyKind::Slice {
-                is_const: false,
+                is_readonly: false,
                 elem,
             }) => Some(self.interner.intern(TyKind::Slice {
-                is_const: !require_mutable,
+                is_readonly: !require_mutable,
                 elem: *elem,
             })),
             Some(TyKind::Pointer {
-                is_const: true,
+                is_readonly: true,
                 elem,
             })
             | Some(TyKind::Slice {
-                is_const: true,
+                is_readonly: true,
                 elem,
             }) if !require_mutable => Some(self.interner.intern(TyKind::Slice {
-                is_const: true,
+                is_readonly: true,
                 elem: *elem,
             })),
             _ => None,
@@ -720,11 +720,11 @@ where
     ) -> Option<InternedTyId> {
         match self.kind(self_ty) {
             Some(TyKind::Slice {
-                is_const: false,
+                is_readonly: false,
                 elem,
             }) => Some(*elem),
             Some(TyKind::Slice {
-                is_const: true,
+                is_readonly: true,
                 elem,
             }) if !require_mutable => Some(*elem),
             _ => None,
@@ -753,21 +753,21 @@ where
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (
                 Some(TyKind::Pointer {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             )
             | (
                 Some(TyKind::Slice {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Slice {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             ) => left_const == right_const && self.types_equivalent(*left_elem, *right_elem),

@@ -189,7 +189,7 @@ pub struct BackendGlobal {
     pub def_id: GlobalDefId,
     pub name: String,
     pub ty: InternedTyId,
-    pub is_const: bool,
+    pub is_let: bool,
     pub is_extern: bool,
     pub init: Option<StaticInit>,
     pub span: Span,

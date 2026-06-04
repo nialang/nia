@@ -172,7 +172,7 @@ fn scalar_call_assignment_evaluates_rhs_before_place_address() {
         &main,
         r#"
 extern fn rhs() i32;
-extern fn slot() &i32;
+extern fn slot() &mut i32;
 
 fn main() i32 {
     slot().* = rhs();
@@ -329,7 +329,7 @@ fn emits_dynamic_index_call_from_struct_function_pointer_array_field() {
         &main,
         r#"
 struct Table {
-    fns: [2]&const fn(i32) i32,
+    fns: [2]&fn(i32) i32,
 }
 
 fn add1(x: i32) i32 {
@@ -341,7 +341,7 @@ fn add2(x: i32) i32 {
 }
 
 fn main() i32 {
-    var table: Table = { fns: [&const add1, &const add2] };
+    var table: Table = { fns: [& add1, & add2] };
     var i: usize = 1;
     table.fns[i](40)
 }

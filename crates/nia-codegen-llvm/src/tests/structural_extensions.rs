@@ -60,7 +60,7 @@ extend[T] Ptr[T] {
     }
 }
 
-extend[T] &const [T] {
+extend[T] & [T] {
     fn size(self) usize {
         self.len()
     }
@@ -72,7 +72,7 @@ extend[T] [3]T {
     }
 }
 
-extend &const fn(i32) i32 {
+extend &fn(i32) i32 {
     fn apply(self, value: i32) i32 {
         self(value)
     }
@@ -82,10 +82,10 @@ fn inc(value: i32) i32 {
     value + 1
 }
 
-fn main(ptr: &i32, xs: &const [i32], triple: [3]i32) i32 {
+fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
     if 0.is_zero() {}
     if ptr.is_null() {}
-    xs.size() as i32 + triple.first() + (&const inc).apply(1)
+    xs.size() as i32 + triple.first() + (& inc).apply(1)
 }
 "#,
     )
@@ -118,14 +118,14 @@ fn emits_imported_generic_structural_extension_method_calls() {
         r#"
 import .share;
 
-extern fn read_const() &const u8;
+extern fn read_readonly() &u8;
 
-fn main(mut_ptr: &u8) i32 {
-    var const_ptr = read_const();
+fn main(mut_ptr: &mut u8) i32 {
+    var readonly_ptr = read_readonly();
     if mut_ptr.is_null() {
         return 1;
     }
-    if const_ptr.is_null() {
+    if readonly_ptr.is_null() {
         return 2;
     }
     0
@@ -137,7 +137,7 @@ fn main(mut_ptr: &u8) i32 {
     std::fs::write(
         root.join("ptr.nia"),
         r#"
-extend[T] &const T {
+extend[T] &mut T {
     pub fn is_null(self) bool {
         self as usize == 0
     }
@@ -222,18 +222,18 @@ struct Point {
 }
 
 extend Point {
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.x
     }
 }
 
-fn apply(p: &const Point, f: &const fn(&const Point) i32) i32 {
+fn apply(p: & Point, f: &fn(& Point) i32) i32 {
     f(p)
 }
 
 fn main() i32 {
     var p: Point = { x: 42 };
-    apply(&const p, &const Point::get)
+    apply(& p, & Point::get)
 }
 "#,
     )
@@ -261,18 +261,18 @@ struct Box[T] {
 }
 
 extend[T] Box[T] {
-    fn get(&const self) T {
+    fn get(& self) T {
         self.value
     }
 }
 
-fn apply(box: &const Box[i32], f: &const fn(&const Box[i32]) i32) i32 {
+fn apply(box: & Box[i32], f: &fn(& Box[i32]) i32) i32 {
     f(box)
 }
 
 fn main() i32 {
     var box: Box[i32] = { value: 42 };
-    apply(&const box, &const Box[i32]::get)
+    apply(& box, & Box[i32]::get)
 }
 "#,
     )
@@ -300,14 +300,14 @@ struct Point {
 }
 
 extend Point {
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.x
     }
 }
 
-const get_ptr: &const fn(&const Point) i32 = &const Point::get;
+let get_ptr: &fn(& Point) i32 = & Point::get;
 
-fn main(p: &const Point) i32 {
+fn main(p: & Point) i32 {
     get_ptr(p)
 }
 "#,
@@ -350,8 +350,8 @@ extend[T] [3]T {
 }
 
 fn main(ptr: &u8, triple: [3]i32) i32 {
-    var is_null: &const fn(&u8) bool = &const [&u8]::is_null;
-    var zero: &const fn() usize = &const [&u8]::zero;
+    var is_null: &fn(&u8) bool = & [&u8]::is_null;
+    var zero: &fn() usize = & [&u8]::zero;
     if is_null(ptr) {}
     if [&u8]::is_null(ptr) {}
     [[3]i32]::first(triple) + zero() as i32
@@ -381,15 +381,15 @@ fn emits_deep_pointer_structural_associated_calls_and_function_pointers() {
     std::fs::write(
         &main,
         r#"
-extend &&&&&&const &&i32 {
+extend &&&&&& &&i32 {
     fn is_null(self) bool {
         self as usize == 0
     }
 }
 
-fn main(ptr: &&&&&&const &&i32) bool {
-    var is_null: &const fn(&&&&&&const &&i32) bool = &const [&&&&&&const &&i32]::is_null;
-    is_null(ptr) and [&&&&&&const &&i32]::is_null(ptr)
+fn main(ptr: &&&&&& &&i32) bool {
+    var is_null: &fn(&&&&&& &&i32) bool = & [&&&&&& &&i32]::is_null;
+    is_null(ptr) and [&&&&&& &&i32]::is_null(ptr)
 }
 "#,
     )

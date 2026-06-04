@@ -10,6 +10,7 @@ nia-ast.workspace = true
 nia-compiler-query.workspace = true
 nia-diagnostic.workspace = true
 nia-imports.workspace = true
+nia-item-tree.workspace = true
 nia-node-id.workspace = true
 nia-parser.workspace = true
 nia-query.workspace = true

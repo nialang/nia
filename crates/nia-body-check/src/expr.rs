@@ -68,24 +68,24 @@ impl<'a> BodyChecker<'a> {
                 let expected_ref_target = match (op, expected.and_then(|ty| self.interner.get(ty)))
                 {
                     (
-                        UnaryOp::RefConst,
+                        UnaryOp::RefReadOnly,
                         Some(TyKind::Pointer {
-                            is_const: true,
+                            is_readonly: true,
                             elem,
                         }),
                     )
                     | (
                         UnaryOp::Ref,
                         Some(TyKind::Pointer {
-                            is_const: false,
+                            is_readonly: false,
                             elem,
                         }),
                     ) => Some(*elem),
                     _ => None,
                 };
-                if matches!(op, UnaryOp::Ref | UnaryOp::RefConst)
+                if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && let Some(function_ptr_ty) =
-                        self.check_function_ref(inner, matches!(op, UnaryOp::RefConst))
+                        self.check_function_ref(inner, matches!(op, UnaryOp::RefReadOnly))
                 {
                     self.record_expr_type(expr.span, function_ptr_ty);
                     return function_ptr_ty;
@@ -96,7 +96,7 @@ impl<'a> BodyChecker<'a> {
                 } = &inner.kind
                 {
                     match op {
-                        UnaryOp::RefConst => {
+                        UnaryOp::RefReadOnly => {
                             let slice_ty =
                                 self.check_slice_ref(expr.span, lhs, range, true, expected);
                             self.record_expr_type(inner.span, slice_ty);
@@ -118,16 +118,16 @@ impl<'a> BodyChecker<'a> {
                     UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot => {
                         self.check_builtin_unary_operator_expr(expr.span, *op, inner, inner_ty)
                     }
-                    UnaryOp::RefConst => {
+                    UnaryOp::RefReadOnly => {
                         if self.is_invalid_temporary_type(inner_ty) {
                             self.diagnostics.push(Diagnostic::error(
                                 inner.span,
-                                "const reference target cannot have void or never type",
+                                "reference target cannot have void or never type",
                             ));
                         }
-                        self.check_reference_target(inner, "const reference target", true);
+                        self.check_reference_target(inner, "reference target", true);
                         self.interner.intern(TyKind::Pointer {
-                            is_const: true,
+                            is_readonly: true,
                             elem: inner_ty,
                         })
                     }
@@ -140,7 +140,7 @@ impl<'a> BodyChecker<'a> {
                         }
                         self.check_reference_target(inner, "reference target", false);
                         self.interner.intern(TyKind::Pointer {
-                            is_const: false,
+                            is_readonly: false,
                             elem: inner_ty,
                         })
                     }
@@ -208,11 +208,8 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
                 match index {
                     IndexArg::Expr(index) => {
-                        let index_ty = self.check_index_expr_for_trait(
-                            lhs_ty,
-                            BuiltinTrait::IndexConst,
-                            index,
-                        );
+                        let index_ty =
+                            self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexRead, index);
                         self.expect_integer(index.span, index_ty, "index");
                         let index_ty = self
                             .expr_types
@@ -228,7 +225,7 @@ impl<'a> BodyChecker<'a> {
                         self.check_slice_range_bounds(range);
                         self.diagnostics.push(Diagnostic::error(
                             expr.span,
-                            "range index expression must be borrowed as a slice; use `&const base[..]` or `&base[..]`",
+                            "range index expression must be borrowed as a slice; use `&base[..]` or `&mut base[..]`",
                         ));
                         self.slice_result_type(lhs_ty, false)
                     }
@@ -897,7 +894,7 @@ impl<'a> BodyChecker<'a> {
             self.record_bracket_suffix_resolution(span, BracketSuffixResolution::Index);
             let lhs_expected = self.array_expected_from_index_expected(expected);
             let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
-            let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexConst, index);
+            let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexRead, index);
             self.expect_integer(index.span, index_ty, "index");
             let index_ty = self
                 .expr_types

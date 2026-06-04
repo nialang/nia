@@ -114,6 +114,10 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
             }
+            TyKind::ComptimeOnly => self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("backend IR type {ty:?} is comptime-only before LLVM codegen"),
+            )),
             TyKind::Primitive(_) | TyKind::GenericParam(_) | TyKind::Error => {}
         }
     }
@@ -313,7 +317,10 @@ impl BackendValidator<'_> {
                 }
             }
             TyKind::BuiltinTrait { .. } => Some(TypeLayout { size: 0, align: 1 }),
-            TyKind::Projection { .. } | TyKind::GenericParam(_) | TyKind::Error => None,
+            TyKind::ComptimeOnly
+            | TyKind::Projection { .. }
+            | TyKind::GenericParam(_)
+            | TyKind::Error => None,
         }
     }
 
@@ -376,21 +383,21 @@ impl BackendValidator<'_> {
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (
                 Some(TyKind::Pointer {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             )
             | (
                 Some(TyKind::Slice {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Slice {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             ) => left_const == right_const && self.same_type(*left_elem, *right_elem),

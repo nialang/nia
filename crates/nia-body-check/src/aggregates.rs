@@ -326,6 +326,9 @@ impl<'a> BodyChecker<'a> {
         name: &str,
     ) -> InternedTyId {
         let Some((def_id, args)) = self.field_base_type(lhs_ty) else {
+            if matches!(self.interner.get(lhs_ty), Some(TyKind::ComptimeOnly)) {
+                return lhs_ty;
+            }
             if lhs_ty != self.error() {
                 self.diagnostics.push(Diagnostic::error(
                     span,

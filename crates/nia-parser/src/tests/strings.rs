@@ -5,7 +5,7 @@ use super::common::*;
 fn parses_multiline_string_literal() {
     let (module, errors) = parse_module(
         r#"
-const script =
+let script =
     \\mov rax, 60
     \\syscall
 ;
@@ -24,9 +24,9 @@ const script =
 fn parses_adjacent_quoted_string_literals_as_one_literal() {
     let (module, errors) = parse_module(
         r#"
-const text = "hello" "" ", " "world" "" "!" "\n" "done";
-const bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
-const cstr = c"" c"hello" c"" c", " c"" c"world" c"" c"!";
+let text = "hello" "" ", " "world" "" "!" "\n" "done";
+let bytes = b"" b"n" b"" b"i" b"" b"a" b"" b"\0";
+let cstr = c"" c"hello" c"" c", " c"" c"world" c"" c"!";
 "#,
     );
     assert!(errors.is_empty(), "{errors:?}");
@@ -57,9 +57,9 @@ const cstr = c"" c"hello" c"" c", " c"" c"world" c"" c"!";
 fn rejects_adjacent_string_literals_with_different_prefixes() {
     let (_module, errors) = parse_module(
         r#"
-const a = "hello" b"world";
-const b = b"hello" c"world";
-const c = "hello" c"world";
+let a = "hello" b"world";
+let b = b"hello" c"world";
+let c = "hello" c"world";
 "#,
     );
     assert_eq!(
@@ -78,7 +78,7 @@ const c = "hello" c"world";
 fn does_not_concatenate_multiline_string_literals() {
     let (_module, errors) = parse_module(
         r#"
-const text =
+let text =
     \\hello
     "world";
 "#,

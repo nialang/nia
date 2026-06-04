@@ -784,10 +784,10 @@ fn make() Empty {
     fn exhaustive_switch_returns_on_all_paths() {
         let checked = pipeline(
             r#"
-fn name(x: u32) &const u8 {
+fn name(x: u32) &u8 {
     switch x {
-        1 => return 0 as &const u8,
-        _ => return 1 as &const u8,
+        1 => return 0 as &u8,
+        _ => return 1 as &u8,
     }
 }
 "#,
@@ -805,10 +805,10 @@ fn name(x: u32) &const u8 {
     fn switch_tail_expression_satisfies_return_analysis() {
         let checked = pipeline(
             r#"
-fn name(x: u32) &const u8 {
+fn name(x: u32) &u8 {
     switch x {
-        1 => 0 as &const u8,
-        _ => 1 as &const u8,
+        1 => 0 as &u8,
+        _ => 1 as &u8,
     }
 }
 "#,

@@ -137,20 +137,20 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn check_reference_target(&mut self, expr: &Expr, context: &str, is_const: bool) {
+    pub(crate) fn check_reference_target(&mut self, expr: &Expr, context: &str, is_readonly: bool) {
         let ty = self.expr_types.get(&expr.span).copied();
-        self.check_reference_target_with_ty(expr, context, is_const, ty);
+        self.check_reference_target_with_ty(expr, context, is_readonly, ty);
     }
 
     pub(crate) fn check_reference_target_with_ty(
         &mut self,
         expr: &Expr,
         context: &str,
-        is_const: bool,
+        is_readonly: bool,
         ty: Option<InternedTyId>,
     ) {
         let reason = if self.is_place_expr(expr) {
-            if is_const {
+            if is_readonly {
                 self.not_addressable_reason(expr)
             } else {
                 self.not_assignable_reason(expr)
@@ -159,7 +159,7 @@ impl<'a> BodyChecker<'a> {
             self.not_materializable_reason(ty)
         };
         if let Some(reason) = reason {
-            let property = if is_const {
+            let property = if is_readonly {
                 "addressable"
             } else {
                 "assignable"
@@ -213,15 +213,15 @@ impl<'a> BodyChecker<'a> {
         let Some(ty) = self.expr_types.get(&expr.span).copied() else {
             return Some("pointer type is not known");
         };
-        let has_deref_const = self.current_context_proves_trait_obligation(
+        let has_deref_read = self.current_context_proves_trait_obligation(
             ty,
-            TraitId::Builtin(BuiltinTrait::DerefConst),
+            TraitId::Builtin(BuiltinTrait::DerefRead),
             Vec::new(),
         );
         match self.interner.get(ty) {
             Some(TyKind::Error) => None,
-            Some(_) if has_deref_const => None,
-            Some(_) => Some("expression does not implement DerefConst"),
+            Some(_) if has_deref_read => None,
+            Some(_) => Some("expression does not implement DerefRead"),
             None => Some("pointer type is not known"),
         }
     }
@@ -259,7 +259,7 @@ impl<'a> BodyChecker<'a> {
     fn ident_not_assignable_reason(&self, span: Span) -> Option<&'static str> {
         match self.locals.uses.get(&span) {
             Some(LocalUse::Local(local_id)) => match self.locals.locals.get(*local_id) {
-                Some(local) if local.kind == LocalKind::ConstBinding => Some("local is const"),
+                Some(local) if local.kind == LocalKind::ConstBinding => Some("local is let"),
                 Some(local) if local.kind == LocalKind::ComptimeBinding => {
                     Some("comptime binding has no storage")
                 }
@@ -289,7 +289,7 @@ impl<'a> BodyChecker<'a> {
         };
         match def.kind {
             DefKind::Global => match self.signatures.globals.get(&def_id) {
-                Some(global) if global.is_const => Some("global is const"),
+                Some(global) if global.is_let => Some("global is let"),
                 Some(_) => None,
                 None => Some("global signature is missing"),
             },
@@ -307,7 +307,7 @@ impl<'a> BodyChecker<'a> {
             return self.global_not_assignable_reason(global_id.def_id);
         }
         match self.program_globals.get(&global_id) {
-            Some(global) if global.signature.is_const => Some("global is const"),
+            Some(global) if global.signature.is_let => Some("global is let"),
             Some(_) => None,
             None => Some("function item is not assignable"),
         }
@@ -325,7 +325,9 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(ty) {
             Some(TyKind::Error) => None,
             Some(_) if has_deref => None,
-            Some(TyKind::Pointer { is_const: true, .. }) => Some("pointer is const"),
+            Some(TyKind::Pointer {
+                is_readonly: true, ..
+            }) => Some("pointer is read-only"),
             Some(_) => Some("expression does not implement Deref"),
             None => Some("pointer type is not known"),
         }
@@ -336,18 +338,18 @@ impl<'a> BodyChecker<'a> {
         span: Span,
         lhs: &Expr,
         range: &SliceRange,
-        is_const: bool,
+        is_readonly: bool,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
         let lhs_expected = self.array_expected_from_slice_expected(expected);
         let lhs_ty = self.check_expr_with_expected(lhs, lhs_expected);
         let range_ty = self.check_slice_range_bounds(range);
-        if is_const {
+        if is_readonly {
             self.check_reference_target(lhs, "slice target", true);
         } else {
             self.check_reference_target(lhs, "slice target", false);
         }
-        self.slice_result_type_with_context(span, lhs_ty, is_const, range_ty)
+        self.slice_result_type_with_context(span, lhs_ty, is_readonly, range_ty)
     }
 
     pub(crate) fn check_slice_range_bounds(&mut self, range: &SliceRange) -> InternedTyId {
@@ -383,7 +385,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn slice_result_type(
         &mut self,
         lhs_ty: InternedTyId,
-        is_const: bool,
+        is_readonly: bool,
     ) -> InternedTyId {
         // Used after the caller has already emitted the source-level error for
         // a non-borrowed range index. Pass a default span so trait probing does
@@ -392,28 +394,28 @@ impl<'a> BodyChecker<'a> {
             kind: RangeTyKind::Full,
             bound: None,
         });
-        self.slice_result_type_with_context(Span::default(), lhs_ty, is_const, range_ty)
+        self.slice_result_type_with_context(Span::default(), lhs_ty, is_readonly, range_ty)
     }
 
     fn slice_result_type_with_context(
         &mut self,
         span: Span,
         lhs_ty: InternedTyId,
-        is_const: bool,
+        is_readonly: bool,
         range_ty: InternedTyId,
     ) -> InternedTyId {
         if matches!(self.interner.get(lhs_ty), Some(TyKind::Error) | None) {
             return self.error();
         }
-        if is_const {
+        if is_readonly {
             if self.current_context_proves_trait_obligation(
                 lhs_ty,
-                TraitId::Builtin(BuiltinTrait::SliceConst),
+                TraitId::Builtin(BuiltinTrait::SliceRead),
                 vec![range_ty],
             ) {
                 let output = self.interner.intern(TyKind::Projection {
                     self_ty: lhs_ty,
-                    trait_id: TraitId::Builtin(BuiltinTrait::SliceConst),
+                    trait_id: TraitId::Builtin(BuiltinTrait::SliceRead),
                     trait_args: vec![range_ty],
                     name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
                 });
@@ -425,7 +427,7 @@ impl<'a> BodyChecker<'a> {
                     format!(
                         "trait bound not satisfied: {}: {}",
                         self.ty_name(lhs_ty),
-                        self.builtin_trait_ty_name(BuiltinTrait::SliceConst, &[range_ty])
+                        self.builtin_trait_ty_name(BuiltinTrait::SliceRead, &[range_ty])
                     ),
                 ));
             }
@@ -469,7 +471,7 @@ impl<'a> BodyChecker<'a> {
         let trait_args = vec![index_ty];
         if !self.current_context_proves_trait_obligation(
             lhs_ty,
-            TraitId::Builtin(BuiltinTrait::IndexConst),
+            TraitId::Builtin(BuiltinTrait::IndexRead),
             trait_args.clone(),
         ) {
             self.diagnostics.push(Diagnostic::error(
@@ -477,14 +479,14 @@ impl<'a> BodyChecker<'a> {
                 format!(
                     "trait bound not satisfied: {}: {}",
                     self.ty_name(lhs_ty),
-                    self.builtin_trait_ty_name(BuiltinTrait::IndexConst, &trait_args)
+                    self.builtin_trait_ty_name(BuiltinTrait::IndexRead, &trait_args)
                 ),
             ));
             return self.error();
         }
         let output = self.interner.intern(TyKind::Projection {
             self_ty: lhs_ty,
-            trait_id: TraitId::Builtin(BuiltinTrait::IndexConst),
+            trait_id: TraitId::Builtin(BuiltinTrait::IndexRead),
             trait_args,
             name: BuiltinTrait::OUTPUT_ASSOC_TYPE.to_string(),
         });
@@ -602,16 +604,20 @@ impl<'a> BodyChecker<'a> {
         match self.interner.get(self.normalization.normalize(lhs_ty)) {
             Some(TyKind::Error) => None,
             Some(_) if has_index => None,
-            Some(TyKind::Pointer { is_const: true, .. }) => Some("pointer is const"),
-            Some(TyKind::Slice { is_const: true, .. }) => Some("slice is const"),
+            Some(TyKind::Pointer {
+                is_readonly: true, ..
+            }) => Some("pointer is read-only"),
+            Some(TyKind::Slice {
+                is_readonly: true, ..
+            }) => Some("slice is read-only"),
             _ => Some("expression does not implement Index"),
         }
     }
 
     pub(crate) fn deref_result_type(&mut self, span: Span, ty: InternedTyId) -> InternedTyId {
-        let has_deref_const = self.current_context_proves_trait_obligation(
+        let has_deref_read = self.current_context_proves_trait_obligation(
             ty,
-            TraitId::Builtin(BuiltinTrait::DerefConst),
+            TraitId::Builtin(BuiltinTrait::DerefRead),
             Vec::new(),
         );
         match self.interner.get(ty) {
@@ -623,10 +629,10 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
             Some(TyKind::Error) | None => self.error(),
-            _ if has_deref_const => {
+            _ if has_deref_read => {
                 let target = self.interner.intern(TyKind::Projection {
                     self_ty: ty,
-                    trait_id: TraitId::Builtin(BuiltinTrait::DerefConst),
+                    trait_id: TraitId::Builtin(BuiltinTrait::DerefRead),
                     trait_args: Vec::new(),
                     name: BuiltinTrait::TARGET_ASSOC_TYPE.to_string(),
                 });
@@ -638,7 +644,7 @@ impl<'a> BodyChecker<'a> {
                     format!(
                         "trait bound not satisfied: {}: {}",
                         self.ty_name(ty),
-                        self.builtin_trait_ty_name(BuiltinTrait::DerefConst, &[])
+                        self.builtin_trait_ty_name(BuiltinTrait::DerefRead, &[])
                     ),
                 ));
                 self.error()

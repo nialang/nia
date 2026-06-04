@@ -1,1 +1,1 @@
-pub comptime width: usize = 4;
+pub comptime let width: usize = 4;

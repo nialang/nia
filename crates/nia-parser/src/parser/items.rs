@@ -29,12 +29,10 @@ impl Parser {
                 ItemKind::Union(self.parse_union(true)?)
             } else if self.at(TokenKind::Fn) {
                 ItemKind::Function(self.parse_function(true)?)
-            } else if self.at(TokenKind::Const) || self.at(TokenKind::Var) {
+            } else if self.at(TokenKind::Let) || self.at(TokenKind::Var) {
                 ItemKind::Binding(self.parse_binding(true)?)
             } else {
-                self.error_here(
-                    "expected `struct`, `union`, `fn`, `var`, or `const` after `extern`",
-                );
+                self.error_here("expected `struct`, `union`, `fn`, `let`, or `var` after `extern`");
                 return None;
             }
         } else if self.at(TokenKind::Struct) {
@@ -56,9 +54,7 @@ impl Parser {
                 self.error_at(span, "`pub` cannot be applied to `comptime if`");
             }
             ItemKind::ComptimeIf(self.parse_comptime_if_item()?)
-        } else if self.at(TokenKind::Comptime)
-            || self.at(TokenKind::Const)
-            || self.at(TokenKind::Var)
+        } else if self.at(TokenKind::Comptime) || self.at(TokenKind::Let) || self.at(TokenKind::Var)
         {
             ItemKind::Binding(self.parse_binding(false)?)
         } else {
@@ -691,11 +687,10 @@ impl Parser {
         let start = self.peek().span.start;
         let checkpoint = self.tokens.checkpoint();
         if self.eat(TokenKind::Amp).is_some() {
-            let is_const_receiver = self.eat(TokenKind::Const).is_some();
-            let receiver = if is_const_receiver {
-                ReceiverKind::RefConst
-            } else {
+            let receiver = if self.eat(TokenKind::Mut).is_some() {
                 ReceiverKind::Ref
+            } else {
+                ReceiverKind::RefReadOnly
             };
             if self.at(TokenKind::Ident) && self.token_text(self.peek()) == "self" {
                 self.bump();
@@ -725,18 +720,21 @@ impl Parser {
     }
 
     fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {
-        let (is_const, is_comptime) = if self.eat(TokenKind::Comptime).is_some() {
+        let is_comptime = if self.eat(TokenKind::Comptime).is_some() {
             if is_extern {
                 self.error_here("extern binding cannot be `comptime`");
                 return None;
             }
-            (true, true)
-        } else if self.eat(TokenKind::Const).is_some() {
-            (true, false)
-        } else if self.eat(TokenKind::Var).is_some() {
-            (false, false)
+            true
         } else {
-            self.error_here("expected `var`, `const`, or `comptime`");
+            false
+        };
+        let is_let = if self.eat(TokenKind::Let).is_some() {
+            true
+        } else if self.eat(TokenKind::Var).is_some() {
+            false
+        } else {
+            self.error_here("expected `let`, `var`, or `comptime let`");
             return None;
         };
         let name = self.expect_text(TokenKind::Ident, "expected binding name")?;
@@ -776,7 +774,7 @@ impl Parser {
             name,
             ty,
             value,
-            is_const,
+            is_let,
             is_comptime,
             is_extern,
         })

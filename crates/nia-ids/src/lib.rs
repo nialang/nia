@@ -73,13 +73,13 @@ pub enum BuiltinTrait {
     Eq,
     Ord,
     Sized,
-    DerefConst,
+    DerefRead,
     Deref,
-    IndexConst,
+    IndexRead,
     Index,
-    SliceConst,
+    SliceRead,
     Slice,
-    GetPtrConst,
+    GetPtrRead,
     GetPtr,
 }
 
@@ -127,19 +127,19 @@ pub enum BuiltinTraitMethod {
     Le,
     Gt,
     Ge,
-    DerefConst,
+    DerefRead,
     Deref,
-    IndexConst,
+    IndexRead,
     Index,
-    SliceConst,
+    SliceRead,
     Slice,
-    GetPtrConst,
+    GetPtrRead,
     GetPtr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinReceiverKind {
-    RefConst,
+    RefReadOnly,
     Ref,
     Value,
 }
@@ -195,13 +195,13 @@ impl BuiltinTraitMethod {
             "le" => Some(Self::Le),
             "gt" => Some(Self::Gt),
             "ge" => Some(Self::Ge),
-            "deref_const" => Some(Self::DerefConst),
+            "deref_read" => Some(Self::DerefRead),
             "deref" => Some(Self::Deref),
-            "index_const" => Some(Self::IndexConst),
+            "index_read" => Some(Self::IndexRead),
             "index" => Some(Self::Index),
-            "slice_const" => Some(Self::SliceConst),
+            "slice_read" => Some(Self::SliceRead),
             "slice" => Some(Self::Slice),
-            "get_ptr_const" => Some(Self::GetPtrConst),
+            "get_ptr_read" => Some(Self::GetPtrRead),
             "get_ptr" => Some(Self::GetPtr),
             _ => None,
         }
@@ -228,13 +228,13 @@ impl BuiltinTraitMethod {
             Self::Le => "le",
             Self::Gt => "gt",
             Self::Ge => "ge",
-            Self::DerefConst => "deref_const",
+            Self::DerefRead => "deref_read",
             Self::Deref => "deref",
-            Self::IndexConst => "index_const",
+            Self::IndexRead => "index_read",
             Self::Index => "index",
-            Self::SliceConst => "slice_const",
+            Self::SliceRead => "slice_read",
             Self::Slice => "slice",
-            Self::GetPtrConst => "get_ptr_const",
+            Self::GetPtrRead => "get_ptr_read",
             Self::GetPtr => "get_ptr",
         }
     }
@@ -244,19 +244,19 @@ impl BuiltinTraitMethod {
             Self::Neg
             | Self::Not
             | Self::BitNot
-            | Self::DerefConst
+            | Self::DerefRead
             | Self::Deref
-            | Self::GetPtrConst
+            | Self::GetPtrRead
             | Self::GetPtr => 1,
-            Self::SliceConst | Self::Slice => 2,
+            Self::SliceRead | Self::Slice => 2,
             _ => 2,
         }
     }
 
     pub fn receiver_kind(self) -> BuiltinReceiverKind {
         match self {
-            Self::DerefConst | Self::IndexConst | Self::SliceConst | Self::GetPtrConst => {
-                BuiltinReceiverKind::RefConst
+            Self::DerefRead | Self::IndexRead | Self::SliceRead | Self::GetPtrRead => {
+                BuiltinReceiverKind::RefReadOnly
             }
             Self::Slice | Self::GetPtr => BuiltinReceiverKind::Ref,
             _ => BuiltinReceiverKind::Value,
@@ -265,7 +265,7 @@ impl BuiltinTraitMethod {
 
     pub fn place_receiver_kind(self) -> Option<BuiltinReceiverKind> {
         match self {
-            Self::DerefConst | Self::IndexConst => Some(BuiltinReceiverKind::RefConst),
+            Self::DerefRead | Self::IndexRead => Some(BuiltinReceiverKind::RefReadOnly),
             Self::Deref | Self::Index => Some(BuiltinReceiverKind::Ref),
             _ => None,
         }
@@ -288,13 +288,13 @@ impl BuiltinTraitMethod {
             Self::Shr => BuiltinTrait::Shr,
             Self::Eq | Self::Ne => BuiltinTrait::Eq,
             Self::Lt | Self::Le | Self::Gt | Self::Ge => BuiltinTrait::Ord,
-            Self::DerefConst => BuiltinTrait::DerefConst,
+            Self::DerefRead => BuiltinTrait::DerefRead,
             Self::Deref => BuiltinTrait::Deref,
-            Self::IndexConst => BuiltinTrait::IndexConst,
+            Self::IndexRead => BuiltinTrait::IndexRead,
             Self::Index => BuiltinTrait::Index,
-            Self::SliceConst => BuiltinTrait::SliceConst,
+            Self::SliceRead => BuiltinTrait::SliceRead,
             Self::Slice => BuiltinTrait::Slice,
-            Self::GetPtrConst => BuiltinTrait::GetPtrConst,
+            Self::GetPtrRead => BuiltinTrait::GetPtrRead,
             Self::GetPtr => BuiltinTrait::GetPtr,
         }
     }
@@ -327,7 +327,7 @@ impl BuiltinTraitMethod {
     pub fn is_place_method(self) -> bool {
         matches!(
             self,
-            Self::SliceConst | Self::Slice | Self::GetPtrConst | Self::GetPtr
+            Self::SliceRead | Self::Slice | Self::GetPtrRead | Self::GetPtr
         )
     }
 }
@@ -357,31 +357,31 @@ impl BuiltinTrait {
         BuiltinTraitMethod::Ge,
     ];
     const NO_METHODS: [BuiltinTraitMethod; 0] = [];
-    const DEREF_CONST_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::DerefConst];
+    const DEREF_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::DerefRead];
     const DEREF_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Deref];
-    const INDEX_CONST_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IndexConst];
+    const INDEX_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IndexRead];
     const INDEX_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Index];
-    const SLICE_CONST_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceConst];
+    const SLICE_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::SliceRead];
     const SLICE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Slice];
-    const GET_PTR_CONST_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtrConst];
+    const GET_PTR_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtrRead];
     const GET_PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtr];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
     const NO_ASSOC_TYPES: [BuiltinAssociatedType; 0] = [];
     const DEREF_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::DerefConst,
+        trait_id: Self::DerefRead,
         preserves_trait_args: false,
     }];
     const INDEX_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::IndexConst,
+        trait_id: Self::IndexRead,
         preserves_trait_args: true,
     }];
     const SLICE_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::SliceConst,
+        trait_id: Self::SliceRead,
         preserves_trait_args: true,
     }];
     const GET_PTR_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
-        trait_id: Self::GetPtrConst,
+        trait_id: Self::GetPtrRead,
         preserves_trait_args: false,
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
@@ -403,13 +403,13 @@ impl BuiltinTrait {
         Self::Eq,
         Self::Ord,
         Self::Sized,
-        Self::DerefConst,
+        Self::DerefRead,
         Self::Deref,
-        Self::IndexConst,
+        Self::IndexRead,
         Self::Index,
-        Self::SliceConst,
+        Self::SliceRead,
         Self::Slice,
-        Self::GetPtrConst,
+        Self::GetPtrRead,
         Self::GetPtr,
     ];
 
@@ -431,13 +431,13 @@ impl BuiltinTrait {
             "Eq" => Some(Self::Eq),
             "Ord" => Some(Self::Ord),
             "Sized" => Some(Self::Sized),
-            "DerefConst" => Some(Self::DerefConst),
+            "DerefRead" => Some(Self::DerefRead),
             "Deref" => Some(Self::Deref),
-            "IndexConst" => Some(Self::IndexConst),
+            "IndexRead" => Some(Self::IndexRead),
             "Index" => Some(Self::Index),
-            "SliceConst" => Some(Self::SliceConst),
+            "SliceRead" => Some(Self::SliceRead),
             "Slice" => Some(Self::Slice),
-            "GetPtrConst" => Some(Self::GetPtrConst),
+            "GetPtrRead" => Some(Self::GetPtrRead),
             "GetPtr" => Some(Self::GetPtr),
             _ => None,
         }
@@ -461,13 +461,13 @@ impl BuiltinTrait {
             Self::Eq => "Eq",
             Self::Ord => "Ord",
             Self::Sized => "Sized",
-            Self::DerefConst => "DerefConst",
+            Self::DerefRead => "DerefRead",
             Self::Deref => "Deref",
-            Self::IndexConst => "IndexConst",
+            Self::IndexRead => "IndexRead",
             Self::Index => "Index",
-            Self::SliceConst => "SliceConst",
+            Self::SliceRead => "SliceRead",
             Self::Slice => "Slice",
-            Self::GetPtrConst => "GetPtrConst",
+            Self::GetPtrRead => "GetPtrRead",
             Self::GetPtr => "GetPtr",
         }
     }
@@ -486,17 +486,17 @@ impl BuiltinTrait {
             | Self::Shr
             | Self::Eq
             | Self::Ord
-            | Self::IndexConst
+            | Self::IndexRead
             | Self::Index
-            | Self::SliceConst
+            | Self::SliceRead
             | Self::Slice => 1,
             Self::Neg
             | Self::Not
             | Self::BitNot
             | Self::Sized
-            | Self::DerefConst
+            | Self::DerefRead
             | Self::Deref
-            | Self::GetPtrConst
+            | Self::GetPtrRead
             | Self::GetPtr => 0,
         }
     }
@@ -521,11 +521,11 @@ impl BuiltinTrait {
             | Self::BitXor
             | Self::Shl
             | Self::Shr
-            | Self::IndexConst
+            | Self::IndexRead
             | Self::Index
-            | Self::SliceConst
+            | Self::SliceRead
             | Self::Slice => &Self::OUTPUT_ASSOC_TYPES,
-            Self::DerefConst | Self::Deref | Self::GetPtrConst | Self::GetPtr => {
+            Self::DerefRead | Self::Deref | Self::GetPtrRead | Self::GetPtr => {
                 &Self::TARGET_ASSOC_TYPES
             }
             Self::Not | Self::Eq | Self::Ord | Self::Sized => &Self::NO_ASSOC_TYPES,
@@ -550,13 +550,13 @@ impl BuiltinTrait {
             Self::Eq => &Self::EQ_METHODS,
             Self::Ord => &Self::ORD_METHODS,
             Self::Sized => &Self::NO_METHODS,
-            Self::DerefConst => &Self::DEREF_CONST_METHODS,
+            Self::DerefRead => &Self::DEREF_READ_METHODS,
             Self::Deref => &Self::DEREF_METHODS,
-            Self::IndexConst => &Self::INDEX_CONST_METHODS,
+            Self::IndexRead => &Self::INDEX_READ_METHODS,
             Self::Index => &Self::INDEX_METHODS,
-            Self::SliceConst => &Self::SLICE_CONST_METHODS,
+            Self::SliceRead => &Self::SLICE_READ_METHODS,
             Self::Slice => &Self::SLICE_METHODS,
-            Self::GetPtrConst => &Self::GET_PTR_CONST_METHODS,
+            Self::GetPtrRead => &Self::GET_PTR_READ_METHODS,
             Self::GetPtr => &Self::GET_PTR_METHODS,
         }
     }

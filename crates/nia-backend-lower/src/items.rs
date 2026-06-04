@@ -87,8 +87,9 @@ impl<'a> ModuleLowerer<'a> {
                         .comptime
                         .enum_values
                         .get(&variant.def_id)
-                        .map(|value| match value {
-                            ComptimeValue::Int(value) => *value,
+                        .and_then(|value| match value {
+                            ComptimeValue::Int(value) => Some(*value),
+                            _ => None,
                         }),
                     span: variant.span,
                 })
@@ -121,7 +122,7 @@ impl<'a> ModuleLowerer<'a> {
             def_id: global_def_id,
             name: binding.name.clone(),
             ty,
-            is_const: signature.is_const,
+            is_let: signature.is_let,
             is_extern: signature.is_extern,
             init,
             span,

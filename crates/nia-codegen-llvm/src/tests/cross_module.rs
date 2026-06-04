@@ -13,12 +13,12 @@ struct Pair {
     y: i32,
 }
 
-const ratio: f64 = 1.5;
-const letter: char = 'A';
-const xs: [3]i32 = [1, 2, 3];
-const ys: [4]u8 = [b'z'; 4];
-const zeroes: [8]i32 = [0; 8];
-const pair: Pair = { x: 10, y: 20 };
+let ratio: f64 = 1.5;
+let letter: char = 'A';
+let xs: [3]i32 = [1, 2, 3];
+let ys: [4]u8 = [b'z'; 4];
+let zeroes: [8]i32 = [0; 8];
+let pair: Pair = { x: 10, y: 20 };
 
 fn main() i32 {
     pair.x + xs[1] + zeroes[0]
@@ -53,8 +53,8 @@ fn emits_static_global_address_initializers() {
         r#"
 var target: i32 = 1;
 var values: [4]i32 = [1, 2, 3, 4];
-const p: &i32 = &target;
-const q: &i32 = &values[1 + 1];
+let p: &i32 = &target;
+let q: &i32 = &values[1 + 1];
 
 fn main() i32 {
     p.* + q.*
@@ -85,7 +85,7 @@ fn emits_cross_module_function_and_global_references() {
         r#"
 import .math;
 
-const imported_ptr: &const i32 = &const math::base;
+let imported_ptr: & i32 = & math::base;
 
 fn main() i32 {
     math::add(imported_ptr.*, math::base)

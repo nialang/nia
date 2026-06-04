@@ -51,7 +51,7 @@ trait RefLike {
 struct I32Ref {}
 
 extend I32Ref : RefLike {
-    type Ref = &const i32;
+    type Ref = & i32;
 }
 
 fn read_open[T](value: [T as RefLike]::Ref) i32
@@ -65,7 +65,7 @@ fn read_concrete(value: [I32Ref as RefLike]::Ref) i32 {
 
 fn main() i32 {
     var value: i32 = 5;
-    read_concrete(&const value)
+    read_concrete(& value)
 }
 "#,
     );
@@ -75,7 +75,7 @@ fn main() i32 {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("DerefConst")),
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("DerefRead")),
         "{:?}",
         program.diagnostics
     );
@@ -170,7 +170,7 @@ fn cross_module_associated_type_projection_resolves_impl_definition() {
 pub trait Source {
     type Item;
 
-    fn get(&const self) [Self as Source]::Item;
+    fn get(& self) [Self as Source]::Item;
 }
 "#,
     );
@@ -186,19 +186,19 @@ struct Counter {
 extend Counter : traits::Source {
     type Item = i32;
 
-    fn get(&const self) i32 {
+    fn get(& self) i32 {
         self.value
     }
 }
 
-fn read[T](value: &const T) [T as traits::Source]::Item
+fn read[T](value: & T) [T as traits::Source]::Item
 where T: traits::Source {
     value.get()
 }
 
 fn main() i32 {
     var counter: Counter = { value: 8 };
-    read[Counter](&const counter)
+    read[Counter](& counter)
 }
 "#,
     );

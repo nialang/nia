@@ -336,7 +336,7 @@ mod tests {
         let second_variant = global(module_id, 5);
         let trait_def = global(module_id, 6);
         let object_ty = interner.intern(TyKind::TraitObject {
-            is_const: true,
+            is_readonly: true,
             trait_id: TraitId::Source(trait_def),
             trait_args: vec![i32_ty],
             associated_type_bindings: Vec::new(),

@@ -274,6 +274,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
+                | TyKind::ComptimeOnly
                 | TyKind::Error,
             )
             | None => AbiParam::Direct(ty),
@@ -312,6 +313,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
+                | TyKind::ComptimeOnly
                 | TyKind::Error,
             )
             | None => AbiReturn::Direct(ty),
@@ -429,6 +431,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
                 | TyKind::Projection { .. }
+                | TyKind::ComptimeOnly
                 | TyKind::Error,
             )
             | None => Err(self.error(span, "type is not concrete enough for LLVM lowering")),
@@ -1026,21 +1029,21 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             (Some(TyKind::GenericParam(left)), Some(TyKind::GenericParam(right))) => left == right,
             (
                 Some(TyKind::Pointer {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Pointer {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             )
             | (
                 Some(TyKind::Slice {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     elem: left_elem,
                 }),
                 Some(TyKind::Slice {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     elem: right_elem,
                 }),
             ) => left_const == right_const && self.same_type(*left_elem, *right_elem),
@@ -1094,13 +1097,13 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             ) => left_trait == right_trait && self.same_type_args(left_args, right_args),
             (
                 Some(TyKind::TraitObject {
-                    is_const: left_const,
+                    is_readonly: left_const,
                     trait_id: left_trait,
                     trait_args: left_args,
                     associated_type_bindings: left_bindings,
                 }),
                 Some(TyKind::TraitObject {
-                    is_const: right_const,
+                    is_readonly: right_const,
                     trait_id: right_trait,
                     trait_args: right_args,
                     associated_type_bindings: right_bindings,

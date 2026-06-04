@@ -55,14 +55,14 @@ pub enum BracketSuffixResolution {
 pub struct ArrayToSliceCoercion {
     pub array_ty: InternedTyId,
     pub slice_ty: InternedTyId,
-    pub is_const: bool,
+    pub is_readonly: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CStringPointerCoercion {
     pub array_ty: InternedTyId,
     pub pointer_ty: InternedTyId,
-    pub is_const: bool,
+    pub is_readonly: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,7 +188,7 @@ pub struct TypedBinding {
     pub name: String,
     pub ty: InternedTyId,
     pub value: Option<TypedExpr>,
-    pub is_const: bool,
+    pub is_let: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -319,7 +319,7 @@ pub enum TypedExprKind {
     InlineAsm(TypedInlineAsm),
     CStringPointer {
         array: Box<TypedExpr>,
-        is_const: bool,
+        is_readonly: bool,
     },
     ArrayLiteral {
         elems: TypedArrayElements,
@@ -388,7 +388,7 @@ pub enum TypedExprKind {
     Slice {
         lhs: Box<TypedExpr>,
         range: TypedSliceRange,
-        is_const: bool,
+        is_readonly: bool,
     },
     Block(TypedBody),
     If {
@@ -532,7 +532,7 @@ impl BuiltinOperatorOp {
                 UnaryOp::Neg => Some(BuiltinTrait::Neg),
                 UnaryOp::Not => Some(BuiltinTrait::Not),
                 UnaryOp::BitNot => Some(BuiltinTrait::BitNot),
-                UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+                UnaryOp::RefReadOnly | UnaryOp::Ref | UnaryOp::Deref => None,
             },
             Self::Binary(op) => match op {
                 BinaryOp::Add => Some(BuiltinTrait::Add),
@@ -560,7 +560,7 @@ impl BuiltinOperatorOp {
                 UnaryOp::Neg => Some(BuiltinTraitMethod::Neg),
                 UnaryOp::Not => Some(BuiltinTraitMethod::Not),
                 UnaryOp::BitNot => Some(BuiltinTraitMethod::BitNot),
-                UnaryOp::RefConst | UnaryOp::Ref | UnaryOp::Deref => None,
+                UnaryOp::RefReadOnly | UnaryOp::Ref | UnaryOp::Deref => None,
             },
             Self::Binary(op) => match op {
                 BinaryOp::Add => Some(BuiltinTraitMethod::Add),
@@ -605,13 +605,13 @@ impl BuiltinOperatorOp {
             BuiltinTraitMethod::Le => Some(Self::Binary(BinaryOp::Le)),
             BuiltinTraitMethod::Gt => Some(Self::Binary(BinaryOp::Gt)),
             BuiltinTraitMethod::Ge => Some(Self::Binary(BinaryOp::Ge)),
-            BuiltinTraitMethod::DerefConst
+            BuiltinTraitMethod::DerefRead
             | BuiltinTraitMethod::Deref
-            | BuiltinTraitMethod::IndexConst
+            | BuiltinTraitMethod::IndexRead
             | BuiltinTraitMethod::Index
-            | BuiltinTraitMethod::SliceConst
+            | BuiltinTraitMethod::SliceRead
             | BuiltinTraitMethod::Slice
-            | BuiltinTraitMethod::GetPtrConst
+            | BuiltinTraitMethod::GetPtrRead
             | BuiltinTraitMethod::GetPtr => None,
         }
     }
