@@ -31,6 +31,12 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        if let Some(ty) = expected.and_then(|expected| {
+            self.expected_comptime_expr_runtime_projection(expr, expected)
+        }) {
+            self.record_expr_type(expr.span, ty);
+            return ty;
+        }
         let array_expected = self.array_expected_from_slice_expected(expected);
         let ty = match &expr.kind {
             ExprKind::Error | ExprKind::Raw(_) => self.error(),
@@ -267,6 +273,29 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_expr_type(expr.span, ty);
         ty
+    }
+
+    fn expected_comptime_expr_runtime_projection(
+        &mut self,
+        expr: &Expr,
+        expected: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let comptime_expr = self.lower_comptime_expr(expr).ok()?;
+        match self.comptime_expr_type_for_ir_with_expected(&comptime_expr, Some(expected))? {
+            nia_comptime_check::ComptimeValueType::String
+                if self.is_runtime_char_array_type(expected) =>
+            {
+                Some(expected)
+            }
+            _ => None,
+        }
+    }
+
+    fn is_runtime_char_array_type(&self, ty: InternedTyId) -> bool {
+        let Some(TyKind::Array { elem, .. }) = self.interner.get(ty) else {
+            return false;
+        };
+        matches!(self.interner.get(*elem), Some(TyKind::Primitive(PrimitiveTy::Char)))
     }
 
     fn check_null_expr(&mut self, span: Span, expected: Option<InternedTyId>) -> InternedTyId {

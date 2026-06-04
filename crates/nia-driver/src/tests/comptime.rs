@@ -3410,6 +3410,58 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_target_strings_pass_as_char_arrays() {
+    let root = temp_dir("comptime_target_strings_pass_as_char_arrays");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn accept_linux(value: [5]char) usize {
+    if value.len() == 5usize and value[0] == 'l' and value == "linux" {
+        5usize
+    } else {
+        0usize
+    }
+}
+
+comptime let n: usize = accept_linux(@builtin().target.os);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_target_strings_validate_char_array_lengths() {
+    let root = temp_dir("comptime_target_strings_validate_char_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn accept_short(value: [4]char) usize {
+    value.len()
+}
+
+comptime let n: usize = accept_short(@builtin().target.os);
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 4")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_byte_and_c_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_byte_and_c_string_literals_are_typed_arrays");
     write(
