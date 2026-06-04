@@ -9,9 +9,15 @@ use nia_span::Span;
 pub struct ComptimeModule {
     pub enums: Vec<ComptimeEnum>,
     pub global_initializers: HashMap<GlobalDefId, ComptimeExpr>,
-    pub local_initializers: HashMap<LocalId, ComptimeExpr>,
+    pub local_initializers: HashMap<LocalId, ComptimeLocalInitializer>,
     pub functions: HashMap<GlobalDefId, ComptimeFunction>,
     pub const_exprs: HashMap<GlobalConstExprId, ComptimeExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeLocalInitializer {
+    pub explicit_type: Option<InternedTyId>,
+    pub value: ComptimeExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +46,7 @@ pub struct ComptimeParam {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
+    pub ty: Option<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,6 +89,7 @@ pub struct ComptimeBinding {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
+    pub explicit_type: Option<InternedTyId>,
     pub is_mutable: bool,
     pub value: ComptimeExpr,
 }
@@ -646,6 +654,10 @@ pub fn lower_function_with_context(
                 span: param.span,
                 name: name.clone(),
                 local_id: context.local_id.and_then(|local_id| local_id(param.span)),
+                ty: param
+                    .ty
+                    .as_ref()
+                    .and_then(|ty| context.type_id.and_then(|type_id| type_id(ty.span))),
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -692,6 +704,10 @@ fn lower_stmt_with_context(
                 span: stmt.span,
                 name: binding.name.clone(),
                 local_id: context.local_id.and_then(|local_id| local_id(stmt.span)),
+                explicit_type: binding
+                    .ty
+                    .as_ref()
+                    .and_then(|ty| context.type_id.and_then(|type_id| type_id(ty.span))),
                 is_mutable: !binding.is_let,
                 value: lower_expr_with_context(value, context)?,
             })

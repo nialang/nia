@@ -4,7 +4,8 @@ use std::collections::{HashMap, HashSet};
 use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
-    ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeModule, ComptimeNameResolution,
+    ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeLocalInitializer,
+    ComptimeModule, ComptimeNameResolution, ComptimeStmtKind, ComptimeSwitchArmBody,
     ComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
@@ -20,9 +21,17 @@ use nia_value_resolve::{ValueNameResolution, ValueResolution};
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComptimeCheck {
     pub values: HashMap<ComptimeKey, ComptimeValue>,
+    pub typed_values: HashMap<ComptimeKey, TypedComptimeValue>,
     pub enum_values: HashMap<DefId, ComptimeValue>,
+    pub typed_enum_values: HashMap<DefId, TypedComptimeValue>,
     pub array_lengths: HashMap<GlobalConstExprId, u64>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedComptimeValue {
+    pub value: ComptimeValue,
+    pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -101,8 +110,10 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
     let mut analyzer = Analyzer {
         input,
         values: HashMap::new(),
+        typed_values: HashMap::new(),
         call_locals: Vec::new(),
         enum_values: HashMap::new(),
+        typed_enum_values: HashMap::new(),
         array_lengths: HashMap::new(),
         diagnostics: Vec::new(),
         active: HashSet::new(),
@@ -111,7 +122,9 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
     analyzer.analyze_module();
     ComptimeCheck {
         values: analyzer.values,
+        typed_values: analyzer.typed_values,
         enum_values: analyzer.enum_values,
+        typed_enum_values: analyzer.typed_enum_values,
         array_lengths: analyzer.array_lengths,
         diagnostics: analyzer.diagnostics,
     }
@@ -146,10 +159,16 @@ impl ComptimeModuleLowerer<'_> {
         }
         for (local_id, local) in self.input.locals.locals.iter() {
             if local.kind == LocalKind::ComptimeBinding
-                && let Some(expr) = self.local_initializer(local_id)
-                && let Some(lowered) = self.lower_expr(&expr)
+                && let Some((expr, explicit_type)) = self.local_initializer(local_id)
+                && let Some(value) = self.lower_expr(&expr)
             {
-                self.module.local_initializers.insert(local_id, lowered);
+                self.module.local_initializers.insert(
+                    local_id,
+                    ComptimeLocalInitializer {
+                        explicit_type,
+                        value,
+                    },
+                );
             }
         }
         for (id, expr) in self.input.const_exprs {
@@ -487,7 +506,7 @@ impl ComptimeModuleLowerer<'_> {
         Some(self.global_def_id(*def_id))
     }
 
-    fn local_initializer(&self, local_id: LocalId) -> Option<Expr> {
+    fn local_initializer(&self, local_id: LocalId) -> Option<(Expr, Option<InternedTyId>)> {
         self.input
             .module
             .items
@@ -512,13 +531,21 @@ impl ComptimeModuleLowerer<'_> {
         &self,
         local_id: LocalId,
         block: &nia_ast::Block,
-    ) -> Option<Expr> {
+    ) -> Option<(Expr, Option<InternedTyId>)> {
         for stmt in &block.stmts {
             match &stmt.kind {
                 nia_ast::StmtKind::Binding(binding)
                     if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
                 {
-                    return binding.value.clone();
+                    return binding.value.clone().map(|value| {
+                        (
+                            value,
+                            binding
+                                .ty
+                                .as_ref()
+                                .and_then(|ty| self.input.type_uses.get(&ty.span).copied()),
+                        )
+                    });
                 }
                 nia_ast::StmtKind::ForIn(for_stmt) => {
                     if let Some(value) = self.local_initializer_in_block(local_id, &for_stmt.body) {
@@ -560,8 +587,10 @@ impl ComptimeModuleLowerer<'_> {
 struct Analyzer<'a> {
     input: ComptimeInput<'a>,
     values: HashMap<ComptimeKey, ComptimeValue>,
+    typed_values: HashMap<ComptimeKey, TypedComptimeValue>,
     call_locals: Vec<ComptimeCallFrame>,
     enum_values: HashMap<DefId, ComptimeValue>,
+    typed_enum_values: HashMap<DefId, TypedComptimeValue>,
     array_lengths: HashMap<GlobalConstExprId, u64>,
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ComptimeKey>,
@@ -572,8 +601,10 @@ struct Analyzer<'a> {
 struct ComptimeCallFrame {
     module_id: Option<ModuleId>,
     locals: HashMap<LocalId, ComptimeValue>,
+    typed_locals: HashMap<LocalId, TypedComptimeValue>,
     mutable_locals: HashSet<LocalId>,
     names: HashMap<String, ComptimeValue>,
+    typed_names: HashMap<String, TypedComptimeValue>,
     type_substitutions: HashMap<String, InternedTyId>,
 }
 
@@ -649,6 +680,20 @@ impl Analyzer<'_> {
             }
             self.enum_values
                 .insert(variant.def_id.def_id, ComptimeValue::Int(value));
+            let ty = self
+                .input
+                .signatures
+                .enums
+                .get(&item_enum.def_id.def_id)
+                .map(|signature| signature.backing_type)
+                .unwrap_or_else(|| self.input.interner.primitive(PrimitiveTy::Isize));
+            self.typed_enum_values.insert(
+                variant.def_id.def_id,
+                TypedComptimeValue {
+                    value: ComptimeValue::Int(value),
+                    ty,
+                },
+            );
             next_value = value.saturating_add(1);
         }
     }
@@ -692,9 +737,42 @@ impl Analyzer<'_> {
         });
         self.active.remove(&key);
         if let Some(value) = result.clone() {
+            self.insert_typed_key_value(key, value.clone());
             self.values.insert(key, value);
         }
         result
+    }
+
+    fn insert_typed_key_value(&mut self, key: ComptimeKey, value: ComptimeValue) {
+        let Some(ty) = self.explicit_type_for_key(key) else {
+            return;
+        };
+        self.typed_values
+            .insert(key, TypedComptimeValue { value, ty });
+    }
+
+    fn explicit_type_for_key(&self, key: ComptimeKey) -> Option<InternedTyId> {
+        match key {
+            ComptimeKey::Global(global_id) => {
+                let signatures = self.signatures_for_module(global_id.module_id)?;
+                signatures.comptimes.get(&global_id.def_id)?.explicit_type
+            }
+            ComptimeKey::Local(local_id) => self.find_local_binding_type(local_id),
+        }
+    }
+
+    fn find_local_binding_type(&self, local_id: LocalId) -> Option<InternedTyId> {
+        if let Some(initializer) = self.input.module.local_initializers.get(&local_id)
+            && initializer.explicit_type.is_some()
+        {
+            return initializer.explicit_type;
+        }
+        for function in self.input.module.functions.values() {
+            if let Some(ty) = find_local_binding_type_in_block(&function.body, local_id) {
+                return Some(ty);
+            }
+        }
+        None
     }
 
     fn push_engine_error(&mut self, err: ComptimeError) {
@@ -731,7 +809,11 @@ impl Analyzer<'_> {
     }
 
     fn local_initializer(&self, local_id: LocalId) -> Option<&ComptimeExpr> {
-        self.input.module.local_initializers.get(&local_id)
+        self.input
+            .module
+            .local_initializers
+            .get(&local_id)
+            .map(|initializer| &initializer.value)
     }
 
     fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
@@ -955,7 +1037,9 @@ impl Analyzer<'_> {
     ) -> Result<ComptimeValue, ComptimeError> {
         let current_lengths = ComptimeCheck {
             values: self.values.clone(),
+            typed_values: self.typed_values.clone(),
             enum_values: self.enum_values.clone(),
+            typed_enum_values: self.typed_enum_values.clone(),
             array_lengths: self.array_lengths.clone(),
             diagnostics: Vec::new(),
         };
@@ -1032,8 +1116,7 @@ impl Analyzer<'_> {
         let signatures = self.signatures_for_module(module_id)?;
         let interner = self.source_interner_for_module(module_id)?;
         let normalized = self.normalized_for_module(module_id)?;
-        let array_lengths =
-            |id: GlobalConstExprId| current_lengths.array_lengths.get(&id).copied();
+        let array_lengths = |id: GlobalConstExprId| current_lengths.array_lengths.get(&id).copied();
         let layout_query = |module_id| self.compute_program_layout(module_id, current_lengths);
         Some(nia_layout::compute_layouts_with_program_context(
             defs,
@@ -1241,6 +1324,90 @@ fn substitute_ty_generics_in_interner(
     }
 }
 
+fn find_local_binding_type_in_block(
+    block: &ComptimeBlock,
+    local_id: LocalId,
+) -> Option<InternedTyId> {
+    for stmt in &block.stmts {
+        match &stmt.kind {
+            ComptimeStmtKind::Binding(binding) if binding.local_id == Some(local_id) => {
+                return binding.explicit_type;
+            }
+            ComptimeStmtKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                if let Some(ty) = find_local_binding_type_in_block(then_branch, local_id) {
+                    return Some(ty);
+                }
+                if let Some(else_branch) = else_branch
+                    && let Some(ty) = find_local_binding_type_in_block(else_branch, local_id)
+                {
+                    return Some(ty);
+                }
+            }
+            ComptimeStmtKind::ForIn(for_in) => {
+                if let Some(ty) = find_local_binding_type_in_block(&for_in.body, local_id) {
+                    return Some(ty);
+                }
+            }
+            ComptimeStmtKind::While { body, .. } | ComptimeStmtKind::Loop { body } => {
+                if let Some(ty) = find_local_binding_type_in_block(body, local_id) {
+                    return Some(ty);
+                }
+            }
+            ComptimeStmtKind::Expr(expr) | ComptimeStmtKind::Return(Some(expr)) => {
+                if let Some(ty) = find_local_binding_type_in_expr(expr, local_id) {
+                    return Some(ty);
+                }
+            }
+            ComptimeStmtKind::Binding(_)
+            | ComptimeStmtKind::Return(None)
+            | ComptimeStmtKind::Break
+            | ComptimeStmtKind::Continue => {}
+        }
+    }
+    block
+        .tail
+        .as_deref()
+        .and_then(|tail| find_local_binding_type_in_expr(tail, local_id))
+}
+
+fn find_local_binding_type_in_expr(expr: &ComptimeExpr, local_id: LocalId) -> Option<InternedTyId> {
+    match &expr.kind {
+        nia_comptime_ir::ComptimeExprKind::If {
+            then_branch,
+            else_branch,
+            ..
+        } => find_local_binding_type_in_block(then_branch, local_id).or_else(|| {
+            else_branch
+                .as_deref()
+                .and_then(|else_branch| find_local_binding_type_in_expr(else_branch, local_id))
+        }),
+        nia_comptime_ir::ComptimeExprKind::Switch(switch) => {
+            switch.arms.iter().find_map(|arm| match &arm.body {
+                ComptimeSwitchArmBody::Expr(expr) => {
+                    find_local_binding_type_in_expr(expr, local_id)
+                }
+                ComptimeSwitchArmBody::Stmt(stmt) => match &stmt.kind {
+                    ComptimeStmtKind::Binding(binding) if binding.local_id == Some(local_id) => {
+                        binding.explicit_type
+                    }
+                    _ => None,
+                },
+                ComptimeSwitchArmBody::Block(block) => {
+                    find_local_binding_type_in_block(block, local_id)
+                }
+            })
+        }
+        nia_comptime_ir::ComptimeExprKind::Block(block) => {
+            find_local_binding_type_in_block(block, local_id)
+        }
+        _ => None,
+    }
+}
+
 impl ComptimeEnv for Analyzer<'_> {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
         if let Some(value) = self.call_local_name_value(name) {
@@ -1403,7 +1570,7 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime function parameter".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, &param.name, false, value)
+        self.bind_local_value(span, local_id, &param.name, false, value, param.ty)
     }
 
     fn bind_function_context(
@@ -1438,7 +1605,14 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime function local".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, &binding.name, binding.is_mutable, value)
+        self.bind_local_value(
+            span,
+            local_id,
+            &binding.name,
+            binding.is_mutable,
+            value,
+            binding.explicit_type,
+        )
     }
 
     fn bind_pattern_local(
@@ -1455,7 +1629,7 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime switch pattern local".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, name, false, value)
+        self.bind_local_value(span, local_id, name, false, value, None)
     }
 
     fn assign_local(
@@ -1499,6 +1673,7 @@ impl Analyzer<'_> {
         name: &str,
         is_mutable: bool,
         value: ComptimeValue,
+        ty: Option<InternedTyId>,
     ) -> Result<(), ComptimeError> {
         let Some(frame) = self.call_locals.last_mut() else {
             return Err(ComptimeError {
@@ -1510,7 +1685,12 @@ impl Analyzer<'_> {
             frame.mutable_locals.insert(local_id);
         }
         frame.locals.insert(local_id, value.clone());
-        frame.names.insert(name.to_string(), value);
+        frame.names.insert(name.to_string(), value.clone());
+        if let Some(ty) = ty {
+            let typed = TypedComptimeValue { value, ty };
+            frame.typed_locals.insert(local_id, typed.clone());
+            frame.typed_names.insert(name.to_string(), typed);
+        }
         Ok(())
     }
 
@@ -1530,7 +1710,11 @@ impl Analyzer<'_> {
                     });
                 }
                 frame.locals.insert(local_id, value.clone());
-                frame.names.insert(name.to_string(), value);
+                frame.names.insert(name.to_string(), value.clone());
+                if let Some(previous) = frame.typed_locals.get_mut(&local_id) {
+                    previous.value = value.clone();
+                    frame.typed_names.insert(name.to_string(), previous.clone());
+                }
                 return Ok(());
             }
         }
@@ -1561,5 +1745,145 @@ fn integer_range(ty: PrimitiveTy) -> Option<(i128, i128)> {
         | PrimitiveTy::F64
         | PrimitiveTy::Void
         | PrimitiveTy::Never => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ComptimeInput, ComptimeKey, ComptimeModuleInput, ComptimeProgramContext,
+        check_module_comptime, lower_module_comptime,
+    };
+    use nia_defs::{DefKind, ModuleId, collect_module_defs};
+    use nia_item_signatures::collect_item_signatures;
+    use nia_local_resolve::resolve_module_locals;
+    use nia_parser::parse_module;
+    use nia_ty::{PrimitiveTy, TyKind};
+    use nia_type_lower::lower_module_types_with_id;
+    use nia_type_resolve::resolve_module_types;
+    use nia_value_resolve::resolve_module_values;
+    use std::collections::HashMap;
+
+    #[test]
+    fn records_explicit_types_for_comptime_bindings() {
+        let (module, errors) = parse_module(
+            r#"
+comptime let width: usize = 4;
+
+fn main() i32 {
+    comptime let local_width: usize = width;
+    let xs: [local_width]i32 = [1, 2, 3, 4];
+    xs[0]
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let type_names = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let values = resolve_module_values(&module, &defs);
+        let locals = resolve_module_locals(&module, &defs, &values);
+        let target = nia_target_config::TargetConfig::host();
+        let comptime_module = lower_module_comptime(ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            type_uses: &lowered.type_uses,
+            const_exprs: &lowered.const_exprs,
+        });
+        assert!(
+            comptime_module.diagnostics.is_empty(),
+            "{:?}",
+            comptime_module.diagnostics
+        );
+        let checked = check_module_comptime(ComptimeInput {
+            module: &comptime_module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            signatures: &signatures,
+            interner: &lowered.interner,
+            type_uses: &lowered.type_uses,
+            normalized: &HashMap::new(),
+            target: &target,
+            program: ComptimeProgramContext::empty(),
+        });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let usize_ty = lowered.interner.primitive(PrimitiveTy::Usize);
+        let width_def = defs.module_scope.values.get("width").expect("width def");
+        let width = checked
+            .typed_values
+            .get(&ComptimeKey::Global(super::GlobalDefId {
+                module_id: ModuleId(0),
+                def_id: width_def,
+            }))
+            .expect("typed global comptime value");
+        assert_eq!(width.ty, usize_ty);
+        assert!(locals.locals.iter().any(|(local_id, local)| {
+            local.kind == nia_local_resolve::LocalKind::ComptimeBinding
+                && checked
+                    .typed_values
+                    .get(&ComptimeKey::Local(local_id))
+                    .is_some_and(|typed| typed.ty == usize_ty)
+        }));
+    }
+
+    #[test]
+    fn records_enum_backing_types_for_comptime_variant_values() {
+        let (module, errors) = parse_module(
+            r#"
+enum Code: u8 {
+    ok = 1,
+    fail = 2,
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let type_names = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let values = resolve_module_values(&module, &defs);
+        let locals = resolve_module_locals(&module, &defs, &values);
+        let target = nia_target_config::TargetConfig::host();
+        let comptime_module = lower_module_comptime(ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            type_uses: &lowered.type_uses,
+            const_exprs: &lowered.const_exprs,
+        });
+        let checked = check_module_comptime(ComptimeInput {
+            module: &comptime_module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            signatures: &signatures,
+            interner: &lowered.interner,
+            type_uses: &lowered.type_uses,
+            normalized: &HashMap::new(),
+            target: &target,
+            program: ComptimeProgramContext::empty(),
+        });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let u8_ty = lowered.interner.primitive(PrimitiveTy::U8);
+        let variants = defs
+            .defs
+            .iter()
+            .filter_map(|(def_id, def)| (def.kind == DefKind::EnumVariant).then_some(def_id));
+        for variant in variants {
+            let typed = checked
+                .typed_enum_values
+                .get(&variant)
+                .expect("typed enum variant value");
+            assert_eq!(typed.ty, u8_ty);
+            assert!(matches!(
+                lowered.interner.get(typed.ty),
+                Some(TyKind::Primitive(PrimitiveTy::U8))
+            ));
+        }
     }
 }
