@@ -1479,6 +1479,87 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_switch_expression() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_switch_expression");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(switch 2usize {
+    1usize => 4usize,
+    2usize => 8usize,
+    _ => 1usize,
+});
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_switch_optional_payload() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_switch_optional_payload");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let value: ?usize = ?8usize;
+comptime let n: usize = switch value {
+    ?payload => id(payload),
+    null => 1usize,
+};
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_switch_error_payloads() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_switch_error_payloads");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let value: usize!usize = !8usize;
+comptime let n: usize = switch value {
+    !payload => id(payload),
+    err! => id(err),
+};
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_typed_comptime_value() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_comptime_value");
     write(

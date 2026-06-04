@@ -638,6 +638,15 @@ constructors such as `null`. Both selected result shapes must agree on the same
 runtime Nia type before the `if` expression can feed generic comptime call
 inference.
 
+Comptime `switch` expressions follow the same source-shaped typed surface.
+Value-producing arm bodies are typed and unified to one runtime Nia type, while
+control-flow-only arms such as `return`, `break`, or `continue` do not invent a
+switch result type. Pattern payload locals are typed from the target type:
+`?payload` binds the optional payload, `!payload` binds the error-union success
+value, and `err!` binds the error payload. The evaluator still performs actual
+matching; the checker only records the arm and payload types needed for
+comptime generic inference.
+
 Comptime function calls are typed by their signatures in the same layer. Generic
 type arguments are inferred from typed argument expressions, substituted into
 the return type, and then imported into the current execution module's working

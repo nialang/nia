@@ -739,6 +739,10 @@ impl<'a> LocalResolver<'a> {
     }
 
     fn resolve_ident(&mut self, name: &str, span: Span) {
+        if let Some(local) = self.lookup(name) {
+            self.record_use(span, LocalUse::Local(local.id));
+            return;
+        }
         match self.values.names.get(&span) {
             Some(ValueNameResolution::Def(_)) | Some(ValueNameResolution::External(_)) => {
                 self.record_use(span, LocalUse::ModuleValue);
@@ -747,11 +751,7 @@ impl<'a> LocalResolver<'a> {
                 self.record_use(span, LocalUse::ImportAlias);
             }
             Some(ValueNameResolution::LocalDeferred) | None => {
-                if let Some(local) = self.lookup(name) {
-                    self.record_use(span, LocalUse::Local(local.id));
-                } else {
-                    self.record_use(span, LocalUse::Unresolved);
-                }
+                self.record_use(span, LocalUse::Unresolved);
             }
             Some(ValueNameResolution::Error) => {
                 self.record_use(span, LocalUse::Unresolved);
@@ -869,6 +869,29 @@ fn add(a: i32, b: i32) i32 {
                 .values()
                 .any(|use_kind| matches!(use_kind, LocalUse::ModuleValue))
         );
+    }
+
+    #[test]
+    fn lexical_locals_shadow_module_values() {
+        let source = r#"
+var value = 1;
+
+fn id(value: i32) i32 {
+    value
+}
+"#;
+        let (module, errors) = parse_module(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let values = resolve_module_values(&module, &defs);
+        let locals = resolve_module_locals(&module, &defs, &values);
+        assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+        let body_value_start = source.rfind("value").expect("body value use must exist");
+        let body_value_span = Span::new(body_value_start, body_value_start + 5);
+        assert!(matches!(
+            locals.uses.get(&body_value_span),
+            Some(LocalUse::Local(_))
+        ));
     }
 
     #[test]
