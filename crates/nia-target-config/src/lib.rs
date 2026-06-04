@@ -158,7 +158,13 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         arg_exprs: &[ComptimeExpr],
         args: Vec<nia_comptime_engine::ComptimeValue>,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let _ = type_args;
+        if !type_args.is_empty() {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: "target conditions cannot call generic `comptime fn` before type lowering"
+                    .to_string(),
+            });
+        }
         let _ = arg_exprs;
         let ComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
@@ -860,6 +866,41 @@ comptime if enabled() {
             result.diagnostics.iter().any(|diagnostic| diagnostic
                 .message
                 .contains("unknown target comptime function `enabled`")),
+            "{:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn target_condition_rejects_generic_comptime_function_calls() {
+        let (module, errors) = parse_module(
+            r#"
+comptime fn enabled[T]() bool { true }
+
+comptime if enabled[bool]() {
+    fn selected() i32 { 1 }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+
+        let result = prune_module_for_target(
+            module,
+            &TargetConfig {
+                arch: "x86_64".to_string(),
+                vendor: "unknown".to_string(),
+                os: "linux".to_string(),
+                env: String::new(),
+                abi: String::new(),
+                endian: "little".to_string(),
+                pointer_width: 64,
+            },
+        );
+
+        assert!(
+            result.diagnostics.iter().any(|diagnostic| diagnostic
+                .message
+                .contains("target conditions cannot call generic `comptime fn`")),
             "{:?}",
             result.diagnostics
         );
