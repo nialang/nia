@@ -82,7 +82,14 @@ pub fn eval_config_bool(
         functions: &functions,
         call_locals: Vec::new(),
     };
-    nia_comptime_engine::eval_bool_expr(expr, &mut env)
+    let expr = match nia_comptime_ir::lower_expr(expr) {
+        Ok(expr) => expr,
+        Err(err) => {
+            diagnostics.push(Diagnostic::error(err.span, err.message));
+            return None;
+        }
+    };
+    nia_comptime_engine::eval_comptime_bool_expr(&expr, &mut env)
         .map_err(|err| diagnostics.push(Diagnostic::error(err.span, err.message)))
         .ok()
 }
@@ -157,7 +164,14 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
                 message: format!("unknown target comptime function `{name}`"),
             });
         };
-        nia_comptime_engine::eval_function_call(span, function.span, &function, args, self)
+        let function =
+            nia_comptime_ir::lower_function(function.span, &function).map_err(|err| {
+                nia_comptime_engine::ComptimeError {
+                    span: err.span,
+                    message: err.message,
+                }
+            })?;
+        nia_comptime_engine::eval_comptime_function_call(span, &function, args, self)
     }
 
     fn push_function_frame(
@@ -653,7 +667,15 @@ impl Pruner<'_> {
             functions: &self.functions,
             call_locals: Vec::new(),
         };
-        nia_comptime_engine::eval_bool_expr(expr, &mut env)
+        let expr = match nia_comptime_ir::lower_expr(expr) {
+            Ok(expr) => expr,
+            Err(err) => {
+                self.diagnostics
+                    .push(Diagnostic::error(err.span, err.message));
+                return None;
+            }
+        };
+        nia_comptime_engine::eval_comptime_bool_expr(&expr, &mut env)
             .map_err(|err| {
                 self.diagnostics
                     .push(Diagnostic::error(err.span, err.message))

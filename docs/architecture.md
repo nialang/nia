@@ -568,8 +568,10 @@ environment; builtin-provided struct values such as `@builtin()`; struct field
 access; casts that preserve the underlying value; boolean logic; equality over
 matching primitive comptime values; and simple integer arithmetic and bit
 operations. It also evaluates visible `comptime fn` bodies represented as
-comptime semantic bodies. AST-compatible entry points are wrappers that lower to
-`nia-comptime-ir` before evaluation.
+comptime semantic bodies. AST lowering is performed by callers such as
+`nia-comptime-check`, `nia-body-check`, static validation, or the early target
+pruner before values reach the engine; the engine itself only accepts the
+comptime semantic representation.
 
 ### 8.3 `nia-comptime-check`
 
@@ -585,9 +587,10 @@ storage or address, while top-level `let` and `var` bindings do.
 
 Early target pruning is intentionally narrower than full comptime execution: it
 can evaluate target builtins and same-module helper functions before the module
-graph is complete. Full imported comptime function execution belongs to the
-semantic query path after imports, definitions, values, locals, and comptime
-modules are available.
+graph is complete. It lowers its accepted AST conditions to `nia-comptime-ir`
+locally, but does not participate in program-level comptime module queries. Full
+imported comptime function execution belongs to the semantic query path after
+imports, definitions, values, locals, and comptime modules are available.
 
 ### 8.4 `nia-static-check`
 
