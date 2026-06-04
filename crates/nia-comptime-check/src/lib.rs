@@ -2897,15 +2897,101 @@ impl Analyzer<'_> {
                 self.bind_comptime_local_type(local_id, &binding.name, ty);
                 Some(())
             }
-            ComptimeStmtKind::Expr(_)
-            | ComptimeStmtKind::If { .. }
-            | ComptimeStmtKind::ForIn(_)
-            | ComptimeStmtKind::While { .. }
-            | ComptimeStmtKind::Loop { .. } => Some(()),
+            ComptimeStmtKind::Expr(_) => Some(()),
+            ComptimeStmtKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.check_comptime_bool_condition(cond)?;
+                self.check_comptime_block_stmts(then_branch)?;
+                if let Some(else_branch) = else_branch {
+                    self.check_comptime_block_stmts(else_branch)?;
+                }
+                Some(())
+            }
+            ComptimeStmtKind::ForIn(for_in) => self.check_comptime_for_in_stmt(for_in),
+            ComptimeStmtKind::While { cond, body } => {
+                self.check_comptime_bool_condition(cond)?;
+                self.check_comptime_block_stmts(body)
+            }
+            ComptimeStmtKind::Loop { body } => self.check_comptime_block_stmts(body),
             ComptimeStmtKind::Return(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
                 None
             }
         }
+    }
+
+    fn check_comptime_block_stmts(&mut self, block: &ComptimeBlock) -> Option<()> {
+        self.push_typed_comptime_scope();
+        let result = (|| {
+            for stmt in &block.stmts {
+                self.bind_typed_comptime_stmt(stmt)?;
+            }
+            if let Some(tail) = block.tail.as_deref() {
+                self.comptime_expr_type(tail, None)?;
+            }
+            Some(())
+        })();
+        self.pop_typed_comptime_scope();
+        result
+    }
+
+    fn check_comptime_for_in_stmt(
+        &mut self,
+        for_in: &nia_comptime_ir::ComptimeForIn,
+    ) -> Option<()> {
+        let iter_ty = self.comptime_expr_type(&for_in.iter, None)?;
+        let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
+        self.push_typed_comptime_scope();
+        let result = (|| {
+            let local_id = for_in.binding.local_id.or_else(|| {
+                self.input
+                    .locals
+                    .local_defs
+                    .get(&for_in.binding.span)
+                    .copied()
+            })?;
+            self.bind_comptime_local_type(local_id, &for_in.binding.name, binding_ty);
+            for stmt in &for_in.body.stmts {
+                self.bind_typed_comptime_stmt(stmt)?;
+            }
+            if let Some(tail) = for_in.body.tail.as_deref() {
+                self.comptime_expr_type(tail, None)?;
+            }
+            Some(())
+        })();
+        self.pop_typed_comptime_scope();
+        result
+    }
+
+    fn comptime_for_in_binding_type(
+        &mut self,
+        iter_ty: ComptimeValueType,
+    ) -> Option<ComptimeValueType> {
+        match iter_ty {
+            ComptimeValueType::Array { elem, .. } => Some(*elem),
+            ComptimeValueType::Runtime(ty) => match self.ty_kind(ty)? {
+                TyKind::Range {
+                    bound: Some(bound), ..
+                } => {
+                    let bound = self
+                        .import_ty_into_module_or_none(bound, self.current_execution_module_id())?;
+                    Some(ComptimeValueType::Runtime(bound))
+                }
+                _ => None,
+            },
+            ComptimeValueType::Struct(_)
+            | ComptimeValueType::Int
+            | ComptimeValueType::Bool
+            | ComptimeValueType::String => None,
+        }
+    }
+
+    fn check_comptime_bool_condition(&mut self, cond: &ComptimeExpr) -> Option<()> {
+        let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
+        let cond_ty = self.comptime_arg_runtime_type(cond, Some(bool_ty))?;
+        (cond_ty == bool_ty).then_some(())
     }
 
     fn push_typed_comptime_scope(&mut self) {
