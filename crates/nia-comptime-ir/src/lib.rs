@@ -211,9 +211,11 @@ pub enum ComptimeExprKind {
         index: Box<ComptimeExpr>,
     },
     ArrayLiteral {
+        ty: Option<InternedTyId>,
         elems: ComptimeArrayElements,
     },
     StructLiteral {
+        ty: Option<InternedTyId>,
         fields: Vec<ComptimeFieldInit>,
     },
     Builtin {
@@ -365,12 +367,23 @@ pub fn lower_expr_with_context(
                 });
             }
         },
-        nia_ast::ExprKind::ArrayLiteral { elems }
-        | nia_ast::ExprKind::TypedArrayLiteral { elems, .. } => ComptimeExprKind::ArrayLiteral {
+        nia_ast::ExprKind::ArrayLiteral { elems } => ComptimeExprKind::ArrayLiteral {
+            ty: None,
             elems: lower_array_elements_with_context(elems, context)?,
         },
-        nia_ast::ExprKind::StructLiteral { fields }
-        | nia_ast::ExprKind::TypedStructLiteral { fields, .. } => ComptimeExprKind::StructLiteral {
+        nia_ast::ExprKind::TypedArrayLiteral { ty, elems } => ComptimeExprKind::ArrayLiteral {
+            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
+            elems: lower_array_elements_with_context(elems, context)?,
+        },
+        nia_ast::ExprKind::StructLiteral { fields } => ComptimeExprKind::StructLiteral {
+            ty: None,
+            fields: fields
+                .iter()
+                .map(|field| lower_field_init_with_context(field, context))
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        nia_ast::ExprKind::TypedStructLiteral { ty, fields } => ComptimeExprKind::StructLiteral {
+            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
             fields: fields
                 .iter()
                 .map(|field| lower_field_init_with_context(field, context))

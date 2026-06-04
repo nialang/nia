@@ -310,10 +310,10 @@ fn eval_comptime_expr_flow(
             ComptimeExprKind::Index { lhs, index } => {
                 return eval_array_index_flow(expr.span, lhs, index, env);
             }
-            ComptimeExprKind::ArrayLiteral { elems } => {
+            ComptimeExprKind::ArrayLiteral { elems, .. } => {
                 return eval_array_literal_flow(elems, env);
             }
-            ComptimeExprKind::StructLiteral { fields } => {
+            ComptimeExprKind::StructLiteral { fields, .. } => {
                 return eval_struct_literal_flow(fields, env);
             }
             ComptimeExprKind::Builtin {

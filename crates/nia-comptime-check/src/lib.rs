@@ -1279,6 +1279,10 @@ impl Analyzer<'_> {
                             .primitive(primitive),
                     )
                 }),
+            nia_comptime_engine::ComptimeExprKind::ArrayLiteral { ty: Some(ty), .. }
+            | nia_comptime_engine::ComptimeExprKind::StructLiteral { ty: Some(ty), .. } => {
+                Some(ComptimeValueType::Runtime(*ty))
+            }
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,
