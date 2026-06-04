@@ -2539,6 +2539,40 @@ comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
 }
 
 #[test]
+fn imported_comptime_nominal_struct_values_validate_field_ranges() {
+    let root = temp_dir("imported_comptime_nominal_struct_values_validate_field_ranges");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub struct Packet[T] {
+    tag: u8,
+    payload: T,
+}
+
+pub comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime let selected: u8 = config::packet.payload;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("out of range for u8")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_string_literals_are_typed_arrays");
     write(

@@ -973,14 +973,17 @@ impl Analyzer<'_> {
     }
 
     fn insert_typed_key_value(&mut self, key: ComptimeKey, value: ComptimeValue) {
-        let Some(ty) = self.comptime_value_type_for_key(key) else {
-            return;
-        };
-        if let Some(span) = self.initializer_span_for_key(key) {
-            self.validate_typed_value(span, &value, &ty);
-        }
-        self.typed_values
-            .insert(key, TypedComptimeValue { value, ty });
+        let module_id = self.key_module_id(key);
+        self.with_execution_module(module_id, |this| {
+            let Some(ty) = this.comptime_value_type_for_key(key) else {
+                return;
+            };
+            if let Some(span) = this.initializer_span_for_key(key) {
+                this.validate_typed_value(span, &value, &ty);
+            }
+            this.typed_values
+                .insert(key, TypedComptimeValue { value, ty });
+        });
     }
 
     fn typed_value_for_key(&self, key: ComptimeKey) -> Option<&TypedComptimeValue> {
