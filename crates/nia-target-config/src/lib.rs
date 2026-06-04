@@ -203,6 +203,16 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         self.bind_named_value(span, &binding.name, value)
     }
+
+    fn bind_switch_pattern_local(
+        &mut self,
+        span: Span,
+        name: &str,
+        _local_id: Option<nia_ids::LocalId>,
+        value: nia_comptime_engine::ComptimeValue,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        self.bind_named_value(span, name, value)
+    }
 }
 
 impl TargetComptimeEnv<'_> {
