@@ -309,6 +309,17 @@ fn non_constant(value: i32, start: i32) i32 {
         "{:?}",
         checked.diagnostics
     );
+    for expected in [0, 1, 2, 5, 7] {
+        assert!(
+            checked
+                .facts
+                .switch_pattern_values
+                .values()
+                .any(|value| *value == expected),
+            "missing switch pattern value {expected}: {:?}",
+            checked.facts.switch_pattern_values
+        );
+    }
 }
 
 #[test]
