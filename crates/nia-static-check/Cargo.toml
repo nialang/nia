@@ -7,10 +7,12 @@ license.workspace = true
 
 [dependencies]
 nia-ast.workspace = true
+nia-comptime-check.workspace = true
 nia-comptime-engine.workspace = true
 nia-comptime-ir.workspace = true
 nia-defs.workspace = true
 nia-diagnostic.workspace = true
+nia-ids.workspace = true
 nia-item-signatures.workspace = true
 nia-local-resolve.workspace = true
 nia-span.workspace = true
@@ -19,7 +21,9 @@ nia-value-resolve.workspace = true
 [dev-dependencies]
 nia-item-signatures.workspace = true
 nia-parser.workspace = true
+nia-target-config.workspace = true
 nia-type-lower.workspace = true
+nia-type-normalize.workspace = true
 nia-type-resolve.workspace = true
 
 [lib]

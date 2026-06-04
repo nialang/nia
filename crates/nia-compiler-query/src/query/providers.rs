@@ -564,12 +564,18 @@ pub(super) fn provide_static_check(
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
+    let comptime = db.query(ComptimeQuery(module_id));
+    let program_defs = db.query(ProgramDefsByIdQuery);
+    let program_comptime = db.query(ProgramComptimeQuery);
     nia_static_check::check_module_static_initializers(
         &loaded.module,
         &defs,
         &values,
         &locals,
         &signatures,
+        &comptime,
+        &program_defs,
+        &program_comptime,
     )
 }
 

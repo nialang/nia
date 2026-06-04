@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::collections::HashMap;
+
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, ItemKind, Module, UnaryOp};
+use nia_comptime_check::{ComptimeCheck, ComptimeKey};
+use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
+use nia_ids::{GlobalDefId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalResolution, LocalUse};
 use nia_span::Span;
@@ -18,12 +23,18 @@ pub fn check_module_static_initializers(
     values: &ValueResolution,
     locals: &LocalResolution,
     signatures: &ItemSignatures,
+    comptime: &ComptimeCheck,
+    program_defs: &HashMap<ModuleId, DefCollection>,
+    program_comptime: &HashMap<ModuleId, ComptimeCheck>,
 ) -> StaticCheck {
     let mut checker = StaticChecker {
         defs,
         values,
         locals,
         signatures,
+        comptime,
+        program_defs,
+        program_comptime,
         diagnostics: Vec::new(),
     };
     checker.check_module(module);
@@ -37,6 +48,9 @@ struct StaticChecker<'a> {
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
     signatures: &'a ItemSignatures,
+    comptime: &'a ComptimeCheck,
+    program_defs: &'a HashMap<ModuleId, DefCollection>,
+    program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -261,14 +275,64 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
     ) -> Result<u64, nia_comptime_engine::ComptimeError> {
-        let mut env = nia_comptime_engine::EmptyEnv;
-        let expr = nia_comptime_ir::lower_expr(expr).map_err(|err| {
+        let context = nia_comptime_ir::ComptimeLowerContext {
+            name_resolution: Some(&|span| self.comptime_name_resolution(span)),
+            local_id: None,
+            type_id: None,
+        };
+        let mut env = StaticComptimeEnv {
+            defs: self.defs,
+            comptime: self.comptime,
+            program_defs: self.program_defs,
+            program_comptime: self.program_comptime,
+        };
+        let expr = nia_comptime_ir::lower_expr_with_context(expr, &context).map_err(|err| {
             nia_comptime_engine::ComptimeError {
                 span: err.span,
                 message: err.message,
             }
         })?;
         nia_comptime_engine::eval_comptime_array_len_expr(&expr, &mut env)
+    }
+
+    fn comptime_name_resolution(
+        &self,
+        span: Span,
+    ) -> Option<nia_comptime_ir::ComptimeNameResolution> {
+        if let Some(LocalUse::Local(local_id)) = self.locals.uses.get(&span) {
+            return self
+                .comptime
+                .values
+                .contains_key(&ComptimeKey::Local(*local_id))
+                .then_some(nia_comptime_ir::ComptimeNameResolution::Local(*local_id));
+        }
+        if let Some(global_id) = self.global_comptime_use(span) {
+            return Some(nia_comptime_ir::ComptimeNameResolution::Global(global_id));
+        }
+        None
+    }
+
+    fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
+        if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
+            if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
+                return Some(global_id);
+            }
+            return None;
+        }
+        let Some(ValueNameResolution::Def(def_id)) = self.values.names.get(&span) else {
+            return None;
+        };
+        let def = self.defs.defs.get(*def_id)?;
+        (def.kind == DefKind::Comptime).then_some(GlobalDefId {
+            module_id: self.defs.module_id,
+            def_id: *def_id,
+        })
+    }
+
+    fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
+        (global_id.module_id == self.defs.module_id)
+            .then(|| self.defs.defs.get(global_id.def_id).map(|def| def.kind))
+            .flatten()
     }
 
     fn is_global(&self, def_id: DefId) -> bool {
@@ -316,6 +380,90 @@ impl StaticChecker<'_> {
     }
 }
 
+struct StaticComptimeEnv<'a> {
+    defs: &'a DefCollection,
+    comptime: &'a ComptimeCheck,
+    program_defs: &'a HashMap<ModuleId, DefCollection>,
+    program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+}
+
+impl ComptimeEnv for StaticComptimeEnv<'_> {
+    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
+        let _ = name;
+        Err(ComptimeError {
+            span,
+            message: "static constant expression requires resolved comptime values".to_string(),
+        })
+    }
+
+    fn resolve_name_resolution(
+        &mut self,
+        span: Span,
+        resolution: nia_comptime_ir::ComptimeNameResolution,
+        name: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let key = match resolution {
+            nia_comptime_ir::ComptimeNameResolution::Local(local_id) => {
+                ComptimeKey::Local(local_id)
+            }
+            nia_comptime_ir::ComptimeNameResolution::Global(global_id) => {
+                if self.global_def_kind(global_id) != Some(DefKind::Comptime) {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!(
+                            "static constant expression can only use comptime bindings: `{name}`"
+                        ),
+                    });
+                }
+                ComptimeKey::Global(global_id)
+            }
+        };
+        self.value_for_key(key)
+            .cloned()
+            .ok_or_else(|| ComptimeError {
+                span,
+                message: format!("failed to evaluate comptime value `{name}`"),
+            })
+    }
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        _builtin: nia_ids::LayoutBuiltin,
+        _type_arg_span: Span,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        Err(ComptimeError {
+            span,
+            message: "layout builtins are not available in static address constants".to_string(),
+        })
+    }
+}
+
+impl StaticComptimeEnv<'_> {
+    fn value_for_key(&self, key: ComptimeKey) -> Option<&ComptimeValue> {
+        match key {
+            ComptimeKey::Local(_) => self.comptime.values.get(&key),
+            ComptimeKey::Global(global_id) if global_id.module_id == self.defs.module_id => {
+                self.comptime.values.get(&key)
+            }
+            ComptimeKey::Global(global_id) => self
+                .program_comptime
+                .get(&global_id.module_id)
+                .and_then(|comptime| comptime.values.get(&key)),
+        }
+    }
+
+    fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
+        if global_id.module_id == self.defs.module_id {
+            return self.defs.defs.get(global_id.def_id).map(|def| def.kind);
+        }
+        self.program_defs
+            .get(&global_id.module_id)
+            .and_then(|defs| defs.defs.get(global_id.def_id))
+            .map(|def| def.kind)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,6 +472,7 @@ mod tests {
     use nia_local_resolve::resolve_module_locals;
     use nia_parser::parse_module;
     use nia_type_lower::lower_module_types_with_id;
+    use nia_type_normalize::normalize_module_types;
     use nia_type_resolve::resolve_module_types;
     use nia_value_resolve::resolve_module_values;
 
@@ -337,7 +486,50 @@ mod tests {
         let signatures = collect_item_signatures(&module, &defs, &type_lowering);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
-        check_module_static_initializers(&module, &defs, &values, &locals, &signatures)
+        let target = nia_target_config::TargetConfig::host();
+        let normalization = normalize_module_types(module_id, &type_lowering.interner, &signatures);
+        let comptime_module =
+            nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+                module: &module,
+                defs: &defs,
+                values: &values,
+                locals: &locals,
+                type_uses: &type_lowering.type_uses,
+                const_exprs: &type_lowering.const_exprs,
+            });
+        assert!(
+            comptime_module.diagnostics.is_empty(),
+            "{:?}",
+            comptime_module.diagnostics
+        );
+        let comptime =
+            nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+                module: &comptime_module.module,
+                defs: &defs,
+                values: &values,
+                locals: &locals,
+                signatures: &signatures,
+                interner: &normalization.interner,
+                type_uses: &type_lowering.type_uses,
+                normalized: &normalization.normalized,
+                target: &target,
+                program: nia_comptime_check::ComptimeProgramContext::empty(),
+            });
+        assert!(
+            comptime.diagnostics.is_empty(),
+            "{:?}",
+            comptime.diagnostics
+        );
+        check_module_static_initializers(
+            &module,
+            &defs,
+            &values,
+            &locals,
+            &signatures,
+            &comptime,
+            &HashMap::new(),
+            &HashMap::new(),
+        )
     }
 
     #[test]
@@ -420,5 +612,18 @@ var bad: &i32 = &target[idx];
             "{:?}",
             checked.diagnostics
         );
+    }
+
+    #[test]
+    fn accepts_static_global_address_index_from_comptime_value() {
+        let checked = check(
+            r#"
+comptime let idx = 1;
+var target: [2]i32 = [1, 2];
+var selected: &i32 = &target[idx];
+"#,
+        );
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 }
