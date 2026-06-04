@@ -955,14 +955,17 @@ impl Analyzer<'_> {
                 .push(Diagnostic::error(span, "cyclic comptime dependency"));
             return None;
         }
+        let module_id = self.key_module_id(key);
         let result = self.initializer_for_key(key).cloned().and_then(|expr| {
-            match nia_comptime_engine::eval_comptime_expr(&expr, self) {
-                Ok(value) => Some(value),
-                Err(err) => {
-                    self.push_engine_error(err);
-                    None
+            self.with_execution_module(module_id, |this| {
+                match nia_comptime_engine::eval_comptime_expr(&expr, this) {
+                    Ok(value) => Some(value),
+                    Err(err) => {
+                        this.push_engine_error(err);
+                        None
+                    }
                 }
-            }
+            })
         });
         self.active.remove(&key);
         if let Some(value) = result.clone() {
