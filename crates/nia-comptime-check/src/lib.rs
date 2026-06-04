@@ -2045,9 +2045,10 @@ impl Analyzer<'_> {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_range_iter_type(lhs_ty)
             }
-            nia_comptime_engine::ComptimeExprKind::Cast { ty: Some(ty), .. } => self
-                .import_ty_into_module_or_none(*ty, self.current_execution_module_id())
-                .map(ComptimeValueType::Runtime),
+            nia_comptime_engine::ComptimeExprKind::Cast {
+                expr: inner,
+                ty: Some(ty),
+            } => self.comptime_cast_type(inner, *ty),
             nia_comptime_engine::ComptimeExprKind::Index { lhs, index } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_index_type(expr.span, lhs_ty, index)
@@ -3188,6 +3189,38 @@ impl Analyzer<'_> {
                 (lhs_ty == rhs_ty && allowed).then_some(ComptimeValueType::Runtime(lhs_ty))
             }
         }
+    }
+
+    fn comptime_cast_type(
+        &mut self,
+        expr: &ComptimeExpr,
+        target: InternedTyId,
+    ) -> Option<ComptimeValueType> {
+        let source = self.comptime_arg_runtime_type(expr, None)?;
+        let target =
+            self.import_ty_into_module_or_none(target, self.current_execution_module_id())?;
+        self.comptime_runtime_cast_is_supported(source, target)
+            .then_some(ComptimeValueType::Runtime(target))
+    }
+
+    fn comptime_runtime_cast_is_supported(
+        &mut self,
+        source: InternedTyId,
+        target: InternedTyId,
+    ) -> bool {
+        let Some(TyKind::Primitive(source)) = self.ty_kind(source) else {
+            return false;
+        };
+        let Some(TyKind::Primitive(target)) = self.ty_kind(target) else {
+            return false;
+        };
+        let source_numeric = primitive_integer_layout(source, self.input.target.pointer_width)
+            .is_some()
+            || is_float_primitive(source);
+        let target_numeric = primitive_integer_layout(target, self.input.target.pointer_width)
+            .is_some()
+            || is_float_primitive(target);
+        source_numeric && target_numeric
     }
 
     fn comptime_bool_binary_expr_type(
