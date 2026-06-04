@@ -969,11 +969,11 @@ impl Analyzer<'_> {
             })
         });
         self.active.remove(&key);
-        if let Some(value) = result.clone() {
+        result.map(|value| {
             let value = self.insert_typed_key_value(key, value);
-            self.values.insert(key, value);
-        }
-        result
+            self.values.insert(key, value.clone());
+            value
+        })
     }
 
     fn insert_typed_key_value(&mut self, key: ComptimeKey, value: ComptimeValue) -> ComptimeValue {
