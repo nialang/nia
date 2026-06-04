@@ -2411,6 +2411,49 @@ var signed_global: i32 = signed_value;
 }
 
 #[test]
+fn comptime_float_values_drive_casts_and_conditions() {
+    let root = temp_dir("comptime_float_values_drive_casts_and_conditions");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn scale(value: f64) f64 {
+    value * 2.0f64 + 0.5f64
+}
+
+comptime fn wide(value: usize) f64 {
+    value as f64
+}
+
+comptime let scaled: f64 = scale(3.25f64);
+comptime let from_int: f64 = wide(4usize);
+comptime let n: usize = if scaled > from_int {
+    scaled as usize
+} else {
+    0usize
+};
+
+var value: i32 = n as i32;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let value = main_module
+        .globals
+        .iter()
+        .find(|global| global.name == "value")
+        .expect("value global");
+    assert_eq!(value.init, Some(StaticInit::Int(7)));
+}
+
+#[test]
 fn comptime_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_string_literals_are_typed_arrays");
     write(
