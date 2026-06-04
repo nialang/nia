@@ -2115,6 +2115,31 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_bound_builtin_struct() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_bound_builtin_struct");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let builtin = @builtin();
+comptime let bits: usize = id(builtin.target.pointer_width);
+comptime let n: usize = bits / 8usize;
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_optional_constructor() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_optional_constructor");
     write(

@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
 use nia_ast::{Expr, ExprKind};
-use nia_comptime_check::{ComptimeKey, ComptimeValueType};
+use nia_comptime_check::{ComptimeKey, ComptimeValueFieldType, ComptimeValueType};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -324,9 +324,6 @@ impl<'a> BodyChecker<'a> {
         if let Some(ty) = self.comptime_field_expr_runtime_type(lhs, name) {
             return ty;
         }
-        if let Some(ty) = self.builtin_field_access_type(lhs, name) {
-            return ty;
-        }
         if self.values.qualified_values.contains_key(&span) {
             return self
                 .qualified_global_type(span)
@@ -357,6 +354,13 @@ impl<'a> BodyChecker<'a> {
     fn comptime_expr_value_type(&mut self, expr: &Expr) -> Option<ComptimeValueType> {
         match &expr.kind {
             ExprKind::Ident(_) => self.comptime_ident_value_type(expr.span),
+            ExprKind::Call { callee, args } if args.is_empty() && self.is_builtin_expr(callee) => {
+                Some(self.builtin_comptime_value_type())
+            }
+            ExprKind::Builtin {
+                name,
+                type_arg: None,
+            } if name == "builtin" => Some(self.builtin_comptime_value_type()),
             ExprKind::Qualified { .. } => {
                 let global_id = self.values.qualified_values.get(&expr.span).copied()?;
                 self.comptime_global_value_type(global_id)
@@ -433,7 +437,7 @@ impl<'a> BodyChecker<'a> {
             ComptimeValueType::Struct(fields) => fields
                 .into_iter()
                 .map(|field| {
-                    Some(nia_comptime_check::ComptimeValueFieldType {
+                    Some(ComptimeValueFieldType {
                         name: field.name,
                         ty: self.import_comptime_value_type(source, field.ty)?,
                     })
@@ -446,47 +450,50 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn builtin_field_access_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
-        match &lhs.kind {
-            nia_ast::ExprKind::Call { callee, args }
-                if args.is_empty()
-                    && matches!(
-                        &callee.kind,
-                        nia_ast::ExprKind::Builtin {
-                            name,
-                            type_arg: None
-                        } if name == "builtin"
-                    ) =>
-            {
-                (name == "target").then(|| self.interner.intern(TyKind::ComptimeOnly))
-            }
-            nia_ast::ExprKind::Field {
-                lhs: builtin,
-                name: target,
-            } if target == "target" && self.is_builtin_call_expr(builtin) => match name {
-                "pointer_width" => Some(self.primitive(PrimitiveTy::Usize)),
-                "arch" | "vendor" | "os" | "env" | "abi" | "endian" => {
-                    Some(self.interner.intern(TyKind::ComptimeOnly))
-                }
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-
-    fn is_builtin_call_expr(&self, expr: &Expr) -> bool {
+    fn is_builtin_expr(&self, expr: &Expr) -> bool {
         matches!(
             &expr.kind,
-            nia_ast::ExprKind::Call { callee, args }
-                if args.is_empty()
-                    && matches!(
-                        &callee.kind,
-                        nia_ast::ExprKind::Builtin {
-                            name,
-                            type_arg: None
-                        } if name == "builtin"
-                    )
+            ExprKind::Builtin {
+                name,
+                type_arg: None
+            } if name == "builtin"
         )
+    }
+
+    fn builtin_comptime_value_type(&self) -> ComptimeValueType {
+        ComptimeValueType::Struct(vec![ComptimeValueFieldType {
+            name: "target".to_string(),
+            ty: ComptimeValueType::Struct(vec![
+                ComptimeValueFieldType {
+                    name: "arch".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "vendor".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "os".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "env".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "abi".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "endian".to_string(),
+                    ty: ComptimeValueType::String,
+                },
+                ComptimeValueFieldType {
+                    name: "pointer_width".to_string(),
+                    ty: ComptimeValueType::Runtime(self.primitive(PrimitiveTy::Usize)),
+                },
+            ]),
+        }])
     }
 
     pub(crate) fn field_access_type_from_lhs_ty(
