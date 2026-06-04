@@ -1071,7 +1071,38 @@ impl Analyzer<'_> {
                     Err(value) => self.validate_runtime_typed_value(span, value, error),
                 }
             }
+            Some(TyKind::Nominal { .. }) => {
+                self.validate_nominal_struct_value(span, value, ty);
+            }
             _ => {}
+        }
+    }
+
+    fn validate_nominal_struct_value(
+        &mut self,
+        span: Span,
+        value: &ComptimeValue,
+        ty: InternedTyId,
+    ) {
+        let ComptimeValue::Struct(values) = value else {
+            return;
+        };
+        let Some((def_id, args)) = self.expected_nominal_parts(ty) else {
+            return;
+        };
+        if self.def_kind_of(def_id) != Some(DefKind::Struct) {
+            return;
+        }
+        let Some(signature) = self.struct_signature_for(def_id) else {
+            return;
+        };
+        let Some(field_tys) = self.comptime_struct_field_types(&signature, &args) else {
+            return;
+        };
+        for (name, field_ty) in field_tys {
+            if let Some(value) = values.get(&name) {
+                self.validate_runtime_typed_value(span, value, field_ty);
+            }
         }
     }
 
