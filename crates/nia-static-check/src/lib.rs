@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, ItemKind, Module, UnaryOp};
 use nia_comptime_check::{ComptimeCheck, ComptimeKey};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
+use nia_comptime_ir::ComptimeTypeArg;
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
@@ -454,7 +455,7 @@ impl ComptimeEnv for StaticComptimeEnv<'_> {
         &mut self,
         span: Span,
         _builtin: nia_ids::LayoutBuiltin,
-        _type_arg_span: Span,
+        _type_arg: &ComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,

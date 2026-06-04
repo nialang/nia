@@ -808,9 +808,9 @@ impl ComptimeEnv for BodyChecker<'_> {
         &mut self,
         span: Span,
         builtin: LayoutBuiltin,
-        type_arg_span: Span,
+        type_arg: &ComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let ty_id = self.comptime_type_arg_for_span(type_arg_span);
+        let ty_id = self.comptime_type_arg(type_arg);
         let Some(layout) = self.layout_of(ty_id) else {
             return Err(ComptimeError {
                 span,
@@ -1108,7 +1108,7 @@ impl<'a> BodyChecker<'a> {
             },
             span,
             function_id,
-            self.interner.interner_id(),
+            function_id.module_id,
             signature,
             type_args,
             arg_exprs,
@@ -1171,6 +1171,13 @@ impl<'a> BodyChecker<'a> {
 
     fn comptime_type_arg_for_span(&mut self, span: Span) -> InternedTyId {
         let ty = self.ty_for_span(span);
+        self.substitute_current_comptime_generics(ty)
+    }
+
+    fn comptime_type_arg(&mut self, arg: &ComptimeTypeArg) -> InternedTyId {
+        let ty = arg
+            .ty
+            .unwrap_or_else(|| self.comptime_type_arg_for_span(arg.ty_span));
         self.substitute_current_comptime_generics(ty)
     }
 

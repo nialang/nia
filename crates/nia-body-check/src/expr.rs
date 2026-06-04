@@ -31,9 +31,9 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
-        if let Some(ty) = expected.and_then(|expected| {
-            self.expected_comptime_expr_runtime_projection(expr, expected)
-        }) {
+        if let Some(ty) = expected
+            .and_then(|expected| self.expected_comptime_expr_runtime_projection(expr, expected))
+        {
             self.record_expr_type(expr.span, ty);
             return ty;
         }
@@ -295,7 +295,10 @@ impl<'a> BodyChecker<'a> {
         let Some(TyKind::Array { elem, .. }) = self.interner.get(ty) else {
             return false;
         };
-        matches!(self.interner.get(*elem), Some(TyKind::Primitive(PrimitiveTy::Char)))
+        matches!(
+            self.interner.get(*elem),
+            Some(TyKind::Primitive(PrimitiveTy::Char))
+        )
     }
 
     fn check_null_expr(&mut self, span: Span, expected: Option<InternedTyId>) -> InternedTyId {

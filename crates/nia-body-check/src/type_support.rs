@@ -780,7 +780,26 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
         let ty = self.normalization.normalize(ty);
-        self.layouts.types.get(&ty).cloned()
+        self.layouts
+            .types
+            .get(&ty)
+            .cloned()
+            .or_else(|| self.nominal_layout_of(ty))
+    }
+
+    fn nominal_layout_of(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
+        let kind = self
+            .interner
+            .get(ty)
+            .or_else(|| self.normalization.interner.get(ty))?;
+        let TyKind::Nominal { def_id, args } = kind else {
+            return None;
+        };
+        if def_id.module_id == self.defs.module_id {
+            return self.layouts.nominal_type_layout(*def_id, args);
+        }
+        let layouts = self.program.layouts?.get(&def_id.module_id)?;
+        layouts.nominal_type_layout(*def_id, args)
     }
 
     pub(crate) fn array_len_value(&self, span: Span, len: &ArrayLenTy) -> Result<u64, String> {

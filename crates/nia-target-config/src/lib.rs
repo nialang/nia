@@ -142,7 +142,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         &mut self,
         span: Span,
         _builtin: nia_ids::LayoutBuiltin,
-        _type_arg_span: Span,
+        _type_arg: &ComptimeTypeArg,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
         Err(nia_comptime_engine::ComptimeError {
             span,
