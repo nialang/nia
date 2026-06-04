@@ -425,6 +425,143 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_array_values_drive_index_access() {
+    let root = temp_dir("comptime_array_values_drive_index_access");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let widths: [3]usize = [2, 4, 8];
+comptime let width: usize = widths[1];
+
+fn main() i32 {
+    var values: [width]i32 = [0; width];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_struct_array_fields_are_ordinary_values() {
+    let root = temp_dir("comptime_struct_array_fields_are_ordinary_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Config {
+    widths: [3]usize,
+}
+
+comptime let config: Config = Config{widths: [2, 4, 8]};
+comptime let width: usize = config.widths[2];
+
+fn main() i32 {
+    var values: [width]i32 = [0; width];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_functions_accept_array_values() {
+    let root = temp_dir("comptime_functions_accept_array_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn pick(widths: [3]usize, index: usize) usize {
+    widths[index]
+}
+
+comptime let widths: [3]usize = [2, 4, 8];
+comptime let width: usize = pick(widths, 2);
+
+fn main() i32 {
+    var values: [width]i32 = [0; width];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_try_propagates_optional_values() {
+    let root = temp_dir("comptime_function_try_propagates_optional_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn add_one(value: ?usize) ?usize {
+    let unwrapped: usize = value.?;
+    if unwrapped == 7 {
+        ?(unwrapped + 1)
+    } else {
+        ?1
+    }
+}
+
+comptime let some: ?usize = add_one(?7usize);
+comptime let none: ?usize = add_one(null);
+comptime let width: usize = switch some {
+    ?payload => payload,
+    null => 1,
+};
+comptime let fallback: usize = switch none {
+    ?payload => payload,
+    null => 2,
+};
+
+fn main() i32 {
+    var values: [width + fallback]i32 = [0; width + fallback];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_try_propagates_error_values() {
+    let root = temp_dir("comptime_function_try_propagates_error_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn add_one(value: usize!usize) usize!usize {
+    !(value.? + 1)
+}
+
+comptime let ok: usize!usize = add_one(!7usize);
+comptime let err: usize!usize = add_one(3usize!);
+comptime let width: usize = switch ok {
+    !payload => payload,
+    err! => 0,
+};
+comptime let fallback: usize = switch err {
+    !payload => payload,
+    err_payload! => 2,
+};
+
+fn main() i32 {
+    var values: [width + fallback]i32 = [0; width + fallback];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_if_prunes_unselected_function_body_branch() {
     let root = temp_dir("comptime_if_prunes_unselected_function_body_branch");
     write(
