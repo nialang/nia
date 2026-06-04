@@ -1954,6 +1954,39 @@ fn main() i32 {
 }
 
 #[test]
+fn imported_comptime_function_body_infers_generic_from_structural_local() {
+    let root = temp_dir("imported_comptime_function_body_infers_generic_from_structural_local");
+    write(
+        &root.join("helpers.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+pub comptime fn word_bytes() usize {
+    comptime let configs = [{bits: 32usize}, {bits: 64usize}];
+    id(configs[1].bits) / 8usize
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .helpers;
+
+fn main() i32 {
+    comptime let n: usize = helpers::word_bytes();
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_inferred_comptime_value_has_runtime_type() {
     let root = temp_dir("imported_inferred_comptime_value_has_runtime_type");
     write(

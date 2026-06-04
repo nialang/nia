@@ -404,6 +404,7 @@ struct BodyChecker<'a> {
 
 #[derive(Debug, Clone, Default)]
 struct ComptimeCallFrame {
+    module_id: Option<ModuleId>,
     locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
     local_types: HashMap<LocalId, nia_comptime_check::ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,

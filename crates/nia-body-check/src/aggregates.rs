@@ -862,7 +862,7 @@ impl ComptimeEnv for BodyChecker<'_> {
     fn bind_function_context(
         &mut self,
         span: Span,
-        _module_id: nia_ids::ModuleId,
+        module_id: nia_ids::ModuleId,
         substitutions: Vec<(String, InternedTyId)>,
     ) -> Result<(), ComptimeError> {
         let Some(frame) = self.comptime_call_locals.last_mut() else {
@@ -871,6 +871,7 @@ impl ComptimeEnv for BodyChecker<'_> {
                 message: "failed to bind comptime function type substitutions".to_string(),
             });
         };
+        frame.module_id = Some(module_id);
         frame.type_substitutions.extend(substitutions);
         Ok(())
     }
@@ -1112,7 +1113,7 @@ impl<'a> BodyChecker<'a> {
         self.comptime_call_locals
             .iter()
             .map(|frame| nia_comptime_check::TypedComptimeFrame {
-                module_id: None,
+                module_id: frame.module_id,
                 local_types: frame.local_types.clone(),
                 name_types: frame.name_types.clone(),
                 type_substitutions: frame.type_substitutions.clone(),
