@@ -2995,9 +2995,10 @@ impl Analyzer<'_> {
         rhs: &ComptimeExpr,
     ) -> Option<ComptimeValueType> {
         match op {
-            BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::Ne => Some(
-                ComptimeValueType::Runtime(self.current_runtime_primitive_type(PrimitiveTy::Bool)),
-            ),
+            BinaryOp::And | BinaryOp::Or => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Bool),
+            )),
+            BinaryOp::Eq | BinaryOp::Ne => self.comptime_equality_expr_type(lhs, rhs),
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
                 let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
                 let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
@@ -3030,6 +3031,43 @@ impl Analyzer<'_> {
                 (lhs_ty == rhs_ty && allowed).then_some(ComptimeValueType::Runtime(lhs_ty))
             }
         }
+    }
+
+    fn comptime_equality_expr_type(
+        &mut self,
+        lhs: &ComptimeExpr,
+        rhs: &ComptimeExpr,
+    ) -> Option<ComptimeValueType> {
+        let lhs_ty = self.comptime_expr_type(lhs, None)?;
+        let rhs_ty = self
+            .comptime_expr_type(rhs, lhs_ty.runtime())
+            .or_else(|| self.comptime_expr_type(rhs, None))?;
+        (lhs_ty == rhs_ty || self.comptime_equality_types_are_compatible(&lhs_ty, &rhs_ty))
+            .then_some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Bool),
+            ))
+    }
+
+    fn comptime_equality_types_are_compatible(
+        &mut self,
+        lhs: &ComptimeValueType,
+        rhs: &ComptimeValueType,
+    ) -> bool {
+        (matches!(lhs, ComptimeValueType::String) && self.is_runtime_char_array_type(rhs))
+            || (matches!(rhs, ComptimeValueType::String) && self.is_runtime_char_array_type(lhs))
+    }
+
+    fn is_runtime_char_array_type(&self, ty: &ComptimeValueType) -> bool {
+        let ComptimeValueType::Runtime(ty) = ty else {
+            return false;
+        };
+        let Some(TyKind::Array { elem, .. }) = self.ty_kind(*ty) else {
+            return false;
+        };
+        matches!(
+            self.ty_kind(elem),
+            Some(TyKind::Primitive(PrimitiveTy::Char))
+        )
     }
 
     fn current_runtime_primitive_type(&self, primitive: PrimitiveTy) -> InternedTyId {
