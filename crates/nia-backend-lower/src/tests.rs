@@ -52,8 +52,21 @@ fn main() i32 {
     let locals = resolve_module_locals(&module, &defs, &values);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
+    let comptime_module =
+        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            const_exprs: &type_lowering.const_exprs,
+        });
+    assert!(
+        comptime_module.diagnostics.is_empty(),
+        "{:?}",
+        comptime_module.diagnostics
+    );
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &module,
+        module: &comptime_module.module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -61,7 +74,6 @@ fn main() i32 {
         interner: &normalization.interner,
         type_uses: &type_lowering.type_uses,
         normalized: &normalization.normalized,
-        const_exprs: &type_lowering.const_exprs,
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
@@ -122,6 +134,7 @@ fn main() i32 {
         signatures: &signatures,
         normalization: &normalization,
         comptime: &comptime,
+        comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
         extension_interner: None,
@@ -138,6 +151,7 @@ fn main() i32 {
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),
+            modules: &HashMap::new(),
         },
     });
     assert!(
@@ -4260,8 +4274,21 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let locals = resolve_module_locals(&module, &defs, &values);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
+    let comptime_module =
+        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            const_exprs: &type_lowering.const_exprs,
+        });
+    assert!(
+        comptime_module.diagnostics.is_empty(),
+        "{:?}",
+        comptime_module.diagnostics
+    );
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &module,
+        module: &comptime_module.module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -4269,7 +4296,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
         interner: &normalization.interner,
         type_uses: &type_lowering.type_uses,
         normalized: &normalization.normalized,
-        const_exprs: &type_lowering.const_exprs,
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
@@ -4295,6 +4321,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         signatures: &signatures,
         normalization: &normalization,
         comptime: &comptime,
+        comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
         extension_interner: None,
@@ -4311,6 +4338,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         },
         program_comptime: nia_body_check::ProgramComptimeMaps {
             comptimes: &HashMap::new(),
+            modules: &HashMap::new(),
         },
     });
     assert!(

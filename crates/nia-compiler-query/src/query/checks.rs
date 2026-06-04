@@ -1,6 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
 use std::collections::HashMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ComptimeModuleQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for ComptimeModuleQuery {
+    type Value = ComptimeModuleLowering;
+
+    fn name() -> &'static str {
+        "comptime_module"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.comptime_module)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramComptimeModulesQuery;
+
+impl QueryKey<DriverContext> for ProgramComptimeModulesQuery {
+    type Value = HashMap<ModuleId, ComptimeModule>;
+
+    fn name() -> &'static str {
+        "program_comptime_modules"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.program_comptime_modules)(db)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ComptimeQuery(pub(super) ModuleId);
 

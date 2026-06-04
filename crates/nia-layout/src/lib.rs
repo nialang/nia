@@ -807,7 +807,8 @@ fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
 mod tests {
     use super::*;
     use nia_comptime_check::{
-        ComptimeCheck, ComptimeInput, ComptimeProgramContext, check_module_comptime,
+        ComptimeCheck, ComptimeInput, ComptimeModuleInput, ComptimeProgramContext,
+        check_module_comptime, lower_module_comptime,
     };
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
@@ -827,8 +828,20 @@ mod tests {
         let values = resolve_module_values(module, defs);
         let locals = resolve_module_locals(module, defs, &values);
         let target = nia_target_config::TargetConfig::host();
-        check_module_comptime(ComptimeInput {
+        let comptime_module = lower_module_comptime(ComptimeModuleInput {
             module,
+            defs,
+            values: &values,
+            locals: &locals,
+            const_exprs: &lowered.const_exprs,
+        });
+        assert!(
+            comptime_module.diagnostics.is_empty(),
+            "{:?}",
+            comptime_module.diagnostics
+        );
+        check_module_comptime(ComptimeInput {
+            module: &comptime_module.module,
             defs,
             values: &values,
             locals: &locals,
@@ -836,7 +849,6 @@ mod tests {
             interner: &lowered.interner,
             type_uses: &lowered.type_uses,
             normalized: &HashMap::new(),
-            const_exprs: &lowered.const_exprs,
             target: &target,
             program: ComptimeProgramContext::empty(),
         })

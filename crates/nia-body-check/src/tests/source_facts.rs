@@ -19,8 +19,21 @@ fn main() i32 {
     let locals = resolve_module_locals(&module, &defs, &values);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let target = nia_target_config::TargetConfig::host();
+    let comptime_module =
+        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            const_exprs: &lowered.const_exprs,
+        });
+    assert!(
+        comptime_module.diagnostics.is_empty(),
+        "{:?}",
+        comptime_module.diagnostics
+    );
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &module,
+        module: &comptime_module.module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -28,7 +41,6 @@ fn main() i32 {
         interner: &lowered.interner,
         type_uses: &lowered.type_uses,
         normalized: &std::collections::HashMap::new(),
-        const_exprs: &lowered.const_exprs,
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
@@ -59,6 +71,7 @@ fn main() i32 {
         signatures: &signatures,
         normalization: &normalization,
         comptime: &comptime,
+        comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &VisibleExtensionMethods::default(),
         extension_interner: None,
@@ -75,6 +88,7 @@ fn main() i32 {
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
+            modules: &HashMap::new(),
         },
     });
 
@@ -132,8 +146,21 @@ fn main() i32 {
     );
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let target = nia_target_config::TargetConfig::host();
+    let comptime_module =
+        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            const_exprs: &lowered.const_exprs,
+        });
+    assert!(
+        comptime_module.diagnostics.is_empty(),
+        "{:?}",
+        comptime_module.diagnostics
+    );
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &module,
+        module: &comptime_module.module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -141,7 +168,6 @@ fn main() i32 {
         interner: &lowered.interner,
         type_uses: &lowered.type_uses,
         normalized: &std::collections::HashMap::new(),
-        const_exprs: &lowered.const_exprs,
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
@@ -167,6 +193,7 @@ fn main() i32 {
         signatures: &signatures,
         normalization: &normalization,
         comptime: &comptime,
+        comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &VisibleExtensionMethods::default(),
         extension_interner: None,
@@ -183,6 +210,7 @@ fn main() i32 {
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
+            modules: &HashMap::new(),
         },
     });
 

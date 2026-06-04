@@ -145,7 +145,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         callee: &nia_comptime_engine::ComptimeExpr,
         args: Vec<nia_comptime_engine::ComptimeValue>,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let nia_comptime_engine::ComptimeExprKind::Ident(name) = &callee.kind else {
+        let nia_comptime_engine::ComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
                 message: "target condition can only call same-module `comptime fn`".to_string(),

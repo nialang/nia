@@ -24,6 +24,7 @@ use nia_body_ir::{
     ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_comptime_check::ComptimeCheck;
+use nia_comptime_ir::ComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
@@ -60,6 +61,7 @@ struct SwitchInterval {
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramComptimeMaps<'a> {
     pub comptimes: &'a HashMap<ModuleId, ComptimeCheck>,
+    pub modules: &'a HashMap<ModuleId, ComptimeModule>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -89,6 +91,7 @@ pub struct BodyCheckInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
     pub comptime: &'a ComptimeCheck,
+    pub comptime_module: &'a ComptimeModule,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
@@ -109,6 +112,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
     pub comptime: &'a ComptimeCheck,
+    pub comptime_module: &'a ComptimeModule,
     pub extensions: &'a VisibleExtensionMethods,
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
@@ -143,6 +147,8 @@ pub fn check_module_bodies(
     let empty_globals = HashMap::new();
     let empty_comptimes = HashMap::new();
     let empty_program_comptime = HashMap::new();
+    let empty_program_comptime_modules = HashMap::new();
+    let empty_comptime_module = ComptimeModule::default();
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
@@ -161,6 +167,7 @@ pub fn check_module_bodies(
         signatures,
         normalization: &empty_normalization,
         comptime: &empty_comptime,
+        comptime_module: &empty_comptime_module,
         layouts: &layouts,
         extensions: &empty_extensions,
         extension_interner: None,
@@ -177,6 +184,7 @@ pub fn check_module_bodies(
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &empty_program_comptime,
+            modules: &empty_program_comptime_modules,
         },
     });
     checked.diagnostics.extend(layouts.diagnostics);
@@ -209,6 +217,7 @@ pub fn check_module_bodies_with_program_signatures(
         signatures: input.signatures,
         normalization: input.normalization,
         comptime: input.comptime,
+        comptime_module: input.comptime_module,
         layouts: &layouts,
         extensions: input.extensions,
         extension_interner: None,
@@ -216,6 +225,7 @@ pub fn check_module_bodies_with_program_signatures(
         program_signatures: input.program_signatures,
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
+            modules: &HashMap::new(),
         },
     });
     checked.diagnostics.extend(layouts.diagnostics);
@@ -241,6 +251,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         signatures: input.signatures,
         normalization: input.normalization,
         comptime: input.comptime,
+        comptime_module: input.comptime_module,
         layouts: input.layouts,
         extensions: input.extensions,
         program_functions: input.program_signatures.functions,
@@ -252,6 +263,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_traits: input.program_signatures.traits,
         program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
+        program_comptime_modules: input.program_comptime.modules,
         expr_types: HashMap::new(),
         bracket_suffix_resolutions: HashMap::new(),
         array_to_slice_coercions: HashMap::new(),
@@ -332,6 +344,7 @@ struct BodyChecker<'a> {
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
     comptime: &'a ComptimeCheck,
+    comptime_module: &'a ComptimeModule,
     layouts: &'a Layouts,
     extensions: &'a VisibleExtensionMethods,
     program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -343,6 +356,7 @@ struct BodyChecker<'a> {
     program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+    program_comptime_modules: &'a HashMap<ModuleId, ComptimeModule>,
     expr_types: HashMap<Span, InternedTyId>,
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
@@ -373,7 +387,13 @@ struct BodyChecker<'a> {
     current_def_id: Option<GlobalDefId>,
     current_param_locals: Vec<LocalId>,
     comptime_context_depth: usize,
-    comptime_call_locals: Vec<HashMap<LocalId, nia_comptime_check::ComptimeValue>>,
+    comptime_call_locals: Vec<ComptimeCallFrame>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ComptimeCallFrame {
+    locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
+    names: HashMap<String, nia_comptime_check::ComptimeValue>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

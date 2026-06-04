@@ -544,13 +544,16 @@ function calls or enum variant paths.
 Defines the source-preserving semantic body used for compile-time execution.
 This is Nia's comptime execution surface, not a generic HIR. It stores only the
 expression, statement, block, function, parameter, binding, and field forms that
-are valid inputs to compile-time evaluation, while preserving source spans for
-name, local, type-argument, and diagnostic queries.
+are valid inputs to compile-time evaluation, while preserving the semantic ids
+and source spans needed for name, local, type-argument, and diagnostic queries.
 
-AST is lowered into this structure before execution. That keeps parser syntax
-out of the evaluator and gives the query system a concrete future cache boundary
-for ordinary comptime values such as `@builtin()` structs, user comptime
-structs, `comptime fn` bodies, array length expressions, and branch conditions.
+AST is lowered into `ComptimeModule` before execution. A `ComptimeModule`
+contains the module's comptime enums, global and local comptime initializers,
+`comptime fn` bodies, and type-level constant expressions. That keeps parser
+syntax out of the evaluator and gives the query system a cacheable module-level
+boundary for ordinary comptime values such as `@builtin()` structs, user
+comptime structs, imported `comptime fn` calls, array length expressions, and
+branch conditions.
 
 ### 8.2 `nia-comptime-engine`
 
@@ -570,14 +573,21 @@ comptime semantic bodies. AST-compatible entry points are wrappers that lower to
 
 ### 8.3 `nia-comptime-check`
 
-Consumes language-level semantic tables and uses `nia-comptime-engine` to check
-and collect current compile-time values. It owns `comptime` binding dependency
-resolution, cycle diagnostics, enum discriminant values, and array length values
-that depend on local or imported comptime let bindings.
+Lowers AST plus local/value/type semantic tables into `ComptimeModule`, then
+uses `nia-comptime-engine` to check and collect current compile-time values. It
+owns `comptime` binding dependency resolution, cycle diagnostics, enum
+discriminant values, and array length values that depend on local or imported
+comptime let bindings or imported `comptime fn` calls.
 
 This crate is the semantic boundary for current compile-time value requirements.
 It is separate from static storage because `comptime` bindings have no runtime
 storage or address, while top-level `let` and `var` bindings do.
+
+Early target pruning is intentionally narrower than full comptime execution: it
+can evaluate target builtins and same-module helper functions before the module
+graph is complete. Full imported comptime function execution belongs to the
+semantic query path after imports, definitions, values, locals, and comptime
+modules are available.
 
 ### 8.4 `nia-static-check`
 
