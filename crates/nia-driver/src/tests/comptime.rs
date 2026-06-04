@@ -648,6 +648,43 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_integer_comparisons_drive_control_flow() {
+    let root = temp_dir("comptime_function_integer_comparisons_drive_control_flow");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width(limit: usize) usize {
+    var i: usize = 0;
+    var total: usize = 0;
+    while i < limit {
+        if i <= 1 {
+            total += 1;
+        }
+        if i >= 3 {
+            total += 2;
+        }
+        if i > 4 {
+            total += 4;
+        }
+        i += 1;
+    }
+    total
+}
+
+comptime let n: usize = width(6);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_function_supports_plain_local_assignment() {
     let root = temp_dir("comptime_function_supports_plain_local_assignment");
     write(

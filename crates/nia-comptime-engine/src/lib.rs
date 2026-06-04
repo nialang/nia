@@ -1611,6 +1611,11 @@ fn eval_binary_flow(
             })?;
             ComptimeValue::Bool(if op == BinaryOp::Eq { equal } else { !equal })
         }
+        BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+            let lhs = int_operand!(lhs);
+            let rhs = int_operand!(rhs);
+            ComptimeValue::Bool(eval_binary_int_compare(lhs, op, rhs))
+        }
         _ => {
             let lhs = int_operand!(lhs);
             let rhs = int_operand!(rhs);
@@ -1620,6 +1625,16 @@ fn eval_binary_flow(
         }
     };
     Ok(ComptimeEvalFlow::Value(value))
+}
+
+fn eval_binary_int_compare(lhs: i128, op: BinaryOp, rhs: i128) -> bool {
+    match op {
+        BinaryOp::Lt => lhs < rhs,
+        BinaryOp::Le => lhs <= rhs,
+        BinaryOp::Gt => lhs > rhs,
+        BinaryOp::Ge => lhs >= rhs,
+        _ => unreachable!("non-comparison binary operator routed to integer comparison"),
+    }
 }
 
 fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
