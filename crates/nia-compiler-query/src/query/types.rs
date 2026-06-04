@@ -37,6 +37,21 @@ impl QueryKey<DriverContext> for TypeLoweringQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramTypeLoweringsQuery;
+
+impl QueryKey<DriverContext> for ProgramTypeLoweringsQuery {
+    type Value = HashMap<ModuleId, TypeLowering>;
+
+    fn name() -> &'static str {
+        "program_type_lowerings"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.program_type_lowerings)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ItemSignaturesQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for ItemSignaturesQuery {

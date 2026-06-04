@@ -18,11 +18,12 @@ nia-local-resolve.workspace = true
 nia-span.workspace = true
 nia-target-config.workspace = true
 nia-ty.workspace = true
+nia-type-lower.workspace = true
+nia-type-normalize.workspace = true
 nia-value-resolve.workspace = true
 
 [dev-dependencies]
 nia-parser.workspace = true
-nia-type-lower.workspace = true
 nia-type-resolve.workspace = true
 
 [lib]

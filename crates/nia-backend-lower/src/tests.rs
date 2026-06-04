@@ -58,6 +58,7 @@ fn main() i32 {
             defs: &defs,
             values: &values,
             locals: &locals,
+            type_uses: &type_lowering.type_uses,
             const_exprs: &type_lowering.const_exprs,
         });
     assert!(
@@ -4280,6 +4281,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             defs: &defs,
             values: &values,
             locals: &locals,
+            type_uses: &type_lowering.type_uses,
             const_exprs: &type_lowering.const_exprs,
         });
     assert!(

@@ -43,6 +43,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
             defs: &defs,
             values: &values,
             locals: &locals,
+            type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });
     assert!(
