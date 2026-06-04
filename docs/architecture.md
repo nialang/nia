@@ -797,12 +797,18 @@ It produces two explicit products:
 - `BodyFacts`, the body semantic surface: expression types, final
   bracket-suffix resolution, builtin values, call targets, coercions, function
   references, local types, generic instantiations, source-node fact keys, and
-  compile-time branch selections such as body `comptime if`;
+  compile-time branch selections such as body `comptime if`, plus checked
+  comptime-derived facts such as array repeat counts;
 - `BodyIr`, the runtime checked body boundary: typed function bodies, static
   initializers, and the interner required to interpret those typed bodies.
 
 Later phases consume these products explicitly instead of reading ad hoc
 body-check side tables or rediscovering expression semantics from AST shape.
+Runtime body lowering is a consumer of `ComptimeCheck` and program comptime
+query results. It must not implement a second imported-comptime evaluator; an
+imported `comptime` value used in a runtime expression is read from the producing
+module's `ComptimeCheck`, while body-local compile-time execution remains in the
+body checker and delegates typed comptime queries back to `nia-comptime-check`.
 
 ### 9.3 `nia-body-ir`
 
@@ -812,7 +818,7 @@ Defines checked body data products:
   facts that later phases may consume, including expression types, final
   bracket-suffix resolution, builtin values, call targets, coercions, function
   references, local types, compile-time branch selections, source-node fact
-  keys, and recorded generic instantiations.
+  keys, checked array repeat counts, and recorded generic instantiations.
 - `BodyIr` is the runtime checked body product. It stores typed function
   bodies, static initializers, and the type interner used by those bodies.
 - The crate also defines the typed body, statement, expression, place, call,
