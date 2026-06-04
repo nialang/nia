@@ -1769,12 +1769,12 @@ impl Analyzer<'_> {
             }
             return None;
         }
-        let ComptimeExprKind::Ident { name, .. } = &callee.kind else {
+        let ComptimeExprKind::Ident { .. } = &callee.kind else {
             return None;
         };
         let Some(ValueNameResolution::Def(def_id)) = self.input.values.names.get(&callee.span)
         else {
-            return self.function_def_by_name(name);
+            return None;
         };
         let def = self.input.defs.defs.get(*def_id)?;
         if def.kind != DefKind::Function {
@@ -1783,15 +1783,6 @@ impl Analyzer<'_> {
         Some(GlobalDefId {
             module_id: self.input.defs.module_id,
             def_id: *def_id,
-        })
-    }
-
-    fn function_def_by_name(&self, name: &str) -> Option<GlobalDefId> {
-        self.input.defs.defs.iter().find_map(|(def_id, def)| {
-            (def.kind == DefKind::Function && def.name == name).then_some(GlobalDefId {
-                module_id: self.input.defs.module_id,
-                def_id,
-            })
         })
     }
 
@@ -5045,22 +5036,76 @@ fn numeric_literal_suffix(text: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ComptimeInput, ComptimeKey, ComptimeModuleInput, ComptimeProgramContext, ComptimeValueType,
-        check_module_comptime, lower_module_comptime,
+        ComptimeCheck, ComptimeInput, ComptimeKey, ComptimeModuleInput, ComptimeModuleLowering,
+        ComptimeProgramContext, ComptimeValueType, TypedComptimeQueryInput, check_module_comptime,
+        lower_module_comptime,
     };
-    use nia_defs::{DefKind, ModuleId, collect_module_defs};
-    use nia_item_signatures::collect_item_signatures;
-    use nia_local_resolve::resolve_module_locals;
+    use nia_comptime_ir::{ComptimeExpr, ComptimeExprKind};
+    use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
+    use nia_item_signatures::{ItemSignatures, collect_item_signatures};
+    use nia_local_resolve::{LocalResolution, resolve_module_locals};
     use nia_parser::parse_module;
+    use nia_span::Span;
     use nia_ty::{PrimitiveTy, TyKind};
-    use nia_type_lower::lower_module_types_with_id;
+    use nia_type_lower::{TypeLowering, lower_module_types_with_id};
     use nia_type_resolve::resolve_module_types;
-    use nia_value_resolve::resolve_module_values;
+    use nia_value_resolve::{ValueResolution, resolve_module_values};
     use std::collections::HashMap;
+
+    struct CheckedFixture {
+        defs: DefCollection,
+        values: ValueResolution,
+        locals: LocalResolution,
+        lowered: TypeLowering,
+        signatures: ItemSignatures,
+        comptime_module: ComptimeModuleLowering,
+        checked: ComptimeCheck,
+    }
+
+    fn check_source(source: &str) -> CheckedFixture {
+        let (module, errors) = parse_module(source);
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let type_names = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let values = resolve_module_values(&module, &defs);
+        let locals = resolve_module_locals(&module, &defs, &values);
+        let target = nia_target_config::TargetConfig::host();
+        let comptime_module = lower_module_comptime(ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            type_uses: &lowered.type_uses,
+            const_exprs: &lowered.const_exprs,
+        });
+        let checked = check_module_comptime(ComptimeInput {
+            module: &comptime_module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            signatures: &signatures,
+            interner: &lowered.interner,
+            type_uses: &lowered.type_uses,
+            normalized: &HashMap::new(),
+            target: &target,
+            program: ComptimeProgramContext::empty(),
+        });
+        CheckedFixture {
+            defs,
+            values,
+            locals,
+            lowered,
+            signatures,
+            comptime_module,
+            checked,
+        }
+    }
 
     #[test]
     fn records_explicit_types_for_comptime_bindings() {
-        let (module, errors) = parse_module(
+        let fixture = check_source(
             r#"
 comptime let width: usize = 4;
 
@@ -5071,43 +5116,25 @@ fn main() i32 {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        let type_names = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let values = resolve_module_values(&module, &defs);
-        let locals = resolve_module_locals(&module, &defs, &values);
-        let target = nia_target_config::TargetConfig::host();
-        let comptime_module = lower_module_comptime(ComptimeModuleInput {
-            module: &module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            type_uses: &lowered.type_uses,
-            const_exprs: &lowered.const_exprs,
-        });
         assert!(
-            comptime_module.diagnostics.is_empty(),
+            fixture.comptime_module.diagnostics.is_empty(),
             "{:?}",
-            comptime_module.diagnostics
+            fixture.comptime_module.diagnostics
         );
-        let checked = check_module_comptime(ComptimeInput {
-            module: &comptime_module.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            signatures: &signatures,
-            interner: &lowered.interner,
-            type_uses: &lowered.type_uses,
-            normalized: &HashMap::new(),
-            target: &target,
-            program: ComptimeProgramContext::empty(),
-        });
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let usize_ty = lowered.interner.primitive(PrimitiveTy::Usize);
-        let width_def = defs.module_scope.values.get("width").expect("width def");
-        let width = checked
+        assert!(
+            fixture.checked.diagnostics.is_empty(),
+            "{:?}",
+            fixture.checked.diagnostics
+        );
+        let usize_ty = fixture.lowered.interner.primitive(PrimitiveTy::Usize);
+        let width_def = fixture
+            .defs
+            .module_scope
+            .values
+            .get("width")
+            .expect("width def");
+        let width = fixture
+            .checked
             .typed_values
             .get(&ComptimeKey::Global(super::GlobalDefId {
                 module_id: ModuleId(0),
@@ -5115,9 +5142,10 @@ fn main() i32 {
             }))
             .expect("typed global comptime value");
         assert_eq!(width.ty, ComptimeValueType::Runtime(usize_ty));
-        assert!(locals.locals.iter().any(|(local_id, local)| {
+        assert!(fixture.locals.locals.iter().any(|(local_id, local)| {
             local.kind == nia_local_resolve::LocalKind::ComptimeBinding
-                && checked
+                && fixture
+                    .checked
                     .typed_values
                     .get(&ComptimeKey::Local(local_id))
                     .is_some_and(|typed| typed.ty == ComptimeValueType::Runtime(usize_ty))
@@ -5126,7 +5154,7 @@ fn main() i32 {
 
     #[test]
     fn records_enum_backing_types_for_comptime_variant_values() {
-        let (module, errors) = parse_module(
+        let fixture = check_source(
             r#"
 enum Code: u8 {
     ok = 1,
@@ -5134,50 +5162,68 @@ enum Code: u8 {
 }
 "#,
         );
-        assert!(errors.is_empty(), "{errors:?}");
-        let defs = collect_module_defs(ModuleId(0), &module);
-        let type_names = resolve_module_types(&module, &defs);
-        let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
-        let signatures = collect_item_signatures(&module, &defs, &lowered);
-        let values = resolve_module_values(&module, &defs);
-        let locals = resolve_module_locals(&module, &defs, &values);
-        let target = nia_target_config::TargetConfig::host();
-        let comptime_module = lower_module_comptime(ComptimeModuleInput {
-            module: &module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            type_uses: &lowered.type_uses,
-            const_exprs: &lowered.const_exprs,
-        });
-        let checked = check_module_comptime(ComptimeInput {
-            module: &comptime_module.module,
-            defs: &defs,
-            values: &values,
-            locals: &locals,
-            signatures: &signatures,
-            interner: &lowered.interner,
-            type_uses: &lowered.type_uses,
-            normalized: &HashMap::new(),
-            target: &target,
-            program: ComptimeProgramContext::empty(),
-        });
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let u8_ty = lowered.interner.primitive(PrimitiveTy::U8);
-        let variants = defs
+        assert!(
+            fixture.checked.diagnostics.is_empty(),
+            "{:?}",
+            fixture.checked.diagnostics
+        );
+        let u8_ty = fixture.lowered.interner.primitive(PrimitiveTy::U8);
+        let variants = fixture
+            .defs
             .defs
             .iter()
             .filter_map(|(def_id, def)| (def.kind == DefKind::EnumVariant).then_some(def_id));
         for variant in variants {
-            let typed = checked
+            let typed = fixture
+                .checked
                 .typed_enum_values
                 .get(&variant)
                 .expect("typed enum variant value");
             assert_eq!(typed.ty, ComptimeValueType::Runtime(u8_ty));
             assert!(matches!(
-                typed.ty.runtime().and_then(|ty| lowered.interner.get(ty)),
+                typed
+                    .ty
+                    .runtime()
+                    .and_then(|ty| fixture.lowered.interner.get(ty)),
                 Some(TyKind::Primitive(PrimitiveTy::U8))
             ));
         }
+    }
+
+    #[test]
+    fn unresolved_comptime_function_callee_does_not_fall_back_to_name_lookup() {
+        let fixture = check_source(
+            r#"
+comptime fn width() usize {
+    4
+}
+"#,
+        );
+        let normalized = HashMap::new();
+        let target = nia_target_config::TargetConfig::host();
+        let analyzer = super::Analyzer::for_typed_query(TypedComptimeQueryInput {
+            module: &fixture.comptime_module.module,
+            defs: &fixture.defs,
+            values: &fixture.values,
+            locals: &fixture.locals,
+            signatures: &fixture.signatures,
+            interner: &fixture.lowered.interner,
+            type_uses: &fixture.lowered.type_uses,
+            normalized: &normalized,
+            target: &target,
+            program: ComptimeProgramContext::empty(),
+            typed_values: &fixture.checked.typed_values,
+            array_lengths: &fixture.checked.array_lengths,
+            frames: &[],
+        });
+        let callee = ComptimeExpr {
+            span: Span::new(0, 0),
+            kind: ComptimeExprKind::Ident {
+                name: "width".to_string(),
+                resolution: None,
+            },
+        };
+
+        assert_eq!(analyzer.comptime_function(&callee), None);
     }
 }
