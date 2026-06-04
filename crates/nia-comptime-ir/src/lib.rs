@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{AssignOp, BinaryOp, StringLiteral, UnaryOp};
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId};
 use nia_span::Span;
 
@@ -97,7 +96,7 @@ pub struct ComptimeBinding {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeAssign {
     pub lhs: ComptimeAssignTarget,
-    pub op: AssignOp,
+    pub op: ComptimeAssignOp,
     pub rhs: ComptimeExpr,
 }
 
@@ -194,9 +193,9 @@ pub enum ComptimeExprKind {
     Char(String),
     ByteChar(String),
     Float(String),
-    String(StringLiteral),
-    ByteString(StringLiteral),
-    CString(StringLiteral),
+    String(ComptimeStringLiteral),
+    ByteString(ComptimeStringLiteral),
+    CString(ComptimeStringLiteral),
     Bool(bool),
     Null,
     Ident {
@@ -243,7 +242,7 @@ pub enum ComptimeExprKind {
         args: Vec<ComptimeExpr>,
     },
     Unary {
-        op: UnaryOp,
+        op: ComptimeUnaryOp,
         expr: Box<ComptimeExpr>,
     },
     OptionalSome {
@@ -260,7 +259,7 @@ pub enum ComptimeExprKind {
     },
     Binary {
         lhs: Box<ComptimeExpr>,
-        op: BinaryOp,
+        op: ComptimeBinaryOp,
         rhs: Box<ComptimeExpr>,
     },
     Assign(Box<ComptimeAssign>),
@@ -276,6 +275,58 @@ pub enum ComptimeExprKind {
         ty: Option<InternedTyId>,
     },
     Block(ComptimeBlock),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComptimeStringLiteral {
+    pub parts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComptimeUnaryOp {
+    Neg,
+    Not,
+    BitNot,
+    RefReadOnly,
+    Ref,
+    Deref,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComptimeBinaryOp {
+    Mul,
+    Div,
+    Rem,
+    Add,
+    Sub,
+    Shl,
+    Shr,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
+    BitAnd,
+    BitXor,
+    BitOr,
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComptimeAssignOp {
+    Assign,
+    Add,
+    Sub,
+    Shl,
+    Shr,
+    Mul,
+    Div,
+    Rem,
+    BitAnd,
+    BitXor,
+    BitOr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -347,9 +398,15 @@ pub fn lower_expr_with_context(
         nia_ast::ExprKind::Char(text) => ComptimeExprKind::Char(text.clone()),
         nia_ast::ExprKind::ByteChar(text) => ComptimeExprKind::ByteChar(text.clone()),
         nia_ast::ExprKind::Float(text) => ComptimeExprKind::Float(text.clone()),
-        nia_ast::ExprKind::String(literal) => ComptimeExprKind::String(literal.clone()),
-        nia_ast::ExprKind::ByteString(literal) => ComptimeExprKind::ByteString(literal.clone()),
-        nia_ast::ExprKind::CString(literal) => ComptimeExprKind::CString(literal.clone()),
+        nia_ast::ExprKind::String(literal) => {
+            ComptimeExprKind::String(lower_string_literal(literal))
+        }
+        nia_ast::ExprKind::ByteString(literal) => {
+            ComptimeExprKind::ByteString(lower_string_literal(literal))
+        }
+        nia_ast::ExprKind::CString(literal) => {
+            ComptimeExprKind::CString(lower_string_literal(literal))
+        }
         nia_ast::ExprKind::Bool(value) => ComptimeExprKind::Bool(*value),
         nia_ast::ExprKind::Null => ComptimeExprKind::Null,
         nia_ast::ExprKind::Ident(name) => ComptimeExprKind::Ident {
@@ -421,7 +478,7 @@ pub fn lower_expr_with_context(
         },
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => ComptimeExprKind::Unary {
-            op: *op,
+            op: lower_unary_op(*op),
             expr: Box::new(lower_expr_with_context(expr, context)?),
         },
         nia_ast::ExprKind::OptionalSome { expr } => ComptimeExprKind::OptionalSome {
@@ -438,13 +495,13 @@ pub fn lower_expr_with_context(
         },
         nia_ast::ExprKind::Binary { lhs, op, rhs } => ComptimeExprKind::Binary {
             lhs: Box::new(lower_expr_with_context(lhs, context)?),
-            op: *op,
+            op: lower_binary_op(*op),
             rhs: Box::new(lower_expr_with_context(rhs, context)?),
         },
         nia_ast::ExprKind::Assign { lhs, op, rhs } => {
             ComptimeExprKind::Assign(Box::new(ComptimeAssign {
                 lhs: lower_assign_target_with_context(lhs, context)?,
-                op: *op,
+                op: lower_assign_op(*op),
                 rhs: lower_expr_with_context(rhs, context)?,
             }))
         }
@@ -488,6 +545,62 @@ pub fn lower_expr_with_context(
         span: expr.span,
         kind,
     })
+}
+
+fn lower_string_literal(literal: &nia_ast::StringLiteral) -> ComptimeStringLiteral {
+    ComptimeStringLiteral {
+        parts: literal.parts.clone(),
+    }
+}
+
+fn lower_unary_op(op: nia_ast::UnaryOp) -> ComptimeUnaryOp {
+    match op {
+        nia_ast::UnaryOp::Neg => ComptimeUnaryOp::Neg,
+        nia_ast::UnaryOp::Not => ComptimeUnaryOp::Not,
+        nia_ast::UnaryOp::BitNot => ComptimeUnaryOp::BitNot,
+        nia_ast::UnaryOp::RefReadOnly => ComptimeUnaryOp::RefReadOnly,
+        nia_ast::UnaryOp::Ref => ComptimeUnaryOp::Ref,
+        nia_ast::UnaryOp::Deref => ComptimeUnaryOp::Deref,
+    }
+}
+
+fn lower_binary_op(op: nia_ast::BinaryOp) -> ComptimeBinaryOp {
+    match op {
+        nia_ast::BinaryOp::Mul => ComptimeBinaryOp::Mul,
+        nia_ast::BinaryOp::Div => ComptimeBinaryOp::Div,
+        nia_ast::BinaryOp::Rem => ComptimeBinaryOp::Rem,
+        nia_ast::BinaryOp::Add => ComptimeBinaryOp::Add,
+        nia_ast::BinaryOp::Sub => ComptimeBinaryOp::Sub,
+        nia_ast::BinaryOp::Shl => ComptimeBinaryOp::Shl,
+        nia_ast::BinaryOp::Shr => ComptimeBinaryOp::Shr,
+        nia_ast::BinaryOp::Lt => ComptimeBinaryOp::Lt,
+        nia_ast::BinaryOp::Le => ComptimeBinaryOp::Le,
+        nia_ast::BinaryOp::Gt => ComptimeBinaryOp::Gt,
+        nia_ast::BinaryOp::Ge => ComptimeBinaryOp::Ge,
+        nia_ast::BinaryOp::Eq => ComptimeBinaryOp::Eq,
+        nia_ast::BinaryOp::Ne => ComptimeBinaryOp::Ne,
+        nia_ast::BinaryOp::BitAnd => ComptimeBinaryOp::BitAnd,
+        nia_ast::BinaryOp::BitXor => ComptimeBinaryOp::BitXor,
+        nia_ast::BinaryOp::BitOr => ComptimeBinaryOp::BitOr,
+        nia_ast::BinaryOp::And => ComptimeBinaryOp::And,
+        nia_ast::BinaryOp::Or => ComptimeBinaryOp::Or,
+    }
+}
+
+fn lower_assign_op(op: nia_ast::AssignOp) -> ComptimeAssignOp {
+    match op {
+        nia_ast::AssignOp::Assign => ComptimeAssignOp::Assign,
+        nia_ast::AssignOp::Add => ComptimeAssignOp::Add,
+        nia_ast::AssignOp::Sub => ComptimeAssignOp::Sub,
+        nia_ast::AssignOp::Shl => ComptimeAssignOp::Shl,
+        nia_ast::AssignOp::Shr => ComptimeAssignOp::Shr,
+        nia_ast::AssignOp::Mul => ComptimeAssignOp::Mul,
+        nia_ast::AssignOp::Div => ComptimeAssignOp::Div,
+        nia_ast::AssignOp::Rem => ComptimeAssignOp::Rem,
+        nia_ast::AssignOp::BitAnd => ComptimeAssignOp::BitAnd,
+        nia_ast::AssignOp::BitXor => ComptimeAssignOp::BitXor,
+        nia_ast::AssignOp::BitOr => ComptimeAssignOp::BitOr,
+    }
 }
 
 fn lower_call_with_context(
