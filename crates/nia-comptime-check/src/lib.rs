@@ -4,9 +4,10 @@ use std::collections::{HashMap, HashSet};
 use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
-    ComptimeBinaryOp, ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr,
-    ComptimeFieldInit, ComptimeLocalInitializer, ComptimeModule, ComptimeNameResolution,
-    ComptimeStmtKind, ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm,
+    ComptimeArrayElements, ComptimeAssignTarget, ComptimeBinaryOp, ComptimeBinding, ComptimeBlock,
+    ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeExprKind, ComptimeFieldInit,
+    ComptimeLocalInitializer, ComptimeModule, ComptimeNameResolution, ComptimeParam, ComptimeRange,
+    ComptimeSliceRange, ComptimeStmtKind, ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm,
     ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
@@ -1343,7 +1344,7 @@ impl Analyzer<'_> {
         local_id: LocalId,
     ) -> Option<InternedTyId> {
         match &expr.kind {
-            nia_comptime_ir::ComptimeExprKind::If {
+            ComptimeExprKind::If {
                 then_branch,
                 else_branch,
                 ..
@@ -1354,7 +1355,7 @@ impl Analyzer<'_> {
                         self.find_local_binding_type_in_expr(else_branch, local_id)
                     })
                 }),
-            nia_comptime_ir::ComptimeExprKind::Switch(switch) => {
+            ComptimeExprKind::Switch(switch) => {
                 if let Some(ty) = self.find_switch_pattern_local_type(switch, local_id) {
                     return Some(ty);
                 }
@@ -1378,7 +1379,7 @@ impl Analyzer<'_> {
                     }
                 })
             }
-            nia_comptime_ir::ComptimeExprKind::Block(block) => {
+            ComptimeExprKind::Block(block) => {
                 self.find_local_binding_type_in_block(block, local_id)
             }
             _ => None,
@@ -1543,14 +1544,14 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_function(&self, callee: &nia_comptime_engine::ComptimeExpr) -> Option<GlobalDefId> {
+    fn comptime_function(&self, callee: &ComptimeExpr) -> Option<GlobalDefId> {
         match &callee.kind {
-            nia_comptime_engine::ComptimeExprKind::Ident {
-                resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
+            ComptimeExprKind::Ident {
+                resolution: Some(ComptimeNameResolution::Global(global_id)),
                 ..
             }
-            | nia_comptime_engine::ComptimeExprKind::Qualified {
-                resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
+            | ComptimeExprKind::Qualified {
+                resolution: Some(ComptimeNameResolution::Global(global_id)),
                 ..
             } => {
                 return (self.def_kind_of(*global_id) == Some(DefKind::Function))
@@ -1570,7 +1571,7 @@ impl Analyzer<'_> {
             }
             return None;
         }
-        let nia_comptime_engine::ComptimeExprKind::Ident { name, .. } = &callee.kind else {
+        let ComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return None;
         };
         let Some(ValueNameResolution::Def(def_id)) = self.input.values.names.get(&callee.span)
@@ -1933,8 +1934,8 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
         match &expr.kind {
-            nia_comptime_engine::ComptimeExprKind::Ident {
-                resolution: Some(nia_comptime_engine::ComptimeNameResolution::Local(local_id)),
+            ComptimeExprKind::Ident {
+                resolution: Some(ComptimeNameResolution::Local(local_id)),
                 name,
             } => self
                 .call_local_type(*local_id)
@@ -1955,12 +1956,12 @@ impl Analyzer<'_> {
                         })
                         .map(ComptimeValueType::Runtime)
                 }),
-            nia_comptime_engine::ComptimeExprKind::Ident {
-                resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
+            ComptimeExprKind::Ident {
+                resolution: Some(ComptimeNameResolution::Global(global_id)),
                 ..
             }
-            | nia_comptime_engine::ComptimeExprKind::Qualified {
-                resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
+            | ComptimeExprKind::Qualified {
+                resolution: Some(ComptimeNameResolution::Global(global_id)),
                 ..
             } => self
                 .typed_value_for_key(ComptimeKey::Global(*global_id))
@@ -1978,51 +1979,46 @@ impl Analyzer<'_> {
                         })
                         .map(ComptimeValueType::Runtime)
                 }),
-            nia_comptime_engine::ComptimeExprKind::Integer(text) => integer_literal_suffix_ty(text)
-                .map(|primitive| {
-                    ComptimeValueType::Runtime(
-                        self.source_interner_for_module(self.current_execution_module_id())
-                            .unwrap_or(self.input.interner)
-                            .primitive(primitive),
-                    )
-                }),
-            nia_comptime_engine::ComptimeExprKind::Float(text) => {
+            ComptimeExprKind::Integer(text) => integer_literal_suffix_ty(text).map(|primitive| {
+                ComptimeValueType::Runtime(
+                    self.source_interner_for_module(self.current_execution_module_id())
+                        .unwrap_or(self.input.interner)
+                        .primitive(primitive),
+                )
+            }),
+            ComptimeExprKind::Float(text) => {
                 let primitive = float_literal_suffix_ty(text).unwrap_or(PrimitiveTy::F64);
                 Some(ComptimeValueType::Runtime(
                     self.current_runtime_primitive_type(primitive),
                 ))
             }
-            nia_comptime_engine::ComptimeExprKind::Char(_) => Some(ComptimeValueType::Runtime(
+            ComptimeExprKind::Char(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Char),
             )),
-            nia_comptime_engine::ComptimeExprKind::ByteChar(_) => Some(ComptimeValueType::Runtime(
+            ComptimeExprKind::ByteChar(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::U8),
             )),
-            nia_comptime_engine::ComptimeExprKind::String(literal) => {
-                self.comptime_string_literal_type(literal)
-            }
-            nia_comptime_engine::ComptimeExprKind::ByteString(literal) => self
-                .comptime_byte_string_literal_type(
-                    nia_comptime_engine::eval_byte_string_literal(literal)?.len() as u64,
-                ),
-            nia_comptime_engine::ComptimeExprKind::CString(literal) => self
-                .comptime_byte_string_literal_type(
-                    nia_comptime_engine::eval_c_string_literal(literal)?.len() as u64,
-                ),
-            nia_comptime_engine::ComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
+            ComptimeExprKind::String(literal) => self.comptime_string_literal_type(literal),
+            ComptimeExprKind::ByteString(literal) => self.comptime_byte_string_literal_type(
+                nia_comptime_engine::eval_byte_string_literal(literal)?.len() as u64,
+            ),
+            ComptimeExprKind::CString(literal) => self.comptime_byte_string_literal_type(
+                nia_comptime_engine::eval_c_string_literal(literal)?.len() as u64,
+            ),
+            ComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),
-            nia_comptime_engine::ComptimeExprKind::ArrayLiteral { ty: Some(ty), .. }
-            | nia_comptime_engine::ComptimeExprKind::StructLiteral { ty: Some(ty), .. } => {
+            ComptimeExprKind::ArrayLiteral { ty: Some(ty), .. }
+            | ComptimeExprKind::StructLiteral { ty: Some(ty), .. } => {
                 Some(ComptimeValueType::Runtime(*ty))
             }
-            nia_comptime_engine::ComptimeExprKind::ArrayLiteral { ty: None, elems } => {
+            ComptimeExprKind::ArrayLiteral { ty: None, elems } => {
                 self.comptime_array_literal_type(elems, expected)
             }
-            nia_comptime_engine::ComptimeExprKind::StructLiteral { ty: None, fields } => {
+            ComptimeExprKind::StructLiteral { ty: None, fields } => {
                 self.comptime_struct_literal_type(expr.span, fields, expected)
             }
-            nia_comptime_engine::ComptimeExprKind::OptionalSome { expr: inner } => {
+            ComptimeExprKind::OptionalSome { expr: inner } => {
                 let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
                     Some(TyKind::Optional { elem }) => Some(elem),
                     _ => None,
@@ -2035,24 +2031,24 @@ impl Analyzer<'_> {
                 )
                 .map(ComptimeValueType::Runtime)
             }
-            nia_comptime_engine::ComptimeExprKind::Null => {
+            ComptimeExprKind::Null => {
                 let expected = expected?;
                 matches!(self.ty_kind(expected), Some(TyKind::Optional { .. }))
                     .then_some(ComptimeValueType::Runtime(expected))
             }
-            nia_comptime_engine::ComptimeExprKind::ErrorOk { expr: inner } => {
+            ComptimeExprKind::ErrorOk { expr: inner } => {
                 let (error, value) = self.expected_error_union_parts(expected?)?;
                 let actual_value = self.comptime_arg_runtime_type(inner, Some(value))?;
                 self.comptime_error_union_type(error, actual_value)
                     .map(ComptimeValueType::Runtime)
             }
-            nia_comptime_engine::ComptimeExprKind::ErrorErr { expr: inner } => {
+            ComptimeExprKind::ErrorErr { expr: inner } => {
                 let (error, value) = self.expected_error_union_parts(expected?)?;
                 let actual_error = self.comptime_arg_runtime_type(inner, Some(error))?;
                 self.comptime_error_union_type(actual_error, value)
                     .map(ComptimeValueType::Runtime)
             }
-            nia_comptime_engine::ComptimeExprKind::Try { expr: inner } => {
+            ComptimeExprKind::Try { expr: inner } => {
                 let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
                 let payload = match self.ty_kind(inner_ty)? {
                     TyKind::Optional { elem } => elem,
@@ -2062,66 +2058,60 @@ impl Analyzer<'_> {
                 self.import_ty_into_module_or_none(payload, self.current_execution_module_id())
                     .map(ComptimeValueType::Runtime)
             }
-            nia_comptime_engine::ComptimeExprKind::Binary { lhs, op, rhs } => {
+            ComptimeExprKind::Binary { lhs, op, rhs } => {
                 self.comptime_binary_expr_type(lhs, *op, rhs)
             }
-            nia_comptime_engine::ComptimeExprKind::Unary { op, expr: inner } => {
+            ComptimeExprKind::Unary { op, expr: inner } => {
                 self.comptime_unary_expr_type(*op, inner)
             }
-            nia_comptime_engine::ComptimeExprKind::Range(range) => {
-                self.comptime_range_type(range, expected)
-            }
-            nia_comptime_engine::ComptimeExprKind::If {
+            ComptimeExprKind::Range(range) => self.comptime_range_type(range, expected),
+            ComptimeExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
             } => self.comptime_if_expr_type(cond, then_branch, else_branch.as_deref(), expected),
-            nia_comptime_engine::ComptimeExprKind::Switch(switch) => {
-                self.comptime_switch_expr_type(switch, expected)
-            }
-            nia_comptime_engine::ComptimeExprKind::Builtin {
+            ComptimeExprKind::Switch(switch) => self.comptime_switch_expr_type(switch, expected),
+            ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,
             } if name == "builtin" => Some(self.builtin_comptime_type()),
-            nia_comptime_engine::ComptimeExprKind::Call { callee, args, .. }
+            ComptimeExprKind::Call { callee, args, .. }
                 if args.is_empty() && self.is_builtin_value_callee(callee, "builtin") =>
             {
                 Some(self.builtin_comptime_type())
             }
-            nia_comptime_engine::ComptimeExprKind::Call {
+            ComptimeExprKind::Call {
                 callee,
                 type_args,
                 args,
             } => self
                 .comptime_call_return_type(expr.span, callee, type_args, args)
                 .map(ComptimeValueType::Runtime),
-            nia_comptime_engine::ComptimeExprKind::Field { lhs, name } => {
+            ComptimeExprKind::Field { lhs, name } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_field_type(lhs_ty, name)
             }
-            nia_comptime_engine::ComptimeExprKind::Len { lhs } => {
+            ComptimeExprKind::Len { lhs } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_len_type(lhs_ty)
             }
-            nia_comptime_engine::ComptimeExprKind::RangeIter { lhs } => {
+            ComptimeExprKind::RangeIter { lhs } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_range_iter_type(lhs_ty)
             }
-            nia_comptime_engine::ComptimeExprKind::Cast {
+            ComptimeExprKind::Cast {
                 expr: inner,
                 ty: Some(ty),
             } => self.comptime_cast_type(inner, *ty),
-            nia_comptime_engine::ComptimeExprKind::Index { lhs, index } => {
+            ComptimeExprKind::Index { lhs, index } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_index_type(expr.span, lhs_ty, index)
             }
-            nia_comptime_engine::ComptimeExprKind::Slice { lhs, range } => {
+            ComptimeExprKind::Slice { lhs, range } => {
                 let lhs_ty = self.comptime_expr_type(lhs, None)?;
                 self.comptime_slice_type(lhs_ty, range, expected)
             }
-            nia_comptime_engine::ComptimeExprKind::Block(block) => {
-                self.comptime_block_tail_type(block, expected)
-            }
+            ComptimeExprKind::Block(block) => self.comptime_block_tail_type(block, expected),
             _ => None,
         }
     }
@@ -2227,7 +2217,7 @@ impl Analyzer<'_> {
     fn comptime_slice_type(
         &mut self,
         lhs: ComptimeValueType,
-        range: &nia_comptime_engine::ComptimeSliceRange,
+        range: &ComptimeSliceRange,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
         match lhs {
@@ -2248,7 +2238,7 @@ impl Analyzer<'_> {
     fn comptime_runtime_slice_type(
         &mut self,
         lhs: InternedTyId,
-        range: &nia_comptime_engine::ComptimeSliceRange,
+        range: &ComptimeSliceRange,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
         let (len, elem) = match self.ty_kind(lhs)? {
@@ -2294,7 +2284,7 @@ impl Analyzer<'_> {
         &mut self,
         source_len: Option<u64>,
         expected_len: Option<u64>,
-        range: &nia_comptime_engine::ComptimeSliceRange,
+        range: &ComptimeSliceRange,
     ) -> Option<u64> {
         let start = match range.start.as_deref() {
             Some(start) => self.probe_comptime_array_len_expr(start)?,
@@ -2365,7 +2355,7 @@ impl Analyzer<'_> {
 
     fn comptime_array_literal_type(
         &mut self,
-        elems: &nia_comptime_engine::ComptimeArrayElements,
+        elems: &ComptimeArrayElements,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
         let expected_parts = expected.and_then(|expected| self.expected_array_parts(expected));
@@ -2375,12 +2365,12 @@ impl Analyzer<'_> {
             return Some(ty);
         }
         let (elem_ty, actual_len) = match elems {
-            nia_comptime_engine::ComptimeArrayElements::List(elems) => {
+            ComptimeArrayElements::List(elems) => {
                 let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
                 let elem_ty = self.comptime_array_list_elem_type(elems, expected_elem)?;
                 (elem_ty, Some(elems.len() as u64))
             }
-            nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
+            ComptimeArrayElements::Repeat { value, count } => {
                 let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
                 let elem_ty = self.comptime_arg_runtime_type(value, expected_elem)?;
                 let actual_len = Some(self.probe_comptime_array_len_expr(count)?);
@@ -2398,10 +2388,10 @@ impl Analyzer<'_> {
 
     fn structural_comptime_array_literal_type(
         &mut self,
-        elems: &nia_comptime_engine::ComptimeArrayElements,
+        elems: &ComptimeArrayElements,
     ) -> Option<ComptimeValueType> {
         let (elem_ty, len) = match elems {
-            nia_comptime_engine::ComptimeArrayElements::List(elems) => {
+            ComptimeArrayElements::List(elems) => {
                 let first = elems.first()?;
                 let elem_ty = self.comptime_expr_type(first, None)?;
                 for elem in &elems[1..] {
@@ -2411,7 +2401,7 @@ impl Analyzer<'_> {
                 }
                 (elem_ty, Some(elems.len() as u64))
             }
-            nia_comptime_engine::ComptimeArrayElements::Repeat { value, count } => {
+            ComptimeArrayElements::Repeat { value, count } => {
                 let elem_ty = self.comptime_expr_type(value, None)?;
                 let len = self.probe_comptime_array_len_expr(count)?;
                 (elem_ty, Some(len))
@@ -3165,7 +3155,7 @@ impl Analyzer<'_> {
 
     fn comptime_range_type(
         &mut self,
-        range: &nia_comptime_engine::ComptimeRange,
+        range: &ComptimeRange,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
         let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
@@ -3499,7 +3489,7 @@ impl Analyzer<'_> {
     fn is_builtin_value_callee(&self, callee: &ComptimeExpr, expected: &str) -> bool {
         matches!(
             &callee.kind,
-            nia_comptime_engine::ComptimeExprKind::Builtin {
+            ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None
             } if name == expected
@@ -3997,11 +3987,11 @@ impl ComptimeEnv for Analyzer<'_> {
     fn resolve_name_resolution(
         &mut self,
         span: Span,
-        resolution: nia_comptime_engine::ComptimeNameResolution,
+        resolution: ComptimeNameResolution,
         name: &str,
     ) -> Result<ComptimeValue, ComptimeError> {
         match resolution {
-            nia_comptime_engine::ComptimeNameResolution::Local(local_id) => {
+            ComptimeNameResolution::Local(local_id) => {
                 if let Some(value) = self.call_local_value(local_id) {
                     return Ok(value);
                 }
@@ -4011,7 +4001,7 @@ impl ComptimeEnv for Analyzer<'_> {
                         message: format!("failed to evaluate comptime value `{name}`"),
                     })
             }
-            nia_comptime_engine::ComptimeNameResolution::Global(global_id) => {
+            ComptimeNameResolution::Global(global_id) => {
                 if self.def_kind_of(global_id) == Some(DefKind::Comptime) {
                     return self
                         .eval_key(ComptimeKey::Global(global_id), span)
@@ -4139,9 +4129,9 @@ impl ComptimeEnv for Analyzer<'_> {
     fn call_function(
         &mut self,
         span: Span,
-        callee: &nia_comptime_engine::ComptimeExpr,
+        callee: &ComptimeExpr,
         type_args: &[ComptimeTypeArg],
-        arg_exprs: &[nia_comptime_engine::ComptimeExpr],
+        arg_exprs: &[ComptimeExpr],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let Some(function_id) = self.comptime_function(callee) else {
@@ -4196,7 +4186,7 @@ impl ComptimeEnv for Analyzer<'_> {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &nia_comptime_engine::ComptimeParam,
+        param: &ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(local_id) = param
@@ -4234,7 +4224,7 @@ impl ComptimeEnv for Analyzer<'_> {
     fn bind_function_local(
         &mut self,
         span: Span,
-        binding: &nia_comptime_engine::ComptimeBinding,
+        binding: &ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(local_id) = binding
@@ -4276,11 +4266,11 @@ impl ComptimeEnv for Analyzer<'_> {
     fn assign_local(
         &mut self,
         span: Span,
-        target: &nia_comptime_engine::ComptimeAssignTarget,
+        target: &ComptimeAssignTarget,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         match target {
-            nia_comptime_engine::ComptimeAssignTarget::Local {
+            ComptimeAssignTarget::Local {
                 span: target_span,
                 name,
                 local_id,

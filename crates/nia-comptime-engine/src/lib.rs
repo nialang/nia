@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-pub use nia_comptime_ir::{
+use nia_comptime_ir::{
     ComptimeArrayElements, ComptimeAssign, ComptimeAssignOp, ComptimeAssignPathElem,
     ComptimeAssignTarget, ComptimeBinaryOp, ComptimeBinding, ComptimeBlock, ComptimeExpr,
     ComptimeExprKind, ComptimeForBinding, ComptimeForIn, ComptimeFunction, ComptimeNameResolution,
