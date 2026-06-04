@@ -2348,6 +2348,41 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_byte_and_c_string_literals_are_typed_arrays() {
+    let root = temp_dir("comptime_byte_and_c_string_literals_are_typed_arrays");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn byte_score(value: [3]u8) usize {
+    if value[0] == b'n' {
+        value[2] as usize
+    } else {
+        0usize
+    }
+}
+
+comptime fn c_score(value: [4]u8) usize {
+    if value[3] == 0u8 {
+        value[0] as usize
+    } else {
+        0usize
+    }
+}
+
+comptime let n: usize = byte_score(b"nia") + c_score(c"nia");
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_switch_structural_struct_fields_have_typed_values() {
     let root = temp_dir("comptime_switch_structural_struct_fields_have_typed_values");
     write(

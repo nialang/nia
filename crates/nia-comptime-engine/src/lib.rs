@@ -279,6 +279,18 @@ fn eval_comptime_expr_flow(
                     span: expr.span,
                     message: "unsupported string literal in comptime expression".to_string(),
                 })?,
+            ComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
+                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+                .ok_or_else(|| ComptimeError {
+                    span: expr.span,
+                    message: "unsupported byte string literal in comptime expression".to_string(),
+                })?,
+            ComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
+                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+                .ok_or_else(|| ComptimeError {
+                    span: expr.span,
+                    message: "unsupported C string literal in comptime expression".to_string(),
+                })?,
             ComptimeExprKind::Integer(text) => eval_int_literal(text)
                 .map(ComptimeValue::Int)
                 .map_err(|message| ComptimeError {
@@ -1797,6 +1809,13 @@ fn string_to_char_array(value: &str) -> Vec<ComptimeValue> {
         .collect()
 }
 
+fn bytes_to_array(value: &[u8]) -> Vec<ComptimeValue> {
+    value
+        .iter()
+        .map(|byte| ComptimeValue::Int(i128::from(*byte)))
+        .collect()
+}
+
 fn char_array_to_string(values: &[ComptimeValue]) -> Option<String> {
     let mut out = String::new();
     for value in values {
@@ -1817,6 +1836,33 @@ pub fn eval_string_literal(literal: &nia_ast::StringLiteral) -> Option<String> {
     text.strip_prefix('"')?
         .strip_suffix('"')
         .map(unescape_simple)
+}
+
+pub fn eval_byte_string_literal(literal: &nia_ast::StringLiteral) -> Option<Vec<u8>> {
+    eval_prefixed_byte_literal(literal, "b\"")
+}
+
+pub fn eval_c_string_literal(literal: &nia_ast::StringLiteral) -> Option<Vec<u8>> {
+    let mut bytes = eval_prefixed_byte_literal(literal, "c\"")?;
+    bytes.push(0);
+    Some(bytes)
+}
+
+fn eval_prefixed_byte_literal(literal: &nia_ast::StringLiteral, prefix: &str) -> Option<Vec<u8>> {
+    if literal.parts.len() != 1 {
+        return None;
+    }
+    let text = literal.parts[0].as_str();
+    let inner = text.strip_prefix(prefix)?.strip_suffix('"')?;
+    decode_byte_literal_inner(inner)
+}
+
+fn decode_byte_literal_inner(text: &str) -> Option<Vec<u8>> {
+    let decoded = decode_char_inner(text)?;
+    if !decoded.is_ascii() {
+        return None;
+    }
+    Some(decoded.into_bytes())
 }
 
 fn unescape_simple(text: &str) -> String {
