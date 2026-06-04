@@ -5,8 +5,8 @@ use nia_ast::{BinaryOp, Expr, ItemKind, Module, UnaryOp};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
     ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeLocalInitializer,
-    ComptimeModule, ComptimeNameResolution, ComptimeStmtKind, ComptimeSwitchArmBody,
-    ComptimeTypeArg,
+    ComptimeModule, ComptimeNameResolution, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm,
+    ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -47,6 +47,12 @@ pub enum ComptimeValueType {
 pub struct ComptimeValueFieldType {
     pub name: String,
     pub ty: ComptimeValueType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComptimeArmType {
+    Value(InternedTyId),
+    ControlFlow,
 }
 
 impl ComptimeValueType {
@@ -270,7 +276,8 @@ impl ComptimeModuleLowerer<'_> {
     }
 
     fn lower_expr(&mut self, expr: &Expr) -> Option<ComptimeExpr> {
-        let allowed_locals = HashSet::new();
+        let mut allowed_locals = HashSet::new();
+        self.collect_expr_locals(expr, &mut allowed_locals);
         let name_resolution =
             |span| self.name_resolution_with_allowed_locals(span, &allowed_locals);
         let local_id = |span| self.input.locals.local_defs.get(&span).copied();
@@ -295,12 +302,12 @@ impl ComptimeModuleLowerer<'_> {
         span: Span,
         allowed_locals: &HashSet<LocalId>,
     ) -> Option<ComptimeNameResolution> {
-        if let Some(local_id) = self.local_comptime_use(span) {
-            return Some(ComptimeNameResolution::Local(local_id));
-        }
         if let Some(local_id) = self.local_use(span)
             && allowed_locals.contains(&local_id)
         {
+            return Some(ComptimeNameResolution::Local(local_id));
+        }
+        if let Some(local_id) = self.local_comptime_use(span) {
             return Some(ComptimeNameResolution::Local(local_id));
         }
         if let Some(global_id) = self.global_value_use(span) {
@@ -492,16 +499,19 @@ impl ComptimeModuleLowerer<'_> {
         out: &mut HashSet<LocalId>,
     ) {
         match pattern {
+            nia_ast::SwitchPattern::OptionalSome { span, .. }
+            | nia_ast::SwitchPattern::ErrorOk { span, .. }
+            | nia_ast::SwitchPattern::ErrorErr { span, .. } => {
+                if let Some(local_id) = self.input.locals.local_defs.get(span).copied() {
+                    out.insert(local_id);
+                }
+            }
             nia_ast::SwitchPattern::Expr(expr) => self.collect_expr_locals(expr, out),
             nia_ast::SwitchPattern::Range { start, end, .. } => {
                 self.collect_expr_locals(start, out);
                 self.collect_expr_locals(end, out);
             }
-            nia_ast::SwitchPattern::Default
-            | nia_ast::SwitchPattern::OptionalSome { .. }
-            | nia_ast::SwitchPattern::OptionalNull { .. }
-            | nia_ast::SwitchPattern::ErrorOk { .. }
-            | nia_ast::SwitchPattern::ErrorErr { .. } => {}
+            nia_ast::SwitchPattern::Default | nia_ast::SwitchPattern::OptionalNull { .. } => {}
         }
     }
 
@@ -780,7 +790,7 @@ impl Analyzer<'_> {
         );
     }
 
-    fn explicit_type_for_key(&self, key: ComptimeKey) -> Option<InternedTyId> {
+    fn explicit_type_for_key(&mut self, key: ComptimeKey) -> Option<InternedTyId> {
         match key {
             ComptimeKey::Global(global_id) => {
                 let signatures = self.signatures_for_module(global_id.module_id)?;
@@ -790,18 +800,209 @@ impl Analyzer<'_> {
         }
     }
 
-    fn find_local_binding_type(&self, local_id: LocalId) -> Option<InternedTyId> {
+    fn find_local_binding_type(&mut self, local_id: LocalId) -> Option<InternedTyId> {
         if let Some(initializer) = self.input.module.local_initializers.get(&local_id)
             && initializer.explicit_type.is_some()
         {
             return initializer.explicit_type;
         }
-        for function in self.input.module.functions.values() {
-            if let Some(ty) = find_local_binding_type_in_block(&function.body, local_id) {
+        let global_initializers = self
+            .input
+            .module
+            .global_initializers
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        for expr in &global_initializers {
+            if let Some(ty) = self.find_local_binding_type_in_expr(expr, local_id) {
+                return Some(ty);
+            }
+        }
+        let local_initializers = self
+            .input
+            .module
+            .local_initializers
+            .values()
+            .map(|initializer| initializer.value.clone())
+            .collect::<Vec<_>>();
+        for expr in &local_initializers {
+            if let Some(ty) = self.find_local_binding_type_in_expr(expr, local_id) {
+                return Some(ty);
+            }
+        }
+        let function_bodies = self
+            .input
+            .module
+            .functions
+            .values()
+            .map(|function| function.body.clone())
+            .collect::<Vec<_>>();
+        for body in &function_bodies {
+            if let Some(ty) = self.find_local_binding_type_in_block(body, local_id) {
                 return Some(ty);
             }
         }
         None
+    }
+
+    fn find_local_binding_type_in_block(
+        &mut self,
+        block: &ComptimeBlock,
+        local_id: LocalId,
+    ) -> Option<InternedTyId> {
+        for stmt in &block.stmts {
+            match &stmt.kind {
+                ComptimeStmtKind::Binding(binding) if binding.local_id == Some(local_id) => {
+                    return binding.explicit_type;
+                }
+                ComptimeStmtKind::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    if let Some(ty) = self.find_local_binding_type_in_block(then_branch, local_id) {
+                        return Some(ty);
+                    }
+                    if let Some(else_branch) = else_branch
+                        && let Some(ty) =
+                            self.find_local_binding_type_in_block(else_branch, local_id)
+                    {
+                        return Some(ty);
+                    }
+                }
+                ComptimeStmtKind::ForIn(for_in) => {
+                    if let Some(ty) = self.find_local_binding_type_in_block(&for_in.body, local_id)
+                    {
+                        return Some(ty);
+                    }
+                }
+                ComptimeStmtKind::While { body, .. } | ComptimeStmtKind::Loop { body } => {
+                    if let Some(ty) = self.find_local_binding_type_in_block(body, local_id) {
+                        return Some(ty);
+                    }
+                }
+                ComptimeStmtKind::Expr(expr) | ComptimeStmtKind::Return(Some(expr)) => {
+                    if let Some(ty) = self.find_local_binding_type_in_expr(expr, local_id) {
+                        return Some(ty);
+                    }
+                }
+                ComptimeStmtKind::Binding(_)
+                | ComptimeStmtKind::Return(None)
+                | ComptimeStmtKind::Break
+                | ComptimeStmtKind::Continue => {}
+            }
+        }
+        block
+            .tail
+            .as_deref()
+            .and_then(|tail| self.find_local_binding_type_in_expr(tail, local_id))
+    }
+
+    fn find_local_binding_type_in_expr(
+        &mut self,
+        expr: &ComptimeExpr,
+        local_id: LocalId,
+    ) -> Option<InternedTyId> {
+        match &expr.kind {
+            nia_comptime_ir::ComptimeExprKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => self
+                .find_local_binding_type_in_block(then_branch, local_id)
+                .or_else(|| {
+                    else_branch.as_deref().and_then(|else_branch| {
+                        self.find_local_binding_type_in_expr(else_branch, local_id)
+                    })
+                }),
+            nia_comptime_ir::ComptimeExprKind::Switch(switch) => {
+                if let Some(ty) = self.find_switch_pattern_local_type(switch, local_id) {
+                    return Some(ty);
+                }
+                switch.arms.iter().find_map(|arm| match &arm.body {
+                    ComptimeSwitchArmBody::Expr(expr) => {
+                        self.find_local_binding_type_in_expr(expr, local_id)
+                    }
+                    ComptimeSwitchArmBody::Stmt(stmt) => match &stmt.kind {
+                        ComptimeStmtKind::Binding(binding)
+                            if binding.local_id == Some(local_id) =>
+                        {
+                            binding.explicit_type
+                        }
+                        ComptimeStmtKind::Expr(expr) | ComptimeStmtKind::Return(Some(expr)) => {
+                            self.find_local_binding_type_in_expr(expr, local_id)
+                        }
+                        _ => None,
+                    },
+                    ComptimeSwitchArmBody::Block(block) => {
+                        self.find_local_binding_type_in_block(block, local_id)
+                    }
+                })
+            }
+            nia_comptime_ir::ComptimeExprKind::Block(block) => {
+                self.find_local_binding_type_in_block(block, local_id)
+            }
+            _ => None,
+        }
+    }
+
+    fn find_switch_pattern_local_type(
+        &mut self,
+        switch: &ComptimeSwitch,
+        local_id: LocalId,
+    ) -> Option<InternedTyId> {
+        let target_ty = self.comptime_arg_runtime_type(&switch.target, None)?;
+        for arm in &switch.arms {
+            for pattern in &arm.patterns {
+                if self.switch_pattern_local_id(pattern) == Some(local_id) {
+                    return self.switch_pattern_binding_type(pattern, target_ty);
+                }
+            }
+        }
+        None
+    }
+
+    fn switch_pattern_local_id(&self, pattern: &ComptimeSwitchPattern) -> Option<LocalId> {
+        match pattern {
+            ComptimeSwitchPattern::OptionalSome { local_id, .. }
+            | ComptimeSwitchPattern::ErrorOk { local_id, .. }
+            | ComptimeSwitchPattern::ErrorErr { local_id, .. } => local_id.or_else(|| {
+                self.input
+                    .locals
+                    .local_defs
+                    .get(&pattern_span(pattern))
+                    .copied()
+            }),
+            ComptimeSwitchPattern::Default
+            | ComptimeSwitchPattern::OptionalNull { .. }
+            | ComptimeSwitchPattern::Expr(_)
+            | ComptimeSwitchPattern::Range { .. } => None,
+        }
+    }
+
+    fn switch_pattern_binding_type(
+        &self,
+        pattern: &ComptimeSwitchPattern,
+        target_ty: InternedTyId,
+    ) -> Option<InternedTyId> {
+        match pattern {
+            ComptimeSwitchPattern::OptionalSome { .. } => match self.ty_kind(target_ty)? {
+                TyKind::Optional { elem } => Some(elem),
+                _ => None,
+            },
+            ComptimeSwitchPattern::ErrorOk { .. } => match self.ty_kind(target_ty)? {
+                TyKind::ErrorUnion { value, .. } => Some(value),
+                _ => None,
+            },
+            ComptimeSwitchPattern::ErrorErr { .. } => match self.ty_kind(target_ty)? {
+                TyKind::ErrorUnion { error, .. } => Some(error),
+                _ => None,
+            },
+            ComptimeSwitchPattern::Default
+            | ComptimeSwitchPattern::OptionalNull { .. }
+            | ComptimeSwitchPattern::Expr(_)
+            | ComptimeSwitchPattern::Range { .. } => None,
+        }
     }
 
     fn push_engine_error(&mut self, err: ComptimeError) {
@@ -1287,6 +1488,10 @@ impl Analyzer<'_> {
                     self.typed_values
                         .get(&ComptimeKey::Local(*local_id))
                         .map(|typed| typed.ty.clone())
+                })
+                .or_else(|| {
+                    self.explicit_type_for_key(ComptimeKey::Local(*local_id))
+                        .map(ComptimeValueType::Runtime)
                 }),
             nia_comptime_engine::ComptimeExprKind::Ident {
                 resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
@@ -1298,7 +1503,11 @@ impl Analyzer<'_> {
             } => self
                 .typed_values
                 .get(&ComptimeKey::Global(*global_id))
-                .map(|typed| typed.ty.clone()),
+                .map(|typed| typed.ty.clone())
+                .or_else(|| {
+                    self.explicit_type_for_key(ComptimeKey::Global(*global_id))
+                        .map(ComptimeValueType::Runtime)
+                }),
             nia_comptime_engine::ComptimeExprKind::Integer(text) => integer_literal_suffix_ty(text)
                 .map(|primitive| {
                     ComptimeValueType::Runtime(
@@ -1365,6 +1574,9 @@ impl Analyzer<'_> {
                 else_branch,
                 ..
             } => self.comptime_if_expr_type(then_branch, else_branch.as_deref(), expected),
+            nia_comptime_engine::ComptimeExprKind::Switch(switch) => {
+                self.comptime_switch_expr_type(switch, expected)
+            }
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,
@@ -1394,6 +1606,154 @@ impl Analyzer<'_> {
                 self.comptime_block_tail_type(block, expected)
             }
             _ => None,
+        }
+    }
+
+    fn comptime_switch_expr_type(
+        &mut self,
+        switch: &ComptimeSwitch,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        let target_ty = self.comptime_arg_runtime_type(&switch.target, None);
+        let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
+        let mut result_ty = expected;
+        let mut saw_value_arm = false;
+        for arm in &switch.arms {
+            let arm_ty = result_ty
+                .and_then(|expected| {
+                    self.comptime_switch_arm_type(arm, target_ty, Some(expected))
+                        .filter(|arm_ty| *arm_ty == ComptimeArmType::Value(expected))
+                })
+                .or_else(|| self.comptime_switch_arm_type(arm, target_ty, result_ty))?;
+            let ComptimeArmType::Value(arm_ty) = arm_ty else {
+                continue;
+            };
+            saw_value_arm = true;
+            match result_ty {
+                Some(result_ty) if result_ty != arm_ty => return None,
+                Some(_) => {}
+                None => result_ty = Some(arm_ty),
+            }
+        }
+        saw_value_arm
+            .then_some(result_ty)
+            .flatten()
+            .map(ComptimeValueType::Runtime)
+    }
+
+    fn comptime_switch_arm_type(
+        &mut self,
+        arm: &ComptimeSwitchArm,
+        target_ty: Option<InternedTyId>,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeArmType> {
+        if !self.comptime_switch_arm_binds_pattern_locals(arm) {
+            return self.comptime_switch_arm_body_type(&arm.body, expected);
+        }
+        self.push_typed_comptime_scope();
+        let result = (|| {
+            self.bind_typed_comptime_switch_patterns(&arm.patterns, target_ty?)?;
+            self.comptime_switch_arm_body_type(&arm.body, expected)
+        })();
+        self.pop_typed_comptime_scope();
+        result
+    }
+
+    fn comptime_switch_arm_binds_pattern_locals(&self, arm: &ComptimeSwitchArm) -> bool {
+        arm.patterns.iter().any(|pattern| {
+            matches!(
+                pattern,
+                ComptimeSwitchPattern::OptionalSome { .. }
+                    | ComptimeSwitchPattern::ErrorOk { .. }
+                    | ComptimeSwitchPattern::ErrorErr { .. }
+            )
+        })
+    }
+
+    fn bind_typed_comptime_switch_patterns(
+        &mut self,
+        patterns: &[ComptimeSwitchPattern],
+        target_ty: InternedTyId,
+    ) -> Option<()> {
+        for pattern in patterns {
+            let (name, local_id, ty) = match pattern {
+                ComptimeSwitchPattern::OptionalSome { name, local_id, .. } => {
+                    let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
+                        return None;
+                    };
+                    (name, local_id, elem)
+                }
+                ComptimeSwitchPattern::ErrorOk { name, local_id, .. } => {
+                    let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
+                        return None;
+                    };
+                    (name, local_id, value)
+                }
+                ComptimeSwitchPattern::ErrorErr { name, local_id, .. } => {
+                    let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
+                        return None;
+                    };
+                    (name, local_id, error)
+                }
+                ComptimeSwitchPattern::Default
+                | ComptimeSwitchPattern::OptionalNull { .. }
+                | ComptimeSwitchPattern::Expr(_)
+                | ComptimeSwitchPattern::Range { .. } => continue,
+            };
+            let local_id = local_id.or_else(|| {
+                self.input
+                    .locals
+                    .local_defs
+                    .get(&pattern_span(pattern))
+                    .copied()
+            })?;
+            self.bind_comptime_local_type(local_id, name, ComptimeValueType::Runtime(ty));
+        }
+        Some(())
+    }
+
+    fn comptime_switch_arm_body_type(
+        &mut self,
+        body: &ComptimeSwitchArmBody,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeArmType> {
+        match body {
+            ComptimeSwitchArmBody::Expr(expr) => self
+                .comptime_arg_runtime_type(expr, expected)
+                .map(ComptimeArmType::Value),
+            ComptimeSwitchArmBody::Block(block) => {
+                self.comptime_switch_block_arm_type(block, expected)
+            }
+            ComptimeSwitchArmBody::Stmt(stmt) => self.comptime_stmt_arm_type(stmt, expected),
+        }
+    }
+
+    fn comptime_switch_block_arm_type(
+        &mut self,
+        block: &ComptimeBlock,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeArmType> {
+        self.comptime_block_tail_runtime_type(block, expected)
+            .map(ComptimeArmType::Value)
+    }
+
+    fn comptime_stmt_arm_type(
+        &mut self,
+        stmt: &nia_comptime_ir::ComptimeStmt,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeArmType> {
+        match &stmt.kind {
+            ComptimeStmtKind::Expr(expr) => self
+                .comptime_arg_runtime_type(expr, expected)
+                .map(ComptimeArmType::Value),
+            ComptimeStmtKind::Return(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
+                Some(ComptimeArmType::ControlFlow)
+            }
+            ComptimeStmtKind::Binding(_)
+            | ComptimeStmtKind::If { .. }
+            | ComptimeStmtKind::ForIn(_)
+            | ComptimeStmtKind::While { .. }
+            | ComptimeStmtKind::Loop { .. } => None,
         }
     }
 
@@ -2140,87 +2500,15 @@ fn substitute_ty_generics_in_interner(
     }
 }
 
-fn find_local_binding_type_in_block(
-    block: &ComptimeBlock,
-    local_id: LocalId,
-) -> Option<InternedTyId> {
-    for stmt in &block.stmts {
-        match &stmt.kind {
-            ComptimeStmtKind::Binding(binding) if binding.local_id == Some(local_id) => {
-                return binding.explicit_type;
-            }
-            ComptimeStmtKind::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                if let Some(ty) = find_local_binding_type_in_block(then_branch, local_id) {
-                    return Some(ty);
-                }
-                if let Some(else_branch) = else_branch
-                    && let Some(ty) = find_local_binding_type_in_block(else_branch, local_id)
-                {
-                    return Some(ty);
-                }
-            }
-            ComptimeStmtKind::ForIn(for_in) => {
-                if let Some(ty) = find_local_binding_type_in_block(&for_in.body, local_id) {
-                    return Some(ty);
-                }
-            }
-            ComptimeStmtKind::While { body, .. } | ComptimeStmtKind::Loop { body } => {
-                if let Some(ty) = find_local_binding_type_in_block(body, local_id) {
-                    return Some(ty);
-                }
-            }
-            ComptimeStmtKind::Expr(expr) | ComptimeStmtKind::Return(Some(expr)) => {
-                if let Some(ty) = find_local_binding_type_in_expr(expr, local_id) {
-                    return Some(ty);
-                }
-            }
-            ComptimeStmtKind::Binding(_)
-            | ComptimeStmtKind::Return(None)
-            | ComptimeStmtKind::Break
-            | ComptimeStmtKind::Continue => {}
-        }
-    }
-    block
-        .tail
-        .as_deref()
-        .and_then(|tail| find_local_binding_type_in_expr(tail, local_id))
-}
-
-fn find_local_binding_type_in_expr(expr: &ComptimeExpr, local_id: LocalId) -> Option<InternedTyId> {
-    match &expr.kind {
-        nia_comptime_ir::ComptimeExprKind::If {
-            then_branch,
-            else_branch,
-            ..
-        } => find_local_binding_type_in_block(then_branch, local_id).or_else(|| {
-            else_branch
-                .as_deref()
-                .and_then(|else_branch| find_local_binding_type_in_expr(else_branch, local_id))
-        }),
-        nia_comptime_ir::ComptimeExprKind::Switch(switch) => {
-            switch.arms.iter().find_map(|arm| match &arm.body {
-                ComptimeSwitchArmBody::Expr(expr) => {
-                    find_local_binding_type_in_expr(expr, local_id)
-                }
-                ComptimeSwitchArmBody::Stmt(stmt) => match &stmt.kind {
-                    ComptimeStmtKind::Binding(binding) if binding.local_id == Some(local_id) => {
-                        binding.explicit_type
-                    }
-                    _ => None,
-                },
-                ComptimeSwitchArmBody::Block(block) => {
-                    find_local_binding_type_in_block(block, local_id)
-                }
-            })
-        }
-        nia_comptime_ir::ComptimeExprKind::Block(block) => {
-            find_local_binding_type_in_block(block, local_id)
-        }
-        _ => None,
+fn pattern_span(pattern: &ComptimeSwitchPattern) -> Span {
+    match pattern {
+        ComptimeSwitchPattern::Default => Span::new(0, 0),
+        ComptimeSwitchPattern::OptionalSome { span, .. }
+        | ComptimeSwitchPattern::OptionalNull { span }
+        | ComptimeSwitchPattern::ErrorOk { span, .. }
+        | ComptimeSwitchPattern::ErrorErr { span, .. }
+        | ComptimeSwitchPattern::Range { span, .. } => *span,
+        ComptimeSwitchPattern::Expr(expr) => expr.span,
     }
 }
 
@@ -2259,9 +2547,6 @@ impl ComptimeEnv for Analyzer<'_> {
         match resolution {
             nia_comptime_engine::ComptimeNameResolution::Local(local_id) => {
                 if let Some(value) = self.call_local_value(local_id) {
-                    return Ok(value);
-                }
-                if let Some(value) = self.call_local_name_value(name) {
                     return Ok(value);
                 }
                 self.eval_key(ComptimeKey::Local(local_id), span)
@@ -2451,7 +2736,8 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime switch pattern local".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, name, false, value, None)
+        let ty = self.find_local_binding_type(local_id);
+        self.bind_local_value(span, local_id, name, false, value, ty)
     }
 
     fn assign_local(
