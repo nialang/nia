@@ -128,26 +128,19 @@ impl<'a> BodyChecker<'a> {
                 op: nia_ast::UnaryOp::Neg,
                 ..
             }
-            | ExprKind::Binary { .. } => {
-                let mut env = nia_comptime_engine::EmptyEnv;
-                self.lower_comptime_expr(expr)
-                    .map_err(|err| nia_comptime_engine::ComptimeError {
-                        span: err.span,
-                        message: err.message,
-                    })
-                    .and_then(|expr| nia_comptime_engine::eval_comptime_int_expr(&expr, &mut env))
-                    .map(StaticInit::Int)
-                    .unwrap_or_else(|err| {
-                        self.diagnostics.push(Diagnostic::error(
-                            expr.span,
-                            format!(
-                                "invalid integer constant in static initializer: {}",
-                                err.message
-                            ),
-                        ));
-                        StaticInit::Zero
-                    })
-            }
+            | ExprKind::Binary { .. } => self
+                .eval_static_comptime_int_expr(expr)
+                .map(StaticInit::Int)
+                .unwrap_or_else(|err| {
+                    self.diagnostics.push(Diagnostic::error(
+                        expr.span,
+                        format!(
+                            "invalid integer constant in static initializer: {}",
+                            err.message
+                        ),
+                    ));
+                    StaticInit::Zero
+                }),
             ExprKind::Unary {
                 op: nia_ast::UnaryOp::Ref | nia_ast::UnaryOp::RefReadOnly,
                 expr,
@@ -161,6 +154,21 @@ impl<'a> BodyChecker<'a> {
                 StaticInit::Zero
             }
         }
+    }
+
+    fn eval_static_comptime_int_expr(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<i128, nia_comptime_engine::ComptimeError> {
+        self.with_comptime_context(|this| {
+            let expr = this.lower_comptime_expr(expr).map_err(|err| {
+                nia_comptime_engine::ComptimeError {
+                    span: err.span,
+                    message: err.message,
+                }
+            })?;
+            nia_comptime_engine::eval_comptime_int_expr(&expr, this)
+        })
     }
 
     fn lower_static_address_init(&mut self, expr: &Expr) -> StaticInit {
