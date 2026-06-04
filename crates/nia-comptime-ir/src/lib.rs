@@ -70,6 +70,39 @@ pub struct ComptimeBinding {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeSwitch {
+    pub span: Span,
+    pub target: ComptimeExpr,
+    pub arms: Vec<ComptimeSwitchArm>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComptimeSwitchArm {
+    pub span: Span,
+    pub patterns: Vec<ComptimeSwitchPattern>,
+    pub body: ComptimeSwitchArmBody,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComptimeSwitchPattern {
+    Default,
+    Expr(ComptimeExpr),
+    Range {
+        start: ComptimeExpr,
+        end: ComptimeExpr,
+        inclusive: bool,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComptimeSwitchArmBody {
+    Expr(ComptimeExpr),
+    Stmt(ComptimeStmt),
+    Block(ComptimeBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeExpr {
     pub span: Span,
     pub kind: ComptimeExprKind,
@@ -117,6 +150,7 @@ pub enum ComptimeExprKind {
         then_branch: ComptimeBlock,
         else_branch: Option<Box<ComptimeExpr>>,
     },
+    Switch(Box<ComptimeSwitch>),
     Cast {
         expr: Box<ComptimeExpr>,
     },
@@ -212,6 +246,9 @@ pub fn lower_expr_with_context(
                 .transpose()?
                 .map(Box::new),
         },
+        nia_ast::ExprKind::Switch(switch) => ComptimeExprKind::Switch(Box::new(
+            lower_switch_with_context(expr.span, switch, context)?,
+        )),
         nia_ast::ExprKind::Cast { expr, .. } => ComptimeExprKind::Cast {
             expr: Box::new(lower_expr_with_context(expr, context)?),
         },
@@ -357,6 +394,85 @@ fn lower_stmt_with_context(
         span: stmt.span,
         kind,
     })
+}
+
+fn lower_switch_with_context(
+    span: Span,
+    switch: &nia_ast::SwitchStmt,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeSwitch, ComptimeLowerError> {
+    Ok(ComptimeSwitch {
+        span,
+        target: lower_expr_with_context(&switch.target, context)?,
+        arms: switch
+            .arms
+            .iter()
+            .map(|arm| lower_switch_arm_with_context(arm, context))
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+fn lower_switch_arm_with_context(
+    arm: &nia_ast::SwitchArm,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeSwitchArm, ComptimeLowerError> {
+    Ok(ComptimeSwitchArm {
+        span: arm.span,
+        patterns: arm
+            .patterns
+            .iter()
+            .map(|pattern| lower_switch_pattern_with_context(pattern, context))
+            .collect::<Result<Vec<_>, _>>()?,
+        body: lower_switch_arm_body_with_context(&arm.body, context)?,
+    })
+}
+
+fn lower_switch_pattern_with_context(
+    pattern: &nia_ast::SwitchPattern,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeSwitchPattern, ComptimeLowerError> {
+    match pattern {
+        nia_ast::SwitchPattern::Default => Ok(ComptimeSwitchPattern::Default),
+        nia_ast::SwitchPattern::Expr(expr) => {
+            lower_expr_with_context(expr, context).map(ComptimeSwitchPattern::Expr)
+        }
+        nia_ast::SwitchPattern::Range {
+            start,
+            end,
+            inclusive,
+            span,
+        } => Ok(ComptimeSwitchPattern::Range {
+            start: lower_expr_with_context(start, context)?,
+            end: lower_expr_with_context(end, context)?,
+            inclusive: *inclusive,
+            span: *span,
+        }),
+        nia_ast::SwitchPattern::OptionalSome { span, .. }
+        | nia_ast::SwitchPattern::OptionalNull { span }
+        | nia_ast::SwitchPattern::ErrorOk { span, .. }
+        | nia_ast::SwitchPattern::ErrorErr { span, .. } => Err(ComptimeLowerError {
+            span: *span,
+            message: "comptime switch payload patterns require comptime optional/error values"
+                .to_string(),
+        }),
+    }
+}
+
+fn lower_switch_arm_body_with_context(
+    body: &nia_ast::SwitchArmBody,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeSwitchArmBody, ComptimeLowerError> {
+    match body {
+        nia_ast::SwitchArmBody::Expr(expr) => {
+            lower_expr_with_context(expr, context).map(ComptimeSwitchArmBody::Expr)
+        }
+        nia_ast::SwitchArmBody::Stmt(stmt) => {
+            lower_stmt_with_context(stmt, context).map(ComptimeSwitchArmBody::Stmt)
+        }
+        nia_ast::SwitchArmBody::Block(block) => {
+            lower_block_with_context(block, context).map(ComptimeSwitchArmBody::Block)
+        }
+    }
 }
 
 fn lower_field_init_with_context(
