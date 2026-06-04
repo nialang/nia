@@ -817,74 +817,21 @@ impl<'a> BodyChecker<'a> {
         &self,
         def_id: nia_ids::GlobalDefId,
     ) -> Option<nia_comptime_check::ComptimeValue> {
-        self.global_comptime_value_for_env(def_id, &mut Vec::new())
+        self.global_comptime_value_for_env(def_id)
     }
 
     fn global_comptime_value_for_env(
         &self,
         def_id: nia_ids::GlobalDefId,
-        active: &mut Vec<nia_ids::GlobalDefId>,
     ) -> Option<nia_comptime_check::ComptimeValue> {
-        self.comptime
-            .values
-            .get(&nia_comptime_check::ComptimeKey::Global(def_id))
-            .cloned()
-            .or_else(|| self.eval_global_comptime_value(def_id, active))
-    }
-
-    fn eval_global_comptime_value(
-        &self,
-        def_id: nia_ids::GlobalDefId,
-        active: &mut Vec<nia_ids::GlobalDefId>,
-    ) -> Option<nia_comptime_check::ComptimeValue> {
-        if active.contains(&def_id) {
-            return None;
-        }
-        let value = self.global_comptime_initializer(def_id)?.clone();
-        active.push(def_id);
-        let mut env = BirComptimeEnv {
-            checker: self,
-            module_id: def_id.module_id,
-            active,
-        };
-        let value = nia_comptime_engine::eval_comptime_expr(&value, &mut env).ok();
-        active.pop();
-        value
-    }
-
-    fn global_comptime_initializer(
-        &self,
-        def_id: nia_ids::GlobalDefId,
-    ) -> Option<&nia_comptime_ir::ComptimeExpr> {
+        let key = nia_comptime_check::ComptimeKey::Global(def_id);
         if def_id.module_id == self.defs.module_id {
-            return self.comptime_module.global_initializers.get(&def_id);
+            return self.comptime.values.get(&key).cloned();
         }
-        self.program_comptime_modules
-            .get(&def_id.module_id)?
-            .global_initializers
-            .get(&def_id)
-    }
-
-    fn global_comptime_id_in_module(
-        &self,
-        module_id: nia_ids::ModuleId,
-        span: Span,
-    ) -> Option<nia_ids::GlobalDefId> {
-        if let Some(global_id) = self.values.qualified_values.get(&span).copied()
-            && self.global_def_kind(global_id) == Some(nia_defs::DefKind::Comptime)
-        {
-            return Some(global_id);
-        }
-        let module_defs = self.defs_for_module(module_id)?;
-        let nia_value_resolve::ValueNameResolution::Def(def_id) = self.values.names.get(&span)?
-        else {
-            return None;
-        };
-        let def = module_defs.defs.get(*def_id)?;
-        (def.kind == nia_defs::DefKind::Comptime).then_some(nia_ids::GlobalDefId {
-            module_id,
-            def_id: *def_id,
-        })
+        self.program_comptime
+            .get(&def_id.module_id)
+            .and_then(|comptime| comptime.values.get(&key))
+            .cloned()
     }
 
     fn empty_struct_literal_expr(&mut self, ty: nia_ids::InternedTyId, block: &Block) -> bool {
@@ -1634,82 +1581,5 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinReceiverKind::Value => receiver.clone(),
         }
-    }
-}
-
-struct BirComptimeEnv<'a, 'b> {
-    checker: &'a BodyChecker<'a>,
-    module_id: nia_ids::ModuleId,
-    active: &'b mut Vec<nia_ids::GlobalDefId>,
-}
-
-impl nia_comptime_engine::ComptimeEnv for BirComptimeEnv<'_, '_> {
-    fn resolve_ident(
-        &mut self,
-        span: Span,
-        name: &str,
-    ) -> Result<nia_comptime_check::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let def_id = self
-            .checker
-            .global_comptime_id_in_module(self.module_id, span)
-            .ok_or_else(|| nia_comptime_engine::ComptimeError {
-                span,
-                message: format!("comptime expression can only use comptime bindings: `{name}`"),
-            })?;
-        self.checker
-            .global_comptime_value_for_env(def_id, self.active)
-            .ok_or_else(|| nia_comptime_engine::ComptimeError {
-                span,
-                message: format!("failed to evaluate comptime value `{name}`"),
-            })
-    }
-
-    fn resolve_name_resolution(
-        &mut self,
-        span: Span,
-        resolution: nia_comptime_engine::ComptimeNameResolution,
-        name: &str,
-    ) -> Result<nia_comptime_check::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let nia_comptime_engine::ComptimeNameResolution::Global(def_id) = resolution else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: format!("comptime expression can only use comptime bindings: `{name}`"),
-            });
-        };
-        if self.checker.global_def_kind(def_id) != Some(nia_defs::DefKind::Comptime) {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: format!("comptime expression can only use comptime bindings: `{name}`"),
-            });
-        }
-        self.checker
-            .global_comptime_value_for_env(def_id, self.active)
-            .ok_or_else(|| nia_comptime_engine::ComptimeError {
-                span,
-                message: format!("failed to evaluate comptime value `{name}`"),
-            })
-    }
-
-    fn resolve_layout_builtin(
-        &mut self,
-        span: Span,
-        builtin: nia_ids::LayoutBuiltin,
-        type_arg_span: Span,
-    ) -> Result<nia_comptime_check::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let ty_id = self.checker.ty_for_span(type_arg_span);
-        let Some(layout) = self.checker.layout_of(ty_id) else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: format!(
-                    "cannot compute layout for comptime builtin `@{}`",
-                    builtin.name()
-                ),
-            });
-        };
-        let value = match builtin {
-            nia_ids::LayoutBuiltin::Size => layout.size,
-            nia_ids::LayoutBuiltin::Align => layout.align,
-        };
-        Ok(nia_comptime_check::ComptimeValue::Int(value as i128))
     }
 }
