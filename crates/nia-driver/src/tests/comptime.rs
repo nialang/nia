@@ -2484,6 +2484,32 @@ comptime let casted: f32 = 1e40f64 as f32;
 }
 
 #[test]
+fn comptime_nested_values_validate_primitive_ranges() {
+    let root = temp_dir("comptime_nested_values_validate_primitive_ranges");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let bytes: [2]u8 = [1u16, 300u16];
+comptime let config = {values: [1u16, 300u16]};
+comptime let selected: u8 = config.values[1];
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let count = program
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("out of range for u8")
+        })
+        .count();
+    assert!(count >= 2, "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_string_literals_are_typed_arrays");
     write(
