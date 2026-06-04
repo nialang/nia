@@ -36,6 +36,8 @@ pub(super) struct CompilerQueryProviders {
     pub(super) comptime: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeCheck,
     pub(super) program_comptime: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ComptimeCheck>,
     pub(super) layouts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_layout::Layouts,
+    pub(super) program_layouts:
+        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, nia_layout::Layouts>,
     pub(super) abi_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_abi_check::AbiCheck,
     pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
@@ -81,6 +83,7 @@ impl Default for CompilerQueryProviders {
             comptime: provide_comptime,
             program_comptime: provide_program_comptime,
             layouts: provide_layouts,
+            program_layouts: provide_program_layouts,
             abi_check: provide_abi_check,
             static_check: provide_static_check,
             flow_check: provide_flow_check,
@@ -520,6 +523,15 @@ pub(super) fn provide_layouts(
     )
 }
 
+pub(super) fn provide_program_layouts(
+    db: &QueryDb<DriverContext>,
+) -> HashMap<ModuleId, nia_layout::Layouts> {
+    db.query(ParseOkModuleIdsQuery)
+        .into_iter()
+        .map(|module_id| (module_id, db.query(LayoutsQuery(module_id))))
+        .collect()
+}
+
 pub(super) fn provide_abi_check(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
@@ -606,6 +618,7 @@ pub(super) fn provide_body_check(
     let comptime = db.query(ComptimeQuery(module_id));
     let comptime_module = db.query(ComptimeModuleQuery(module_id));
     let layouts = db.query(LayoutsQuery(module_id));
+    let program_layouts = db.query(ProgramLayoutsQuery);
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let program_signatures = db.query(ProgramSignaturesQuery);
     let module_ids = db.query(ParseOkModuleIdsQuery);
@@ -638,6 +651,7 @@ pub(super) fn provide_body_check(
                 type_lowerings: Some(&program_type_lowerings),
                 type_normalizations: Some(&program_type_normalizations),
                 signatures: Some(&program_item_signatures),
+                layouts: Some(&program_layouts),
             },
             program_signatures: program_signatures.maps(),
             program_comptime: nia_body_check::ProgramComptimeMaps {

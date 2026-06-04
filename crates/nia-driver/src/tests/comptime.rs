@@ -3561,8 +3561,7 @@ fn main() i32 {
 
 #[test]
 fn comptime_function_returned_target_string_validates_char_array_length() {
-    let root =
-        temp_dir("comptime_function_returned_target_string_validates_char_array_length");
+    let root = temp_dir("comptime_function_returned_target_string_validates_char_array_length");
     write(
         &root.join("main.nia"),
         r#"
@@ -3694,8 +3693,7 @@ fn main() i32 {
 
 #[test]
 fn imported_comptime_function_return_rejects_imported_array_length_mismatch() {
-    let root =
-        temp_dir("imported_comptime_function_return_rejects_imported_array_length_mismatch");
+    let root = temp_dir("imported_comptime_function_return_rejects_imported_array_length_mismatch");
     write(
         &root.join("config.nia"),
         r#"
@@ -4354,6 +4352,37 @@ pub comptime let pair_size: usize = @size[Pair]();
 import .config;
 
 comptime let n: usize = config::pair_size;
+
+fn main() i32 {
+    var bytes: [n]u8 = [0; n];
+    bytes.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn layout_builtin_uses_imported_comptime_array_lengths() {
+    let root = temp_dir("layout_builtin_uses_imported_comptime_array_lengths");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime let N: usize = 4usize;
+
+pub struct Packet {
+    bytes: [N]u8,
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime let n: usize = @size[config::Packet]();
 
 fn main() i32 {
     var bytes: [n]u8 = [0; n];

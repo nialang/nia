@@ -108,7 +108,7 @@ pub trait ComptimeEnv {
         &mut self,
         span: Span,
         builtin: LayoutBuiltin,
-        type_arg_span: Span,
+        type_arg: &ComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError>;
 
     fn call_function(
@@ -243,7 +243,7 @@ impl ComptimeEnv for EmptyEnv {
         &mut self,
         span: Span,
         _builtin: LayoutBuiltin,
-        _type_arg_span: Span,
+        _type_arg: &ComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
@@ -386,7 +386,7 @@ fn eval_comptime_expr_flow(
             }
             ComptimeExprKind::Builtin {
                 name,
-                type_arg_span: Some(type_arg_span),
+                type_arg: Some(type_arg),
             } => {
                 let Some(builtin) = LayoutBuiltin::from_name(name) else {
                     return Err(ComptimeError {
@@ -394,22 +394,18 @@ fn eval_comptime_expr_flow(
                         message: format!("unsupported builtin in comptime expression: @{name}"),
                     });
                 };
-                env.resolve_layout_builtin(expr.span, builtin, *type_arg_span)?
+                env.resolve_layout_builtin(expr.span, builtin, type_arg)?
             }
             ComptimeExprKind::Builtin {
                 name,
-                type_arg_span: None,
+                type_arg: None,
             } => env.resolve_builtin_value(expr.span, name)?,
             ComptimeExprKind::Call {
                 callee,
                 type_args,
                 args,
             } => {
-                if let ComptimeExprKind::Builtin {
-                    name,
-                    type_arg_span,
-                } = &callee.kind
-                {
+                if let ComptimeExprKind::Builtin { name, type_arg } = &callee.kind {
                     if !args.is_empty() {
                         return Err(ComptimeError {
                             span: expr.span,
@@ -418,7 +414,7 @@ fn eval_comptime_expr_flow(
                             ),
                         });
                     }
-                    if let Some(type_arg_span) = type_arg_span {
+                    if let Some(type_arg) = type_arg {
                         let Some(builtin) = LayoutBuiltin::from_name(name) else {
                             return Err(ComptimeError {
                                 span: expr.span,
@@ -427,7 +423,7 @@ fn eval_comptime_expr_flow(
                                 ),
                             });
                         };
-                        env.resolve_layout_builtin(expr.span, builtin, *type_arg_span)?
+                        env.resolve_layout_builtin(expr.span, builtin, type_arg)?
                     } else {
                         env.resolve_builtin_value(expr.span, name)?
                     }
@@ -2468,7 +2464,7 @@ fn main() bool {
             &mut self,
             span: Span,
             _builtin: LayoutBuiltin,
-            _type_arg_span: Span,
+            _type_arg: &ComptimeTypeArg,
         ) -> Result<ComptimeValue, ComptimeError> {
             Err(ComptimeError {
                 span,
@@ -2502,7 +2498,7 @@ fn main() bool {
             &mut self,
             span: Span,
             _builtin: LayoutBuiltin,
-            _type_arg_span: Span,
+            _type_arg: &ComptimeTypeArg,
         ) -> Result<ComptimeValue, ComptimeError> {
             Err(ComptimeError {
                 span,

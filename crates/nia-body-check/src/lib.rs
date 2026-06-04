@@ -71,6 +71,7 @@ pub struct BodyProgramContext<'a> {
     pub type_lowerings: Option<&'a HashMap<ModuleId, TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, TypeNormalization>>,
     pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
+    pub layouts: Option<&'a HashMap<ModuleId, Layouts>>,
 }
 
 impl<'a> BodyProgramContext<'a> {
@@ -80,6 +81,7 @@ impl<'a> BodyProgramContext<'a> {
             type_lowerings: None,
             type_normalizations: None,
             signatures: None,
+            layouts: None,
         }
     }
 }

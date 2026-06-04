@@ -234,7 +234,7 @@ pub enum ComptimeExprKind {
     },
     Builtin {
         name: String,
-        type_arg_span: Option<Span>,
+        type_arg: Option<ComptimeTypeArg>,
     },
     Call {
         callee: Box<ComptimeExpr>,
@@ -372,6 +372,16 @@ pub struct ComptimeTypeArg {
     pub ty: Option<InternedTyId>,
 }
 
+impl ComptimeTypeArg {
+    fn from_type_ref(ty: &nia_ast::TypeRef, context: &ComptimeLowerContext<'_>) -> Self {
+        Self {
+            span: ty.span,
+            ty_span: ty.span,
+            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComptimeLowerError {
     pub span: Span,
@@ -474,7 +484,9 @@ pub fn lower_expr_with_context(
         },
         nia_ast::ExprKind::Builtin { name, type_arg } => ComptimeExprKind::Builtin {
             name: name.clone(),
-            type_arg_span: type_arg.as_ref().map(|ty| ty.span),
+            type_arg: type_arg
+                .as_ref()
+                .map(|ty| ComptimeTypeArg::from_type_ref(ty, context)),
         },
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => ComptimeExprKind::Unary {

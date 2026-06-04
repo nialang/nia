@@ -986,8 +986,13 @@ impl Analyzer<'_> {
             if let Some(span) = this.initializer_span_for_key(key) {
                 this.validate_typed_value(span, &value, &ty);
             }
-            this.typed_values
-                .insert(key, TypedComptimeValue { value: value.clone(), ty });
+            this.typed_values.insert(
+                key,
+                TypedComptimeValue {
+                    value: value.clone(),
+                    ty,
+                },
+            );
             value
         })
     }
@@ -1375,7 +1380,10 @@ impl Analyzer<'_> {
         let Some(TyKind::Array { elem, .. }) = self.ty_kind(ty) else {
             return false;
         };
-        matches!(self.ty_kind(elem), Some(TyKind::Primitive(PrimitiveTy::Char)))
+        matches!(
+            self.ty_kind(elem),
+            Some(TyKind::Primitive(PrimitiveTy::Char))
+        )
     }
 
     fn push_comptime_type_mismatch(&mut self, span: Span, expected: &str) {
@@ -1899,6 +1907,7 @@ impl Analyzer<'_> {
         ty: nia_ids::InternedTyId,
     ) -> Result<ComptimeValue, ComptimeError> {
         let module_id = self.current_execution_module_id();
+        let layout_array_lengths = self.program_array_lengths_for_layout(ty);
         if self.ensure_working_interner(module_id).is_none() {
             return Err(ComptimeError {
                 span,
@@ -1929,8 +1938,9 @@ impl Analyzer<'_> {
                 message: "cannot compute layout without normalized module types".to_string(),
             });
         };
-        let array_lengths = |id| self.array_lengths.get(&id).copied();
-        let layout_query = |module_id| self.compute_program_layout(module_id, &self.array_lengths);
+        let array_lengths = |id| layout_array_lengths.get(&id).copied();
+        let layout_query =
+            |module_id| self.compute_program_layout(module_id, &layout_array_lengths);
         let layouts = nia_layout::compute_layouts_with_program_context(
             defs,
             interner,
@@ -1944,6 +1954,29 @@ impl Analyzer<'_> {
             },
         );
         let ty = normalized.get(&ty).copied().unwrap_or(ty);
+        if let Some(TyKind::Nominal { def_id, args }) = self.ty_kind(ty)
+            && (def_id.module_id != module_id || ty.interner_id != module_id)
+            && let Some(layouts) =
+                self.compute_program_layout(def_id.module_id, &layout_array_lengths)
+            && let Some(layout) = layouts.nominal_type_layout(def_id, &args)
+        {
+            let value = match builtin {
+                LayoutBuiltin::Size => layout.size,
+                LayoutBuiltin::Align => layout.align,
+            };
+            return Ok(ComptimeValue::Int(value as i128));
+        }
+        if ty.interner_id != module_id
+            && let Some(layouts) =
+                self.compute_program_layout(ty.interner_id, &layout_array_lengths)
+            && let Some(layout) = layouts.types.get(&ty)
+        {
+            let value = match builtin {
+                LayoutBuiltin::Size => layout.size,
+                LayoutBuiltin::Align => layout.align,
+            };
+            return Ok(ComptimeValue::Int(value as i128));
+        }
         let Some(layout) = layouts.types.get(&ty) else {
             return Err(ComptimeError {
                 span,
@@ -1958,6 +1991,128 @@ impl Analyzer<'_> {
             LayoutBuiltin::Align => layout.align,
         };
         Ok(ComptimeValue::Int(value as i128))
+    }
+
+    fn program_array_lengths_for_layout(
+        &mut self,
+        ty: InternedTyId,
+    ) -> HashMap<GlobalConstExprId, u64> {
+        let mut array_lengths = self.array_lengths.clone();
+        let mut needed = HashSet::new();
+        self.collect_array_len_const_exprs_in_ty(ty, &mut needed);
+        for id in needed {
+            if array_lengths.contains_key(&id) {
+                continue;
+            }
+            if let Some(value) = self.eval_array_len_const_expr_id(id) {
+                array_lengths.insert(id, value);
+            }
+        }
+        array_lengths
+    }
+
+    fn collect_array_len_const_exprs_in_ty(
+        &self,
+        ty: InternedTyId,
+        out: &mut HashSet<GlobalConstExprId>,
+    ) {
+        self.collect_array_len_const_exprs_in_ty_inner(ty, out, &mut HashSet::new());
+    }
+
+    fn collect_array_len_const_exprs_in_ty_inner(
+        &self,
+        ty: InternedTyId,
+        out: &mut HashSet<GlobalConstExprId>,
+        seen: &mut HashSet<InternedTyId>,
+    ) {
+        if !seen.insert(ty) {
+            return;
+        }
+        match self.ty_kind(ty) {
+            Some(TyKind::Array { len, elem }) => {
+                if let ArrayLenTy::ConstExpr(id) = len {
+                    out.insert(id);
+                }
+                self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
+            }
+            Some(TyKind::Optional { elem })
+            | Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. }) => {
+                self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.collect_array_len_const_exprs_in_ty_inner(error, out, seen);
+                self.collect_array_len_const_exprs_in_ty_inner(value, out, seen);
+            }
+            Some(TyKind::Range {
+                bound: Some(bound), ..
+            }) => {
+                self.collect_array_len_const_exprs_in_ty_inner(bound, out, seen);
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                for param in params {
+                    self.collect_array_len_const_exprs_in_ty_inner(param, out, seen);
+                }
+                self.collect_array_len_const_exprs_in_ty_inner(return_type, out, seen);
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                for arg in args {
+                    self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
+                }
+                let Some(signatures) = self.signatures_for_module(def_id.module_id) else {
+                    return;
+                };
+                if let Some(signature) = signatures.structs.get(&def_id.def_id) {
+                    for field in &signature.fields {
+                        self.collect_array_len_const_exprs_in_ty_inner(field.ty, out, seen);
+                    }
+                }
+                if let Some(signature) = signatures.unions.get(&def_id.def_id) {
+                    for field in &signature.fields {
+                        self.collect_array_len_const_exprs_in_ty_inner(field.ty, out, seen);
+                    }
+                }
+            }
+            Some(TyKind::BuiltinTrait { args, .. }) => {
+                for arg in args {
+                    self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
+                }
+            }
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                for arg in trait_args {
+                    self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
+                }
+                for binding in associated_type_bindings {
+                    self.collect_array_len_const_exprs_in_ty_inner(binding.ty, out, seen);
+                }
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.collect_array_len_const_exprs_in_ty_inner(self_ty, out, seen);
+                for arg in trait_args {
+                    self.collect_array_len_const_exprs_in_ty_inner(arg, out, seen);
+                }
+            }
+            Some(
+                TyKind::Range { bound: None, .. }
+                | TyKind::Error
+                | TyKind::ComptimeOnly
+                | TyKind::GenericParam(_)
+                | TyKind::Primitive(_),
+            )
+            | None => {}
+        }
     }
 
     fn compute_program_layout(
@@ -2263,7 +2418,7 @@ impl Analyzer<'_> {
             ComptimeExprKind::Switch(switch) => self.comptime_switch_expr_type(switch, expected),
             ComptimeExprKind::Builtin {
                 name,
-                type_arg_span: None,
+                type_arg: None,
             } if name == "builtin" => Some(self.builtin_comptime_type()),
             ComptimeExprKind::Call { callee, args, .. }
                 if args.is_empty() && self.is_builtin_value_callee(callee, "builtin") =>
@@ -3703,7 +3858,7 @@ impl Analyzer<'_> {
             &callee.kind,
             ComptimeExprKind::Builtin {
                 name,
-                type_arg_span: None
+                type_arg: None
             } if name == expected
         )
     }
@@ -4037,7 +4192,11 @@ impl Analyzer<'_> {
         if ty.interner_id == target_module_id {
             return Some(ty);
         }
-        let source_interner = self.source_interner_for_module(ty.interner_id)?.clone();
+        let source_interner = self
+            .working_interners
+            .get(&ty.interner_id)
+            .cloned()
+            .or_else(|| self.source_interner_for_module(ty.interner_id).cloned())?;
         let target = self.working_interners.get_mut(&target_module_id)?;
         Some(import_type_into(target, &source_interner, ty))
     }
@@ -4250,9 +4409,18 @@ impl ComptimeEnv for Analyzer<'_> {
         &mut self,
         span: Span,
         builtin: LayoutBuiltin,
-        type_arg_span: Span,
+        type_arg: &ComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let Some(ty_id) = self.ty_for_span(type_arg_span) else {
+        let module_id = self.current_execution_module_id();
+        let ty_id = type_arg
+            .ty
+            .and_then(|ty| {
+                self.ensure_working_interner(module_id)?;
+                self.import_ty_into_module_or_none(ty, module_id)
+            })
+            .map(|ty| self.substitute_ty_generics(ty))
+            .or_else(|| self.ty_for_span(type_arg.ty_span));
+        let Some(ty_id) = ty_id else {
             return Err(ComptimeError {
                 span,
                 message: format!(

@@ -78,6 +78,21 @@ impl QueryKey<DriverContext> for LayoutsQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct ProgramLayoutsQuery;
+
+impl QueryKey<DriverContext> for ProgramLayoutsQuery {
+    type Value = HashMap<ModuleId, nia_layout::Layouts>;
+
+    fn name() -> &'static str {
+        "program_layouts"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.program_layouts)(db)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct AbiCheckQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for AbiCheckQuery {
