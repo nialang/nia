@@ -625,10 +625,10 @@ struct Analyzer<'a> {
 struct ComptimeCallFrame {
     module_id: Option<ModuleId>,
     locals: HashMap<LocalId, ComptimeValue>,
-    typed_locals: HashMap<LocalId, TypedComptimeValue>,
+    local_types: HashMap<LocalId, ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
     names: HashMap<String, ComptimeValue>,
-    typed_names: HashMap<String, TypedComptimeValue>,
+    name_types: HashMap<String, ComptimeValueType>,
     type_substitutions: HashMap<String, InternedTyId>,
 }
 
@@ -1281,9 +1281,8 @@ impl Analyzer<'_> {
                 resolution: Some(nia_comptime_engine::ComptimeNameResolution::Local(local_id)),
                 name,
             } => self
-                .call_local_typed_value(*local_id)
-                .or_else(|| self.call_local_name_typed_value(name))
-                .map(|typed| typed.ty)
+                .call_local_type(*local_id)
+                .or_else(|| self.call_local_name_type(name))
                 .or_else(|| {
                     self.typed_values
                         .get(&ComptimeKey::Local(*local_id))
@@ -1361,6 +1360,11 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeExprKind::Unary { op, expr: inner } => {
                 self.comptime_unary_expr_type(*op, inner)
             }
+            nia_comptime_engine::ComptimeExprKind::If {
+                then_branch,
+                else_branch,
+                ..
+            } => self.comptime_if_expr_type(then_branch, else_branch.as_deref(), expected),
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
                 type_arg_span: None,
@@ -1386,8 +1390,107 @@ impl Analyzer<'_> {
                     .find(|field| field.name == *name)
                     .map(|field| field.ty)
             }
+            nia_comptime_engine::ComptimeExprKind::Block(block) => {
+                self.comptime_block_tail_type(block, expected)
+            }
             _ => None,
         }
+    }
+
+    fn comptime_if_expr_type(
+        &mut self,
+        then_branch: &ComptimeBlock,
+        else_branch: Option<&ComptimeExpr>,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
+        let then_ty = self
+            .comptime_block_tail_runtime_type(then_branch, expected)
+            .or_else(|| self.comptime_block_tail_runtime_type(then_branch, None))?;
+        let else_branch = else_branch?;
+        let else_ty = expected
+            .and_then(|expected| self.comptime_arg_runtime_type(else_branch, Some(expected)))
+            .filter(|else_ty| *else_ty == then_ty)
+            .or_else(|| self.comptime_arg_runtime_type(else_branch, Some(then_ty)))?;
+        (then_ty == else_ty).then_some(ComptimeValueType::Runtime(then_ty))
+    }
+
+    fn usable_comptime_expected_type(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        match self.ty_kind(ty) {
+            Some(TyKind::GenericParam(_)) => None,
+            _ => Some(ty),
+        }
+    }
+
+    fn comptime_block_tail_runtime_type(
+        &mut self,
+        block: &ComptimeBlock,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        self.comptime_block_tail_type(block, expected)
+            .and_then(|ty| ty.runtime())
+    }
+
+    fn comptime_block_tail_type(
+        &mut self,
+        block: &ComptimeBlock,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        if block.stmts.is_empty() {
+            return self.comptime_expr_type(block.tail.as_deref()?, expected);
+        }
+        self.push_typed_comptime_scope();
+        let result = (|| {
+            for stmt in &block.stmts {
+                self.bind_typed_comptime_stmt(stmt)?;
+            }
+            self.comptime_expr_type(block.tail.as_deref()?, expected)
+        })();
+        self.pop_typed_comptime_scope();
+        result
+    }
+
+    fn bind_typed_comptime_stmt(&mut self, stmt: &nia_comptime_ir::ComptimeStmt) -> Option<()> {
+        match &stmt.kind {
+            ComptimeStmtKind::Binding(binding) => {
+                let ty = binding
+                    .explicit_type
+                    .or_else(|| self.comptime_arg_runtime_type(&binding.value, None))?;
+                let local_id = binding
+                    .local_id
+                    .or_else(|| self.input.locals.local_defs.get(&stmt.span).copied())?;
+                self.bind_comptime_local_type(
+                    local_id,
+                    &binding.name,
+                    ComptimeValueType::Runtime(ty),
+                );
+                Some(())
+            }
+            ComptimeStmtKind::Expr(_)
+            | ComptimeStmtKind::If { .. }
+            | ComptimeStmtKind::ForIn(_)
+            | ComptimeStmtKind::While { .. }
+            | ComptimeStmtKind::Loop { .. } => Some(()),
+            ComptimeStmtKind::Return(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
+                None
+            }
+        }
+    }
+
+    fn push_typed_comptime_scope(&mut self) {
+        self.call_locals.push(ComptimeCallFrame::default());
+    }
+
+    fn pop_typed_comptime_scope(&mut self) {
+        self.call_locals.pop();
+    }
+
+    fn bind_comptime_local_type(&mut self, local_id: LocalId, name: &str, ty: ComptimeValueType) {
+        let Some(frame) = self.call_locals.last_mut() else {
+            return;
+        };
+        frame.local_types.insert(local_id, ty.clone());
+        frame.name_types.insert(name.to_string(), ty);
     }
 
     fn comptime_unary_expr_type(
@@ -1553,18 +1656,18 @@ impl Analyzer<'_> {
         )
     }
 
-    fn call_local_typed_value(&self, local_id: LocalId) -> Option<TypedComptimeValue> {
+    fn call_local_type(&self, local_id: LocalId) -> Option<ComptimeValueType> {
         self.call_locals
             .iter()
             .rev()
-            .find_map(|frame| frame.typed_locals.get(&local_id).cloned())
+            .find_map(|frame| frame.local_types.get(&local_id).cloned())
     }
 
-    fn call_local_name_typed_value(&self, name: &str) -> Option<TypedComptimeValue> {
+    fn call_local_name_type(&self, name: &str) -> Option<ComptimeValueType> {
         self.call_locals
             .iter()
             .rev()
-            .find_map(|frame| frame.typed_names.get(name).cloned())
+            .find_map(|frame| frame.name_types.get(name).cloned())
     }
 
     fn builtin_comptime_type(&self) -> ComptimeValueType {
@@ -2410,8 +2513,8 @@ impl Analyzer<'_> {
                 value,
                 ty: ComptimeValueType::Runtime(ty),
             };
-            frame.typed_locals.insert(local_id, typed.clone());
-            frame.typed_names.insert(name.to_string(), typed);
+            frame.local_types.insert(local_id, typed.ty.clone());
+            frame.name_types.insert(name.to_string(), typed.ty);
         }
         Ok(())
     }
@@ -2433,9 +2536,8 @@ impl Analyzer<'_> {
                 }
                 frame.locals.insert(local_id, value.clone());
                 frame.names.insert(name.to_string(), value.clone());
-                if let Some(previous) = frame.typed_locals.get_mut(&local_id) {
-                    previous.value = value.clone();
-                    frame.typed_names.insert(name.to_string(), previous.clone());
+                if let Some(previous) = frame.local_types.get(&local_id).cloned() {
+                    frame.name_types.insert(name.to_string(), previous);
                 }
                 return Ok(());
             }

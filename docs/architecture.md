@@ -624,6 +624,20 @@ types, for example `E!T` can type `!value` when `E` is already concrete, while
 still refusing to invent the missing half of an error union from the value
 shape alone.
 
+Comptime block expressions are typed from their tail expression. A block with
+statements creates a typed comptime scope in the checker, records local binding
+types from explicit annotations or inferable initializer expressions, and then
+types the tail inside that scope. This remains a semantic typing operation; the
+engine still owns value execution and the checker does not execute statement
+effects just to discover a block tail type.
+
+Comptime `if` expressions are typed from branch result types. The then block
+tail and else expression are both typed through the same source-shaped comptime
+expression rules, including nested block expressions and contextual
+constructors such as `null`. Both selected result shapes must agree on the same
+runtime Nia type before the `if` expression can feed generic comptime call
+inference.
+
 Comptime function calls are typed by their signatures in the same layer. Generic
 type arguments are inferred from typed argument expressions, substituted into
 the return type, and then imported into the current execution module's working
