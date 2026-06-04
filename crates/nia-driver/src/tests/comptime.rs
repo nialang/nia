@@ -125,6 +125,35 @@ fn main() i32 {
 }
 
 #[test]
+fn imported_comptime_functions_are_ordinary_comptime_values() {
+    let root = temp_dir("imported_comptime_functions_are_ordinary_comptime_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime let width: usize = config::width(2);
+
+fn main() i32 {
+    var values: [width]i32 = [0; width];
+    values.len() as i32
+}
+"#,
+    );
+    write(
+        &root.join("config.nia"),
+        r#"
+pub comptime fn width(base: usize) usize {
+    base + 2
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn runtime_call_to_comptime_function_is_rejected() {
     let root = temp_dir("runtime_call_to_comptime_function_is_rejected");
     write(

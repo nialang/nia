@@ -2,7 +2,7 @@
 use nia_ast::{BinaryOp, Expr, FunctionItem, UnaryOp};
 pub use nia_comptime_ir::{
     ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeFunction,
-    ComptimeLowerError, ComptimeParam, ComptimeStmt, ComptimeStmtKind,
+    ComptimeLowerError, ComptimeNameResolution, ComptimeParam, ComptimeStmt, ComptimeStmtKind,
 };
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
@@ -24,6 +24,16 @@ pub struct ComptimeError {
 
 pub trait ComptimeEnv {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError>;
+
+    fn resolve_name_resolution(
+        &mut self,
+        span: Span,
+        resolution: ComptimeNameResolution,
+        name: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = resolution;
+        self.resolve_ident(span, name)
+    }
 
     fn resolve_builtin_value(
         &mut self,
@@ -144,8 +154,14 @@ pub fn eval_comptime_expr(
                     message,
                 })
         }
-        ComptimeExprKind::Ident(name) => env.resolve_ident(expr.span, name),
-        ComptimeExprKind::Qualified { name } => env.resolve_ident(expr.span, name),
+        ComptimeExprKind::Ident { name, resolution }
+        | ComptimeExprKind::Qualified { name, resolution } => {
+            if let Some(resolution) = resolution {
+                env.resolve_name_resolution(expr.span, *resolution, name)
+            } else {
+                env.resolve_ident(expr.span, name)
+            }
+        }
         ComptimeExprKind::Field { lhs, name } => match eval_comptime_expr(lhs, env)? {
             ComptimeValue::Struct(fields) => {
                 fields.get(name).cloned().ok_or_else(|| ComptimeError {

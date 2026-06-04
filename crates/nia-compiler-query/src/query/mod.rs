@@ -12,7 +12,8 @@ use crate::{
 };
 use nia_ast::Module;
 use nia_backend_lower::BackendLowerModuleInput;
-use nia_comptime_check::ComptimeCheck;
+use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
+use nia_comptime_ir::ComptimeModule;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
@@ -459,13 +460,17 @@ fn main() i32 {
         let trace = db.query_trace();
 
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "comptime" && dependency.to.name == "program_modules_by_id"
+            dependency.from.name == "comptime" && dependency.to.name == "comptime_module"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "comptime" && dependency.to.name == "program_comptime_modules"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "comptime" && dependency.to.name == "program_defs_by_id"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "program_modules_by_id" && dependency.to.name == "loaded_module"
+            dependency.from.name == "program_comptime_modules"
+                && dependency.to.name == "comptime_module"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"

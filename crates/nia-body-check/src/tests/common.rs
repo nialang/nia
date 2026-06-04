@@ -37,8 +37,21 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         signatures.diagnostics
     );
     let target = nia_target_config::TargetConfig::host();
+    let comptime_module =
+        nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            const_exprs: &lowered.const_exprs,
+        });
+    assert!(
+        comptime_module.diagnostics.is_empty(),
+        "{:?}",
+        comptime_module.diagnostics
+    );
     let comptime = nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &module,
+        module: &comptime_module.module,
         defs: &defs,
         values: &values,
         locals: &locals,
@@ -46,7 +59,6 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         interner: &lowered.interner,
         type_uses: &lowered.type_uses,
         normalized: &std::collections::HashMap::new(),
-        const_exprs: &lowered.const_exprs,
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
     });
@@ -111,6 +123,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         signatures: &signatures,
         normalization: &normalization,
         comptime: &comptime,
+        comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
         extension_interner: None,
@@ -127,6 +140,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
+            modules: &HashMap::new(),
         },
     })
 }

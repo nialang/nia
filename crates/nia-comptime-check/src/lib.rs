@@ -3,6 +3,9 @@ use std::collections::{HashMap, HashSet};
 
 use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
+use nia_comptime_ir::{
+    ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeModule, ComptimeNameResolution,
+};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, LayoutBuiltin, LocalId, ModuleId};
@@ -31,7 +34,7 @@ pub use nia_comptime_engine::ComptimeValue;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComptimeInput<'a> {
-    pub module: &'a Module,
+    pub module: &'a ComptimeModule,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
@@ -39,14 +42,28 @@ pub struct ComptimeInput<'a> {
     pub interner: &'a TyInterner,
     pub type_uses: &'a HashMap<Span, nia_ids::InternedTyId>,
     pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
-    pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
     pub target: &'a TargetConfig,
     pub program: ComptimeProgramContext<'a>,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ComptimeModuleLowering {
+    pub module: ComptimeModule,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ComptimeModuleInput<'a> {
+    pub module: &'a Module,
+    pub defs: &'a DefCollection,
+    pub values: &'a ValueResolution,
+    pub locals: &'a LocalResolution,
+    pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ComptimeProgramContext<'a> {
-    pub modules: Option<&'a HashMap<ModuleId, Module>>,
+    pub modules: Option<&'a HashMap<ModuleId, ComptimeModule>>,
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
 }
 
@@ -56,6 +73,19 @@ impl<'a> ComptimeProgramContext<'a> {
             modules: None,
             defs: None,
         }
+    }
+}
+
+pub fn lower_module_comptime(input: ComptimeModuleInput<'_>) -> ComptimeModuleLowering {
+    let mut lowerer = ComptimeModuleLowerer {
+        input,
+        module: ComptimeModule::default(),
+        diagnostics: Vec::new(),
+    };
+    lowerer.lower_module();
+    ComptimeModuleLowering {
+        module: lowerer.module,
+        diagnostics: lowerer.diagnostics,
     }
 }
 
@@ -78,164 +108,197 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
     }
 }
 
-struct Analyzer<'a> {
-    input: ComptimeInput<'a>,
-    values: HashMap<ComptimeKey, ComptimeValue>,
-    call_locals: Vec<HashMap<LocalId, ComptimeValue>>,
-    enum_values: HashMap<DefId, ComptimeValue>,
-    array_lengths: HashMap<GlobalConstExprId, u64>,
+struct ComptimeModuleLowerer<'a> {
+    input: ComptimeModuleInput<'a>,
+    module: ComptimeModule,
     diagnostics: Vec<Diagnostic>,
-    active: HashSet<ComptimeKey>,
 }
 
-impl Analyzer<'_> {
-    fn analyze_module(&mut self) {
+impl ComptimeModuleLowerer<'_> {
+    fn lower_module(&mut self) {
         for item in &self.input.module.items {
-            if let ItemKind::Enum(item_enum) = &item.kind {
-                self.eval_enum(item.span, item_enum);
-            }
-            if let ItemKind::Binding(binding) = &item.kind
-                && binding.is_comptime
-                && let Some(def_id) = self.def_id_for_span(item.span, DefKind::Comptime)
-            {
-                let key = ComptimeKey::Global(self.global_def_id(def_id));
-                let _ = self.eval_key(key, item.span);
+            match &item.kind {
+                ItemKind::Enum(item_enum) => self.lower_enum(item.span, item_enum),
+                ItemKind::Binding(binding) if binding.is_comptime => {
+                    self.lower_global_initializer(item.span, binding.value.as_ref())
+                }
+                ItemKind::Function(function) if function.is_comptime => {
+                    self.lower_function(item.span, function)
+                }
+                ItemKind::Extend(extend) => {
+                    for method in &extend.methods {
+                        if method.function.is_comptime {
+                            self.lower_function(method.function.span, &method.function);
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         for (local_id, local) in self.input.locals.locals.iter() {
-            if local.kind == LocalKind::ComptimeBinding {
-                let _ = self.eval_key(ComptimeKey::Local(local_id), local.span);
+            if local.kind == LocalKind::ComptimeBinding
+                && let Some(expr) = self.local_initializer(local_id)
+                && let Some(lowered) = self.lower_expr(&expr)
+            {
+                self.module.local_initializers.insert(local_id, lowered);
             }
         }
         for (id, expr) in self.input.const_exprs {
-            let expr = expr.clone();
-            if let Some(value) = self.eval_array_len_expr(&expr) {
-                self.array_lengths.insert(*id, value);
+            if let Some(lowered) = self.lower_expr(expr) {
+                self.module.const_exprs.insert(*id, lowered);
             }
         }
     }
 
-    fn eval_enum(&mut self, item_span: Span, item_enum: &nia_ast::EnumItem) {
+    fn lower_enum(&mut self, item_span: Span, item_enum: &nia_ast::EnumItem) {
         let Some(enum_id) = self.def_id_for_span(item_span, DefKind::Enum) else {
             return;
         };
-        let range = self.enum_backing_range(enum_id);
-        let mut next_value = 0i128;
-        for variant in &item_enum.variants {
-            let Some(variant_id) = self.def_id_for_span(variant.span, DefKind::EnumVariant) else {
-                continue;
-            };
-            let value = if let Some(expr) = &variant.value {
-                match nia_comptime_engine::eval_int_expr(expr, self) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        self.push_engine_error(err);
-                        next_value = next_value.saturating_add(1);
-                        continue;
-                    }
-                }
-            } else {
-                next_value
-            };
-            if let Some((min, max)) = range
-                && (value < min || value > max)
-            {
-                self.diagnostics.push(Diagnostic::error(
-                    variant.span,
-                    format!("enum variant value {value} is out of range for backing type"),
-                ));
-            }
-            self.enum_values
-                .insert(variant_id, ComptimeValue::Int(value));
-            next_value = value.saturating_add(1);
+        let variants = item_enum
+            .variants
+            .iter()
+            .filter_map(|variant| {
+                let variant_id = self.def_id_for_span(variant.span, DefKind::EnumVariant)?;
+                let value = variant
+                    .value
+                    .as_ref()
+                    .and_then(|expr| self.lower_expr(expr));
+                Some(ComptimeEnumVariant {
+                    def_id: self.global_def_id(variant_id),
+                    span: variant.span,
+                    value,
+                })
+            })
+            .collect();
+        self.module.enums.push(ComptimeEnum {
+            def_id: self.global_def_id(enum_id),
+            span: item_span,
+            variants,
+        });
+    }
+
+    fn lower_global_initializer(&mut self, item_span: Span, value: Option<&Expr>) {
+        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Comptime) else {
+            return;
+        };
+        let Some(value) = value else {
+            return;
+        };
+        if let Some(value) = self.lower_expr(value) {
+            self.module
+                .global_initializers
+                .insert(self.global_def_id(def_id), value);
         }
     }
 
-    fn enum_backing_range(&self, enum_id: DefId) -> Option<(i128, i128)> {
-        let signature = self.input.signatures.enums.get(&enum_id)?;
-        let Some(TyKind::Primitive(primitive)) = self.input.interner.get(signature.backing_type)
-        else {
-            return None;
+    fn lower_function(&mut self, function_span: Span, function: &nia_ast::FunctionItem) {
+        let Some(def_id) = self.def_id_for_span(function_span, DefKind::Function) else {
+            return;
         };
-        integer_range(*primitive)
+        let function_locals = self.function_locals(function);
+        let name_resolution =
+            |span| self.name_resolution_with_allowed_locals(span, &function_locals);
+        let local_id = |span| self.input.locals.local_defs.get(&span).copied();
+        let context = nia_comptime_ir::ComptimeLowerContext {
+            name_resolution: Some(&name_resolution),
+            local_id: Some(&local_id),
+        };
+        match nia_comptime_ir::lower_function_with_context(function_span, function, &context) {
+            Ok(function) => {
+                self.module
+                    .functions
+                    .insert(self.global_def_id(def_id), function);
+            }
+            Err(err) => self
+                .diagnostics
+                .push(Diagnostic::error(err.span, err.message)),
+        }
     }
 
-    fn eval_array_len_expr(&mut self, expr: &Expr) -> Option<u64> {
-        match nia_comptime_engine::eval_array_len_expr(expr, self) {
-            Ok(value) => Some(value),
+    fn lower_expr(&mut self, expr: &Expr) -> Option<ComptimeExpr> {
+        let allowed_locals = HashSet::new();
+        let name_resolution =
+            |span| self.name_resolution_with_allowed_locals(span, &allowed_locals);
+        let local_id = |span| self.input.locals.local_defs.get(&span).copied();
+        let context = nia_comptime_ir::ComptimeLowerContext {
+            name_resolution: Some(&name_resolution),
+            local_id: Some(&local_id),
+        };
+        match nia_comptime_ir::lower_expr_with_context(expr, &context) {
+            Ok(expr) => Some(expr),
             Err(err) => {
-                self.push_engine_error(err);
+                self.diagnostics
+                    .push(Diagnostic::error(err.span, err.message));
                 None
             }
         }
     }
 
-    fn eval_key(&mut self, key: ComptimeKey, span: Span) -> Option<ComptimeValue> {
-        if let Some(value) = self.values.get(&key).cloned() {
-            return Some(value);
+    fn name_resolution_with_allowed_locals(
+        &self,
+        span: Span,
+        allowed_locals: &HashSet<LocalId>,
+    ) -> Option<ComptimeNameResolution> {
+        if let Some(local_id) = self.local_comptime_use(span) {
+            return Some(ComptimeNameResolution::Local(local_id));
         }
-        if !self.active.insert(key) {
-            self.diagnostics
-                .push(Diagnostic::error(span, "cyclic comptime dependency"));
+        if let Some(local_id) = self.local_use(span)
+            && allowed_locals.contains(&local_id)
+        {
+            return Some(ComptimeNameResolution::Local(local_id));
+        }
+        if let Some(global_id) = self.global_value_use(span) {
+            return Some(ComptimeNameResolution::Global(global_id));
+        }
+        None
+    }
+
+    fn function_locals(&self, function: &nia_ast::FunctionItem) -> HashSet<LocalId> {
+        let mut locals = HashSet::new();
+        for param in &function.params {
+            if let Some(local_id) = self.input.locals.local_defs.get(&param.span).copied() {
+                locals.insert(local_id);
+            }
+        }
+        if let Some(body) = &function.body {
+            self.collect_block_locals(body, &mut locals);
+        }
+        locals
+    }
+
+    fn collect_block_locals(&self, block: &nia_ast::Block, out: &mut HashSet<LocalId>) {
+        for stmt in &block.stmts {
+            if let nia_ast::StmtKind::Binding(_) = &stmt.kind
+                && let Some(local_id) = self.input.locals.local_defs.get(&stmt.span).copied()
+            {
+                out.insert(local_id);
+            }
+        }
+    }
+
+    fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
+        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&span) else {
             return None;
-        }
-        let result = self.initializer_for_key(key).and_then(|expr| {
-            match nia_comptime_engine::eval_expr(&expr, self) {
-                Ok(value) => Some(value),
-                Err(err) => {
-                    self.push_engine_error(err);
-                    None
-                }
-            }
-        });
-        self.active.remove(&key);
-        if let Some(value) = result.clone() {
-            self.values.insert(key, value);
-        }
-        result
-    }
-
-    fn push_engine_error(&mut self, err: ComptimeError) {
-        self.diagnostics
-            .push(Diagnostic::error(err.span, err.message));
-    }
-
-    fn initializer_for_key(&self, key: ComptimeKey) -> Option<Expr> {
-        match key {
-            ComptimeKey::Global(global_id) => self.global_initializer(global_id),
-            ComptimeKey::Local(local_id) => self.local_initializer(local_id),
-        }
-    }
-
-    fn global_initializer(&self, global_id: GlobalDefId) -> Option<Expr> {
-        let (module, defs) = if global_id.module_id == self.input.defs.module_id {
-            (self.input.module, self.input.defs)
-        } else {
-            (
-                self.input.program.modules?.get(&global_id.module_id)?,
-                self.input.program.defs?.get(&global_id.module_id)?,
-            )
         };
-        module.items.iter().find_map(|item| {
-            let ItemKind::Binding(binding) = &item.kind else {
-                return None;
-            };
-            if !binding.is_comptime {
-                return None;
-            }
-            let def_id = defs.def_spans.get(item.span)?;
-            (def_id == global_id.def_id)
-                .then(|| binding.value.clone())
-                .flatten()
-        })
+        let local = self.input.locals.locals.get(*local_id)?;
+        (local.kind == LocalKind::ComptimeBinding).then_some(*local_id)
     }
 
-    fn global_defs(&self, module_id: ModuleId) -> Option<&DefCollection> {
-        if module_id == self.input.defs.module_id {
-            Some(self.input.defs)
-        } else {
-            self.input.program.defs?.get(&module_id)
+    fn local_use(&self, span: Span) -> Option<LocalId> {
+        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&span) else {
+            return None;
+        };
+        Some(*local_id)
+    }
+
+    fn global_value_use(&self, span: Span) -> Option<GlobalDefId> {
+        if let Some(global_id) = self.input.values.qualified_values.get(&span).copied() {
+            return Some(global_id);
         }
+        let Some(ValueNameResolution::Def(def_id)) = self.input.values.names.get(&span) else {
+            return None;
+        };
+        Some(self.global_def_id(*def_id))
     }
 
     fn local_initializer(&self, local_id: LocalId) -> Option<Expr> {
@@ -294,6 +357,193 @@ impl Analyzer<'_> {
         None
     }
 
+    fn def_id_for_span(&self, span: Span, expected: DefKind) -> Option<DefId> {
+        let def_id = self.input.defs.def_spans.get(span)?;
+        let def = self.input.defs.defs.get(def_id)?;
+        (def.kind == expected).then_some(def_id)
+    }
+
+    fn global_def_id(&self, def_id: DefId) -> GlobalDefId {
+        GlobalDefId {
+            module_id: self.input.defs.module_id,
+            def_id,
+        }
+    }
+}
+
+struct Analyzer<'a> {
+    input: ComptimeInput<'a>,
+    values: HashMap<ComptimeKey, ComptimeValue>,
+    call_locals: Vec<ComptimeCallFrame>,
+    enum_values: HashMap<DefId, ComptimeValue>,
+    array_lengths: HashMap<GlobalConstExprId, u64>,
+    diagnostics: Vec<Diagnostic>,
+    active: HashSet<ComptimeKey>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ComptimeCallFrame {
+    locals: HashMap<LocalId, ComptimeValue>,
+    names: HashMap<String, ComptimeValue>,
+}
+
+impl Analyzer<'_> {
+    fn analyze_module(&mut self) {
+        let enums = self.input.module.enums.clone();
+        for item_enum in &enums {
+            self.eval_enum(item_enum);
+        }
+        let global_initializers = self
+            .input
+            .module
+            .global_initializers
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for global_id in global_initializers {
+            let span = self
+                .global_defs(global_id.module_id)
+                .and_then(|defs| defs.defs.get(global_id.def_id))
+                .map(|def| def.span)
+                .unwrap_or(Span::new(0, 0));
+            let _ = self.eval_key(ComptimeKey::Global(global_id), span);
+        }
+        let local_initializers = self
+            .input
+            .module
+            .local_initializers
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        for local_id in local_initializers {
+            let span = self
+                .input
+                .locals
+                .locals
+                .get(local_id)
+                .map(|local| local.span)
+                .unwrap_or(Span::new(0, 0));
+            let _ = self.eval_key(ComptimeKey::Local(local_id), span);
+        }
+        let const_exprs = self.input.module.const_exprs.clone();
+        for (id, expr) in const_exprs {
+            if let Some(value) = self.eval_array_len_expr(&expr) {
+                self.array_lengths.insert(id, value);
+            }
+        }
+    }
+
+    fn eval_enum(&mut self, item_enum: &ComptimeEnum) {
+        let range = self.enum_backing_range(item_enum.def_id.def_id);
+        let mut next_value = 0i128;
+        for variant in &item_enum.variants {
+            let value = if let Some(expr) = variant.value.as_ref() {
+                match nia_comptime_engine::eval_comptime_int_expr(expr, self) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        self.push_engine_error(err);
+                        next_value = next_value.saturating_add(1);
+                        continue;
+                    }
+                }
+            } else {
+                next_value
+            };
+            if let Some((min, max)) = range
+                && (value < min || value > max)
+            {
+                self.diagnostics.push(Diagnostic::error(
+                    variant.span,
+                    format!("enum variant value {value} is out of range for backing type"),
+                ));
+            }
+            self.enum_values
+                .insert(variant.def_id.def_id, ComptimeValue::Int(value));
+            next_value = value.saturating_add(1);
+        }
+    }
+
+    fn enum_backing_range(&self, enum_id: DefId) -> Option<(i128, i128)> {
+        let signature = self.input.signatures.enums.get(&enum_id)?;
+        let Some(TyKind::Primitive(primitive)) = self.input.interner.get(signature.backing_type)
+        else {
+            return None;
+        };
+        integer_range(*primitive)
+    }
+
+    fn eval_array_len_expr(&mut self, expr: &ComptimeExpr) -> Option<u64> {
+        match nia_comptime_engine::eval_comptime_array_len_expr(expr, self) {
+            Ok(value) => Some(value),
+            Err(err) => {
+                self.push_engine_error(err);
+                None
+            }
+        }
+    }
+
+    fn eval_key(&mut self, key: ComptimeKey, span: Span) -> Option<ComptimeValue> {
+        if let Some(value) = self.values.get(&key).cloned() {
+            return Some(value);
+        }
+        if !self.active.insert(key) {
+            self.diagnostics
+                .push(Diagnostic::error(span, "cyclic comptime dependency"));
+            return None;
+        }
+        let result = self.initializer_for_key(key).cloned().and_then(|expr| {
+            match nia_comptime_engine::eval_comptime_expr(&expr, self) {
+                Ok(value) => Some(value),
+                Err(err) => {
+                    self.push_engine_error(err);
+                    None
+                }
+            }
+        });
+        self.active.remove(&key);
+        if let Some(value) = result.clone() {
+            self.values.insert(key, value);
+        }
+        result
+    }
+
+    fn push_engine_error(&mut self, err: ComptimeError) {
+        self.diagnostics
+            .push(Diagnostic::error(err.span, err.message));
+    }
+
+    fn initializer_for_key(&self, key: ComptimeKey) -> Option<&ComptimeExpr> {
+        match key {
+            ComptimeKey::Global(global_id) => self.global_initializer(global_id),
+            ComptimeKey::Local(local_id) => self.local_initializer(local_id),
+        }
+    }
+
+    fn global_initializer(&self, global_id: GlobalDefId) -> Option<&ComptimeExpr> {
+        if global_id.module_id == self.input.defs.module_id {
+            self.input.module.global_initializers.get(&global_id)
+        } else {
+            self.input
+                .program
+                .modules?
+                .get(&global_id.module_id)?
+                .global_initializers
+                .get(&global_id)
+        }
+    }
+
+    fn global_defs(&self, module_id: ModuleId) -> Option<&DefCollection> {
+        if module_id == self.input.defs.module_id {
+            Some(self.input.defs)
+        } else {
+            self.input.program.defs?.get(&module_id)
+        }
+    }
+
+    fn local_initializer(&self, local_id: LocalId) -> Option<&ComptimeExpr> {
+        self.input.module.local_initializers.get(&local_id)
+    }
+
     fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
         let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&span) else {
             return None;
@@ -313,7 +563,14 @@ impl Analyzer<'_> {
         self.call_locals
             .iter()
             .rev()
-            .find_map(|frame| frame.get(&local_id).cloned())
+            .find_map(|frame| frame.locals.get(&local_id).cloned())
+    }
+
+    fn call_local_name_value(&self, name: &str) -> Option<ComptimeValue> {
+        self.call_locals
+            .iter()
+            .rev()
+            .find_map(|frame| frame.names.get(name).cloned())
     }
 
     fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
@@ -338,12 +595,6 @@ impl Analyzer<'_> {
             .map(|def| def.kind)
     }
 
-    fn def_id_for_span(&self, span: Span, expected: DefKind) -> Option<DefId> {
-        let def_id = self.input.defs.def_spans.get(span)?;
-        let def = self.input.defs.defs.get(def_id)?;
-        (def.kind == expected).then_some(def_id)
-    }
-
     fn global_def_id(&self, def_id: DefId) -> GlobalDefId {
         GlobalDefId {
             module_id: self.input.defs.module_id,
@@ -351,11 +602,34 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_function(
-        &self,
-        callee: &nia_comptime_engine::ComptimeExpr,
-    ) -> Option<(Span, nia_ast::FunctionItem)> {
-        let nia_comptime_engine::ComptimeExprKind::Ident(_) = &callee.kind else {
+    fn comptime_function(&self, callee: &nia_comptime_engine::ComptimeExpr) -> Option<GlobalDefId> {
+        match &callee.kind {
+            nia_comptime_engine::ComptimeExprKind::Ident {
+                resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
+                ..
+            }
+            | nia_comptime_engine::ComptimeExprKind::Qualified {
+                resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
+                ..
+            } => {
+                return (self.def_kind_of(*global_id) == Some(DefKind::Function))
+                    .then_some(*global_id);
+            }
+            _ => {}
+        }
+        if let Some(global_id) = self
+            .input
+            .values
+            .qualified_values
+            .get(&callee.span)
+            .copied()
+        {
+            if self.def_kind_of(global_id) == Some(DefKind::Function) {
+                return Some(global_id);
+            }
+            return None;
+        }
+        let nia_comptime_engine::ComptimeExprKind::Ident { .. } = &callee.kind else {
             return None;
         };
         let Some(ValueNameResolution::Def(def_id)) = self.input.values.names.get(&callee.span)
@@ -366,13 +640,26 @@ impl Analyzer<'_> {
         if def.kind != DefKind::Function {
             return None;
         }
-        self.input.module.items.iter().find_map(|item| {
-            let ItemKind::Function(function) = &item.kind else {
-                return None;
-            };
-            let item_def_id = self.input.defs.def_spans.get(item.span)?;
-            (item_def_id == *def_id).then(|| (item.span, function.clone()))
+        Some(GlobalDefId {
+            module_id: self.input.defs.module_id,
+            def_id: *def_id,
         })
+    }
+
+    fn comptime_function_body(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<&nia_comptime_ir::ComptimeFunction> {
+        if def_id.module_id == self.input.defs.module_id {
+            self.input.module.functions.get(&def_id)
+        } else {
+            self.input
+                .program
+                .modules?
+                .get(&def_id.module_id)?
+                .functions
+                .get(&def_id)
+        }
     }
 
     fn ty_for_span(&self, span: Span) -> Option<nia_ids::InternedTyId> {
@@ -420,6 +707,9 @@ impl Analyzer<'_> {
 
 impl ComptimeEnv for Analyzer<'_> {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
+        if let Some(value) = self.call_local_name_value(name) {
+            return Ok(value);
+        }
         if let Some(local_id) = self.local_use(span)
             && let Some(value) = self.call_local_value(local_id)
         {
@@ -439,6 +729,45 @@ impl ComptimeEnv for Analyzer<'_> {
             span,
             message: format!("failed to evaluate comptime value `{name}`"),
         })
+    }
+
+    fn resolve_name_resolution(
+        &mut self,
+        span: Span,
+        resolution: nia_comptime_engine::ComptimeNameResolution,
+        name: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        match resolution {
+            nia_comptime_engine::ComptimeNameResolution::Local(local_id) => {
+                if let Some(value) = self.call_local_value(local_id) {
+                    return Ok(value);
+                }
+                if let Some(value) = self.call_local_name_value(name) {
+                    return Ok(value);
+                }
+                self.eval_key(ComptimeKey::Local(local_id), span)
+                    .ok_or_else(|| ComptimeError {
+                        span,
+                        message: format!("failed to evaluate comptime value `{name}`"),
+                    })
+            }
+            nia_comptime_engine::ComptimeNameResolution::Global(global_id) => {
+                if self.def_kind_of(global_id) == Some(DefKind::Comptime) {
+                    return self
+                        .eval_key(ComptimeKey::Global(global_id), span)
+                        .ok_or_else(|| ComptimeError {
+                            span,
+                            message: format!("failed to evaluate comptime value `{name}`"),
+                        });
+                }
+                Err(ComptimeError {
+                    span,
+                    message: format!(
+                        "comptime expression can only use comptime bindings: `{name}`"
+                    ),
+                })
+            }
+        }
     }
 
     fn resolve_builtin_value(
@@ -479,17 +808,23 @@ impl ComptimeEnv for Analyzer<'_> {
         callee: &nia_comptime_engine::ComptimeExpr,
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let Some((function_span, function)) = self.comptime_function(callee) else {
+        let Some(function_id) = self.comptime_function(callee) else {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        nia_comptime_engine::eval_function_call(span, function_span, &function, args, self)
+        let Some(function) = self.comptime_function_body(function_id).cloned() else {
+            return Err(ComptimeError {
+                span,
+                message: "comptime expression can only call `comptime fn`".to_string(),
+            });
+        };
+        nia_comptime_engine::eval_comptime_function_call(span, &function, args, self)
     }
 
     fn push_function_frame(&mut self, _span: Span) -> Result<(), ComptimeError> {
-        self.call_locals.push(HashMap::new());
+        self.call_locals.push(ComptimeCallFrame::default());
         Ok(())
     }
 
@@ -503,28 +838,34 @@ impl ComptimeEnv for Analyzer<'_> {
         param: &nia_comptime_engine::ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = self.input.locals.local_defs.get(&param.span).copied() else {
+        let Some(local_id) = param
+            .local_id
+            .or_else(|| self.input.locals.local_defs.get(&param.span).copied())
+        else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime function parameter".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, value)
+        self.bind_local_value(span, local_id, &param.name, value)
     }
 
     fn bind_function_local(
         &mut self,
         span: Span,
-        _binding: &nia_comptime_engine::ComptimeBinding,
+        binding: &nia_comptime_engine::ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = self.input.locals.local_defs.get(&span).copied() else {
+        let Some(local_id) = binding
+            .local_id
+            .or_else(|| self.input.locals.local_defs.get(&span).copied())
+        else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime function local".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, value)
+        self.bind_local_value(span, local_id, &binding.name, value)
     }
 }
 
@@ -533,6 +874,7 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         local_id: LocalId,
+        name: &str,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(frame) = self.call_locals.last_mut() else {
@@ -541,7 +883,8 @@ impl Analyzer<'_> {
                 message: "internal comptime function frame is missing".to_string(),
             });
         };
-        frame.insert(local_id, value);
+        frame.locals.insert(local_id, value.clone());
+        frame.names.insert(name.to_string(), value);
         Ok(())
     }
 }

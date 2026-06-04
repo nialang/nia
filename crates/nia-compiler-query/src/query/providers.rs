@@ -29,6 +29,9 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<DriverContext>, ModuleId) -> VisibleExtensionsForModule,
     pub(super) value_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> ValueResolution,
     pub(super) local_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> LocalResolution,
+    pub(super) comptime_module: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeModuleLowering,
+    pub(super) program_comptime_modules:
+        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ComptimeModule>,
     pub(super) comptime: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeCheck,
     pub(super) program_comptime: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ComptimeCheck>,
     pub(super) layouts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_layout::Layouts,
@@ -72,6 +75,8 @@ impl Default for CompilerQueryProviders {
             visible_extensions: provide_visible_extensions,
             value_resolution: provide_value_resolution,
             local_resolution: provide_local_resolution,
+            comptime_module: provide_comptime_module,
+            program_comptime_modules: provide_program_comptime_modules,
             comptime: provide_comptime,
             program_comptime: provide_program_comptime,
             layouts: provide_layouts,
@@ -411,32 +416,62 @@ pub(super) fn provide_local_resolution(
     )
 }
 
-pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
+pub(super) fn provide_comptime_module(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> ComptimeModuleLowering {
     let loaded = db.query(LoadedModuleQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
-    let program_modules = db.query(ProgramModulesByIdQuery);
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
+        module: &loaded.module,
+        defs: &defs,
+        values: &values,
+        locals: &locals,
+        const_exprs: &type_lowering.const_exprs,
+    })
+}
+
+pub(super) fn provide_program_comptime_modules(
+    db: &QueryDb<DriverContext>,
+) -> HashMap<ModuleId, ComptimeModule> {
+    let ids = db.query(ParseOkModuleIdsQuery);
+    let modules = db.query_many(ids.iter().copied().map(ComptimeModuleQuery));
+    ids.into_iter()
+        .zip(modules.into_iter().map(|lowering| lowering.module))
+        .collect()
+}
+
+pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId) -> ComptimeCheck {
+    let module = db.query(ComptimeModuleQuery(module_id));
+    let defs = db.query(ModuleDefsQuery(module_id));
+    let program_modules = db.query(ProgramComptimeModulesQuery);
     let program_defs = db.query(ProgramDefsByIdQuery);
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     let type_normalization = db.query(TypeNormalizationQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
-    nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
-        module: &loaded.module,
-        defs: &defs,
-        values: &values,
-        locals: &locals,
-        signatures: &item_signatures,
-        interner: &type_normalization.interner,
-        type_uses: &type_lowering.type_uses,
-        normalized: &type_normalization.normalized,
-        const_exprs: &type_lowering.const_exprs,
-        target: &db.context().target,
-        program: nia_comptime_check::ComptimeProgramContext {
-            modules: Some(&program_modules),
-            defs: Some(&program_defs),
-        },
-    })
+    let mut comptime =
+        nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
+            module: &module.module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            signatures: &item_signatures,
+            interner: &type_normalization.interner,
+            type_uses: &type_lowering.type_uses,
+            normalized: &type_normalization.normalized,
+            target: &db.context().target,
+            program: nia_comptime_check::ComptimeProgramContext {
+                modules: Some(&program_modules),
+                defs: Some(&program_defs),
+            },
+        });
+    comptime.diagnostics.extend(module.diagnostics);
+    comptime
 }
 
 pub(super) fn provide_program_comptime(
@@ -552,10 +587,12 @@ pub(super) fn provide_body_check(
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let normalization = db.query(TypeNormalizationQuery(module_id));
     let comptime = db.query(ComptimeQuery(module_id));
+    let comptime_module = db.query(ComptimeModuleQuery(module_id));
     let layouts = db.query(LayoutsQuery(module_id));
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let program_signatures = db.query(ProgramSignaturesQuery);
     let program_comptime = db.query(ProgramComptimeQuery);
+    let program_comptime_modules = db.query(ProgramComptimeModulesQuery);
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
         nia_body_check::BodyCheckInput {
             source_version: Some(loaded.source_version),
@@ -568,6 +605,7 @@ pub(super) fn provide_body_check(
             signatures: &signatures,
             normalization: &normalization,
             comptime: &comptime,
+            comptime_module: &comptime_module.module,
             layouts: &layouts,
             extensions: &extensions.methods,
             extension_interner: Some(&extensions.interner),
@@ -578,6 +616,7 @@ pub(super) fn provide_body_check(
             program_signatures: program_signatures.maps(),
             program_comptime: nia_body_check::ProgramComptimeMaps {
                 comptimes: &program_comptime,
+                modules: &program_comptime_modules,
             },
         },
     )
