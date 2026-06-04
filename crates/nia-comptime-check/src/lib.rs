@@ -143,6 +143,7 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
         values: HashMap::new(),
         typed_values: HashMap::new(),
         call_locals: Vec::new(),
+        execution_module_overrides: Vec::new(),
         enum_values: HashMap::new(),
         typed_enum_values: HashMap::new(),
         array_lengths: HashMap::new(),
@@ -624,6 +625,7 @@ struct Analyzer<'a> {
     values: HashMap<ComptimeKey, ComptimeValue>,
     typed_values: HashMap<ComptimeKey, TypedComptimeValue>,
     call_locals: Vec<ComptimeCallFrame>,
+    execution_module_overrides: Vec<ModuleId>,
     enum_values: HashMap<DefId, ComptimeValue>,
     typed_enum_values: HashMap<DefId, TypedComptimeValue>,
     array_lengths: HashMap<GlobalConstExprId, u64>,
@@ -779,16 +781,41 @@ impl Analyzer<'_> {
     }
 
     fn insert_typed_key_value(&mut self, key: ComptimeKey, value: ComptimeValue) {
-        let Some(ty) = self.explicit_type_for_key(key) else {
+        let Some(ty) = self.comptime_value_type_for_key(key) else {
             return;
         };
-        self.typed_values.insert(
-            key,
-            TypedComptimeValue {
-                value,
-                ty: ComptimeValueType::Runtime(ty),
-            },
-        );
+        self.typed_values
+            .insert(key, TypedComptimeValue { value, ty });
+    }
+
+    fn comptime_value_type_for_key(&mut self, key: ComptimeKey) -> Option<ComptimeValueType> {
+        self.explicit_type_for_key(key)
+            .map(ComptimeValueType::Runtime)
+            .or_else(|| self.inferred_type_for_key(key))
+    }
+
+    fn inferred_type_for_key(&mut self, key: ComptimeKey) -> Option<ComptimeValueType> {
+        let expr = self.initializer_for_key(key)?.clone();
+        let module_id = self.key_module_id(key);
+        self.with_execution_module(module_id, |this| this.comptime_expr_type(&expr, None))
+    }
+
+    fn key_module_id(&self, key: ComptimeKey) -> ModuleId {
+        match key {
+            ComptimeKey::Global(global_id) => global_id.module_id,
+            ComptimeKey::Local(_) => self.input.defs.module_id,
+        }
+    }
+
+    fn with_execution_module<T>(
+        &mut self,
+        module_id: ModuleId,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.execution_module_overrides.push(module_id);
+        let result = f(self);
+        self.execution_module_overrides.pop();
+        result
     }
 
     fn explicit_type_for_key(&mut self, key: ComptimeKey) -> Option<InternedTyId> {
@@ -1175,6 +1202,9 @@ impl Analyzer<'_> {
     }
 
     fn current_execution_module_id(&self) -> ModuleId {
+        if let Some(module_id) = self.execution_module_overrides.last().copied() {
+            return module_id;
+        }
         self.call_locals
             .iter()
             .rev()
@@ -1486,12 +1516,20 @@ impl Analyzer<'_> {
                 .call_local_type(*local_id)
                 .or_else(|| self.call_local_name_type(name))
                 .or_else(|| {
-                    self.typed_values
+                    let ty = self
+                        .typed_values
                         .get(&ComptimeKey::Local(*local_id))
-                        .map(|typed| typed.ty.clone())
+                        .map(|typed| typed.ty.clone())?;
+                    self.import_comptime_value_type(ty, self.current_execution_module_id())
                 })
                 .or_else(|| {
                     self.explicit_type_for_key(ComptimeKey::Local(*local_id))
+                        .and_then(|ty| {
+                            self.import_ty_into_module_or_none(
+                                ty,
+                                self.current_execution_module_id(),
+                            )
+                        })
                         .map(ComptimeValueType::Runtime)
                 }),
             nia_comptime_engine::ComptimeExprKind::Ident {
@@ -1505,8 +1543,17 @@ impl Analyzer<'_> {
                 .typed_values
                 .get(&ComptimeKey::Global(*global_id))
                 .map(|typed| typed.ty.clone())
+                .and_then(|ty| {
+                    self.import_comptime_value_type(ty, self.current_execution_module_id())
+                })
                 .or_else(|| {
                     self.explicit_type_for_key(ComptimeKey::Global(*global_id))
+                        .and_then(|ty| {
+                            self.import_ty_into_module_or_none(
+                                ty,
+                                self.current_execution_module_id(),
+                            )
+                        })
                         .map(ComptimeValueType::Runtime)
                 }),
             nia_comptime_engine::ComptimeExprKind::Integer(text) => integer_literal_suffix_ty(text)
@@ -1625,6 +1672,31 @@ impl Analyzer<'_> {
                 .comptime_nominal_struct_field_type(ty, name)
                 .map(ComptimeValueType::Runtime),
             ComptimeValueType::Int | ComptimeValueType::Bool | ComptimeValueType::String => None,
+        }
+    }
+
+    fn import_comptime_value_type(
+        &mut self,
+        ty: ComptimeValueType,
+        target_module_id: ModuleId,
+    ) -> Option<ComptimeValueType> {
+        match ty {
+            ComptimeValueType::Runtime(ty) => self
+                .import_ty_into_module_or_none(ty, target_module_id)
+                .map(ComptimeValueType::Runtime),
+            ComptimeValueType::Struct(fields) => fields
+                .into_iter()
+                .map(|field| {
+                    Some(ComptimeValueFieldType {
+                        name: field.name,
+                        ty: self.import_comptime_value_type(field.ty, target_module_id)?,
+                    })
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(ComptimeValueType::Struct),
+            ComptimeValueType::Int => Some(ComptimeValueType::Int),
+            ComptimeValueType::Bool => Some(ComptimeValueType::Bool),
+            ComptimeValueType::String => Some(ComptimeValueType::String),
         }
     }
 

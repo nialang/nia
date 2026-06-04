@@ -3,13 +3,14 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
 use nia_ast::{Expr, ExprKind};
+use nia_comptime_check::{ComptimeKey, ComptimeValueType};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
@@ -438,12 +439,8 @@ impl<'a> BodyChecker<'a> {
                 .or_else(|| self.comptime_types.get(&def_id.def_id))
                 .copied();
         }
-        if let Some(program_signature) = self.program_comptimes.get(&def_id).cloned() {
-            let ty = program_signature
-                .signature
-                .explicit_type
-                .unwrap_or_else(|| self.error());
-            return Some(self.import_type_from(&program_signature.interner, ty));
+        if let Some(ty) = self.qualified_program_comptime_type(def_id) {
+            return Some(ty);
         }
         let program_signature = self.program_globals.get(&def_id)?.clone();
         let ty = program_signature
@@ -451,6 +448,34 @@ impl<'a> BodyChecker<'a> {
             .explicit_type
             .unwrap_or_else(|| self.error());
         Some(self.import_type_from(&program_signature.interner, ty))
+    }
+
+    fn qualified_program_comptime_type(&mut self, def_id: GlobalDefId) -> Option<InternedTyId> {
+        let program_signature = self.program_comptimes.get(&def_id).cloned()?;
+        if let Some(typed) = self
+            .program_comptime
+            .get(&def_id.module_id)
+            .and_then(|comptime| comptime.typed_values.get(&ComptimeKey::Global(def_id)))
+            .cloned()
+        {
+            return self.import_comptime_value_runtime_type(&program_signature.interner, typed.ty);
+        }
+        let ty = program_signature
+            .signature
+            .explicit_type
+            .unwrap_or_else(|| self.error());
+        Some(self.import_type_from(&program_signature.interner, ty))
+    }
+
+    fn import_comptime_value_runtime_type(
+        &mut self,
+        source: &TyInterner,
+        ty: ComptimeValueType,
+    ) -> Option<InternedTyId> {
+        let ComptimeValueType::Runtime(ty) = ty else {
+            return None;
+        };
+        Some(self.import_type_from(source, ty))
     }
 
     pub(crate) fn resolved_struct_signature(
