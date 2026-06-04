@@ -2293,6 +2293,34 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_string_literals_are_typed_arrays() {
+    let root = temp_dir("comptime_string_literals_are_typed_arrays");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn accept4(value: [4]char) usize {
+    4usize
+}
+
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let text: [4]char = id("nia!");
+comptime let n: usize = accept4(text);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_switch_structural_struct_fields_have_typed_values() {
     let root = temp_dir("comptime_switch_structural_struct_fields_have_typed_values");
     write(
