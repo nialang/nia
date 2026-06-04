@@ -2924,9 +2924,11 @@ impl Analyzer<'_> {
         inner: &ComptimeExpr,
     ) -> Option<ComptimeValueType> {
         match op {
-            UnaryOp::Not => Some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Bool),
-            )),
+            UnaryOp::Not => {
+                let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
+                let inner_ty = self.comptime_arg_runtime_type(inner, Some(bool_ty))?;
+                (inner_ty == bool_ty).then_some(ComptimeValueType::Runtime(bool_ty))
+            }
             UnaryOp::Neg => {
                 let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
                 (self.is_integer_runtime_type(inner_ty) || self.is_float_runtime_type(inner_ty))
