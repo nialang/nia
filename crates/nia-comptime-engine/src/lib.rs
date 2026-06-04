@@ -504,7 +504,7 @@ fn eval_comptime_expr_flow(
                 );
             }
             ComptimeExprKind::Switch(switch) => return eval_comptime_switch_expr_flow(switch, env),
-            ComptimeExprKind::Cast { expr: inner } => eval_value_or_return_flow!(inner, env),
+            ComptimeExprKind::Cast { expr: inner, .. } => eval_value_or_return_flow!(inner, env),
             ComptimeExprKind::Block(block) => {
                 return eval_function_block(block, env);
             }
