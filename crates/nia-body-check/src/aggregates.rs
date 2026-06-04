@@ -355,12 +355,16 @@ impl<'a> BodyChecker<'a> {
         match &expr.kind {
             ExprKind::Ident(_) => self.comptime_ident_value_type(expr.span),
             ExprKind::Call { callee, args } if args.is_empty() && self.is_builtin_expr(callee) => {
-                Some(self.builtin_comptime_value_type())
+                Some(nia_comptime_check::builtin_comptime_value_type(
+                    self.primitive(PrimitiveTy::Usize),
+                ))
             }
             ExprKind::Builtin {
                 name,
                 type_arg: None,
-            } if name == "builtin" => Some(self.builtin_comptime_value_type()),
+            } if name == "builtin" => Some(nia_comptime_check::builtin_comptime_value_type(
+                self.primitive(PrimitiveTy::Usize),
+            )),
             ExprKind::Qualified { .. } => {
                 let global_id = self.values.qualified_values.get(&expr.span).copied()?;
                 self.comptime_global_value_type(global_id)
@@ -458,42 +462,6 @@ impl<'a> BodyChecker<'a> {
                 type_arg: None
             } if name == "builtin"
         )
-    }
-
-    fn builtin_comptime_value_type(&self) -> ComptimeValueType {
-        ComptimeValueType::Struct(vec![ComptimeValueFieldType {
-            name: "target".to_string(),
-            ty: ComptimeValueType::Struct(vec![
-                ComptimeValueFieldType {
-                    name: "arch".to_string(),
-                    ty: ComptimeValueType::String,
-                },
-                ComptimeValueFieldType {
-                    name: "vendor".to_string(),
-                    ty: ComptimeValueType::String,
-                },
-                ComptimeValueFieldType {
-                    name: "os".to_string(),
-                    ty: ComptimeValueType::String,
-                },
-                ComptimeValueFieldType {
-                    name: "env".to_string(),
-                    ty: ComptimeValueType::String,
-                },
-                ComptimeValueFieldType {
-                    name: "abi".to_string(),
-                    ty: ComptimeValueType::String,
-                },
-                ComptimeValueFieldType {
-                    name: "endian".to_string(),
-                    ty: ComptimeValueType::String,
-                },
-                ComptimeValueFieldType {
-                    name: "pointer_width".to_string(),
-                    ty: ComptimeValueType::Runtime(self.primitive(PrimitiveTy::Usize)),
-                },
-            ]),
-        }])
     }
 
     pub(crate) fn field_access_type_from_lhs_ty(
