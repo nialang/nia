@@ -3513,6 +3513,79 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_returned_target_string_is_a_char_array() {
+    let root = temp_dir("comptime_function_returned_target_string_is_a_char_array");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn target_os() [5]char {
+    @builtin().target.os
+}
+
+comptime let os: [5]char = target_os();
+comptime let n: usize = os.len();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_returned_target_string_can_be_consumed_directly() {
+    let root = temp_dir("comptime_function_returned_target_string_can_be_consumed_directly");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn target_os() [5]char {
+    @builtin().target.os
+}
+
+comptime let n: usize = target_os().len();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_returned_target_string_validates_char_array_length() {
+    let root =
+        temp_dir("comptime_function_returned_target_string_validates_char_array_length");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn target_os() [4]char {
+    @builtin().target.os
+}
+
+comptime let os = target_os();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 4")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_byte_and_c_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_byte_and_c_string_literals_are_typed_arrays");
     write(
