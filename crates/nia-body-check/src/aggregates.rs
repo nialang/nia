@@ -823,6 +823,7 @@ impl ComptimeEnv for BodyChecker<'_> {
                 span: target_span,
                 name,
                 local_id,
+                ..
             } => {
                 let Some(local_id) = local_id.or_else(|| {
                     self.locals.uses.get(target_span).and_then(|use_| {

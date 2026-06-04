@@ -99,7 +99,14 @@ pub enum ComptimeAssignTarget {
         span: Span,
         name: String,
         local_id: Option<LocalId>,
+        path: Vec<ComptimeAssignPathElem>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComptimeAssignPathElem {
+    Field { span: Span, name: String },
+    Index { span: Span, index: ComptimeExpr },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -445,12 +452,71 @@ fn lower_assign_target_with_context(
     expr: &nia_ast::Expr,
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeAssignTarget, ComptimeLowerError> {
+    let mut path = Vec::new();
+    let (span, name, local_id) = lower_assign_target_base_with_context(expr, context, &mut path)?;
+    Ok(ComptimeAssignTarget::Local {
+        span,
+        name,
+        local_id,
+        path,
+    })
+}
+
+fn lower_assign_target_base_with_context(
+    expr: &nia_ast::Expr,
+    context: &ComptimeLowerContext<'_>,
+    path: &mut Vec<ComptimeAssignPathElem>,
+) -> Result<(Span, String, Option<LocalId>), ComptimeLowerError> {
     match &expr.kind {
-        nia_ast::ExprKind::Ident(name) => Ok(ComptimeAssignTarget::Local {
-            span: expr.span,
-            name: name.clone(),
-            local_id: context.local_id.and_then(|local_id| local_id(expr.span)),
-        }),
+        nia_ast::ExprKind::Ident(name) => Ok((
+            expr.span,
+            name.clone(),
+            context.local_id.and_then(|local_id| local_id(expr.span)),
+        )),
+        nia_ast::ExprKind::Field { lhs, name } => {
+            let base = lower_assign_target_base_with_context(lhs, context, path)?;
+            path.push(ComptimeAssignPathElem::Field {
+                span: expr.span,
+                name: name.clone(),
+            });
+            Ok(base)
+        }
+        nia_ast::ExprKind::Index { lhs, index } => {
+            let base = lower_assign_target_base_with_context(lhs, context, path)?;
+            let nia_ast::IndexArg::Expr(index) = index else {
+                return Err(ComptimeLowerError {
+                    span: expr.span,
+                    message: "comptime assignment target does not support slicing".to_string(),
+                });
+            };
+            path.push(ComptimeAssignPathElem::Index {
+                span: expr.span,
+                index: lower_expr_with_context(index, context)?,
+            });
+            Ok(base)
+        }
+        nia_ast::ExprKind::BracketSuffix { callee, args } => {
+            let base = lower_assign_target_base_with_context(callee, context, path)?;
+            let [arg] = args.as_slice() else {
+                return Err(ComptimeLowerError {
+                    span: expr.span,
+                    message: "comptime assignment target bracket suffix requires exactly one index argument".to_string(),
+                });
+            };
+            let Some(index) = &arg.expr else {
+                return Err(ComptimeLowerError {
+                    span: arg.span,
+                    message:
+                        "comptime assignment target bracket suffix requires an expression index"
+                            .to_string(),
+                });
+            };
+            path.push(ComptimeAssignPathElem::Index {
+                span: expr.span,
+                index: lower_expr_with_context(index, context)?,
+            });
+            Ok(base)
+        }
         _ => Err(ComptimeLowerError {
             span: expr.span,
             message: "unsupported comptime assignment target".to_string(),
