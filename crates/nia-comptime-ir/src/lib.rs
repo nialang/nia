@@ -62,6 +62,11 @@ pub enum ComptimeStmtKind {
     Return(Option<ComptimeExpr>),
     Break,
     Continue,
+    If {
+        cond: ComptimeExpr,
+        then_branch: ComptimeBlock,
+        else_branch: Option<ComptimeBlock>,
+    },
     While {
         cond: ComptimeExpr,
         body: ComptimeBlock,
@@ -543,9 +548,7 @@ fn lower_stmt_with_context(
                 value: lower_expr_with_context(value, context)?,
             })
         }
-        nia_ast::StmtKind::Expr(expr) => {
-            ComptimeStmtKind::Expr(lower_expr_with_context(expr, context)?)
-        }
+        nia_ast::StmtKind::Expr(expr) => lower_expr_stmt_with_context(expr, context)?,
         nia_ast::StmtKind::Return(value) => ComptimeStmtKind::Return(
             value
                 .as_ref()
@@ -572,6 +575,51 @@ fn lower_stmt_with_context(
         span: stmt.span,
         kind,
     })
+}
+
+fn lower_expr_stmt_with_context(
+    expr: &nia_ast::Expr,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeStmtKind, ComptimeLowerError> {
+    match &expr.kind {
+        nia_ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => Ok(ComptimeStmtKind::If {
+            cond: lower_expr_with_context(cond, context)?,
+            then_branch: lower_block_with_context(then_branch, context)?,
+            else_branch: else_branch
+                .as_deref()
+                .map(|else_branch| lower_if_stmt_else_branch_with_context(else_branch, context))
+                .transpose()?,
+        }),
+        _ => Ok(ComptimeStmtKind::Expr(lower_expr_with_context(
+            expr, context,
+        )?)),
+    }
+}
+
+fn lower_if_stmt_else_branch_with_context(
+    expr: &nia_ast::Expr,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeBlock, ComptimeLowerError> {
+    match &expr.kind {
+        nia_ast::ExprKind::Block(block) => lower_block_with_context(block, context),
+        nia_ast::ExprKind::If { .. } => Ok(ComptimeBlock {
+            span: expr.span,
+            stmts: vec![ComptimeStmt {
+                span: expr.span,
+                kind: lower_expr_stmt_with_context(expr, context)?,
+            }],
+            tail: None,
+        }),
+        _ => Ok(ComptimeBlock {
+            span: expr.span,
+            stmts: Vec::new(),
+            tail: Some(Box::new(lower_expr_with_context(expr, context)?)),
+        }),
+    }
 }
 
 fn lower_switch_with_context(
