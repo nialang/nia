@@ -699,6 +699,16 @@ of copying it into a new result table. The checker overlays those borrowed
 facts with any typed values produced by the local query, preserving the query
 graph boundary while avoiding an accidental clone-based API contract.
 
+Typed comptime expression inference uses explicit probe helpers when it needs
+to ask whether a subexpression can be evaluated as a comptime integer, array
+length, or generic argument source. These probes deliberately return absence
+rather than diagnostics: they are used to decide whether a type can be proven
+from the current semantic facts, not to validate the program. The checking
+paths that own required compile-time behavior still execute the same lowered
+`nia-comptime-ir` through `nia-comptime-engine` and report engine errors there.
+This keeps typed inference from becoming a second diagnostics pass while making
+the optional probe boundary visible in code.
+
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
 expression rules, including nested block expressions and contextual
