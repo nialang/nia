@@ -445,6 +445,25 @@ fn main() i32 {
 }
 
 #[test]
+fn function_local_structural_comptime_array_index_drives_field_access() {
+    let root = temp_dir("function_local_structural_comptime_array_index_drives_field_access");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    comptime let configs = [{width: 2usize}, {width: 4usize}];
+    comptime let width: usize = configs[1].width;
+    var values: [width]i32 = [0; width];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_struct_array_fields_are_ordinary_values() {
     let root = temp_dir("comptime_struct_array_fields_are_ordinary_values");
     write(

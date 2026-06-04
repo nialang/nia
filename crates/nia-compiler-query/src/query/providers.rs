@@ -593,13 +593,21 @@ pub(super) fn provide_body_check(
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
+    let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let normalization = db.query(TypeNormalizationQuery(module_id));
+    let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
     let comptime = db.query(ComptimeQuery(module_id));
     let comptime_module = db.query(ComptimeModuleQuery(module_id));
     let layouts = db.query(LayoutsQuery(module_id));
     let extensions = db.query(VisibleExtensionsQuery(module_id));
     let program_signatures = db.query(ProgramSignaturesQuery);
+    let module_ids = db.query(ParseOkModuleIdsQuery);
+    let program_item_signatures = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
+        .collect::<HashMap<_, _>>();
     let program_comptime = db.query(ProgramComptimeQuery);
     let program_comptime_modules = db.query(ProgramComptimeModulesQuery);
     nia_body_check::check_module_bodies_with_program_signatures_and_layouts(
@@ -621,6 +629,9 @@ pub(super) fn provide_body_check(
             extension_interner: Some(&extensions.interner),
             program: nia_body_check::BodyProgramContext {
                 defs: Some(&program_defs),
+                type_lowerings: Some(&program_type_lowerings),
+                type_normalizations: Some(&program_type_normalizations),
+                signatures: Some(&program_item_signatures),
             },
             program_signatures: program_signatures.maps(),
             program_comptime: nia_body_check::ProgramComptimeMaps {

@@ -10,7 +10,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_span::Span;
-use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn infer_array_literal_expr(&mut self, expr: &Expr) -> InternedTyId {
@@ -342,93 +342,17 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn comptime_field_expr_runtime_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
-        match self.comptime_field_expr_type(lhs, name)? {
+        let expr = nia_comptime_engine::ComptimeExpr {
+            span: lhs.span,
+            kind: nia_comptime_engine::ComptimeExprKind::Field {
+                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?),
+                name: name.to_string(),
+            },
+        };
+        match self.comptime_expr_type_for_ir(&expr)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
         }
-    }
-
-    fn comptime_field_expr_type(&mut self, lhs: &Expr, name: &str) -> Option<ComptimeValueType> {
-        let lhs_ty = self.comptime_expr_value_type(lhs)?;
-        self.comptime_struct_field_value_type(lhs_ty, name)
-    }
-
-    fn comptime_expr_value_type(&mut self, expr: &Expr) -> Option<ComptimeValueType> {
-        match &expr.kind {
-            ExprKind::Ident(_) => self.comptime_ident_value_type(expr.span),
-            ExprKind::Call { callee, args } if args.is_empty() && self.is_builtin_expr(callee) => {
-                Some(nia_comptime_check::builtin_comptime_value_type(
-                    self.primitive(PrimitiveTy::Usize),
-                ))
-            }
-            ExprKind::Builtin {
-                name,
-                type_arg: None,
-            } if name == "builtin" => Some(nia_comptime_check::builtin_comptime_value_type(
-                self.primitive(PrimitiveTy::Usize),
-            )),
-            ExprKind::Qualified { .. } => {
-                let global_id = self.values.qualified_values.get(&expr.span).copied()?;
-                self.comptime_global_value_type(global_id)
-            }
-            ExprKind::Field { lhs, name } => self.comptime_field_expr_type(lhs, name),
-            ExprKind::Index { lhs, index } => self.comptime_index_arg_expr_type(lhs, index),
-            ExprKind::BracketSuffix { callee, args } if args.len() == 1 => {
-                let arg = args.first()?;
-                let index = arg.expr.as_ref()?;
-                self.comptime_index_expr_type(callee, index)
-            }
-            _ => None,
-        }
-    }
-
-    fn comptime_ident_value_type(&self, span: Span) -> Option<ComptimeValueType> {
-        if let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.locals.uses.get(&span)
-            && let Some(typed) = self
-                .comptime
-                .typed_values
-                .get(&ComptimeKey::Local(*local_id))
-        {
-            return Some(typed.ty.clone());
-        }
-        let nia_value_resolve::ValueNameResolution::Def(def_id) = self.values.names.get(&span)?
-        else {
-            return None;
-        };
-        let def = self.defs.defs.get(*def_id)?;
-        if def.kind != DefKind::Comptime {
-            return None;
-        }
-        self.comptime
-            .typed_values
-            .get(&ComptimeKey::Global(self.global_def_id(*def_id)))
-            .map(|typed| typed.ty.clone())
-    }
-
-    fn comptime_global_value_type(&mut self, global_id: GlobalDefId) -> Option<ComptimeValueType> {
-        if global_id.module_id == self.defs.module_id {
-            return self
-                .comptime
-                .typed_values
-                .get(&ComptimeKey::Global(global_id))
-                .map(|typed| typed.ty.clone());
-        }
-        let program_signature = self.program_comptimes.get(&global_id).cloned()?;
-        self.program_comptime
-            .get(&global_id.module_id)
-            .and_then(|comptime| comptime.typed_values.get(&ComptimeKey::Global(global_id)))
-            .cloned()
-            .and_then(|typed| {
-                self.import_comptime_value_type(&program_signature.interner, typed.ty)
-            })
-    }
-
-    fn comptime_struct_field_value_type(
-        &mut self,
-        lhs_ty: ComptimeValueType,
-        name: &str,
-    ) -> Option<ComptimeValueType> {
-        lhs_ty.structural_field(name).cloned()
     }
 
     pub(crate) fn comptime_index_expr_runtime_type(
@@ -436,35 +360,17 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         index: &Expr,
     ) -> Option<InternedTyId> {
-        match self.comptime_index_expr_type(lhs, index)? {
+        let expr = nia_comptime_engine::ComptimeExpr {
+            span: lhs.span,
+            kind: nia_comptime_engine::ComptimeExprKind::Index {
+                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?),
+                index: Box::new(self.lower_comptime_expr(index).ok()?),
+            },
+        };
+        match self.comptime_expr_type_for_ir(&expr)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
         }
-    }
-
-    fn comptime_index_arg_expr_type(
-        &mut self,
-        lhs: &Expr,
-        index: &nia_ast::IndexArg,
-    ) -> Option<ComptimeValueType> {
-        let nia_ast::IndexArg::Expr(index) = index else {
-            return None;
-        };
-        self.comptime_index_expr_type(lhs, index)
-    }
-
-    fn comptime_index_expr_type(&mut self, lhs: &Expr, index: &Expr) -> Option<ComptimeValueType> {
-        let lhs_ty = self.comptime_expr_value_type(lhs)?;
-        let (elem, len) = lhs_ty.array_elem()?;
-        let index = self.lower_comptime_expr(index).ok().and_then(|index| {
-            nia_comptime_engine::eval_comptime_array_len_expr(&index, self).ok()
-        })?;
-        if let Some(len) = len
-            && index >= len
-        {
-            return None;
-        }
-        Some(elem.clone())
     }
 
     fn import_comptime_value_type(
@@ -494,16 +400,6 @@ impl<'a> BodyChecker<'a> {
             ComptimeValueType::Bool => Some(ComptimeValueType::Bool),
             ComptimeValueType::String => Some(ComptimeValueType::String),
         }
-    }
-
-    fn is_builtin_expr(&self, expr: &Expr) -> bool {
-        matches!(
-            &expr.kind,
-            ExprKind::Builtin {
-                name,
-                type_arg: None
-            } if name == "builtin"
-        )
     }
 
     pub(crate) fn field_access_type_from_lhs_ty(
@@ -1200,9 +1096,9 @@ impl<'a> BodyChecker<'a> {
                 program: nia_comptime_check::ComptimeProgramContext {
                     modules: Some(self.program_comptime_modules),
                     defs: self.program.defs,
-                    type_lowerings: None,
-                    type_normalizations: None,
-                    signatures: None,
+                    type_lowerings: self.program.type_lowerings,
+                    type_normalizations: self.program.type_normalizations,
+                    signatures: self.program.signatures,
                 },
                 typed_values: &self.comptime.typed_values,
                 frames: &frames,
@@ -1230,9 +1126,9 @@ impl<'a> BodyChecker<'a> {
             program: nia_comptime_check::ComptimeProgramContext {
                 modules: Some(self.program_comptime_modules),
                 defs: self.program.defs,
-                type_lowerings: None,
-                type_normalizations: None,
-                signatures: None,
+                type_lowerings: self.program.type_lowerings,
+                type_normalizations: self.program.type_normalizations,
+                signatures: self.program.signatures,
             },
             typed_values: &self.comptime.typed_values,
             frames: &[],
