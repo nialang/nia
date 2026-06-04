@@ -123,6 +123,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         lowered: &lowered,
         signatures: &signatures,
         normalization: &normalization,
+        target: &target,
         comptime: &comptime,
         comptime_module: &comptime_module.module,
         layouts: &layouts,

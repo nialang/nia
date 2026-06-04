@@ -1860,6 +1860,81 @@ fn main() i32 {
 }
 
 #[test]
+fn function_body_comptime_call_infers_generic_from_local_value() {
+    let root = temp_dir("function_body_comptime_call_infers_generic_from_local_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    comptime let width = 4usize;
+    comptime let n: usize = id(width);
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn function_body_comptime_call_infers_generic_from_structural_field() {
+    let root = temp_dir("function_body_comptime_call_infers_generic_from_structural_field");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+fn main() i32 {
+    comptime let config = {target: {word_bits: 64usize}};
+    comptime let n: usize = id(config.target.word_bits) / 8usize;
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn function_body_imported_comptime_call_infers_generic_from_local_value() {
+    let root = temp_dir("function_body_imported_comptime_call_infers_generic_from_local_value");
+    write(
+        &root.join("helpers.nia"),
+        r#"
+pub comptime fn id[T](value: T) T {
+    value
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .helpers;
+
+fn main() i32 {
+    comptime let width = 4usize;
+    comptime let n: usize = helpers::id(width);
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_inferred_comptime_value_has_runtime_type() {
     let root = temp_dir("imported_inferred_comptime_value_has_runtime_type");
     write(
@@ -2518,8 +2593,7 @@ pub comptime fn size_of[T]() usize {
 
 #[test]
 fn function_body_comptime_call_substitutes_type_args_for_layout_builtins() {
-    let root =
-        temp_dir("function_body_comptime_call_substitutes_type_args_for_layout_builtins");
+    let root = temp_dir("function_body_comptime_call_substitutes_type_args_for_layout_builtins");
     write(
         &root.join("main.nia"),
         r#"

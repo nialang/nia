@@ -194,6 +194,59 @@ pub fn lower_module_comptime(input: ComptimeModuleInput<'_>) -> ComptimeModuleLo
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TypedComptimeFrame {
+    pub module_id: Option<ModuleId>,
+    pub local_types: HashMap<LocalId, ComptimeValueType>,
+    pub name_types: HashMap<String, ComptimeValueType>,
+    pub type_substitutions: HashMap<String, InternedTyId>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ComptimeInstantiationInput<'a> {
+    pub module: &'a ComptimeModule,
+    pub defs: &'a DefCollection,
+    pub values: &'a ValueResolution,
+    pub locals: &'a LocalResolution,
+    pub signatures: &'a ItemSignatures,
+    pub interner: &'a TyInterner,
+    pub type_uses: &'a HashMap<Span, InternedTyId>,
+    pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
+    pub target: &'a TargetConfig,
+    pub program: ComptimeProgramContext<'a>,
+    pub typed_values: &'a HashMap<ComptimeKey, TypedComptimeValue>,
+    pub frames: &'a [TypedComptimeFrame],
+}
+
+pub fn instantiate_comptime_function_generics(
+    input: ComptimeInstantiationInput<'_>,
+    span: Span,
+    function_id: GlobalDefId,
+    signature_module_id: ModuleId,
+    signature: &FunctionSignature,
+    type_args: &[ComptimeTypeArg],
+    arg_exprs: &[ComptimeExpr],
+) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
+    let mut analyzer = Analyzer::for_typed_query(input);
+    analyzer.instantiate_function_generics(
+        span,
+        function_id,
+        signature_module_id,
+        signature,
+        type_args,
+        arg_exprs,
+    )
+}
+
+pub fn infer_comptime_expr_type(
+    input: ComptimeInstantiationInput<'_>,
+    expr: &ComptimeExpr,
+    expected: Option<InternedTyId>,
+) -> Option<ComptimeValueType> {
+    let mut analyzer = Analyzer::for_typed_query(input);
+    analyzer.comptime_expr_type(expr, expected)
+}
+
 pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
     let mut analyzer = Analyzer {
         input,
@@ -702,7 +755,56 @@ struct ComptimeCallFrame {
     type_substitutions: HashMap<String, InternedTyId>,
 }
 
+impl From<TypedComptimeFrame> for ComptimeCallFrame {
+    fn from(frame: TypedComptimeFrame) -> Self {
+        Self {
+            module_id: frame.module_id,
+            locals: HashMap::new(),
+            local_types: frame.local_types,
+            mutable_locals: HashSet::new(),
+            names: HashMap::new(),
+            name_types: frame.name_types,
+            type_substitutions: frame.type_substitutions,
+        }
+    }
+}
+
 impl Analyzer<'_> {
+    fn for_typed_query(input: ComptimeInstantiationInput<'_>) -> Analyzer<'_> {
+        Analyzer {
+            input: ComptimeInput {
+                module: input.module,
+                defs: input.defs,
+                values: input.values,
+                locals: input.locals,
+                signatures: input.signatures,
+                interner: input.interner,
+                type_uses: input.type_uses,
+                normalized: input.normalized,
+                target: input.target,
+                program: input.program,
+            },
+            values: HashMap::new(),
+            typed_values: input.typed_values.clone(),
+            call_locals: input
+                .frames
+                .iter()
+                .cloned()
+                .map(ComptimeCallFrame::from)
+                .collect(),
+            execution_module_overrides: Vec::new(),
+            enum_values: HashMap::new(),
+            typed_enum_values: HashMap::new(),
+            array_lengths: HashMap::new(),
+            diagnostics: Vec::new(),
+            active: HashSet::new(),
+            working_interners: HashMap::from([(
+                input.interner.interner_id(),
+                input.interner.clone(),
+            )]),
+        }
+    }
+
     fn analyze_module(&mut self) {
         let enums = self.input.module.enums.clone();
         for item_enum in &enums {
@@ -1468,15 +1570,13 @@ impl Analyzer<'_> {
     fn instantiate_function_generics(
         &mut self,
         span: Span,
-        function_id: GlobalDefId,
+        _function_id: GlobalDefId,
+        signature_module_id: ModuleId,
         signature: &FunctionSignature,
         type_args: &[ComptimeTypeArg],
         arg_exprs: &[ComptimeExpr],
     ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
-        if self
-            .ensure_working_interner(function_id.module_id)
-            .is_none()
-        {
+        if self.ensure_working_interner(signature_module_id).is_none() {
             return Err(ComptimeError {
                 span,
                 message: "cannot instantiate comptime function without module type interner"
@@ -1497,7 +1597,7 @@ impl Analyzer<'_> {
         if type_args.is_empty() {
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
                 let expected = self.comptime_expected_param_type(
-                    function_id.module_id,
+                    signature_module_id,
                     param.ty,
                     &substitutions,
                 );
@@ -1506,7 +1606,7 @@ impl Analyzer<'_> {
                 };
                 self.infer_generics_from_tys(
                     span,
-                    function_id.module_id,
+                    signature_module_id,
                     param.ty,
                     arg_ty,
                     &mut substitutions,
@@ -1529,7 +1629,7 @@ impl Analyzer<'_> {
                             .to_string(),
                     });
                 };
-                let imported = self.import_ty_into_module(arg.span, ty, function_id.module_id)?;
+                let imported = self.import_ty_into_module(arg.span, ty, signature_module_id)?;
                 substitutions.insert(generic.clone(), imported);
             }
         }
@@ -2530,7 +2630,14 @@ impl Analyzer<'_> {
             .get(&function_id.def_id)?
             .clone();
         let substitutions = self
-            .instantiate_function_generics(span, function_id, &signature, type_args, args)
+            .instantiate_function_generics(
+                span,
+                function_id,
+                function_id.module_id,
+                &signature,
+                type_args,
+                args,
+            )
             .ok()?;
         self.substitute_ty_into_current_module(
             function_id.module_id,
@@ -3183,6 +3290,7 @@ impl ComptimeEnv for Analyzer<'_> {
         let type_substitutions = self.instantiate_function_generics(
             span,
             function_id,
+            function_id.module_id,
             &signature,
             type_args,
             arg_exprs,

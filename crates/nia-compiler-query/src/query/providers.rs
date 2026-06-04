@@ -613,6 +613,7 @@ pub(super) fn provide_body_check(
             lowered: &lowered,
             signatures: &signatures,
             normalization: &normalization,
+            target: &db.context().target,
             comptime: &comptime,
             comptime_module: &comptime_module.module,
             layouts: &layouts,

@@ -675,6 +675,18 @@ accessors for structural field and array element queries instead of duplicating
 shape matches. That keeps `nia-body-check` a consumer of typed comptime facts
 rather than a second owner of comptime expression inference.
 
+The same boundary applies to function-body comptime execution. `nia-body-check`
+may execute lowered `nia-comptime-ir` expressions while checking body-local
+`comptime if`, array lengths, and local `comptime` bindings, but generic
+comptime-call instantiation is delegated back to `nia-comptime-check`'s typed
+query surface. Body checking provides a typed comptime frame containing local
+binding value types, name aliases, active comptime function type substitutions,
+and the current target; the comptime checker uses that frame with the same
+typed expression inference used for top-level comptime values. This lets
+function-local structural comptime values, imported `comptime fn` calls, and
+ordinary `@builtin()` field values infer generic arguments without growing a
+second type-inference implementation in body checking.
+
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
 expression rules, including nested block expressions and contextual
