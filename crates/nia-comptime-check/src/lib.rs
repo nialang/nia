@@ -1135,6 +1135,7 @@ impl Analyzer<'_> {
                     ));
                 }
             }
+            (ComptimeValue::Bool(_), PrimitiveTy::Bool) => {}
             (ComptimeValue::Float(value), PrimitiveTy::F32) => {
                 let value = *value as f32;
                 if !value.is_finite() {
@@ -1152,7 +1153,15 @@ impl Analyzer<'_> {
                     ));
                 }
             }
-            _ => {}
+            (_, primitive) => {
+                self.diagnostics.push(Diagnostic::error(
+                    span,
+                    format!(
+                        "comptime value does not match primitive type {}",
+                        primitive_ty_name(primitive)
+                    ),
+                ));
+            }
         }
     }
 
@@ -4273,21 +4282,27 @@ impl Analyzer<'_> {
         name: &str,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        for frame in self.call_locals.iter_mut().rev() {
-            if frame.locals.contains_key(&local_id) {
-                if !frame.mutable_locals.contains(&local_id) {
-                    return Err(ComptimeError {
-                        span,
-                        message: format!("cannot assign to immutable comptime local `{name}`"),
-                    });
-                }
-                frame.locals.insert(local_id, value.clone());
-                frame.names.insert(name.to_string(), value.clone());
-                if let Some(previous) = frame.local_types.get(&local_id).cloned() {
-                    frame.name_types.insert(name.to_string(), previous);
-                }
-                return Ok(());
+        for index in (0..self.call_locals.len()).rev() {
+            if !self.call_locals[index].locals.contains_key(&local_id) {
+                continue;
             }
+            if !self.call_locals[index].mutable_locals.contains(&local_id) {
+                return Err(ComptimeError {
+                    span,
+                    message: format!("cannot assign to immutable comptime local `{name}`"),
+                });
+            }
+            let previous_ty = self.call_locals[index].local_types.get(&local_id).cloned();
+            if let Some(previous_ty) = previous_ty.as_ref() {
+                self.validate_typed_value(span, &value, previous_ty);
+            }
+            let frame = &mut self.call_locals[index];
+            frame.locals.insert(local_id, value.clone());
+            frame.names.insert(name.to_string(), value.clone());
+            if let Some(previous_ty) = previous_ty {
+                frame.name_types.insert(name.to_string(), previous_ty);
+            }
+            return Ok(());
         }
         Err(ComptimeError {
             span,
