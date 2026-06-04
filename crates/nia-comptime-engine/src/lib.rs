@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComptimeValue {
     Int(i128),
+    Float(f64),
     Bool(bool),
     String(String),
     Array(Vec<ComptimeValue>),
@@ -308,6 +309,12 @@ fn eval_comptime_expr_flow(
                     span: expr.span,
                     message,
                 })?,
+            ComptimeExprKind::Float(text) => eval_float_literal(text)
+                .map(ComptimeValue::Float)
+                .map_err(|message| ComptimeError {
+                    span: expr.span,
+                    message,
+                })?,
             ComptimeExprKind::Char(text) => decode_char_literal(text)
                 .map(|value| ComptimeValue::Int(value as i128))
                 .ok_or_else(|| ComptimeError {
@@ -443,10 +450,11 @@ fn eval_comptime_expr_flow(
                         span: expr.span,
                         message: "integer overflow in comptime negation".to_string(),
                     })?,
+                ComptimeValue::Float(value) => ComptimeValue::Float(-value),
                 _ => {
                     return Err(ComptimeError {
                         span: expr.span,
-                        message: "comptime negation requires an integer".to_string(),
+                        message: "comptime negation requires a numeric value".to_string(),
                     });
                 }
             },
@@ -1742,6 +1750,29 @@ fn eval_binary_int(lhs: i128, op: BinaryOp, rhs: i128) -> Result<i128, String> {
     })
 }
 
+fn eval_numeric_operand_flow(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<Result<ComptimeValue, ComptimeEvalFlow>, ComptimeError> {
+    match eval_comptime_expr_flow(expr, env)? {
+        ComptimeEvalFlow::Value(value @ (ComptimeValue::Int(_) | ComptimeValue::Float(_))) => {
+            Ok(Ok(value))
+        }
+        ComptimeEvalFlow::Value(_) => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime expression must evaluate to a numeric value".to_string(),
+        }),
+        flow @ (ComptimeEvalFlow::Return(_)
+        | ComptimeEvalFlow::Propagate(_)
+        | ComptimeEvalFlow::Break
+        | ComptimeEvalFlow::Continue) => Ok(Err(flow)),
+        ComptimeEvalFlow::Void => Err(ComptimeError {
+            span: expr.span,
+            message: "comptime expression requires a value".to_string(),
+        }),
+    }
+}
+
 fn eval_binary_flow(
     span: Span,
     lhs: &ComptimeExpr,
@@ -1757,19 +1788,6 @@ fn eval_binary_flow(
                     return Err(ComptimeError {
                         span: $expr.span,
                         message: "comptime expression must evaluate to bool".to_string(),
-                    });
-                }
-            }
-        };
-    }
-    macro_rules! int_operand {
-        ($expr:expr) => {
-            match eval_value_or_return_flow!($expr, env) {
-                ComptimeValue::Int(value) => value,
-                _ => {
-                    return Err(ComptimeError {
-                        span: $expr.span,
-                        message: "comptime expression must evaluate to an integer".to_string(),
                     });
                 }
             }
@@ -1800,16 +1818,55 @@ fn eval_binary_flow(
             ComptimeValue::Bool(if op == BinaryOp::Eq { equal } else { !equal })
         }
         BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-            let lhs = int_operand!(lhs);
-            let rhs = int_operand!(rhs);
-            ComptimeValue::Bool(eval_binary_int_compare(lhs, op, rhs))
+            let lhs = match eval_numeric_operand_flow(lhs, env)? {
+                Ok(value) => value,
+                Err(flow) => return Ok(flow),
+            };
+            let rhs = match eval_numeric_operand_flow(rhs, env)? {
+                Ok(value) => value,
+                Err(flow) => return Ok(flow),
+            };
+            match (lhs, rhs) {
+                (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => {
+                    ComptimeValue::Bool(eval_binary_int_compare(lhs, op, rhs))
+                }
+                (ComptimeValue::Float(lhs), ComptimeValue::Float(rhs)) => {
+                    eval_binary_float(lhs, op, rhs)
+                        .map_err(|message| ComptimeError { span, message })?
+                }
+                _ => {
+                    return Err(ComptimeError {
+                        span,
+                        message: "comptime comparison requires matching operand types".to_string(),
+                    });
+                }
+            }
         }
         _ => {
-            let lhs = int_operand!(lhs);
-            let rhs = int_operand!(rhs);
-            eval_binary_int(lhs, op, rhs)
-                .map(ComptimeValue::Int)
-                .map_err(|message| ComptimeError { span, message })?
+            let lhs = match eval_numeric_operand_flow(lhs, env)? {
+                Ok(value) => value,
+                Err(flow) => return Ok(flow),
+            };
+            let rhs = match eval_numeric_operand_flow(rhs, env)? {
+                Ok(value) => value,
+                Err(flow) => return Ok(flow),
+            };
+            match (lhs, rhs) {
+                (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => eval_binary_int(lhs, op, rhs)
+                    .map(ComptimeValue::Int)
+                    .map_err(|message| ComptimeError { span, message })?,
+                (ComptimeValue::Float(lhs), ComptimeValue::Float(rhs)) => {
+                    eval_binary_float(lhs, op, rhs)
+                        .map_err(|message| ComptimeError { span, message })?
+                }
+                _ => {
+                    return Err(ComptimeError {
+                        span,
+                        message: "comptime numeric operation requires matching operand types"
+                            .to_string(),
+                    });
+                }
+            }
         }
     };
     Ok(ComptimeEvalFlow::Value(value))
@@ -1825,9 +1882,29 @@ fn eval_binary_int_compare(lhs: i128, op: BinaryOp, rhs: i128) -> bool {
     }
 }
 
+fn eval_binary_float(lhs: f64, op: BinaryOp, rhs: f64) -> Result<ComptimeValue, String> {
+    Ok(match op {
+        BinaryOp::Add => ComptimeValue::Float(lhs + rhs),
+        BinaryOp::Sub => ComptimeValue::Float(lhs - rhs),
+        BinaryOp::Mul => ComptimeValue::Float(lhs * rhs),
+        BinaryOp::Div => ComptimeValue::Float(lhs / rhs),
+        BinaryOp::Rem => ComptimeValue::Float(lhs % rhs),
+        BinaryOp::Lt => ComptimeValue::Bool(lhs < rhs),
+        BinaryOp::Le => ComptimeValue::Bool(lhs <= rhs),
+        BinaryOp::Gt => ComptimeValue::Bool(lhs > rhs),
+        BinaryOp::Ge => ComptimeValue::Bool(lhs >= rhs),
+        _ => {
+            return Err(format!(
+                "unsupported binary operator for float comptime expression: {op:?}"
+            ));
+        }
+    })
+}
+
 fn values_equal(lhs: &ComptimeValue, rhs: &ComptimeValue) -> Option<bool> {
     match (lhs, rhs) {
         (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) => Some(lhs == rhs),
+        (ComptimeValue::Float(lhs), ComptimeValue::Float(rhs)) => Some(lhs == rhs),
         (ComptimeValue::Bool(lhs), ComptimeValue::Bool(rhs)) => Some(lhs == rhs),
         (ComptimeValue::String(lhs), ComptimeValue::String(rhs)) => Some(lhs == rhs),
         (ComptimeValue::String(lhs), ComptimeValue::Array(rhs)) => {

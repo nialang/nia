@@ -1774,6 +1774,12 @@ impl Analyzer<'_> {
                             .primitive(primitive),
                     )
                 }),
+            nia_comptime_engine::ComptimeExprKind::Float(text) => {
+                let primitive = float_literal_suffix_ty(text).unwrap_or(PrimitiveTy::F64);
+                Some(ComptimeValueType::Runtime(
+                    self.current_runtime_primitive_type(primitive),
+                ))
+            }
             nia_comptime_engine::ComptimeExprKind::Char(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Char),
             )),
@@ -2834,16 +2840,18 @@ impl Analyzer<'_> {
         rhs: &ComptimeExpr,
     ) -> Option<ComptimeValueType> {
         match op {
-            BinaryOp::And
-            | BinaryOp::Or
-            | BinaryOp::Eq
-            | BinaryOp::Ne
-            | BinaryOp::Lt
-            | BinaryOp::Le
-            | BinaryOp::Gt
-            | BinaryOp::Ge => Some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Bool),
-            )),
+            BinaryOp::And | BinaryOp::Or | BinaryOp::Eq | BinaryOp::Ne => Some(
+                ComptimeValueType::Runtime(self.current_runtime_primitive_type(PrimitiveTy::Bool)),
+            ),
+            BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
+                let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
+                (lhs_ty == rhs_ty
+                    && (self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty)))
+                .then_some(ComptimeValueType::Runtime(
+                    self.current_runtime_primitive_type(PrimitiveTy::Bool),
+                ))
+            }
             BinaryOp::Mul
             | BinaryOp::Div
             | BinaryOp::Rem
@@ -2856,8 +2864,15 @@ impl Analyzer<'_> {
             | BinaryOp::BitOr => {
                 let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
                 let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
-                (lhs_ty == rhs_ty && self.is_integer_runtime_type(lhs_ty))
-                    .then_some(ComptimeValueType::Runtime(lhs_ty))
+                let allowed = match op {
+                    BinaryOp::Shl
+                    | BinaryOp::Shr
+                    | BinaryOp::BitAnd
+                    | BinaryOp::BitXor
+                    | BinaryOp::BitOr => self.is_integer_runtime_type(lhs_ty),
+                    _ => self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty),
+                };
+                (lhs_ty == rhs_ty && allowed).then_some(ComptimeValueType::Runtime(lhs_ty))
             }
         }
     }
@@ -2916,6 +2931,13 @@ impl Analyzer<'_> {
                     | PrimitiveTy::U128
                     | PrimitiveTy::Usize
             ))
+        )
+    }
+
+    fn is_float_runtime_type(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.ty_kind(ty),
+            Some(TyKind::Primitive(PrimitiveTy::F32 | PrimitiveTy::F64))
         )
     }
 
@@ -3587,20 +3609,50 @@ impl ComptimeEnv for Analyzer<'_> {
         let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
             return Ok(value);
         };
-        let ComptimeValue::Int(value) = value else {
-            return Ok(value);
+        let value = match value {
+            ComptimeValue::Int(value) => {
+                if is_float_primitive(primitive) {
+                    ComptimeValue::Float(cast_int_to_float(value, primitive))
+                } else {
+                    let Some(value) =
+                        cast_comptime_integer(value, primitive, self.input.target.pointer_width)
+                    else {
+                        return Err(ComptimeError {
+                            span,
+                            message: format!(
+                                "comptime cast result cannot be represented as `{}`",
+                                primitive_ty_name(primitive)
+                            ),
+                        });
+                    };
+                    ComptimeValue::Int(value)
+                }
+            }
+            ComptimeValue::Float(value) => {
+                if is_float_primitive(primitive) {
+                    ComptimeValue::Float(cast_float_to_float(value, primitive))
+                } else if primitive_integer_layout(primitive, self.input.target.pointer_width)
+                    .is_some()
+                {
+                    let Some(value) =
+                        cast_float_to_integer(value, primitive, self.input.target.pointer_width)
+                    else {
+                        return Err(ComptimeError {
+                            span,
+                            message: format!(
+                                "comptime cast result cannot be represented as `{}`",
+                                primitive_ty_name(primitive)
+                            ),
+                        });
+                    };
+                    ComptimeValue::Int(value)
+                } else {
+                    ComptimeValue::Float(value)
+                }
+            }
+            value => value,
         };
-        let Some(value) = cast_comptime_integer(value, primitive, self.input.target.pointer_width)
-        else {
-            return Err(ComptimeError {
-                span,
-                message: format!(
-                    "comptime cast result cannot be represented as `{}`",
-                    primitive_ty_name(primitive)
-                ),
-            });
-        };
-        Ok(ComptimeValue::Int(value))
+        Ok(value)
     }
 
     fn call_function(
@@ -3843,6 +3895,56 @@ fn cast_comptime_integer(value: i128, ty: PrimitiveTy, pointer_width: u32) -> Op
     }
 }
 
+fn cast_int_to_float(value: i128, ty: PrimitiveTy) -> f64 {
+    let value = value as f64;
+    cast_float_to_float(value, ty)
+}
+
+fn cast_float_to_float(value: f64, ty: PrimitiveTy) -> f64 {
+    match ty {
+        PrimitiveTy::F32 => f64::from(value as f32),
+        PrimitiveTy::F64 => value,
+        _ => value,
+    }
+}
+
+fn cast_float_to_integer(value: f64, ty: PrimitiveTy, pointer_width: u32) -> Option<i128> {
+    if !value.is_finite() {
+        return None;
+    }
+    let (min, max) = primitive_integer_range_for_target(ty, pointer_width)?;
+    if value < min as f64 || value > max as f64 {
+        return None;
+    }
+    Some(value.trunc() as i128)
+}
+
+fn primitive_integer_range_for_target(ty: PrimitiveTy, pointer_width: u32) -> Option<(i128, i128)> {
+    match ty {
+        PrimitiveTy::Isize => signed_integer_range(pointer_width),
+        PrimitiveTy::Usize => unsigned_integer_range(pointer_width),
+        _ => integer_range(ty),
+    }
+}
+
+fn signed_integer_range(bits: u32) -> Option<(i128, i128)> {
+    match bits {
+        0 => None,
+        1..=127 => Some((-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)),
+        128 => Some((i128::MIN, i128::MAX)),
+        _ => None,
+    }
+}
+
+fn unsigned_integer_range(bits: u32) -> Option<(i128, i128)> {
+    match bits {
+        0 => None,
+        1..=126 => Some((0, (1i128 << bits) - 1)),
+        127 | 128 => Some((0, i128::MAX)),
+        _ => None,
+    }
+}
+
 fn primitive_integer_layout(ty: PrimitiveTy, pointer_width: u32) -> Option<(u32, bool)> {
     match ty {
         PrimitiveTy::I8 => Some((8, true)),
@@ -3864,6 +3966,10 @@ fn primitive_integer_layout(ty: PrimitiveTy, pointer_width: u32) -> Option<(u32,
         | PrimitiveTy::Void
         | PrimitiveTy::Never => None,
     }
+}
+
+fn is_float_primitive(ty: PrimitiveTy) -> bool {
+    matches!(ty, PrimitiveTy::F32 | PrimitiveTy::F64)
 }
 
 fn integer_mask(bits: u32) -> Option<u128> {
@@ -3947,6 +4053,14 @@ fn integer_literal_suffix_ty(text: &str) -> Option<PrimitiveTy> {
         "u64" => PrimitiveTy::U64,
         "u128" => PrimitiveTy::U128,
         "usize" => PrimitiveTy::Usize,
+        _ => return None,
+    })
+}
+
+fn float_literal_suffix_ty(text: &str) -> Option<PrimitiveTy> {
+    Some(match numeric_literal_suffix(text)? {
+        "f32" => PrimitiveTy::F32,
+        "f64" => PrimitiveTy::F64,
         _ => return None,
     })
 }
