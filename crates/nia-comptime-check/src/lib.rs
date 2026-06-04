@@ -1014,12 +1014,73 @@ impl Analyzer<'_> {
     }
 
     fn validate_typed_value(&mut self, span: Span, value: &ComptimeValue, ty: &ComptimeValueType) {
-        let ComptimeValueType::Runtime(ty) = ty else {
-            return;
-        };
-        let Some(TyKind::Primitive(primitive)) = self.ty_kind(*ty) else {
-            return;
-        };
+        match ty {
+            ComptimeValueType::Runtime(ty) => self.validate_runtime_typed_value(span, value, *ty),
+            ComptimeValueType::Array { elem, .. } => {
+                let ComptimeValue::Array(values) = value else {
+                    return;
+                };
+                for value in values {
+                    self.validate_typed_value(span, value, elem);
+                }
+            }
+            ComptimeValueType::Struct(fields) => {
+                let ComptimeValue::Struct(values) = value else {
+                    return;
+                };
+                for field in fields {
+                    if let Some(value) = values.get(&field.name) {
+                        self.validate_typed_value(span, value, &field.ty);
+                    }
+                }
+            }
+            ComptimeValueType::Int | ComptimeValueType::Bool | ComptimeValueType::String => {}
+        }
+    }
+
+    fn validate_runtime_typed_value(
+        &mut self,
+        span: Span,
+        value: &ComptimeValue,
+        ty: InternedTyId,
+    ) {
+        match self.ty_kind(ty) {
+            Some(TyKind::Primitive(primitive)) => {
+                self.validate_primitive_typed_value(span, value, primitive)
+            }
+            Some(TyKind::Array { elem, .. }) => {
+                let ComptimeValue::Array(values) = value else {
+                    return;
+                };
+                for value in values {
+                    self.validate_runtime_typed_value(span, value, elem);
+                }
+            }
+            Some(TyKind::Optional { elem }) => {
+                let ComptimeValue::Optional(Some(value)) = value else {
+                    return;
+                };
+                self.validate_runtime_typed_value(span, value, elem);
+            }
+            Some(TyKind::ErrorUnion { error, value: ok }) => {
+                let ComptimeValue::ErrorUnion(value) = value else {
+                    return;
+                };
+                match value {
+                    Ok(value) => self.validate_runtime_typed_value(span, value, ok),
+                    Err(value) => self.validate_runtime_typed_value(span, value, error),
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn validate_primitive_typed_value(
+        &mut self,
+        span: Span,
+        value: &ComptimeValue,
+        primitive: PrimitiveTy,
+    ) {
         match (value, primitive) {
             (ComptimeValue::Int(value), primitive) => {
                 let Some((min, max)) =
