@@ -1048,11 +1048,20 @@ impl Analyzer<'_> {
                     self.push_comptime_type_mismatch(span, "struct");
                     return;
                 };
+                let expected_names = fields
+                    .iter()
+                    .map(|field| field.name.as_str())
+                    .collect::<HashSet<_>>();
                 for field in fields {
                     if let Some(value) = values.get(&field.name) {
                         self.validate_typed_value(span, value, &field.ty);
                     } else {
                         self.push_comptime_missing_struct_field(span, &field.name);
+                    }
+                }
+                for name in values.keys() {
+                    if !expected_names.contains(name.as_str()) {
+                        self.push_comptime_extra_struct_field(span, name);
                     }
                 }
             }
@@ -1136,11 +1145,20 @@ impl Analyzer<'_> {
         let Some(field_tys) = self.comptime_struct_field_types(&signature, &args) else {
             return;
         };
-        for (name, field_ty) in field_tys {
-            if let Some(value) = values.get(&name) {
-                self.validate_runtime_typed_value(span, value, field_ty);
+        let expected_names = field_tys
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<HashSet<_>>();
+        for (name, field_ty) in &field_tys {
+            if let Some(value) = values.get(name.as_str()) {
+                self.validate_runtime_typed_value(span, value, *field_ty);
             } else {
-                self.push_comptime_missing_struct_field(span, &name);
+                self.push_comptime_missing_struct_field(span, name);
+            }
+        }
+        for name in values.keys() {
+            if !expected_names.contains(name.as_str()) {
+                self.push_comptime_extra_struct_field(span, name);
             }
         }
     }
@@ -1216,6 +1234,13 @@ impl Analyzer<'_> {
         self.diagnostics.push(Diagnostic::error(
             span,
             format!("comptime struct value is missing field `{name}`"),
+        ));
+    }
+
+    fn push_comptime_extra_struct_field(&mut self, span: Span, name: &str) {
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!("comptime struct value has extra field `{name}`"),
         ));
     }
 
@@ -4388,6 +4413,10 @@ fn validate_assignment_shape(
             }
         }
         (ComptimeValue::Struct(values), ComptimeValue::Struct(previous_values)) => {
+            let previous_names = previous_values
+                .keys()
+                .map(String::as_str)
+                .collect::<HashSet<_>>();
             for (name, previous) in previous_values {
                 if let Some(value) = values.get(name) {
                     validate_assignment_shape(diagnostics, span, value, previous);
@@ -4395,6 +4424,14 @@ fn validate_assignment_shape(
                     diagnostics.push(Diagnostic::error(
                         span,
                         format!("comptime struct value is missing field `{name}`"),
+                    ));
+                }
+            }
+            for name in values.keys() {
+                if !previous_names.contains(name.as_str()) {
+                    diagnostics.push(Diagnostic::error(
+                        span,
+                        format!("comptime struct value has extra field `{name}`"),
                     ));
                 }
             }

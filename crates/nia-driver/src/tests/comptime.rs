@@ -1109,6 +1109,69 @@ comptime let n: usize = width();
 }
 
 #[test]
+fn comptime_function_rejects_struct_assignment_extra_field() {
+    let root = temp_dir("comptime_function_rejects_struct_assignment_extra_field");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var config = {width: 4usize};
+    config = {width: 8usize, enabled: true};
+    config.width
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("comptime struct value has extra field `enabled`")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_nominal_struct_assignment_extra_field() {
+    let root = temp_dir("comptime_function_rejects_nominal_struct_assignment_extra_field");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Point {
+    x: usize,
+    y: usize,
+}
+
+comptime fn width() usize {
+    var p: Point = Point{x: 1usize, y: 2usize};
+    p = Point{x: 3usize, y: 4usize, z: 5usize};
+    p.x
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| {
+            diagnostic
+                .diagnostic
+                .message
+                .contains("comptime struct value has extra field `z`")
+        }),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_mutates_struct_fields() {
     let root = temp_dir("comptime_function_mutates_struct_fields");
     write(
