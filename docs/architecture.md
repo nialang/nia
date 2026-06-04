@@ -963,6 +963,12 @@ because their invariants are different:
 - it must preserve physical aggregate layout for codegen;
 - it may reference globals/functions through statically valid address paths.
 
+When body checking materializes accepted static initializers into
+`StaticInit`, any required compile-time integer or static-address index is
+lowered through the same `nia-comptime-ir` surface and evaluated through a
+single static-initializer helper. That helper is part of static data
+materialization, not a general backend escape hatch for reinterpreting AST.
+
 This separation is intentional. A future constant/data IR may refine
 `StaticInit`, but it should remain a data-initialization boundary rather than
 being folded into function IR.
