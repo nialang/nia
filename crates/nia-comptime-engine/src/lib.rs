@@ -428,6 +428,18 @@ fn eval_comptime_expr_flow(
                     });
                 }
             },
+            ComptimeExprKind::Unary {
+                op: UnaryOp::BitNot,
+                expr: inner,
+            } => match eval_value_or_return_flow!(inner, env) {
+                ComptimeValue::Int(value) => ComptimeValue::Int(!value),
+                _ => {
+                    return Err(ComptimeError {
+                        span: expr.span,
+                        message: "comptime bitwise not requires an integer".to_string(),
+                    });
+                }
+            },
             ComptimeExprKind::Unary { op, .. } => {
                 return Err(ComptimeError {
                     span: expr.span,
