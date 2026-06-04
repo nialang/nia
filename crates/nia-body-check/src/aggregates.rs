@@ -120,7 +120,10 @@ impl<'a> BodyChecker<'a> {
                     nia_ast::ArrayElements::List(elems) => elems.len() as u64,
                     nia_ast::ArrayElements::Repeat { count, .. } => {
                         match self.eval_array_repeat_count(count) {
-                            Ok(value) => value,
+                            Ok(value) => {
+                                self.record_array_repeat_count(count.span, value);
+                                value
+                            }
                             Err(err) => {
                                 self.diagnostics.push(Diagnostic::error(
                                     err.span,
@@ -143,22 +146,27 @@ impl<'a> BodyChecker<'a> {
             | ArrayLenTy::ConstExpr(_)
             | ArrayLenTy::Builtin { .. }) => {
                 match explicit_array_literal_len(self, elems) {
-                    Ok(Some(actual)) => match self.array_len_value(span, &expected) {
-                        Ok(expected) => {
-                            if expected != actual {
-                                self.diagnostics.push(Diagnostic::error(
-                                    span,
-                                    format!(
-                                        "array literal length mismatch: expected {expected}, got {actual}"
-                                    ),
-                                ));
-                            }
+                    Ok(Some(actual)) => {
+                        if let nia_ast::ArrayElements::Repeat { count, .. } = elems {
+                            self.record_array_repeat_count(count.span, actual);
                         }
-                        Err(err) => self.diagnostics.push(Diagnostic::error(
-                            span,
-                            format!("array length is not a valid constant: {err}"),
-                        )),
-                    },
+                        match self.array_len_value(span, &expected) {
+                            Ok(expected) => {
+                                if expected != actual {
+                                    self.diagnostics.push(Diagnostic::error(
+                                        span,
+                                        format!(
+                                            "array literal length mismatch: expected {expected}, got {actual}"
+                                        ),
+                                    ));
+                                }
+                            }
+                            Err(err) => self.diagnostics.push(Diagnostic::error(
+                                span,
+                                format!("array length is not a valid constant: {err}"),
+                            )),
+                        }
+                    }
                     Ok(None) => {}
                     Err(err) => {
                         self.diagnostics.push(Diagnostic::error(
@@ -1045,6 +1053,10 @@ impl<'a> BodyChecker<'a> {
             })?;
             nia_comptime_engine::eval_comptime_array_len_expr(&count, this)
         })
+    }
+
+    fn record_array_repeat_count(&mut self, span: Span, value: u64) {
+        self.array_repeat_counts.insert(span, value);
     }
 
     fn instantiate_comptime_function_generics(

@@ -275,6 +275,15 @@ fn main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(
+        checked
+            .facts
+            .array_repeat_counts
+            .values()
+            .any(|count| *count == 1048576),
+        "{:?}",
+        checked.facts.array_repeat_counts
+    );
 }
 
 #[test]
