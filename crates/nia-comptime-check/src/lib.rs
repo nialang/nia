@@ -1207,7 +1207,12 @@ impl Analyzer<'_> {
         let mut substitutions = HashMap::new();
         if type_args.is_empty() {
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
-                let Some(arg_ty) = self.comptime_arg_runtime_type(arg_expr) else {
+                let expected = self.comptime_expected_param_type(
+                    function_id.module_id,
+                    param.ty,
+                    &substitutions,
+                );
+                let Some(arg_ty) = self.comptime_arg_runtime_type(arg_expr, expected) else {
                     continue;
                 };
                 self.infer_generics_from_tys(
@@ -1242,11 +1247,35 @@ impl Analyzer<'_> {
         Ok(substitutions)
     }
 
-    fn comptime_arg_runtime_type(&mut self, expr: &ComptimeExpr) -> Option<InternedTyId> {
-        self.comptime_expr_type(expr).and_then(|ty| ty.runtime())
+    fn comptime_expected_param_type(
+        &mut self,
+        module_id: ModuleId,
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Option<InternedTyId> {
+        self.ensure_working_interner(module_id)?;
+        let interner = self.working_interners.get_mut(&module_id)?;
+        Some(substitute_ty_generics_in_interner(
+            interner,
+            ty,
+            &|generic| substitutions.get(generic).copied(),
+        ))
     }
 
-    fn comptime_expr_type(&mut self, expr: &ComptimeExpr) -> Option<ComptimeValueType> {
+    fn comptime_arg_runtime_type(
+        &mut self,
+        expr: &ComptimeExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        self.comptime_expr_type(expr, expected)
+            .and_then(|ty| ty.runtime())
+    }
+
+    fn comptime_expr_type(
+        &mut self,
+        expr: &ComptimeExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
         match &expr.kind {
             nia_comptime_engine::ComptimeExprKind::Ident {
                 resolution: Some(nia_comptime_engine::ComptimeNameResolution::Local(local_id)),
@@ -1284,13 +1313,34 @@ impl Analyzer<'_> {
                 Some(ComptimeValueType::Runtime(*ty))
             }
             nia_comptime_engine::ComptimeExprKind::OptionalSome { expr: inner } => {
-                let elem = self.comptime_arg_runtime_type(inner)?;
+                let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
+                    Some(TyKind::Optional { elem }) => Some(elem),
+                    _ => None,
+                });
+                let elem = self.comptime_arg_runtime_type(inner, expected_elem)?;
                 self.comptime_runtime_type(
                     elem,
                     |elem| TyKind::Optional { elem },
                     self.current_execution_module_id(),
                 )
                 .map(ComptimeValueType::Runtime)
+            }
+            nia_comptime_engine::ComptimeExprKind::Null => {
+                let expected = expected?;
+                matches!(self.ty_kind(expected), Some(TyKind::Optional { .. }))
+                    .then_some(ComptimeValueType::Runtime(expected))
+            }
+            nia_comptime_engine::ComptimeExprKind::ErrorOk { expr: inner } => {
+                let (error, value) = self.expected_error_union_parts(expected?)?;
+                let actual_value = self.comptime_arg_runtime_type(inner, Some(value))?;
+                self.comptime_error_union_type(error, actual_value)
+                    .map(ComptimeValueType::Runtime)
+            }
+            nia_comptime_engine::ComptimeExprKind::ErrorErr { expr: inner } => {
+                let (error, value) = self.expected_error_union_parts(expected?)?;
+                let actual_error = self.comptime_arg_runtime_type(inner, Some(error))?;
+                self.comptime_error_union_type(actual_error, value)
+                    .map(ComptimeValueType::Runtime)
             }
             nia_comptime_engine::ComptimeExprKind::Builtin {
                 name,
@@ -1302,7 +1352,7 @@ impl Analyzer<'_> {
                 Some(self.builtin_comptime_type())
             }
             nia_comptime_engine::ComptimeExprKind::Field { lhs, name } => {
-                let ComptimeValueType::Struct(fields) = self.comptime_expr_type(lhs)? else {
+                let ComptimeValueType::Struct(fields) = self.comptime_expr_type(lhs, None)? else {
                     return None;
                 };
                 fields
@@ -1310,6 +1360,16 @@ impl Analyzer<'_> {
                     .find(|field| field.name == *name)
                     .map(|field| field.ty)
             }
+            _ => None,
+        }
+    }
+
+    fn expected_error_union_parts(
+        &self,
+        expected: InternedTyId,
+    ) -> Option<(InternedTyId, InternedTyId)> {
+        match self.ty_kind(expected) {
+            Some(TyKind::ErrorUnion { error, value }) => Some((error, value)),
             _ => None,
         }
     }
@@ -1324,6 +1384,19 @@ impl Analyzer<'_> {
         self.working_interners
             .get_mut(&target_module_id)
             .map(|interner| interner.intern(kind(imported_elem)))
+    }
+
+    fn comptime_error_union_type(
+        &mut self,
+        error: InternedTyId,
+        value: InternedTyId,
+    ) -> Option<InternedTyId> {
+        let target_module_id = self.current_execution_module_id();
+        let error = self.import_ty_into_module_or_none(error, target_module_id)?;
+        let value = self.import_ty_into_module_or_none(value, target_module_id)?;
+        self.working_interners
+            .get_mut(&target_module_id)
+            .map(|interner| interner.intern(TyKind::ErrorUnion { error, value }))
     }
 
     fn is_builtin_value_callee(&self, callee: &ComptimeExpr, expected: &str) -> bool {

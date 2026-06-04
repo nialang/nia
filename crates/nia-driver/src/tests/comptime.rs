@@ -1349,6 +1349,70 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_error_success_constructor_context() {
+    let root = temp_dir(
+        "generic_comptime_function_infers_type_arg_from_error_success_constructor_context",
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: usize!T) usize!T {
+    value
+}
+
+comptime fn unwrap(value: usize!usize) usize {
+    switch value {
+        !payload => payload,
+        err! => err,
+    }
+}
+
+comptime let n: usize = unwrap(id(!7usize));
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_error_payload_constructor_context() {
+    let root = temp_dir(
+        "generic_comptime_function_infers_type_arg_from_error_payload_constructor_context",
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T!usize) T!usize {
+    value
+}
+
+comptime fn unwrap(value: usize!usize) usize {
+    switch value {
+        !payload => payload,
+        err! => err,
+    }
+}
+
+comptime let n: usize = unwrap(id(3usize!));
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_typed_aggregate_literals() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_aggregate_literals");
     write(

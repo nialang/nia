@@ -605,6 +605,12 @@ need missing context, such as `null` or one-sided error-union values, remain
 untyped until an explicit binding, parameter, or call context supplies the full
 type.
 
+Expected types are an input to this semantic query, not a fallback evaluator
+rule. This lets generic comptime calls infer through partially-known parameter
+types, for example `E!T` can type `!value` when `E` is already concrete, while
+still refusing to invent the missing half of an error union from the value
+shape alone.
+
 Early target pruning is intentionally narrower than full comptime execution: it
 can evaluate target builtins and same-module helper functions before the module
 graph is complete. It lowers its accepted AST conditions to `nia-comptime-ir`
