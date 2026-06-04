@@ -647,6 +647,14 @@ anonymous runtime struct types from field names; structural compile-time-only
 values remain represented in the separate `ComptimeValueType::Struct` surface
 used by values such as `@builtin()`.
 
+Comptime field access consumes both sides of that typed value surface.
+Structural comptime-only structs resolve fields from their structural field
+type list, while runtime nominal struct values resolve fields from the nominal
+struct signature with generic arguments substituted into the current execution
+module. This keeps ordinary user comptime structs and `@builtin()` structs on
+the same typed expression path without forcing builtin data into the runtime
+type interner.
+
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
 expression rules, including nested block expressions and contextual
