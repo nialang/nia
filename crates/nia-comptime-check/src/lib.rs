@@ -1774,6 +1774,12 @@ impl Analyzer<'_> {
                             .primitive(primitive),
                     )
                 }),
+            nia_comptime_engine::ComptimeExprKind::Char(_) => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::Char),
+            )),
+            nia_comptime_engine::ComptimeExprKind::ByteChar(_) => Some(ComptimeValueType::Runtime(
+                self.current_runtime_primitive_type(PrimitiveTy::U8),
+            )),
             nia_comptime_engine::ComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
                 self.current_runtime_primitive_type(PrimitiveTy::Bool),
             )),

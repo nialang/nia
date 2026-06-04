@@ -285,6 +285,18 @@ fn eval_comptime_expr_flow(
                     span: expr.span,
                     message,
                 })?,
+            ComptimeExprKind::Char(text) => decode_char_literal(text)
+                .map(|value| ComptimeValue::Int(value as i128))
+                .ok_or_else(|| ComptimeError {
+                    span: expr.span,
+                    message: format!("invalid char literal `{text}` in comptime expression"),
+                })?,
+            ComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
+                .map(|value| ComptimeValue::Int(value as i128))
+                .ok_or_else(|| ComptimeError {
+                    span: expr.span,
+                    message: format!("invalid byte char literal `{text}` in comptime expression"),
+                })?,
             ComptimeExprKind::Ident { name, resolution }
             | ComptimeExprKind::Qualified { name, resolution } => {
                 if let Some(resolution) = resolution {
@@ -1805,6 +1817,64 @@ fn unescape_simple(text: &str) -> String {
         }
     }
     out
+}
+
+fn decode_char_literal(text: &str) -> Option<u32> {
+    let inner = text.strip_prefix('\'')?.strip_suffix('\'')?;
+    let decoded = decode_char_inner(inner)?;
+    let mut chars = decoded.chars();
+    let ch = chars.next()?;
+    chars.next().is_none().then_some(ch as u32)
+}
+
+fn decode_byte_char_literal(text: &str) -> Option<u8> {
+    let inner = text.strip_prefix("b'")?.strip_suffix('\'')?;
+    let decoded = decode_char_inner(inner)?;
+    let mut chars = decoded.chars();
+    let ch = chars.next()?;
+    if chars.next().is_some() || !ch.is_ascii() {
+        return None;
+    }
+    Some(ch as u8)
+}
+
+fn decode_char_inner(text: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next()? {
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            '\\' => out.push('\\'),
+            '\'' => out.push('\''),
+            '"' => out.push('"'),
+            '0' => out.push('\0'),
+            'u' => {
+                if chars.next()? != '{' {
+                    return None;
+                }
+                let mut hex = String::new();
+                for ch in chars.by_ref() {
+                    if ch == '}' {
+                        break;
+                    }
+                    hex.push(ch);
+                }
+                if hex.is_empty() || hex.len() > 6 {
+                    return None;
+                }
+                let value = u32::from_str_radix(&hex, 16).ok()?;
+                out.push(char::from_u32(value)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 fn checked_shift(lhs: i128, rhs: i128, is_left: bool) -> Result<i128, String> {
