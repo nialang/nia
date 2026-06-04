@@ -2265,6 +2265,35 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_if_expr_rejects_non_bool_condition() {
+    let root = temp_dir("comptime_if_expr_rejects_non_bool_condition");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let n: usize = id(comptime if 1usize {
+    4usize
+} else {
+    8usize
+});
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_fn_returns_comptime_if_expr_value() {
     let root = temp_dir("comptime_fn_returns_comptime_if_expr_value");
     write(
