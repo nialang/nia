@@ -3259,6 +3259,38 @@ pub comptime fn size_of[T]() usize {
 }
 
 #[test]
+fn imported_comptime_value_evaluates_layout_builtin_in_defining_module() {
+    let root = temp_dir("imported_comptime_value_evaluates_layout_builtin_in_defining_module");
+    write(
+        &root.join("config.nia"),
+        r#"
+pub struct Pair {
+    a: u8,
+    b: i32,
+}
+
+pub comptime let pair_size: usize = @size[Pair]();
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .config;
+
+comptime let n: usize = config::pair_size;
+
+fn main() i32 {
+    var bytes: [n]u8 = [0; n];
+    bytes.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn function_body_comptime_call_substitutes_type_args_for_layout_builtins() {
     let root = temp_dir("function_body_comptime_call_substitutes_type_args_for_layout_builtins");
     write(
