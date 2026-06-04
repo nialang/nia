@@ -618,6 +618,91 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_function_mutable_locals_drive_loop_array_lengths() {
+    let root = temp_dir("comptime_function_mutable_locals_drive_loop_array_lengths");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var i: usize = 0;
+    while i != 6 {
+        i += 1;
+    }
+    i
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_supports_plain_local_assignment() {
+    let root = temp_dir("comptime_function_supports_plain_local_assignment");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var i: usize = 2;
+    i = 5;
+    i *= 2;
+    i
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_function_rejects_assignment_to_immutable_local() {
+    let root = temp_dir("comptime_function_rejects_assignment_to_immutable_local");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    let i: usize = 2;
+    i = 5;
+    i
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("cannot assign to immutable comptime local `i`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_rejects_escaped_loop_control_flow() {
     let root = temp_dir("comptime_function_rejects_escaped_loop_control_flow");
     write(

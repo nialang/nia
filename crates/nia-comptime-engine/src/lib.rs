@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{BinaryOp, UnaryOp};
 pub use nia_comptime_ir::{
-    ComptimeArrayElements, ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind,
-    ComptimeFunction, ComptimeNameResolution, ComptimeParam, ComptimeStmt, ComptimeStmtKind,
-    ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern,
+    ComptimeArrayElements, ComptimeAssign, ComptimeAssignTarget, ComptimeBinding, ComptimeBlock,
+    ComptimeExpr, ComptimeExprKind, ComptimeFunction, ComptimeNameResolution, ComptimeParam,
+    ComptimeStmt, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
+    ComptimeSwitchPattern,
 };
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
@@ -156,6 +157,20 @@ pub trait ComptimeEnv {
         Err(ComptimeError {
             span,
             message: "comptime function locals are not available in this context".to_string(),
+        })
+    }
+
+    fn assign_local(
+        &mut self,
+        span: Span,
+        target: &ComptimeAssignTarget,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = target;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "comptime assignment is not available in this context".to_string(),
         })
     }
 
@@ -377,6 +392,9 @@ fn eval_comptime_expr_flow(
             }
             ComptimeExprKind::Binary { lhs, op, rhs } => {
                 return eval_binary_flow(expr.span, lhs, *op, rhs, env);
+            }
+            ComptimeExprKind::Assign(assign) => {
+                return eval_assign_expr_flow(expr.span, assign, env);
             }
             ComptimeExprKind::If {
                 cond,
@@ -925,6 +943,94 @@ fn eval_function_stmt(
         ComptimeStmtKind::While { cond, body } => eval_while_stmt(stmt.span, cond, body, env),
         ComptimeStmtKind::Loop { body } => eval_loop_stmt(stmt.span, body, env),
     }
+}
+
+fn eval_assign_expr_flow(
+    span: Span,
+    assign: &ComptimeAssign,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let value = match eval_assignment_value_flow(span, assign, env)? {
+        ComptimeEvalFlow::Value(value) => value,
+        flow @ (ComptimeEvalFlow::Return(_)
+        | ComptimeEvalFlow::Propagate(_)
+        | ComptimeEvalFlow::Break
+        | ComptimeEvalFlow::Continue) => return Ok(flow),
+        ComptimeEvalFlow::Void => {
+            return Err(ComptimeError {
+                span,
+                message: "comptime assignment requires a value".to_string(),
+            });
+        }
+    };
+    env.assign_local(span, &assign.lhs, value)?;
+    Ok(ComptimeEvalFlow::Void)
+}
+
+fn eval_assignment_value_flow(
+    span: Span,
+    assign: &ComptimeAssign,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let rhs = eval_value_or_return_flow!(&assign.rhs, env);
+    if matches!(assign.op, nia_ast::AssignOp::Assign) {
+        return Ok(ComptimeEvalFlow::Value(rhs));
+    }
+    let lhs = eval_assign_target_value(span, &assign.lhs, env)?;
+    let op = assign_op_binary(assign.op).ok_or_else(|| ComptimeError {
+        span,
+        message: "unsupported comptime assignment operator".to_string(),
+    })?;
+    let (ComptimeValue::Int(lhs), ComptimeValue::Int(rhs)) = (lhs, rhs) else {
+        return Err(ComptimeError {
+            span,
+            message: "comptime compound assignment requires integer operands".to_string(),
+        });
+    };
+    eval_binary_int(lhs, op, rhs)
+        .map(ComptimeValue::Int)
+        .map(ComptimeEvalFlow::Value)
+        .map_err(|message| ComptimeError { span, message })
+}
+
+fn eval_assign_target_value(
+    span: Span,
+    target: &ComptimeAssignTarget,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    match target {
+        ComptimeAssignTarget::Local {
+            span: target_span,
+            name,
+            local_id,
+        } => {
+            if let Some(local_id) = local_id {
+                env.resolve_name_resolution(
+                    *target_span,
+                    ComptimeNameResolution::Local(*local_id),
+                    name,
+                )
+            } else {
+                env.resolve_ident(span, name)
+            }
+        }
+    }
+}
+
+fn assign_op_binary(op: nia_ast::AssignOp) -> Option<BinaryOp> {
+    Some(match op {
+        nia_ast::AssignOp::Assign => return None,
+        nia_ast::AssignOp::Add => BinaryOp::Add,
+        nia_ast::AssignOp::Sub => BinaryOp::Sub,
+        nia_ast::AssignOp::Shl => BinaryOp::Shl,
+        nia_ast::AssignOp::Shr => BinaryOp::Shr,
+        nia_ast::AssignOp::Mul => BinaryOp::Mul,
+        nia_ast::AssignOp::Div => BinaryOp::Div,
+        nia_ast::AssignOp::Rem => BinaryOp::Rem,
+        nia_ast::AssignOp::BitAnd => BinaryOp::BitAnd,
+        nia_ast::AssignOp::BitXor => BinaryOp::BitXor,
+        nia_ast::AssignOp::BitOr => BinaryOp::BitOr,
+    })
 }
 
 fn eval_while_stmt(

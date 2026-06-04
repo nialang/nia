@@ -7,7 +7,7 @@ use nia_diagnostic::Diagnostic;
 use nia_item_tree::ActiveModuleItemTree;
 use nia_item_tree::{ComptimeBranch, ComptimeBranchResolver, ItemTreeError, ModuleItemTree};
 use nia_span::Span;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetConfig {
@@ -97,7 +97,13 @@ pub fn eval_config_bool(
 struct TargetComptimeEnv<'a> {
     config: &'a TargetConfig,
     functions: &'a HashMap<String, nia_ast::FunctionItem>,
-    call_locals: Vec<HashMap<String, nia_comptime_engine::ComptimeValue>>,
+    call_locals: Vec<TargetComptimeFrame>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct TargetComptimeFrame {
+    values: HashMap<String, nia_comptime_engine::ComptimeValue>,
+    mutable_names: HashSet<String>,
 }
 
 impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
@@ -110,7 +116,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
             .call_locals
             .iter()
             .rev()
-            .find_map(|frame| frame.get(name).cloned())
+            .find_map(|frame| frame.values.get(name).cloned())
         {
             return Ok(value);
         }
@@ -178,7 +184,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         &mut self,
         _span: Span,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.call_locals.push(HashMap::new());
+        self.call_locals.push(TargetComptimeFrame::default());
         Ok(())
     }
 
@@ -192,7 +198,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         param: &nia_comptime_engine::ComptimeParam,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.bind_named_value(span, &param.name, value)
+        self.bind_named_value(span, &param.name, false, value)
     }
 
     fn bind_function_local(
@@ -201,7 +207,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         binding: &nia_comptime_engine::ComptimeBinding,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.bind_named_value(span, &binding.name, value)
+        self.bind_named_value(span, &binding.name, binding.is_mutable, value)
     }
 
     fn bind_switch_pattern_local(
@@ -211,7 +217,20 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         _local_id: Option<nia_ids::LocalId>,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.bind_named_value(span, name, value)
+        self.bind_named_value(span, name, false, value)
+    }
+
+    fn assign_local(
+        &mut self,
+        span: Span,
+        target: &nia_comptime_engine::ComptimeAssignTarget,
+        value: nia_comptime_engine::ComptimeValue,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        match target {
+            nia_comptime_engine::ComptimeAssignTarget::Local { name, .. } => {
+                self.assign_named_value(span, name, value)
+            }
+        }
     }
 }
 
@@ -220,6 +239,7 @@ impl TargetComptimeEnv<'_> {
         &mut self,
         span: Span,
         name: &str,
+        is_mutable: bool,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         let Some(frame) = self.call_locals.last_mut() else {
@@ -228,8 +248,35 @@ impl TargetComptimeEnv<'_> {
                 message: "internal comptime function frame is missing".to_string(),
             });
         };
-        frame.insert(name.to_string(), value);
+        if is_mutable {
+            frame.mutable_names.insert(name.to_string());
+        }
+        frame.values.insert(name.to_string(), value);
         Ok(())
+    }
+
+    fn assign_named_value(
+        &mut self,
+        span: Span,
+        name: &str,
+        value: nia_comptime_engine::ComptimeValue,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        for frame in self.call_locals.iter_mut().rev() {
+            if frame.values.contains_key(name) {
+                if !frame.mutable_names.contains(name) {
+                    return Err(nia_comptime_engine::ComptimeError {
+                        span,
+                        message: format!("cannot assign to immutable comptime local `{name}`"),
+                    });
+                }
+                frame.values.insert(name.to_string(), value);
+                return Ok(());
+            }
+        }
+        Err(nia_comptime_engine::ComptimeError {
+            span,
+            message: format!("unknown comptime assignment target `{name}`"),
+        })
     }
 }
 

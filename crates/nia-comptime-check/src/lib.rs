@@ -557,6 +557,7 @@ struct Analyzer<'a> {
 #[derive(Debug, Clone, Default)]
 struct ComptimeCallFrame {
     locals: HashMap<LocalId, ComptimeValue>,
+    mutable_locals: HashSet<LocalId>,
     names: HashMap<String, ComptimeValue>,
 }
 
@@ -1020,7 +1021,7 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime function parameter".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, &param.name, value)
+        self.bind_local_value(span, local_id, &param.name, false, value)
     }
 
     fn bind_function_local(
@@ -1038,7 +1039,7 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime function local".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, &binding.name, value)
+        self.bind_local_value(span, local_id, &binding.name, binding.is_mutable, value)
     }
 
     fn bind_switch_pattern_local(
@@ -1055,7 +1056,38 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "failed to bind comptime switch pattern local".to_string(),
             });
         };
-        self.bind_local_value(span, local_id, name, value)
+        self.bind_local_value(span, local_id, name, false, value)
+    }
+
+    fn assign_local(
+        &mut self,
+        span: Span,
+        target: &nia_comptime_engine::ComptimeAssignTarget,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        match target {
+            nia_comptime_engine::ComptimeAssignTarget::Local {
+                span: target_span,
+                name,
+                local_id,
+            } => {
+                let Some(local_id) = local_id.or_else(|| {
+                    self.input.locals.uses.get(target_span).and_then(|use_| {
+                        if let nia_local_resolve::LocalUse::Local(local_id) = use_ {
+                            Some(*local_id)
+                        } else {
+                            None
+                        }
+                    })
+                }) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!("failed to resolve comptime assignment target `{name}`"),
+                    });
+                };
+                self.assign_local_value(span, local_id, name, value)
+            }
+        }
     }
 }
 
@@ -1065,6 +1097,7 @@ impl Analyzer<'_> {
         span: Span,
         local_id: LocalId,
         name: &str,
+        is_mutable: bool,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(frame) = self.call_locals.last_mut() else {
@@ -1073,9 +1106,38 @@ impl Analyzer<'_> {
                 message: "internal comptime function frame is missing".to_string(),
             });
         };
+        if is_mutable {
+            frame.mutable_locals.insert(local_id);
+        }
         frame.locals.insert(local_id, value.clone());
         frame.names.insert(name.to_string(), value);
         Ok(())
+    }
+
+    fn assign_local_value(
+        &mut self,
+        span: Span,
+        local_id: LocalId,
+        name: &str,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        for frame in self.call_locals.iter_mut().rev() {
+            if frame.locals.contains_key(&local_id) {
+                if !frame.mutable_locals.contains(&local_id) {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!("cannot assign to immutable comptime local `{name}`"),
+                    });
+                }
+                frame.locals.insert(local_id, value.clone());
+                frame.names.insert(name.to_string(), value);
+                return Ok(());
+            }
+        }
+        Err(ComptimeError {
+            span,
+            message: format!("unknown comptime assignment target `{name}`"),
+        })
     }
 }
 
