@@ -323,6 +323,69 @@ fn non_constant(value: i32, start: i32) i32 {
 }
 
 #[test]
+fn lowers_integer_switch_patterns_from_checked_values() {
+    let checked = pipeline(
+        r#"
+fn main() i32 {
+    var x: i32 = 2;
+    switch x {
+        1 => return 10,
+        2..5 => return 20,
+        _ => return 30,
+    }
+    0
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let patterns = checked
+        .ir
+        .function_bodies
+        .values()
+        .flat_map(|body| body.stmts.iter())
+        .filter_map(|stmt| match &stmt.kind {
+            nia_body_ir::TypedStmtKind::Expr(expr) => Some(expr),
+            _ => None,
+        })
+        .filter_map(|expr| match &expr.kind {
+            nia_body_ir::TypedExprKind::Switch(switch) => Some(switch.as_ref()),
+            _ => None,
+        })
+        .flat_map(|switch| switch.arms.iter())
+        .flat_map(|arm| arm.patterns.iter())
+        .collect::<Vec<_>>();
+
+    assert!(
+        patterns.iter().any(|pattern| matches!(
+            pattern,
+            nia_body_ir::TypedSwitchPattern::CheckedInt { value: 1, .. }
+        )),
+        "{patterns:?}"
+    );
+    assert!(
+        patterns.iter().any(|pattern| matches!(
+            pattern,
+            nia_body_ir::TypedSwitchPattern::CheckedIntRange {
+                start: 2,
+                end: 5,
+                inclusive: false,
+                ..
+            }
+        )),
+        "{patterns:?}"
+    );
+    assert!(
+        !patterns.iter().any(|pattern| matches!(
+            pattern,
+            nia_body_ir::TypedSwitchPattern::Expr(_)
+                | nia_body_ir::TypedSwitchPattern::Range { .. }
+        )),
+        "{patterns:?}"
+    );
+}
+
+#[test]
 fn rejects_implicit_enum_integer_mixing() {
     let checked = pipeline(
         r#"

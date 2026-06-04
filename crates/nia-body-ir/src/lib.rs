@@ -287,10 +287,22 @@ pub enum TypedSwitchPattern {
         span: Span,
     },
     Expr(TypedExpr),
+    CheckedInt {
+        value: i128,
+        ty: InternedTyId,
+        span: Span,
+    },
     Range {
         start: Box<TypedExpr>,
         end: Box<TypedExpr>,
         inclusive: bool,
+        span: Span,
+    },
+    CheckedIntRange {
+        start: i128,
+        end: i128,
+        inclusive: bool,
+        ty: InternedTyId,
         span: Span,
     },
 }

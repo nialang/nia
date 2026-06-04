@@ -216,8 +216,10 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn lower_switch(&mut self, switch: &nia_ast::SwitchStmt) -> TypedSwitch {
+        let target = self.lower_expr(&switch.target);
+        let target_ty = target.ty;
         TypedSwitch {
-            target: self.lower_expr(&switch.target),
+            target,
             bool_ty: self.bool(),
             arms: switch
                 .arms
@@ -286,19 +288,16 @@ impl<'a> BodyChecker<'a> {
                                 }
                             }
                             SwitchPattern::Expr(expr) => {
-                                TypedSwitchPattern::Expr(self.lower_expr(expr))
+                                self.lower_switch_expr_pattern(expr, target_ty)
                             }
                             SwitchPattern::Range {
                                 start,
                                 end,
                                 inclusive,
                                 span,
-                            } => TypedSwitchPattern::Range {
-                                start: Box::new(self.lower_expr(start)),
-                                end: Box::new(self.lower_expr(end)),
-                                inclusive: *inclusive,
-                                span: *span,
-                            },
+                            } => self.lower_switch_range_pattern(
+                                start, end, *inclusive, *span, target_ty,
+                            ),
                         })
                         .collect(),
                     body: match &arm.body {
@@ -315,6 +314,60 @@ impl<'a> BodyChecker<'a> {
                     span: arm.span,
                 })
                 .collect(),
+        }
+    }
+
+    fn lower_switch_expr_pattern(
+        &mut self,
+        expr: &Expr,
+        target_ty: nia_ids::InternedTyId,
+    ) -> TypedSwitchPattern {
+        if self.is_integer(target_ty) || self.is_bool(target_ty) {
+            if let Some(value) = self.switch_pattern_values.get(&expr.span).copied() {
+                return TypedSwitchPattern::CheckedInt {
+                    value,
+                    ty: target_ty,
+                    span: expr.span,
+                };
+            }
+            self.diagnostics.push(nia_diagnostic::Diagnostic::error(
+                expr.span,
+                "missing checked switch pattern value during body IR lowering",
+            ));
+        }
+        TypedSwitchPattern::Expr(self.lower_expr(expr))
+    }
+
+    fn lower_switch_range_pattern(
+        &mut self,
+        start: &Expr,
+        end: &Expr,
+        inclusive: bool,
+        span: Span,
+        target_ty: nia_ids::InternedTyId,
+    ) -> TypedSwitchPattern {
+        if self.is_integer(target_ty) {
+            let start_value = self.switch_pattern_values.get(&start.span).copied();
+            let end_value = self.switch_pattern_values.get(&end.span).copied();
+            if let (Some(start), Some(end)) = (start_value, end_value) {
+                return TypedSwitchPattern::CheckedIntRange {
+                    start,
+                    end,
+                    inclusive,
+                    ty: target_ty,
+                    span,
+                };
+            }
+            self.diagnostics.push(nia_diagnostic::Diagnostic::error(
+                span,
+                "missing checked switch range pattern values during body IR lowering",
+            ));
+        }
+        TypedSwitchPattern::Range {
+            start: Box::new(self.lower_expr(start)),
+            end: Box::new(self.lower_expr(end)),
+            inclusive,
+            span,
         }
     }
 

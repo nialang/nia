@@ -298,12 +298,19 @@ impl FunctionLowerer {
                         pattern: self.lower_value_expr(pattern, scope, current, ops, blocks),
                         target: arm_target,
                     }),
+                    TypedSwitchPattern::CheckedInt { value, ty, span } => {
+                        arms.push(FunctionSwitchArm {
+                            pattern: self.checked_int_pattern_expr(*value, *ty, *span),
+                            target: arm_target,
+                        })
+                    }
                     TypedSwitchPattern::Default => default = Some(arm_target),
                     TypedSwitchPattern::OptionalSome { .. }
                     | TypedSwitchPattern::OptionalNull { .. }
                     | TypedSwitchPattern::ErrorOk { .. }
                     | TypedSwitchPattern::ErrorErr { .. }
-                    | TypedSwitchPattern::Range { .. } => {}
+                    | TypedSwitchPattern::Range { .. }
+                    | TypedSwitchPattern::CheckedIntRange { .. } => {}
                 }
             }
             lowered_arms.push((arm_target, arm));
