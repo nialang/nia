@@ -384,28 +384,18 @@ fn eval_comptime_expr_flow(
             ComptimeExprKind::StructLiteral { fields, .. } => {
                 return eval_struct_literal_flow(fields, env);
             }
-            ComptimeExprKind::Builtin {
-                name,
-                type_arg: Some(type_arg),
-            } => {
-                let Some(builtin) = LayoutBuiltin::from_name(name) else {
-                    return Err(ComptimeError {
-                        span: expr.span,
-                        message: format!("unsupported builtin in comptime expression: @{name}"),
-                    });
-                };
-                env.resolve_layout_builtin(expr.span, builtin, type_arg)?
+            ComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
+                env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
             }
-            ComptimeExprKind::Builtin {
-                name,
-                type_arg: None,
-            } => env.resolve_builtin_value(expr.span, name)?,
+            ComptimeExprKind::BuiltinValue { name } => {
+                env.resolve_builtin_value(expr.span, name)?
+            }
             ComptimeExprKind::Call {
                 callee,
                 type_args,
                 args,
             } => {
-                if let ComptimeExprKind::Builtin { name, type_arg } = &callee.kind {
+                if let ComptimeExprKind::BuiltinValue { name } = &callee.kind {
                     if !args.is_empty() {
                         return Err(ComptimeError {
                             span: expr.span,
@@ -414,19 +404,18 @@ fn eval_comptime_expr_flow(
                             ),
                         });
                     }
-                    if let Some(type_arg) = type_arg {
-                        let Some(builtin) = LayoutBuiltin::from_name(name) else {
-                            return Err(ComptimeError {
-                                span: expr.span,
-                                message: format!(
-                                    "unsupported builtin in comptime expression: @{name}"
-                                ),
-                            });
-                        };
-                        env.resolve_layout_builtin(expr.span, builtin, type_arg)?
-                    } else {
-                        env.resolve_builtin_value(expr.span, name)?
+                    env.resolve_builtin_value(expr.span, name)?
+                } else if let ComptimeExprKind::LayoutBuiltin { builtin, type_arg } = &callee.kind {
+                    if !args.is_empty() {
+                        return Err(ComptimeError {
+                            span: expr.span,
+                            message: format!(
+                                "unsupported builtin call in comptime expression: @{}",
+                                builtin.name()
+                            ),
+                        });
                     }
+                    env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
                 } else {
                     let mut values = Vec::with_capacity(args.len());
                     for arg in args {

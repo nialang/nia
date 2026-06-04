@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -232,9 +232,12 @@ pub enum ComptimeExprKind {
         ty: Option<InternedTyId>,
         fields: Vec<ComptimeFieldInit>,
     },
-    Builtin {
+    BuiltinValue {
         name: String,
-        type_arg: Option<ComptimeTypeArg>,
+    },
+    LayoutBuiltin {
+        builtin: LayoutBuiltin,
+        type_arg: ComptimeTypeArg,
     },
     Call {
         callee: Box<ComptimeExpr>,
@@ -482,12 +485,22 @@ pub fn lower_expr_with_context(
                 .map(|field| lower_field_init_with_context(field, context))
                 .collect::<Result<Vec<_>, _>>()?,
         },
-        nia_ast::ExprKind::Builtin { name, type_arg } => ComptimeExprKind::Builtin {
-            name: name.clone(),
-            type_arg: type_arg
-                .as_ref()
-                .map(|ty| ComptimeTypeArg::from_type_ref(ty, context)),
-        },
+        nia_ast::ExprKind::Builtin { name, type_arg } => {
+            if let Some(type_arg) = type_arg {
+                let Some(builtin) = LayoutBuiltin::from_name(name) else {
+                    return Err(ComptimeLowerError {
+                        span: expr.span,
+                        message: format!("unsupported builtin in comptime expression: @{name}"),
+                    });
+                };
+                ComptimeExprKind::LayoutBuiltin {
+                    builtin,
+                    type_arg: ComptimeTypeArg::from_type_ref(type_arg, context),
+                }
+            } else {
+                ComptimeExprKind::BuiltinValue { name: name.clone() }
+            }
+        }
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => ComptimeExprKind::Unary {
             op: lower_unary_op(*op),
