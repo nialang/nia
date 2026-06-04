@@ -639,6 +639,14 @@ optional element type without treating unresolved generic placeholders as real
 types. Repeat literals use the repeated value type and the comptime repeat
 count to build the array runtime type.
 
+Comptime struct literals are typed only from nominal struct context. The checker
+uses the expected struct type, substitutes its generic arguments into the field
+signature types, infers still-open generic arguments from concrete field values,
+and then rechecks all fields with the completed field types. It does not invent
+anonymous runtime struct types from field names; structural compile-time-only
+values remain represented in the separate `ComptimeValueType::Struct` surface
+used by values such as `@builtin()`.
+
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
 expression rules, including nested block expressions and contextual

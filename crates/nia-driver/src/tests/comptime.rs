@@ -1632,6 +1632,65 @@ fn main() i32 {
 }
 
 #[test]
+fn generic_comptime_function_infers_type_arg_from_struct_literal() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_struct_literal");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Pair[T] {
+    left: T,
+    right: T,
+}
+
+comptime fn right[T](pair: Pair[T]) T {
+    pair.right
+}
+
+comptime let n: usize = right({left: 4usize, right: 8usize});
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_contextual_struct_literal() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_contextual_struct_literal");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Slot[T] {
+    primary: ?T,
+    fallback: ?T,
+}
+
+comptime fn pick[T](slot: Slot[T]) T {
+    switch slot.primary {
+        ?payload => payload,
+        null => slot.fallback.?,
+    }
+}
+
+comptime let n: usize = pick({primary: null, fallback: ?8usize});
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_typed_comptime_value() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_comptime_value");
     write(
