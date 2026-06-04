@@ -2010,10 +2010,10 @@ impl Analyzer<'_> {
                 self.comptime_range_type(range, expected)
             }
             nia_comptime_engine::ComptimeExprKind::If {
+                cond,
                 then_branch,
                 else_branch,
-                ..
-            } => self.comptime_if_expr_type(then_branch, else_branch.as_deref(), expected),
+            } => self.comptime_if_expr_type(cond, then_branch, else_branch.as_deref(), expected),
             nia_comptime_engine::ComptimeExprKind::Switch(switch) => {
                 self.comptime_switch_expr_type(switch, expected)
             }
@@ -2821,10 +2821,16 @@ impl Analyzer<'_> {
 
     fn comptime_if_expr_type(
         &mut self,
+        cond: &ComptimeExpr,
         then_branch: &ComptimeBlock,
         else_branch: Option<&ComptimeExpr>,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
+        let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
+        let cond_ty = self.comptime_arg_runtime_type(cond, Some(bool_ty))?;
+        if cond_ty != bool_ty {
+            return None;
+        }
         let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
         let else_branch = else_branch?;
         if let Some(expected) = expected {
