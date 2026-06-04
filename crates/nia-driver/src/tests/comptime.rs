@@ -965,6 +965,33 @@ comptime let n: usize = width();
 }
 
 #[test]
+fn comptime_function_rejects_array_assignment_length_mismatch() {
+    let root = temp_dir("comptime_function_rejects_array_assignment_length_mismatch");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var values: [2]usize = [1usize, 2usize];
+    values = [1usize; 3usize];
+    values.len()
+}
+
+comptime let n: usize = width();
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 2")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_function_rejects_optional_assignment_shape_mismatch() {
     let root = temp_dir("comptime_function_rejects_optional_assignment_shape_mismatch");
     write(
