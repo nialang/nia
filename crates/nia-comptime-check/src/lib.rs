@@ -50,9 +50,9 @@ pub struct ComptimeValueFieldType {
     pub ty: ComptimeValueType,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ComptimeArmType {
-    Value(InternedTyId),
+    Value(ComptimeValueType),
     ControlFlow,
 }
 
@@ -2083,29 +2083,31 @@ impl Analyzer<'_> {
     ) -> Option<ComptimeValueType> {
         let target_ty = self.comptime_arg_runtime_type(&switch.target, None);
         let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
-        let mut result_ty = expected;
+        let mut result_ty = expected.map(ComptimeValueType::Runtime);
         let mut saw_value_arm = false;
         for arm in &switch.arms {
             let arm_ty = result_ty
+                .clone()
                 .and_then(|expected| {
-                    self.comptime_switch_arm_type(arm, target_ty, Some(expected))
-                        .filter(|arm_ty| *arm_ty == ComptimeArmType::Value(expected))
+                    let runtime_expected = expected.runtime();
+                    let arm_ty = self.comptime_switch_arm_type(arm, target_ty, runtime_expected)?;
+                    (arm_ty == ComptimeArmType::Value(expected)).then_some(arm_ty)
                 })
-                .or_else(|| self.comptime_switch_arm_type(arm, target_ty, result_ty))?;
+                .or_else(|| {
+                    self.comptime_switch_arm_type(arm, target_ty, result_ty.as_ref()?.runtime())
+                })
+                .or_else(|| self.comptime_switch_arm_type(arm, target_ty, None))?;
             let ComptimeArmType::Value(arm_ty) = arm_ty else {
                 continue;
             };
             saw_value_arm = true;
-            match result_ty {
-                Some(result_ty) if result_ty != arm_ty => return None,
+            match &result_ty {
+                Some(result_ty) if *result_ty != arm_ty => return None,
                 Some(_) => {}
                 None => result_ty = Some(arm_ty),
             }
         }
-        saw_value_arm
-            .then_some(result_ty)
-            .flatten()
-            .map(ComptimeValueType::Runtime)
+        saw_value_arm.then_some(result_ty).flatten()
     }
 
     fn comptime_switch_arm_type(
@@ -2186,7 +2188,7 @@ impl Analyzer<'_> {
     ) -> Option<ComptimeArmType> {
         match body {
             ComptimeSwitchArmBody::Expr(expr) => self
-                .comptime_arg_runtime_type(expr, expected)
+                .comptime_expr_type(expr, expected)
                 .map(ComptimeArmType::Value),
             ComptimeSwitchArmBody::Block(block) => {
                 self.comptime_switch_block_arm_type(block, expected)
@@ -2200,7 +2202,7 @@ impl Analyzer<'_> {
         block: &ComptimeBlock,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeArmType> {
-        self.comptime_block_tail_runtime_type(block, expected)
+        self.comptime_block_tail_type(block, expected)
             .map(ComptimeArmType::Value)
     }
 
@@ -2211,7 +2213,7 @@ impl Analyzer<'_> {
     ) -> Option<ComptimeArmType> {
         match &stmt.kind {
             ComptimeStmtKind::Expr(expr) => self
-                .comptime_arg_runtime_type(expr, expected)
+                .comptime_expr_type(expr, expected)
                 .map(ComptimeArmType::Value),
             ComptimeStmtKind::Return(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
                 Some(ComptimeArmType::ControlFlow)
@@ -2231,15 +2233,20 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
         let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
-        let then_ty = self
-            .comptime_block_tail_runtime_type(then_branch, expected)
-            .or_else(|| self.comptime_block_tail_runtime_type(then_branch, None))?;
         let else_branch = else_branch?;
-        let else_ty = expected
-            .and_then(|expected| self.comptime_arg_runtime_type(else_branch, Some(expected)))
-            .filter(|else_ty| *else_ty == then_ty)
-            .or_else(|| self.comptime_arg_runtime_type(else_branch, Some(then_ty)))?;
-        (then_ty == else_ty).then_some(ComptimeValueType::Runtime(then_ty))
+        if let Some(expected) = expected {
+            let then_ty = self
+                .comptime_block_tail_runtime_type(then_branch, Some(expected))
+                .or_else(|| self.comptime_block_tail_runtime_type(then_branch, None))?;
+            let else_ty = self
+                .comptime_arg_runtime_type(else_branch, Some(expected))
+                .filter(|else_ty| *else_ty == then_ty)
+                .or_else(|| self.comptime_arg_runtime_type(else_branch, Some(then_ty)))?;
+            return (then_ty == else_ty).then_some(ComptimeValueType::Runtime(then_ty));
+        }
+        let then_ty = self.comptime_block_tail_type(then_branch, None)?;
+        let else_ty = self.comptime_expr_type(else_branch, None)?;
+        (then_ty == else_ty).then_some(then_ty)
     }
 
     fn usable_comptime_expected_type(&self, ty: InternedTyId) -> Option<InternedTyId> {

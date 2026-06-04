@@ -184,6 +184,11 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
         fields: &[nia_ast::FieldInit],
     ) -> InternedTyId {
+        if self.in_comptime_context()
+            && expected.is_some_and(|expected| self.is_comptime_only_ty(expected))
+        {
+            return self.check_structural_comptime_struct_literal(fields);
+        }
         let Some(aggregate_ty) = expected else {
             if self.in_comptime_context() {
                 return self.check_structural_comptime_struct_literal(fields);

@@ -1998,6 +1998,61 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_if_structural_struct_fields_have_typed_values() {
+    let root = temp_dir("comptime_if_structural_struct_fields_have_typed_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let config = if true {
+    {width: 4usize}
+} else {
+    {width: 8usize}
+};
+comptime let n: usize = id(config.width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_switch_structural_struct_fields_have_typed_values() {
+    let root = temp_dir("comptime_switch_structural_struct_fields_have_typed_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let config = switch 1usize {
+    1usize => ({width: 4usize}),
+    _ => ({width: 8usize}),
+};
+comptime let n: usize = id(config.width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn generic_comptime_function_infers_type_arg_from_nested_call_return_type() {
     let root = temp_dir("generic_comptime_function_infers_type_arg_from_nested_call_return_type");
     write(
