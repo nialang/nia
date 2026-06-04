@@ -128,6 +128,17 @@ pub trait ComptimeEnv {
         })
     }
 
+    fn cast_value(
+        &mut self,
+        span: Span,
+        value: ComptimeValue,
+        ty: InternedTyId,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = span;
+        let _ = ty;
+        Ok(value)
+    }
+
     fn push_comptime_scope(&mut self, span: Span) -> Result<(), ComptimeError> {
         Err(ComptimeError {
             span,
@@ -504,7 +515,17 @@ fn eval_comptime_expr_flow(
                 );
             }
             ComptimeExprKind::Switch(switch) => return eval_comptime_switch_expr_flow(switch, env),
-            ComptimeExprKind::Cast { expr: inner, .. } => eval_value_or_return_flow!(inner, env),
+            ComptimeExprKind::Cast {
+                expr: inner,
+                ty: Some(ty),
+            } => {
+                let value = eval_value_or_return_flow!(inner, env);
+                env.cast_value(expr.span, value, *ty)?
+            }
+            ComptimeExprKind::Cast {
+                expr: inner,
+                ty: None,
+            } => eval_value_or_return_flow!(inner, env),
             ComptimeExprKind::Block(block) => {
                 return eval_function_block(block, env);
             }
