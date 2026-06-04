@@ -2383,6 +2383,63 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_string_literals_support_source_concatenation_and_multiline() {
+    let root = temp_dir("comptime_string_literals_support_source_concatenation_and_multiline");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn char_score(value: [3]char) usize {
+    if value[1] == '\x69' {
+        3usize
+    } else {
+        0usize
+    }
+}
+
+comptime fn byte_score(value: [3]u8) usize {
+    if value[2] == b'a' {
+        5usize
+    } else {
+        0usize
+    }
+}
+
+comptime fn multiline_score(value: [11]char) usize {
+    if value[5] == '\n' {
+        7usize
+    } else {
+        0usize
+    }
+}
+
+comptime let text: [3]char = "n" "ia";
+comptime let bytes: [3]u8 = b"n" b"ia";
+comptime let multiline: [11]char =
+    \\hello
+    \\world
+;
+comptime let byte_multiline: [11]u8 =
+    b\\hello
+    \\world
+;
+comptime let n: usize =
+    char_score(text)
+    + byte_score(bytes)
+    + multiline_score(multiline)
+    + byte_score(byte_multiline[8..]);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_switch_structural_struct_fields_have_typed_values() {
     let root = temp_dir("comptime_switch_structural_struct_fields_have_typed_values");
     write(
