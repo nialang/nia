@@ -201,6 +201,12 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             ExprKind::Index { lhs, index } => {
+                if let IndexArg::Expr(index) = index
+                    && let Some(ty) = self.comptime_index_expr_runtime_type(lhs, index)
+                {
+                    self.check_expr(index);
+                    return ty;
+                }
                 let lhs_expected = match index {
                     IndexArg::Expr(_) => self.array_expected_from_index_expected(expected),
                     IndexArg::Range(_) => None,
@@ -929,6 +935,10 @@ impl<'a> BodyChecker<'a> {
             && let Some(index) = &arg.expr
         {
             self.record_bracket_suffix_resolution(span, BracketSuffixResolution::Index);
+            if let Some(ty) = self.comptime_index_expr_runtime_type(callee, index) {
+                self.check_expr(index);
+                return ty;
+            }
             let lhs_expected = self.array_expected_from_index_expected(expected);
             let lhs_ty = self.check_expr_with_expected(callee, lhs_expected);
             let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::IndexRead, index);
