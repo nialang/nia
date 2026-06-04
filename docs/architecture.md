@@ -691,6 +691,11 @@ imported structural comptime fields, and ordinary `@builtin()` field values
 infer generic arguments without growing a second type-inference implementation
 in body checking.
 
+`TypedComptimeQueryInput` borrows existing typed comptime query output instead
+of copying it into a new result table. The checker overlays those borrowed
+facts with any typed values produced by the local query, preserving the query
+graph boundary while avoiding an accidental clone-based API contract.
+
 Comptime `if` expressions are typed from branch result types. The then block
 tail and else expression are both typed through the same source-shaped comptime
 expression rules, including nested block expressions and contextual

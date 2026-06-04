@@ -281,6 +281,7 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
         input,
         values: HashMap::new(),
         typed_values: HashMap::new(),
+        external_typed_values: None,
         call_locals: Vec::new(),
         execution_module_overrides: Vec::new(),
         enum_values: HashMap::new(),
@@ -763,6 +764,7 @@ struct Analyzer<'a> {
     input: ComptimeInput<'a>,
     values: HashMap<ComptimeKey, ComptimeValue>,
     typed_values: HashMap<ComptimeKey, TypedComptimeValue>,
+    external_typed_values: Option<&'a HashMap<ComptimeKey, TypedComptimeValue>>,
     call_locals: Vec<ComptimeCallFrame>,
     execution_module_overrides: Vec<ModuleId>,
     enum_values: HashMap<DefId, ComptimeValue>,
@@ -814,7 +816,8 @@ impl Analyzer<'_> {
                 program: input.program,
             },
             values: HashMap::new(),
-            typed_values: input.typed_values.clone(),
+            typed_values: HashMap::new(),
+            external_typed_values: Some(input.typed_values),
             call_locals: input
                 .frames
                 .iter()
@@ -974,6 +977,13 @@ impl Analyzer<'_> {
         };
         self.typed_values
             .insert(key, TypedComptimeValue { value, ty });
+    }
+
+    fn typed_value_for_key(&self, key: ComptimeKey) -> Option<&TypedComptimeValue> {
+        self.typed_values.get(&key).or_else(|| {
+            self.external_typed_values
+                .and_then(|values| values.get(&key))
+        })
     }
 
     fn comptime_value_type_for_key(&mut self, key: ComptimeKey) -> Option<ComptimeValueType> {
@@ -1486,7 +1496,7 @@ impl Analyzer<'_> {
     ) -> Result<ComptimeValue, ComptimeError> {
         let current_lengths = ComptimeCheck {
             values: self.values.clone(),
-            typed_values: self.typed_values.clone(),
+            typed_values: HashMap::new(),
             enum_values: self.enum_values.clone(),
             typed_enum_values: self.typed_enum_values.clone(),
             array_lengths: self.array_lengths.clone(),
@@ -1703,8 +1713,7 @@ impl Analyzer<'_> {
                 .or_else(|| self.call_local_name_type(name))
                 .or_else(|| {
                     let ty = self
-                        .typed_values
-                        .get(&ComptimeKey::Local(*local_id))
+                        .typed_value_for_key(ComptimeKey::Local(*local_id))
                         .map(|typed| typed.ty.clone())?;
                     self.import_comptime_value_type(ty, self.current_execution_module_id())
                 })
@@ -1726,8 +1735,7 @@ impl Analyzer<'_> {
                 resolution: Some(nia_comptime_engine::ComptimeNameResolution::Global(global_id)),
                 ..
             } => self
-                .typed_values
-                .get(&ComptimeKey::Global(*global_id))
+                .typed_value_for_key(ComptimeKey::Global(*global_id))
                 .map(|typed| typed.ty.clone())
                 .and_then(|ty| {
                     self.import_comptime_value_type(ty, self.current_execution_module_id())
