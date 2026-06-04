@@ -2563,6 +2563,31 @@ comptime let value: bool = id(true and 1usize);
 }
 
 #[test]
+fn generic_comptime_function_rejects_non_bool_not_operand() {
+    let root = temp_dir("generic_comptime_function_rejects_non_bool_not_operand");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let value: bool = id(not 1usize);
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn comptime_float_values_validate_target_range() {
     let root = temp_dir("comptime_float_values_validate_target_range");
     write(
