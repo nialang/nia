@@ -157,9 +157,11 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         span: Span,
         callee: &nia_comptime_engine::ComptimeExpr,
         type_args: &[nia_comptime_engine::ComptimeTypeArg],
+        arg_exprs: &[nia_comptime_engine::ComptimeExpr],
         args: Vec<nia_comptime_engine::ComptimeValue>,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
         let _ = type_args;
+        let _ = arg_exprs;
         let nia_comptime_engine::ComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,

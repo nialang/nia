@@ -1248,8 +1248,8 @@ fn main() i32 {
 }
 
 #[test]
-fn generic_comptime_function_requires_explicit_type_args() {
-    let root = temp_dir("generic_comptime_function_requires_explicit_type_args");
+fn generic_comptime_function_infers_type_arg_from_suffixed_literal() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_suffixed_literal");
     write(
         &root.join("main.nia"),
         r#"
@@ -1267,11 +1267,88 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_infers_type_arg_from_typed_comptime_value() {
+    let root = temp_dir("generic_comptime_function_infers_type_arg_from_typed_comptime_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let width: usize = 4;
+comptime let n: usize = id(width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_generic_comptime_function_infers_type_arg_from_typed_value() {
+    let root = temp_dir("imported_generic_comptime_function_infers_type_arg_from_typed_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .identity;
+
+comptime let width: usize = 4;
+comptime let n: usize = identity::id(width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+    write(
+        &root.join("identity.nia"),
+        r#"
+pub comptime fn id[T](value: T) T {
+    value
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn generic_comptime_function_reports_uninferred_type_args() {
+    let root = temp_dir("generic_comptime_function_reports_uninferred_type_args");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn zero[T]() usize {
+    0
+}
+
+comptime let n: usize = zero();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .message
-            .contains("generic comptime function requires explicit type arguments")),
+            .contains("cannot infer comptime generic type argument `T`")),
         "{:?}",
         program.diagnostics
     );

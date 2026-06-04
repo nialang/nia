@@ -728,9 +728,11 @@ impl ComptimeEnv for BodyChecker<'_> {
         span: Span,
         callee: &nia_comptime_engine::ComptimeExpr,
         type_args: &[nia_comptime_engine::ComptimeTypeArg],
+        arg_exprs: &[nia_comptime_engine::ComptimeExpr],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = type_args;
+        let _ = arg_exprs;
         let Some(function_id) = self.comptime_function(callee) else {
             return Err(ComptimeError {
                 span,

@@ -115,10 +115,12 @@ pub trait ComptimeEnv {
         span: Span,
         callee: &ComptimeExpr,
         type_args: &[ComptimeTypeArg],
+        arg_exprs: &[ComptimeExpr],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = callee;
         let _ = type_args;
+        let _ = arg_exprs;
         let _ = args;
         Err(ComptimeError {
             span,
@@ -366,7 +368,7 @@ fn eval_comptime_expr_flow(
                     for arg in args {
                         values.push(eval_value_or_return_flow!(arg, env));
                     }
-                    env.call_function(expr.span, callee, type_args, values)?
+                    env.call_function(expr.span, callee, type_args, args, values)?
                 }
             }
             ComptimeExprKind::Unary {
