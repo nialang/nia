@@ -4,9 +4,10 @@ use std::collections::{HashMap, HashSet};
 use nia_ast::{BinaryOp, Expr, ItemKind, Module, UnaryOp};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
-    ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeLocalInitializer,
-    ComptimeModule, ComptimeNameResolution, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm,
-    ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg,
+    ComptimeBlock, ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeFieldInit,
+    ComptimeLocalInitializer, ComptimeModule, ComptimeNameResolution, ComptimeStmtKind,
+    ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern,
+    ComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -1526,6 +1527,9 @@ impl Analyzer<'_> {
             nia_comptime_engine::ComptimeExprKind::ArrayLiteral { ty: None, elems } => {
                 self.comptime_array_literal_type(elems, expected)
             }
+            nia_comptime_engine::ComptimeExprKind::StructLiteral { ty: None, fields } => {
+                self.comptime_struct_literal_type(expr.span, fields, expected)
+            }
             nia_comptime_engine::ComptimeExprKind::OptionalSome { expr: inner } => {
                 let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
                     Some(TyKind::Optional { elem }) => Some(elem),
@@ -1763,6 +1767,153 @@ impl Analyzer<'_> {
             (Some(len), _) => Some(len),
             (None, None) => None,
         }
+    }
+
+    fn comptime_struct_literal_type(
+        &mut self,
+        span: Span,
+        fields: &[ComptimeFieldInit],
+        expected: Option<InternedTyId>,
+    ) -> Option<ComptimeValueType> {
+        let expected = expected?;
+        let (def_id, expected_args) = self.expected_nominal_parts(expected)?;
+        if self.def_kind_of(def_id) != Some(DefKind::Struct) {
+            return None;
+        }
+        let signature = self.struct_signature_for(def_id)?;
+        let field_tys = self.comptime_struct_field_types(&signature, &expected_args)?;
+        let mut seen = HashSet::new();
+        let mut substitutions = HashMap::new();
+        for field in fields {
+            if !seen.insert(field.name.as_str()) {
+                return None;
+            }
+            let expected_field = *field_tys.get(field.name.as_str())?;
+            if let Some(actual_field) =
+                self.comptime_struct_field_actual_type(&field.value, expected_field)
+            {
+                self.infer_generics_from_tys(
+                    span,
+                    self.current_execution_module_id(),
+                    expected_field,
+                    actual_field,
+                    &mut substitutions,
+                )
+                .ok()?;
+            }
+        }
+        if signature
+            .fields
+            .iter()
+            .any(|field| !seen.contains(field.name.as_str()))
+        {
+            return None;
+        }
+        for field in fields {
+            let expected_field = self.substitute_current_ty_generics(
+                *field_tys.get(field.name.as_str())?,
+                &substitutions,
+            )?;
+            let actual_field =
+                self.comptime_arg_runtime_type(&field.value, Some(expected_field))?;
+            if actual_field != expected_field {
+                return None;
+            }
+        }
+        self.substitute_nominal_args(def_id, expected_args, &substitutions)
+            .map(ComptimeValueType::Runtime)
+    }
+
+    fn comptime_struct_field_actual_type(
+        &mut self,
+        value: &ComptimeExpr,
+        expected: InternedTyId,
+    ) -> Option<InternedTyId> {
+        self.comptime_arg_runtime_type(value, Some(expected))
+            .filter(|ty| !self.type_contains_generic(*ty))
+            .or_else(|| self.comptime_arg_runtime_type(value, None))
+    }
+
+    fn substitute_current_ty_generics(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let current_module = self.current_execution_module_id();
+        let interner = self.working_interners.get_mut(&current_module)?;
+        Some(substitute_ty_generics_in_interner(
+            interner,
+            ty,
+            &|generic| substitutions.get(generic).copied(),
+        ))
+    }
+
+    fn expected_nominal_parts(&self, ty: InternedTyId) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        match self.ty_kind(ty)? {
+            TyKind::Nominal { def_id, args } => Some((def_id, args)),
+            _ => None,
+        }
+    }
+
+    fn struct_signature_for(
+        &self,
+        def_id: GlobalDefId,
+    ) -> Option<nia_item_signatures::StructSignature> {
+        self.signatures_for_module(def_id.module_id)?
+            .structs
+            .get(&def_id.def_id)
+            .cloned()
+    }
+
+    fn comptime_struct_field_types(
+        &mut self,
+        signature: &nia_item_signatures::StructSignature,
+        expected_args: &[InternedTyId],
+    ) -> Option<HashMap<String, InternedTyId>> {
+        if signature.generics.len() != expected_args.len() {
+            return None;
+        }
+        let substitutions = signature
+            .generics
+            .iter()
+            .cloned()
+            .zip(expected_args.iter().copied())
+            .collect::<HashMap<_, _>>();
+        let current_module = self.current_execution_module_id();
+        let mut fields = HashMap::new();
+        for field in &signature.fields {
+            let imported = self.import_ty_into_module_or_none(field.ty, current_module)?;
+            let ty = {
+                let interner = self.working_interners.get_mut(&current_module)?;
+                substitute_ty_generics_in_interner(interner, imported, &|generic| {
+                    substitutions.get(generic).copied()
+                })
+            };
+            fields.insert(field.name.clone(), ty);
+        }
+        Some(fields)
+    }
+
+    fn substitute_nominal_args(
+        &mut self,
+        def_id: GlobalDefId,
+        args: Vec<InternedTyId>,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let current_module = self.current_execution_module_id();
+        let args = {
+            let interner = self.working_interners.get_mut(&current_module)?;
+            args.into_iter()
+                .map(|arg| {
+                    substitute_ty_generics_in_interner(interner, arg, &|generic| {
+                        substitutions.get(generic).copied()
+                    })
+                })
+                .collect()
+        };
+        self.working_interners
+            .get_mut(&current_module)
+            .map(|interner| interner.intern(TyKind::Nominal { def_id, args }))
     }
 
     fn comptime_switch_expr_type(
