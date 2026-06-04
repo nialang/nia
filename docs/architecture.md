@@ -585,6 +585,16 @@ This crate is the semantic boundary for current compile-time value requirements.
 It is separate from static storage because `comptime` bindings have no runtime
 storage or address, while top-level `let` and `var` bindings do.
 
+`nia-comptime-check` also owns the typed comptime value layer. The engine may
+produce a pure value such as an integer, string, array, or struct, but the
+checker records the semantic type when the type is known from source-level
+semantic tables: explicit `comptime let: T` bindings, `comptime fn` parameter
+and local annotations, enum backing types, type arguments, and later the
+dedicated comptime expression checker. This keeps type ownership in the semantic
+query layer instead of teaching the evaluator about Nia's type system, while
+still giving generic comptime calls, `@builtin()` structs, target data, and
+ordinary user comptime structs one shared typed representation.
+
 Early target pruning is intentionally narrower than full comptime execution: it
 can evaluate target builtins and same-module helper functions before the module
 graph is complete. It lowers its accepted AST conditions to `nia-comptime-ir`
