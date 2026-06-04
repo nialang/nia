@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{
-    BinaryOp, BindingStmt, Block, Expr, ExprKind, FunctionItem, Param, Stmt, StmtKind, TypeRef,
-    UnaryOp,
+use nia_ast::{BinaryOp, Expr, FunctionItem, UnaryOp};
+pub use nia_comptime_ir::{
+    ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeFunction,
+    ComptimeLowerError, ComptimeParam, ComptimeStmt, ComptimeStmtKind,
 };
 use nia_ids::LayoutBuiltin;
 use nia_span::Span;
@@ -39,13 +40,13 @@ pub trait ComptimeEnv {
         &mut self,
         span: Span,
         builtin: LayoutBuiltin,
-        ty: &TypeRef,
+        type_arg_span: Span,
     ) -> Result<ComptimeValue, ComptimeError>;
 
     fn call_function(
         &mut self,
         span: Span,
-        callee: &Expr,
+        callee: &ComptimeExpr,
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = callee;
@@ -68,7 +69,7 @@ pub trait ComptimeEnv {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &Param,
+        param: &ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let _ = param;
@@ -82,7 +83,7 @@ pub trait ComptimeEnv {
     fn bind_function_local(
         &mut self,
         span: Span,
-        binding: &BindingStmt,
+        binding: &ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let _ = binding;
@@ -109,7 +110,7 @@ impl ComptimeEnv for EmptyEnv {
         &mut self,
         span: Span,
         _builtin: LayoutBuiltin,
-        _ty: &TypeRef,
+        _type_arg_span: Span,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
@@ -119,15 +120,23 @@ impl ComptimeEnv for EmptyEnv {
 }
 
 pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValue, ComptimeError> {
+    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
+    eval_comptime_expr(&expr, env)
+}
+
+pub fn eval_comptime_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
     match &expr.kind {
-        ExprKind::Bool(value) => Ok(ComptimeValue::Bool(*value)),
-        ExprKind::String(literal) => literal_string(literal)
+        ComptimeExprKind::Bool(value) => Ok(ComptimeValue::Bool(*value)),
+        ComptimeExprKind::String(literal) => literal_string(literal)
             .map(ComptimeValue::String)
             .ok_or_else(|| ComptimeError {
                 span: expr.span,
                 message: "unsupported string literal in comptime expression".to_string(),
             }),
-        ExprKind::Integer(text) => {
+        ComptimeExprKind::Integer(text) => {
             eval_int_literal(text)
                 .map(ComptimeValue::Int)
                 .map_err(|message| ComptimeError {
@@ -135,9 +144,9 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                     message,
                 })
         }
-        ExprKind::Ident(name) => env.resolve_ident(expr.span, name),
-        ExprKind::Qualified { name, .. } => env.resolve_ident(expr.span, name),
-        ExprKind::Field { lhs, name } => match eval_expr(lhs, env)? {
+        ComptimeExprKind::Ident(name) => env.resolve_ident(expr.span, name),
+        ComptimeExprKind::Qualified { name } => env.resolve_ident(expr.span, name),
+        ComptimeExprKind::Field { lhs, name } => match eval_comptime_expr(lhs, env)? {
             ComptimeValue::Struct(fields) => {
                 fields.get(name).cloned().ok_or_else(|| ComptimeError {
                     span: expr.span,
@@ -149,12 +158,10 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                 message: "comptime field access requires a struct value".to_string(),
             }),
         },
-        ExprKind::StructLiteral { fields } | ExprKind::TypedStructLiteral { fields, .. } => {
-            eval_struct_literal(fields, env)
-        }
-        ExprKind::Builtin {
+        ComptimeExprKind::StructLiteral { fields } => eval_struct_literal(fields, env),
+        ComptimeExprKind::Builtin {
             name,
-            type_arg: Some(type_arg),
+            type_arg_span: Some(type_arg_span),
         } => {
             let Some(builtin) = LayoutBuiltin::from_name(name) else {
                 return Err(ComptimeError {
@@ -162,14 +169,18 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                     message: format!("unsupported builtin in comptime expression: @{name}"),
                 });
             };
-            env.resolve_layout_builtin(expr.span, builtin, type_arg)
+            env.resolve_layout_builtin(expr.span, builtin, *type_arg_span)
         }
-        ExprKind::Builtin {
+        ComptimeExprKind::Builtin {
             name,
-            type_arg: None,
+            type_arg_span: None,
         } => env.resolve_builtin_value(expr.span, name),
-        ExprKind::Call { callee, args } => {
-            if let ExprKind::Builtin { name, type_arg } = &callee.kind {
+        ComptimeExprKind::Call { callee, args } => {
+            if let ComptimeExprKind::Builtin {
+                name,
+                type_arg_span,
+            } = &callee.kind
+            {
                 if !args.is_empty() {
                     return Err(ComptimeError {
                         span: expr.span,
@@ -178,30 +189,30 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                         ),
                     });
                 }
-                if let Some(type_arg) = type_arg {
+                if let Some(type_arg_span) = type_arg_span {
                     let Some(builtin) = LayoutBuiltin::from_name(name) else {
                         return Err(ComptimeError {
                             span: expr.span,
                             message: format!("unsupported builtin in comptime expression: @{name}"),
                         });
                     };
-                    env.resolve_layout_builtin(expr.span, builtin, type_arg)
+                    env.resolve_layout_builtin(expr.span, builtin, *type_arg_span)
                 } else {
                     env.resolve_builtin_value(expr.span, name)
                 }
             } else {
                 let args = args
                     .iter()
-                    .map(|arg| eval_expr(arg, env))
+                    .map(|arg| eval_comptime_expr(arg, env))
                     .collect::<Result<Vec<_>, _>>()?;
                 env.call_function(expr.span, callee, args)
             }
         }
-        ExprKind::Unary {
+        ComptimeExprKind::Unary {
             op: UnaryOp::Neg,
             expr: inner,
         } => {
-            match eval_expr(inner, env)? {
+            match eval_comptime_expr(inner, env)? {
                 ComptimeValue::Int(value) => value
                     .checked_neg()
                     .map(ComptimeValue::Int)
@@ -215,23 +226,23 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                 }),
             }
         }
-        ExprKind::Unary {
+        ComptimeExprKind::Unary {
             op: UnaryOp::Not,
             expr: inner,
-        } => match eval_expr(inner, env)? {
+        } => match eval_comptime_expr(inner, env)? {
             ComptimeValue::Bool(value) => Ok(ComptimeValue::Bool(!value)),
             _ => Err(ComptimeError {
                 span: expr.span,
                 message: "comptime `not` requires a bool".to_string(),
             }),
         },
-        ExprKind::Unary { op, .. } => Err(ComptimeError {
+        ComptimeExprKind::Unary { op, .. } => Err(ComptimeError {
             span: expr.span,
             message: format!("unsupported unary operator in comptime expression: {op:?}"),
         }),
-        ExprKind::Binary { lhs, op, rhs } => eval_binary(expr.span, lhs, *op, rhs, env),
-        ExprKind::Cast { expr: inner, .. } => eval_expr(inner, env),
-        ExprKind::Block(block) => {
+        ComptimeExprKind::Binary { lhs, op, rhs } => eval_binary(expr.span, lhs, *op, rhs, env),
+        ComptimeExprKind::Cast { expr: inner } => eval_comptime_expr(inner, env),
+        ComptimeExprKind::Block(block) => {
             if !block.stmts.is_empty() {
                 return Err(ComptimeError {
                     span: expr.span,
@@ -244,23 +255,19 @@ pub fn eval_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<ComptimeValu
                     message: "comptime expression block requires a tail expression".to_string(),
                 });
             };
-            eval_expr(tail, env)
+            eval_comptime_expr(tail, env)
         }
-        _ => Err(ComptimeError {
-            span: expr.span,
-            message: "unsupported comptime expression".to_string(),
-        }),
     }
 }
 
 fn eval_struct_literal(
-    fields: &[nia_ast::FieldInit],
+    fields: &[nia_comptime_ir::ComptimeFieldInit],
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let mut values = BTreeMap::new();
     for field in fields {
         if values
-            .insert(field.name.clone(), eval_expr(&field.value, env)?)
+            .insert(field.name.clone(), eval_comptime_expr(&field.value, env)?)
             .is_some()
         {
             return Err(ComptimeError {
@@ -273,7 +280,15 @@ fn eval_struct_literal(
 }
 
 pub fn eval_int_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<i128, ComptimeError> {
-    match eval_expr(expr, env)? {
+    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
+    eval_comptime_int_expr(&expr, env)
+}
+
+pub fn eval_comptime_int_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<i128, ComptimeError> {
+    match eval_comptime_expr(expr, env)? {
         ComptimeValue::Int(value) => Ok(value),
         _ => Err(ComptimeError {
             span: expr.span,
@@ -283,7 +298,15 @@ pub fn eval_int_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<i128, Co
 }
 
 pub fn eval_bool_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<bool, ComptimeError> {
-    match eval_expr(expr, env)? {
+    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
+    eval_comptime_bool_expr(&expr, env)
+}
+
+pub fn eval_comptime_bool_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<bool, ComptimeError> {
+    match eval_comptime_expr(expr, env)? {
         ComptimeValue::Bool(value) => Ok(value),
         _ => Err(ComptimeError {
             span: expr.span,
@@ -293,7 +316,15 @@ pub fn eval_bool_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<bool, C
 }
 
 pub fn eval_array_len_expr(expr: &Expr, env: &mut impl ComptimeEnv) -> Result<u64, ComptimeError> {
-    int_to_array_len(expr.span, eval_int_expr(expr, env)?)
+    let expr = nia_comptime_ir::lower_expr(expr).map_err(lower_error)?;
+    eval_comptime_array_len_expr(&expr, env)
+}
+
+pub fn eval_comptime_array_len_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<u64, ComptimeError> {
+    int_to_array_len(expr.span, eval_comptime_int_expr(expr, env)?)
 }
 
 pub fn eval_function_call(
@@ -303,24 +334,16 @@ pub fn eval_function_call(
     args: Vec<ComptimeValue>,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
-    if !function.is_comptime || function.is_extern {
-        return Err(ComptimeError {
-            span,
-            message: "comptime expression can only call `comptime fn`".to_string(),
-        });
-    }
-    if !function.generics.is_empty() {
-        return Err(ComptimeError {
-            span,
-            message: "generic comptime functions are not supported yet".to_string(),
-        });
-    }
-    let Some(body) = &function.body else {
-        return Err(ComptimeError {
-            span: function_span,
-            message: "comptime function requires a body".to_string(),
-        });
-    };
+    let function = nia_comptime_ir::lower_function(function_span, function).map_err(lower_error)?;
+    eval_comptime_function_call(span, &function, args, env)
+}
+
+pub fn eval_comptime_function_call(
+    span: Span,
+    function: &ComptimeFunction,
+    args: Vec<ComptimeValue>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
     if function.params.len() != args.len() {
         return Err(ComptimeError {
             span,
@@ -338,9 +361,9 @@ pub fn eval_function_call(
             return Err(err);
         }
     }
-    let result = eval_function_block(body, env).and_then(|value| {
+    let result = eval_function_block(&function.body, env).and_then(|value| {
         value.ok_or_else(|| ComptimeError {
-            span: body.span,
+            span: function.body.span,
             message: "comptime function must return a value".to_string(),
         })
     });
@@ -349,7 +372,7 @@ pub fn eval_function_call(
 }
 
 fn eval_function_block(
-    block: &Block,
+    block: &ComptimeBlock,
     env: &mut impl ComptimeEnv,
 ) -> Result<Option<ComptimeValue>, ComptimeError> {
     for stmt in &block.stmts {
@@ -360,38 +383,28 @@ fn eval_function_block(
     block
         .tail
         .as_deref()
-        .map_or(Ok(None), |tail| eval_expr(tail, env).map(Some))
+        .map_or(Ok(None), |tail| eval_comptime_expr(tail, env).map(Some))
 }
 
 fn eval_function_stmt(
-    stmt: &Stmt,
+    stmt: &ComptimeStmt,
     env: &mut impl ComptimeEnv,
 ) -> Result<Option<ComptimeValue>, ComptimeError> {
     match &stmt.kind {
-        StmtKind::Binding(binding) => {
-            let Some(value) = &binding.value else {
-                return Err(ComptimeError {
-                    span: stmt.span,
-                    message: "comptime function binding requires an initializer".to_string(),
-                });
-            };
-            let value = eval_expr(value, env)?;
+        ComptimeStmtKind::Binding(binding) => {
+            let value = eval_comptime_expr(&binding.value, env)?;
             env.bind_function_local(stmt.span, binding, value)?;
             Ok(None)
         }
-        StmtKind::Return(value) => {
+        ComptimeStmtKind::Return(value) => {
             let Some(value) = value else {
                 return Err(ComptimeError {
                     span: stmt.span,
                     message: "comptime function must return a value".to_string(),
                 });
             };
-            eval_expr(value, env).map(Some)
+            eval_comptime_expr(value, env).map(Some)
         }
-        _ => Err(ComptimeError {
-            span: stmt.span,
-            message: "unsupported statement in comptime function body".to_string(),
-        }),
     }
 }
 
@@ -459,29 +472,29 @@ fn eval_binary_int(lhs: i128, op: BinaryOp, rhs: i128) -> Result<i128, String> {
 
 fn eval_binary(
     span: Span,
-    lhs: &Expr,
+    lhs: &ComptimeExpr,
     op: BinaryOp,
-    rhs: &Expr,
+    rhs: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match op {
         BinaryOp::And => {
-            let lhs = eval_bool_expr(lhs, env)?;
+            let lhs = eval_comptime_bool_expr(lhs, env)?;
             if !lhs {
                 return Ok(ComptimeValue::Bool(false));
             }
-            eval_bool_expr(rhs, env).map(ComptimeValue::Bool)
+            eval_comptime_bool_expr(rhs, env).map(ComptimeValue::Bool)
         }
         BinaryOp::Or => {
-            let lhs = eval_bool_expr(lhs, env)?;
+            let lhs = eval_comptime_bool_expr(lhs, env)?;
             if lhs {
                 return Ok(ComptimeValue::Bool(true));
             }
-            eval_bool_expr(rhs, env).map(ComptimeValue::Bool)
+            eval_comptime_bool_expr(rhs, env).map(ComptimeValue::Bool)
         }
         BinaryOp::Eq | BinaryOp::Ne => {
-            let lhs = eval_expr(lhs, env)?;
-            let rhs = eval_expr(rhs, env)?;
+            let lhs = eval_comptime_expr(lhs, env)?;
+            let rhs = eval_comptime_expr(rhs, env)?;
             let equal = values_equal(&lhs, &rhs).ok_or_else(|| ComptimeError {
                 span,
                 message: "comptime equality requires matching operand types".to_string(),
@@ -493,12 +506,19 @@ fn eval_binary(
             }))
         }
         _ => {
-            let lhs = eval_int_expr(lhs, env)?;
-            let rhs = eval_int_expr(rhs, env)?;
+            let lhs = eval_comptime_int_expr(lhs, env)?;
+            let rhs = eval_comptime_int_expr(rhs, env)?;
             eval_binary_int(lhs, op, rhs)
                 .map(ComptimeValue::Int)
                 .map_err(|message| ComptimeError { span, message })
         }
+    }
+}
+
+fn lower_error(err: ComptimeLowerError) -> ComptimeError {
+    ComptimeError {
+        span: err.span,
+        message: err.message,
     }
 }
 
@@ -684,6 +704,33 @@ fn main() bool {
         assert!(value);
     }
 
+    #[test]
+    fn evaluates_lowered_comptime_expr_directly() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() bool {
+    @builtin().target.os == "linux"
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+            panic!("expected function");
+        };
+        let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let ComptimeExprKind::Binary { lhs, .. } = &lowered.kind else {
+            panic!("expected lowered binary expression");
+        };
+        let ComptimeExprKind::Field { name, .. } = &lhs.kind else {
+            panic!("expected lowered field expression");
+        };
+        assert_eq!(name, "os");
+
+        let value = eval_comptime_bool_expr(&lowered, &mut BuiltinEnv).unwrap();
+        assert!(value);
+    }
+
     struct BuiltinEnv;
 
     impl ComptimeEnv for BuiltinEnv {
@@ -721,7 +768,7 @@ fn main() bool {
             &mut self,
             span: Span,
             _builtin: LayoutBuiltin,
-            _ty: &TypeRef,
+            _type_arg_span: Span,
         ) -> Result<ComptimeValue, ComptimeError> {
             Err(ComptimeError {
                 span,

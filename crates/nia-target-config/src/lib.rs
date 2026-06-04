@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_ast::{
-    ArrayElements, BindingStmt, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item,
-    ItemKind, Module, Param, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
+    ArrayElements, Block, ComptimeIfExpr, Expr, ExprKind, FieldInit, IndexArg, Item, ItemKind,
+    Module, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_tree::ActiveModuleItemTree;
@@ -131,7 +131,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         &mut self,
         span: Span,
         _builtin: nia_ids::LayoutBuiltin,
-        _ty: &nia_ast::TypeRef,
+        _type_arg_span: Span,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
         Err(nia_comptime_engine::ComptimeError {
             span,
@@ -142,10 +142,10 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     fn call_function(
         &mut self,
         span: Span,
-        callee: &Expr,
+        callee: &nia_comptime_engine::ComptimeExpr,
         args: Vec<nia_comptime_engine::ComptimeValue>,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let ExprKind::Ident(name) = &callee.kind else {
+        let nia_comptime_engine::ComptimeExprKind::Ident(name) = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
                 message: "target condition can only call same-module `comptime fn`".to_string(),
@@ -175,22 +175,16 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &Param,
+        param: &nia_comptime_engine::ComptimeParam,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        let Some(name) = &param.name else {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: "comptime function parameter requires a name".to_string(),
-            });
-        };
-        self.bind_named_value(span, name, value)
+        self.bind_named_value(span, &param.name, value)
     }
 
     fn bind_function_local(
         &mut self,
         span: Span,
-        binding: &BindingStmt,
+        binding: &nia_comptime_engine::ComptimeBinding,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         self.bind_named_value(span, &binding.name, value)

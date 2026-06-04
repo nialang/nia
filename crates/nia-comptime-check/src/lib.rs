@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use nia_ast::{Expr, ExprKind, ItemKind, Module, TypeRef};
+use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -351,8 +351,11 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_function(&self, callee: &Expr) -> Option<(Span, nia_ast::FunctionItem)> {
-        let ExprKind::Ident(_) = &callee.kind else {
+    fn comptime_function(
+        &self,
+        callee: &nia_comptime_engine::ComptimeExpr,
+    ) -> Option<(Span, nia_ast::FunctionItem)> {
+        let nia_comptime_engine::ComptimeExprKind::Ident(_) = &callee.kind else {
             return None;
         };
         let Some(ValueNameResolution::Def(def_id)) = self.input.values.names.get(&callee.span)
@@ -456,9 +459,9 @@ impl ComptimeEnv for Analyzer<'_> {
         &mut self,
         span: Span,
         builtin: LayoutBuiltin,
-        ty: &TypeRef,
+        type_arg_span: Span,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let Some(ty_id) = self.ty_for_span(ty.span) else {
+        let Some(ty_id) = self.ty_for_span(type_arg_span) else {
             return Err(ComptimeError {
                 span,
                 message: format!(
@@ -473,7 +476,7 @@ impl ComptimeEnv for Analyzer<'_> {
     fn call_function(
         &mut self,
         span: Span,
-        callee: &Expr,
+        callee: &nia_comptime_engine::ComptimeExpr,
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let Some((function_span, function)) = self.comptime_function(callee) else {
@@ -497,7 +500,7 @@ impl ComptimeEnv for Analyzer<'_> {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &nia_ast::Param,
+        param: &nia_comptime_engine::ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(local_id) = self.input.locals.local_defs.get(&param.span).copied() else {
@@ -512,7 +515,7 @@ impl ComptimeEnv for Analyzer<'_> {
     fn bind_function_local(
         &mut self,
         span: Span,
-        _binding: &nia_ast::BindingStmt,
+        _binding: &nia_comptime_engine::ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let Some(local_id) = self.input.locals.local_defs.get(&span).copied() else {

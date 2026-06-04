@@ -539,20 +539,36 @@ function calls or enum variant paths.
 
 ## 8. Comptime Values, Static Data, Layout, And ABI
 
-### 8.1 `nia-comptime-engine`
+### 8.1 `nia-comptime-ir`
 
-Evaluates the pure expression subset used by current compile-time values. It is
-an evaluator, not a language semantic pass: it does not load modules, know
-visibility, own storage rules, or make backend decisions.
+Defines the source-preserving semantic body used for compile-time execution.
+This is Nia's comptime execution surface, not a generic HIR. It stores only the
+expression, statement, block, function, parameter, binding, and field forms that
+are valid inputs to compile-time evaluation, while preserving source spans for
+name, local, type-argument, and diagnostic queries.
+
+AST is lowered into this structure before execution. That keeps parser syntax
+out of the evaluator and gives the query system a concrete future cache boundary
+for ordinary comptime values such as `@builtin()` structs, user comptime
+structs, `comptime fn` bodies, array length expressions, and branch conditions.
+
+### 8.2 `nia-comptime-engine`
+
+Evaluates the pure expression subset used by current compile-time values. It
+consumes `nia-comptime-ir` rather than AST. It is an evaluator, not a language
+semantic pass: it does not load modules, know visibility, own storage rules, or
+make backend decisions.
 
 Supported evaluation is intentionally small: integer, boolean, string, and
 struct literal values; identifiers resolved by a caller-provided comptime
 environment; builtin-provided struct values such as `@builtin()`; struct field
 access; casts that preserve the underlying value; boolean logic; equality over
 matching primitive comptime values; and simple integer arithmetic and bit
-operations.
+operations. It also evaluates visible `comptime fn` bodies represented as
+comptime semantic bodies. AST-compatible entry points are wrappers that lower to
+`nia-comptime-ir` before evaluation.
 
-### 8.2 `nia-comptime-check`
+### 8.3 `nia-comptime-check`
 
 Consumes language-level semantic tables and uses `nia-comptime-engine` to check
 and collect current compile-time values. It owns `comptime` binding dependency
@@ -563,13 +579,13 @@ This crate is the semantic boundary for current compile-time value requirements.
 It is separate from static storage because `comptime` bindings have no runtime
 storage or address, while top-level `let` and `var` bindings do.
 
-### 8.3 `nia-static-check`
+### 8.4 `nia-static-check`
 
 Validates static initializers for top-level storage. It distinguishes static data
 from compile-time value bindings. Address initializers are allowed only when they
 can be represented as target static relocations.
 
-### 8.4 `nia-static-ir`
+### 8.5 `nia-static-ir`
 
 Defines the static/global initialization IR. It represents compile-time data,
 not executable runtime control flow. It supports zero values, scalars,
@@ -579,13 +595,13 @@ function addresses.
 Static address paths use static-only elements such as field ids and constant
 indices. They must not carry source-shaped body expressions or runtime places.
 
-### 8.5 `nia-layout`
+### 8.6 `nia-layout`
 
 Computes ABI-relevant layout for primitive, pointer, array, struct, enum, and
 instantiated nominal types. It uses explicit target data layout assumptions, such
 as LP64, rather than hidden host assumptions.
 
-### 8.6 `nia-abi-check`
+### 8.7 `nia-abi-check`
 
 Checks C ABI boundaries for `extern` functions, globals, and structs. It rejects
 Nia-only types that cannot be passed directly through the C ABI, such as slices,
