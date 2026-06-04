@@ -2366,6 +2366,51 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_integer_casts_convert_values() {
+    let root = temp_dir("comptime_integer_casts_convert_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn narrow(value: usize) usize {
+    (value as u8) as usize
+}
+
+comptime fn signed(value: usize) i32 {
+    (value as i8) as i32
+}
+
+comptime let narrow_value: usize = narrow(258usize);
+comptime let signed_value: i32 = signed(255usize);
+
+var narrow_global: i32 = narrow_value as i32;
+var signed_global: i32 = signed_value;
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let main_module = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .find(|module| module.name.ends_with("main.nia"))
+        .expect("main module");
+    let narrow_global = main_module
+        .globals
+        .iter()
+        .find(|global| global.name == "narrow_global")
+        .expect("narrow_global");
+    assert_eq!(narrow_global.init, Some(StaticInit::Int(2)));
+    let signed_global = main_module
+        .globals
+        .iter()
+        .find(|global| global.name == "signed_global")
+        .expect("signed_global");
+    assert_eq!(signed_global.init, Some(StaticInit::Int(-1)));
+}
+
+#[test]
 fn comptime_string_literals_are_typed_arrays() {
     let root = temp_dir("comptime_string_literals_are_typed_arrays");
     write(

@@ -3577,6 +3577,32 @@ impl ComptimeEnv for Analyzer<'_> {
         self.resolve_layout_builtin_for_ty(span, builtin, ty_id)
     }
 
+    fn cast_value(
+        &mut self,
+        span: Span,
+        value: ComptimeValue,
+        ty: InternedTyId,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let ty = self.substitute_ty_generics(ty);
+        let Some(TyKind::Primitive(primitive)) = self.ty_kind(ty) else {
+            return Ok(value);
+        };
+        let ComptimeValue::Int(value) = value else {
+            return Ok(value);
+        };
+        let Some(value) = cast_comptime_integer(value, primitive, self.input.target.pointer_width)
+        else {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "comptime cast result cannot be represented as `{}`",
+                    primitive_ty_name(primitive)
+                ),
+            });
+        };
+        Ok(ComptimeValue::Int(value))
+    }
+
     fn call_function(
         &mut self,
         span: Span,
@@ -3803,6 +3829,84 @@ impl Analyzer<'_> {
             span,
             message: format!("unknown comptime assignment target `{name}`"),
         })
+    }
+}
+
+fn cast_comptime_integer(value: i128, ty: PrimitiveTy, pointer_width: u32) -> Option<i128> {
+    let (bits, signed) = primitive_integer_layout(ty, pointer_width)?;
+    let mask = integer_mask(bits)?;
+    let raw = (value as u128) & mask;
+    if signed {
+        Some(sign_extend_integer(raw, bits))
+    } else {
+        i128::try_from(raw).ok()
+    }
+}
+
+fn primitive_integer_layout(ty: PrimitiveTy, pointer_width: u32) -> Option<(u32, bool)> {
+    match ty {
+        PrimitiveTy::I8 => Some((8, true)),
+        PrimitiveTy::I16 => Some((16, true)),
+        PrimitiveTy::I32 => Some((32, true)),
+        PrimitiveTy::I64 => Some((64, true)),
+        PrimitiveTy::I128 => Some((128, true)),
+        PrimitiveTy::Isize => Some((pointer_width, true)),
+        PrimitiveTy::U8 => Some((8, false)),
+        PrimitiveTy::U16 => Some((16, false)),
+        PrimitiveTy::U32 => Some((32, false)),
+        PrimitiveTy::U64 => Some((64, false)),
+        PrimitiveTy::U128 => Some((128, false)),
+        PrimitiveTy::Usize => Some((pointer_width, false)),
+        PrimitiveTy::Char => Some((32, false)),
+        PrimitiveTy::Bool
+        | PrimitiveTy::F32
+        | PrimitiveTy::F64
+        | PrimitiveTy::Void
+        | PrimitiveTy::Never => None,
+    }
+}
+
+fn integer_mask(bits: u32) -> Option<u128> {
+    match bits {
+        0 => None,
+        1..=127 => Some((1u128 << bits) - 1),
+        128 => Some(u128::MAX),
+        _ => None,
+    }
+}
+
+fn sign_extend_integer(raw: u128, bits: u32) -> i128 {
+    if bits == 128 {
+        return raw as i128;
+    }
+    let sign_bit = 1u128 << (bits - 1);
+    if raw & sign_bit == 0 {
+        raw as i128
+    } else {
+        (raw as i128) - (1i128 << bits)
+    }
+}
+
+fn primitive_ty_name(primitive: PrimitiveTy) -> &'static str {
+    match primitive {
+        PrimitiveTy::I8 => "i8",
+        PrimitiveTy::I16 => "i16",
+        PrimitiveTy::I32 => "i32",
+        PrimitiveTy::I64 => "i64",
+        PrimitiveTy::I128 => "i128",
+        PrimitiveTy::Isize => "isize",
+        PrimitiveTy::U8 => "u8",
+        PrimitiveTy::U16 => "u16",
+        PrimitiveTy::U32 => "u32",
+        PrimitiveTy::U64 => "u64",
+        PrimitiveTy::U128 => "u128",
+        PrimitiveTy::Usize => "usize",
+        PrimitiveTy::F32 => "f32",
+        PrimitiveTy::F64 => "f64",
+        PrimitiveTy::Bool => "bool",
+        PrimitiveTy::Char => "char",
+        PrimitiveTy::Void => "void",
+        PrimitiveTy::Never => "!",
     }
 }
 
