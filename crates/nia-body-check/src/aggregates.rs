@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
 use nia_ast::{Expr, ExprKind};
-use nia_comptime_check::{ComptimeKey, ComptimeValueFieldType, ComptimeValueType};
+use nia_comptime_check::{ComptimeKey, ComptimeValueType};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -373,35 +373,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn import_comptime_value_type(
-        &mut self,
-        source: &TyInterner,
-        ty: ComptimeValueType,
-    ) -> Option<ComptimeValueType> {
-        match ty {
-            ComptimeValueType::Runtime(ty) => Some(ComptimeValueType::Runtime(
-                self.import_type_from(source, ty),
-            )),
-            ComptimeValueType::Array { elem, len } => Some(ComptimeValueType::Array {
-                elem: Box::new(self.import_comptime_value_type(source, *elem)?),
-                len,
-            }),
-            ComptimeValueType::Struct(fields) => fields
-                .into_iter()
-                .map(|field| {
-                    Some(ComptimeValueFieldType {
-                        name: field.name,
-                        ty: self.import_comptime_value_type(source, field.ty)?,
-                    })
-                })
-                .collect::<Option<Vec<_>>>()
-                .map(ComptimeValueType::Struct),
-            ComptimeValueType::Int => Some(ComptimeValueType::Int),
-            ComptimeValueType::Bool => Some(ComptimeValueType::Bool),
-            ComptimeValueType::String => Some(ComptimeValueType::String),
-        }
-    }
-
     pub(crate) fn field_access_type_from_lhs_ty(
         &mut self,
         span: Span,
@@ -508,7 +479,9 @@ impl<'a> BodyChecker<'a> {
         source: &TyInterner,
         ty: ComptimeValueType,
     ) -> Option<InternedTyId> {
-        let ComptimeValueType::Runtime(ty) = self.import_comptime_value_type(source, ty)? else {
+        let ComptimeValueType::Runtime(ty) =
+            nia_comptime_check::import_comptime_value_type(source, &mut self.interner, ty)?
+        else {
             return None;
         };
         Some(ty)

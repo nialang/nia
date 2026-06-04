@@ -86,6 +86,35 @@ impl ComptimeValueType {
     }
 }
 
+pub fn import_comptime_value_type(
+    source: &TyInterner,
+    target: &mut TyInterner,
+    ty: ComptimeValueType,
+) -> Option<ComptimeValueType> {
+    match ty {
+        ComptimeValueType::Runtime(ty) => Some(ComptimeValueType::Runtime(import_type_into(
+            target, source, ty,
+        ))),
+        ComptimeValueType::Array { elem, len } => Some(ComptimeValueType::Array {
+            elem: Box::new(import_comptime_value_type(source, target, *elem)?),
+            len,
+        }),
+        ComptimeValueType::Struct(fields) => fields
+            .into_iter()
+            .map(|field| {
+                Some(ComptimeValueFieldType {
+                    name: field.name,
+                    ty: import_comptime_value_type(source, target, field.ty)?,
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(ComptimeValueType::Struct),
+        ComptimeValueType::Int => Some(ComptimeValueType::Int),
+        ComptimeValueType::Bool => Some(ComptimeValueType::Bool),
+        ComptimeValueType::String => Some(ComptimeValueType::String),
+    }
+}
+
 pub fn builtin_comptime_value_type(pointer_width_ty: InternedTyId) -> ComptimeValueType {
     ComptimeValueType::Struct(vec![ComptimeValueFieldType {
         name: "target".to_string(),
