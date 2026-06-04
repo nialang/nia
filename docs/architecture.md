@@ -654,6 +654,11 @@ array literals can still be typed as structural comptime-only arrays. Their
 element type is another `ComptimeValueType`, so arrays of structural comptime
 structs behave like ordinary compile-time data tables and indexed elements can
 feed field access and generic comptime call inference.
+Comptime array slicing is part of the same value surface: slicing a comptime
+array produces another comptime array value, and the typed comptime layer
+records the sliced element type and known length so the result can feed field
+access, indexing, and generic comptime call inference without becoming a
+runtime slice.
 
 Comptime struct literals have two typed surfaces. When an expected nominal
 struct type exists, the checker uses that struct type, substitutes its generic

@@ -4,8 +4,8 @@ pub use nia_comptime_ir::{
     ComptimeArrayElements, ComptimeAssign, ComptimeAssignPathElem, ComptimeAssignTarget,
     ComptimeBinding, ComptimeBlock, ComptimeExpr, ComptimeExprKind, ComptimeForBinding,
     ComptimeForIn, ComptimeFunction, ComptimeNameResolution, ComptimeParam, ComptimeRange,
-    ComptimeStmt, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
-    ComptimeSwitchPattern, ComptimeTypeArg,
+    ComptimeSliceRange, ComptimeStmt, ComptimeStmtKind, ComptimeSwitch, ComptimeSwitchArm,
+    ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId};
 use nia_span::Span;
@@ -309,6 +309,9 @@ fn eval_comptime_expr_flow(
             },
             ComptimeExprKind::Index { lhs, index } => {
                 return eval_array_index_flow(expr.span, lhs, index, env);
+            }
+            ComptimeExprKind::Slice { lhs, range } => {
+                return eval_array_slice_flow(expr.span, lhs, range, env);
             }
             ComptimeExprKind::ArrayLiteral { elems, .. } => {
                 return eval_array_literal_flow(elems, env);
@@ -779,6 +782,85 @@ fn eval_array_index_flow(
             span,
             message: format!("comptime array index {index} is out of bounds"),
         })
+}
+
+fn eval_array_slice_flow(
+    span: Span,
+    lhs: &ComptimeExpr,
+    range: &ComptimeSliceRange,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeEvalFlow, ComptimeError> {
+    let values = match eval_value_or_return_flow!(lhs, env) {
+        ComptimeValue::Array(values) => values,
+        _ => {
+            return Err(ComptimeError {
+                span,
+                message: "comptime slicing requires an array value".to_string(),
+            });
+        }
+    };
+    let len = values.len();
+    let start = match &range.start {
+        Some(start) => match eval_slice_bound_flow(start, env)? {
+            SliceBoundFlow::Value(value) => value,
+            SliceBoundFlow::Flow(flow) => return Ok(flow),
+        },
+        None => 0,
+    };
+    let mut end = match &range.end {
+        Some(end) => match eval_slice_bound_flow(end, env)? {
+            SliceBoundFlow::Value(value) => value,
+            SliceBoundFlow::Flow(flow) => return Ok(flow),
+        },
+        None => len,
+    };
+    if range.inclusive {
+        end = end.checked_add(1).ok_or_else(|| ComptimeError {
+            span,
+            message: "comptime slice inclusive end is too large".to_string(),
+        })?;
+    }
+    if start > end || end > len {
+        return Err(ComptimeError {
+            span,
+            message: format!("comptime slice range {start}..{end} is out of bounds"),
+        });
+    }
+    Ok(ComptimeEvalFlow::Value(ComptimeValue::Array(
+        values[start..end].to_vec(),
+    )))
+}
+
+enum SliceBoundFlow {
+    Value(usize),
+    Flow(ComptimeEvalFlow),
+}
+
+fn eval_slice_bound_flow(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<SliceBoundFlow, ComptimeError> {
+    let span = expr.span;
+    let value = match eval_comptime_expr_flow(expr, env)? {
+        ComptimeEvalFlow::Value(value) => value,
+        flow => return Ok(SliceBoundFlow::Flow(flow)),
+    };
+    let value = match value {
+        ComptimeValue::Int(value) => value,
+        _ => {
+            return Err(ComptimeError {
+                span,
+                message: "comptime slice bound must be an integer".to_string(),
+            });
+        }
+    };
+    let value = int_to_array_len(span, value)?;
+    usize::try_from(value)
+        .map_err(|_| ComptimeError {
+            span,
+            message: "comptime slice bound is too large".to_string(),
+        })
+        .map(SliceBoundFlow::Value)
 }
 
 fn eval_struct_literal_flow(

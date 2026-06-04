@@ -541,6 +541,34 @@ fn main() i32 {
 }
 
 #[test]
+fn comptime_array_slices_are_ordinary_comptime_values() {
+    let root = temp_dir("comptime_array_slices_are_ordinary_comptime_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn pair_sum(values: [2]usize) usize {
+    values[0] + values[1]
+}
+
+comptime let values: [4]usize = [1, 2, 3, 4];
+comptime let middle: [2]usize = values[1..3];
+comptime let prefix: [2]usize = values[..2];
+comptime let suffix: [2]usize = values[2..];
+comptime let direct: usize = pair_sum(values[1..=2]);
+comptime let n: usize = pair_sum(middle) + pair_sum(prefix) + pair_sum(suffix) + direct;
+
+fn main() i32 {
+    var array: [n]i32 = [0; n];
+    array.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn comptime_function_try_propagates_optional_values() {
     let root = temp_dir("comptime_function_try_propagates_optional_values");
     write(
@@ -2220,6 +2248,31 @@ comptime fn id[T](value: T) T {
 
 comptime let configs = [{width: 4usize}, {width: 8usize}];
 comptime let n: usize = id(configs[1].width);
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn structural_comptime_array_slices_have_typed_values() {
+    let root = temp_dir("structural_comptime_array_slices_have_typed_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn id[T](value: T) T {
+    value
+}
+
+comptime let configs = [{width: 4usize}, {width: 8usize}, {width: 16usize}];
+comptime let selected = configs[1..=2];
+comptime let n: usize = id(selected[1].width);
 
 fn main() i32 {
     var values: [n]i32 = [0; n];

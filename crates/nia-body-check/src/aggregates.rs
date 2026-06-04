@@ -381,6 +381,18 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    pub(crate) fn comptime_slice_expr_runtime_type(
+        &mut self,
+        expr: &Expr,
+        expected: Option<InternedTyId>,
+    ) -> Option<InternedTyId> {
+        let expr = self.lower_comptime_expr(expr).ok()?;
+        match self.comptime_expr_type_for_ir_with_expected(&expr, expected)? {
+            ComptimeValueType::Runtime(ty) => Some(ty),
+            _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
+        }
+    }
+
     pub(crate) fn field_access_type_from_lhs_ty(
         &mut self,
         span: Span,
@@ -1087,6 +1099,7 @@ impl<'a> BodyChecker<'a> {
                     signatures: self.program.signatures,
                 },
                 typed_values: &self.comptime.typed_values,
+                array_lengths: &self.comptime.array_lengths,
                 frames: &frames,
             },
             span,
@@ -1117,6 +1130,7 @@ impl<'a> BodyChecker<'a> {
                 signatures: self.program.signatures,
             },
             typed_values: &self.comptime.typed_values,
+            array_lengths: &self.comptime.array_lengths,
             frames: &[],
         }
     }
@@ -1137,10 +1151,18 @@ impl<'a> BodyChecker<'a> {
         &self,
         expr: &nia_comptime_engine::ComptimeExpr,
     ) -> Option<nia_comptime_check::ComptimeValueType> {
+        self.comptime_expr_type_for_ir_with_expected(expr, None)
+    }
+
+    fn comptime_expr_type_for_ir_with_expected(
+        &self,
+        expr: &nia_comptime_engine::ComptimeExpr,
+        expected: Option<InternedTyId>,
+    ) -> Option<nia_comptime_check::ComptimeValueType> {
         let frames = self.typed_comptime_frames();
         let mut input = self.typed_comptime_query_input();
         input.frames = &frames;
-        nia_comptime_check::infer_comptime_expr_type(input, expr, None)
+        nia_comptime_check::infer_comptime_expr_type(input, expr, expected)
     }
 
     fn comptime_type_arg_for_span(&mut self, span: Span) -> InternedTyId {
