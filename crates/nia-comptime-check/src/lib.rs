@@ -1601,18 +1601,30 @@ impl Analyzer<'_> {
                 .comptime_call_return_type(expr.span, callee, type_args, args)
                 .map(ComptimeValueType::Runtime),
             nia_comptime_engine::ComptimeExprKind::Field { lhs, name } => {
-                let ComptimeValueType::Struct(fields) = self.comptime_expr_type(lhs, None)? else {
-                    return None;
-                };
-                fields
-                    .into_iter()
-                    .find(|field| field.name == *name)
-                    .map(|field| field.ty)
+                let lhs_ty = self.comptime_expr_type(lhs, None)?;
+                self.comptime_field_type(lhs_ty, name)
             }
             nia_comptime_engine::ComptimeExprKind::Block(block) => {
                 self.comptime_block_tail_type(block, expected)
             }
             _ => None,
+        }
+    }
+
+    fn comptime_field_type(
+        &mut self,
+        lhs: ComptimeValueType,
+        name: &str,
+    ) -> Option<ComptimeValueType> {
+        match lhs {
+            ComptimeValueType::Struct(fields) => fields
+                .into_iter()
+                .find(|field| field.name == name)
+                .map(|field| field.ty),
+            ComptimeValueType::Runtime(ty) => self
+                .comptime_nominal_struct_field_type(ty, name)
+                .map(ComptimeValueType::Runtime),
+            ComptimeValueType::Int | ComptimeValueType::Bool | ComptimeValueType::String => None,
         }
     }
 
@@ -1824,6 +1836,21 @@ impl Analyzer<'_> {
             .map(ComptimeValueType::Runtime)
     }
 
+    fn comptime_nominal_struct_field_type(
+        &mut self,
+        ty: InternedTyId,
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let (def_id, args) = self.expected_nominal_parts(ty)?;
+        if self.def_kind_of(def_id) != Some(DefKind::Struct) {
+            return None;
+        }
+        let signature = self.struct_signature_for(def_id)?;
+        self.comptime_struct_field_types(&signature, &args)?
+            .get(name)
+            .copied()
+    }
+
     fn comptime_struct_field_actual_type(
         &mut self,
         value: &ComptimeExpr,
@@ -1873,13 +1900,18 @@ impl Analyzer<'_> {
         if signature.generics.len() != expected_args.len() {
             return None;
         }
+        let current_module = self.current_execution_module_id();
+        let expected_args = expected_args
+            .iter()
+            .copied()
+            .map(|arg| self.import_ty_into_module_or_none(arg, current_module))
+            .collect::<Option<Vec<_>>>()?;
         let substitutions = signature
             .generics
             .iter()
             .cloned()
-            .zip(expected_args.iter().copied())
+            .zip(expected_args)
             .collect::<HashMap<_, _>>();
-        let current_module = self.current_execution_module_id();
         let mut fields = HashMap::new();
         for field in &signature.fields {
             let imported = self.import_ty_into_module_or_none(field.ty, current_module)?;
