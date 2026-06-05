@@ -2058,11 +2058,11 @@ fn eval_resolved_comptime_function_call_inner(
         | ComptimeEvalFlow::Return(value)
         | ComptimeEvalFlow::Propagate(value) => Ok(value),
         ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
-            span: body.span,
+            span: body.span(),
             message: "comptime loop control flow escaped its loop".to_string(),
         }),
         ComptimeEvalFlow::Void => Err(ComptimeError {
-            span: body.span,
+            span: body.span(),
             message: "comptime function must return a value".to_string(),
         }),
     });
@@ -2087,10 +2087,10 @@ fn eval_resolved_function_block(
     block: &ResolvedComptimeBlock,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    if block.stmts.is_empty() {
+    if block.is_empty() {
         return eval_resolved_function_block_without_scope(block, env);
     }
-    env.push_comptime_scope(block.span)?;
+    env.push_comptime_scope(block.span())?;
     let result = eval_resolved_function_block_without_scope(block, env);
     env.pop_comptime_scope();
     result
@@ -2100,7 +2100,7 @@ fn eval_resolved_function_block_without_scope(
     block: &ResolvedComptimeBlock,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    for stmt in &block.stmts {
+    for stmt in block.stmts() {
         match eval_resolved_function_stmt(stmt, env)? {
             ComptimeEvalFlow::Return(value) => return Ok(ComptimeEvalFlow::Return(value)),
             ComptimeEvalFlow::Propagate(value) => return Ok(ComptimeEvalFlow::Propagate(value)),
@@ -2109,12 +2109,9 @@ fn eval_resolved_function_block_without_scope(
             ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void => {}
         }
     }
-    block
-        .tail
-        .as_deref()
-        .map_or(Ok(ComptimeEvalFlow::Void), |tail| {
-            eval_resolved_function_tail_expr(tail, env)
-        })
+    block.tail().map_or(Ok(ComptimeEvalFlow::Void), |tail| {
+        eval_resolved_function_tail_expr(tail, env)
+    })
 }
 
 fn eval_resolved_function_tail_expr(
@@ -2220,21 +2217,21 @@ fn eval_resolved_function_stmt(
     stmt: &ResolvedComptimeStmt,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    match &stmt.kind {
+    match stmt.kind() {
         ResolvedComptimeStmtKind::Binding(binding) => {
-            match eval_resolved_comptime_expr_flow(&binding.value, env)? {
+            match eval_resolved_comptime_expr_flow(binding.value(), env)? {
                 ComptimeEvalFlow::Value(value) => {
-                    env.bind_resolved_function_local(stmt.span, binding, value)?;
+                    env.bind_resolved_function_local(stmt.span(), binding, value)?;
                     Ok(ComptimeEvalFlow::Void)
                 }
                 ComptimeEvalFlow::Return(value) => Ok(ComptimeEvalFlow::Return(value)),
                 ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Propagate(value)),
                 ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
-                    span: stmt.span,
+                    span: stmt.span(),
                     message: "comptime binding value cannot contain loop control flow".to_string(),
                 }),
                 ComptimeEvalFlow::Void => Err(ComptimeError {
-                    span: stmt.span,
+                    span: stmt.span(),
                     message: "comptime function binding requires a value".to_string(),
                 }),
             }
@@ -2251,7 +2248,7 @@ fn eval_resolved_function_stmt(
         ResolvedComptimeStmtKind::Return(value) => {
             let Some(value) = value else {
                 return Err(ComptimeError {
-                    span: stmt.span,
+                    span: stmt.span(),
                     message: "comptime function must return a value".to_string(),
                 });
             };
@@ -2260,11 +2257,11 @@ fn eval_resolved_function_stmt(
                 | ComptimeEvalFlow::Return(value)
                 | ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Return(value)),
                 ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
-                    span: stmt.span,
+                    span: stmt.span(),
                     message: "comptime return value cannot contain loop control flow".to_string(),
                 }),
                 ComptimeEvalFlow::Void => Err(ComptimeError {
-                    span: stmt.span,
+                    span: stmt.span(),
                     message: "comptime function must return a value".to_string(),
                 }),
             }
@@ -2277,12 +2274,12 @@ fn eval_resolved_function_stmt(
             else_branch,
         } => eval_resolved_if_stmt(cond, then_branch, else_branch.as_ref(), env),
         ResolvedComptimeStmtKind::ForIn(for_in) => {
-            eval_resolved_for_in_stmt(stmt.span, for_in, env)
+            eval_resolved_for_in_stmt(stmt.span(), for_in, env)
         }
         ResolvedComptimeStmtKind::While { cond, body } => {
-            eval_resolved_while_stmt(stmt.span, cond, body, env)
+            eval_resolved_while_stmt(stmt.span(), cond, body, env)
         }
-        ResolvedComptimeStmtKind::Loop { body } => eval_resolved_loop_stmt(stmt.span, body, env),
+        ResolvedComptimeStmtKind::Loop { body } => eval_resolved_loop_stmt(stmt.span(), body, env),
     }
 }
 
@@ -2926,7 +2923,7 @@ fn eval_resolved_for_in_stmt(
     for_in: &ResolvedComptimeForIn,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let iter = match eval_resolved_comptime_expr_flow(&for_in.iter, env)? {
+    let iter = match eval_resolved_comptime_expr_flow(for_in.iter(), env)? {
         ComptimeEvalFlow::Value(value) => value,
         flow @ (ComptimeEvalFlow::Return(_)
         | ComptimeEvalFlow::Propagate(_)
@@ -2934,20 +2931,20 @@ fn eval_resolved_for_in_stmt(
         | ComptimeEvalFlow::Continue) => return Ok(flow),
         ComptimeEvalFlow::Void => {
             return Err(ComptimeError {
-                span: for_in.iter.span(),
+                span: for_in.iter().span(),
                 message: "comptime for-in iterator requires a value".to_string(),
             });
         }
     };
     match iter {
         ComptimeValue::Array(values) => {
-            eval_resolved_for_in_values(span, &for_in.binding, &for_in.body, values, env)
+            eval_resolved_for_in_values(span, for_in.binding(), for_in.body(), values, env)
         }
         ComptimeValue::Range(range) => {
-            eval_resolved_for_in_range(span, &for_in.binding, &for_in.body, &range, env)
+            eval_resolved_for_in_range(span, for_in.binding(), for_in.body(), &range, env)
         }
         _ => Err(ComptimeError {
-            span: for_in.iter.span(),
+            span: for_in.iter().span(),
             message: "comptime for-in requires an array or range value".to_string(),
         }),
     }
@@ -3099,7 +3096,7 @@ fn eval_resolved_for_in_iteration(
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     env.push_comptime_scope(span)?;
     let bind_result =
-        env.bind_resolved_pattern_local(binding.span, &binding.name, binding.local_id, value);
+        env.bind_resolved_pattern_local(binding.span(), binding.name(), binding.local_id(), value);
     let result = bind_result.and_then(|()| eval_resolved_function_block(body, env));
     env.pop_comptime_scope();
     result
