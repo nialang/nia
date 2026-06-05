@@ -359,9 +359,31 @@ impl ResolvedComptimeBinding {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeAssign {
-    pub lhs: ResolvedComptimeAssignTarget,
-    pub op: ComptimeAssignOp,
-    pub rhs: ResolvedComptimeExpr,
+    lhs: ResolvedComptimeAssignTarget,
+    op: ComptimeAssignOp,
+    rhs: ResolvedComptimeExpr,
+}
+
+impl ResolvedComptimeAssign {
+    pub fn new(
+        lhs: ResolvedComptimeAssignTarget,
+        op: ComptimeAssignOp,
+        rhs: ResolvedComptimeExpr,
+    ) -> Self {
+        Self { lhs, op, rhs }
+    }
+
+    pub fn lhs(&self) -> &ResolvedComptimeAssignTarget {
+        &self.lhs
+    }
+
+    pub fn op(&self) -> ComptimeAssignOp {
+        self.op
+    }
+
+    pub fn rhs(&self) -> &ResolvedComptimeExpr {
+        &self.rhs
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -450,16 +472,64 @@ impl ResolvedComptimeForBinding {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeSwitch {
-    pub span: Span,
-    pub target: ResolvedComptimeExpr,
-    pub arms: Vec<ResolvedComptimeSwitchArm>,
+    span: Span,
+    target: ResolvedComptimeExpr,
+    arms: Vec<ResolvedComptimeSwitchArm>,
+}
+
+impl ResolvedComptimeSwitch {
+    pub fn new(
+        span: Span,
+        target: ResolvedComptimeExpr,
+        arms: Vec<ResolvedComptimeSwitchArm>,
+    ) -> Self {
+        Self { span, target, arms }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn target(&self) -> &ResolvedComptimeExpr {
+        &self.target
+    }
+
+    pub fn arms(&self) -> &[ResolvedComptimeSwitchArm] {
+        &self.arms
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeSwitchArm {
-    pub span: Span,
-    pub patterns: Vec<ResolvedComptimeSwitchPattern>,
-    pub body: ResolvedComptimeSwitchArmBody,
+    span: Span,
+    patterns: Vec<ResolvedComptimeSwitchPattern>,
+    body: ResolvedComptimeSwitchArmBody,
+}
+
+impl ResolvedComptimeSwitchArm {
+    pub fn new(
+        span: Span,
+        patterns: Vec<ResolvedComptimeSwitchPattern>,
+        body: ResolvedComptimeSwitchArmBody,
+    ) -> Self {
+        Self {
+            span,
+            patterns,
+            body,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn patterns(&self) -> &[ResolvedComptimeSwitchPattern] {
+        &self.patterns
+    }
+
+    pub fn body(&self) -> &ResolvedComptimeSwitchArmBody {
+        &self.body
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -585,16 +655,68 @@ pub enum ResolvedComptimeExprKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeRange {
-    pub start: Option<Box<ResolvedComptimeExpr>>,
-    pub end: Option<Box<ResolvedComptimeExpr>>,
-    pub inclusive: bool,
+    start: Option<Box<ResolvedComptimeExpr>>,
+    end: Option<Box<ResolvedComptimeExpr>>,
+    inclusive: bool,
+}
+
+impl ResolvedComptimeRange {
+    pub fn new(
+        start: Option<Box<ResolvedComptimeExpr>>,
+        end: Option<Box<ResolvedComptimeExpr>>,
+        inclusive: bool,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            inclusive,
+        }
+    }
+
+    pub fn start(&self) -> Option<&ResolvedComptimeExpr> {
+        self.start.as_deref()
+    }
+
+    pub fn end(&self) -> Option<&ResolvedComptimeExpr> {
+        self.end.as_deref()
+    }
+
+    pub fn is_inclusive(&self) -> bool {
+        self.inclusive
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeSliceRange {
-    pub start: Option<Box<ResolvedComptimeExpr>>,
-    pub end: Option<Box<ResolvedComptimeExpr>>,
-    pub inclusive: bool,
+    start: Option<Box<ResolvedComptimeExpr>>,
+    end: Option<Box<ResolvedComptimeExpr>>,
+    inclusive: bool,
+}
+
+impl ResolvedComptimeSliceRange {
+    pub fn new(
+        start: Option<Box<ResolvedComptimeExpr>>,
+        end: Option<Box<ResolvedComptimeExpr>>,
+        inclusive: bool,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            inclusive,
+        }
+    }
+
+    pub fn start(&self) -> Option<&ResolvedComptimeExpr> {
+        self.start.as_deref()
+    }
+
+    pub fn end(&self) -> Option<&ResolvedComptimeExpr> {
+        self.end.as_deref()
+    }
+
+    pub fn is_inclusive(&self) -> bool {
+        self.inclusive
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1849,11 +1971,11 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
 fn resolve_comptime_assign(
     assign: EarlyComptimeAssign,
 ) -> Result<ResolvedComptimeAssign, ComptimeLowerError> {
-    Ok(ResolvedComptimeAssign {
-        lhs: resolve_comptime_assign_target(assign.lhs)?,
-        op: assign.op,
-        rhs: resolve_expr(assign.rhs)?,
-    })
+    Ok(ResolvedComptimeAssign::new(
+        resolve_comptime_assign_target(assign.lhs)?,
+        assign.op,
+        resolve_expr(assign.rhs)?,
+    ))
 }
 
 fn resolve_comptime_assign_target(
@@ -1900,29 +2022,28 @@ fn resolve_comptime_assign_path_elem(
 fn resolve_comptime_switch(
     switch: EarlyComptimeSwitch,
 ) -> Result<ResolvedComptimeSwitch, ComptimeLowerError> {
-    Ok(ResolvedComptimeSwitch {
-        span: switch.span,
-        target: resolve_expr(switch.target)?,
-        arms: switch
+    Ok(ResolvedComptimeSwitch::new(
+        switch.span,
+        resolve_expr(switch.target)?,
+        switch
             .arms
             .into_iter()
             .map(resolve_comptime_switch_arm)
             .collect::<Result<Vec<_>, _>>()?,
-    })
+    ))
 }
 
 fn resolve_comptime_switch_arm(
     arm: EarlyComptimeSwitchArm,
 ) -> Result<ResolvedComptimeSwitchArm, ComptimeLowerError> {
-    Ok(ResolvedComptimeSwitchArm {
-        span: arm.span,
-        patterns: arm
-            .patterns
+    Ok(ResolvedComptimeSwitchArm::new(
+        arm.span,
+        arm.patterns
             .into_iter()
             .map(resolve_comptime_switch_pattern)
             .collect::<Result<Vec<_>, _>>()?,
-        body: resolve_comptime_switch_arm_body(arm.body)?,
-    })
+        resolve_comptime_switch_arm_body(arm.body)?,
+    ))
 }
 
 fn resolve_comptime_switch_pattern(
@@ -2017,33 +2138,33 @@ fn resolve_comptime_array_elements(
 fn resolve_comptime_range(
     range: EarlyComptimeRange,
 ) -> Result<ResolvedComptimeRange, ComptimeLowerError> {
-    Ok(ResolvedComptimeRange {
-        start: range
+    Ok(ResolvedComptimeRange::new(
+        range
             .start
             .map(|start| resolve_expr(*start).map(Box::new))
             .transpose()?,
-        end: range
+        range
             .end
             .map(|end| resolve_expr(*end).map(Box::new))
             .transpose()?,
-        inclusive: range.inclusive,
-    })
+        range.inclusive,
+    ))
 }
 
 fn resolve_comptime_slice_range(
     range: EarlyComptimeSliceRange,
 ) -> Result<ResolvedComptimeSliceRange, ComptimeLowerError> {
-    Ok(ResolvedComptimeSliceRange {
-        start: range
+    Ok(ResolvedComptimeSliceRange::new(
+        range
             .start
             .map(|start| resolve_expr(*start).map(Box::new))
             .transpose()?,
-        end: range
+        range
             .end
             .map(|end| resolve_expr(*end).map(Box::new))
             .transpose()?,
-        inclusive: range.inclusive,
-    })
+        range.inclusive,
+    ))
 }
 
 fn resolve_comptime_field_init(
