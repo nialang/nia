@@ -7,10 +7,10 @@ use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, Resol
 use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_ids::{GlobalDefId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalResolution, LocalUse};
-use nia_sema_ir::SemanticUseTable;
+use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
@@ -24,9 +24,9 @@ pub fn check_module_static_initializers(
     defs: &DefCollection,
     values: &ValueResolution,
     locals: &LocalResolution,
+    semantic_uses: &SemanticUseTable,
     signatures: &ItemSignatures,
     comptime: &ComptimeCheck,
-    type_uses: &HashMap<Span, InternedTyId>,
     program_defs: &HashMap<ModuleId, DefCollection>,
     program_comptime: &HashMap<ModuleId, ComptimeCheck>,
 ) -> StaticCheck {
@@ -34,9 +34,9 @@ pub fn check_module_static_initializers(
         defs,
         values,
         locals,
+        semantic_uses,
         signatures,
         comptime,
-        type_uses,
         program_defs,
         program_comptime,
         diagnostics: Vec::new(),
@@ -51,9 +51,9 @@ struct StaticChecker<'a> {
     defs: &'a DefCollection,
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
+    semantic_uses: &'a SemanticUseTable,
     signatures: &'a ItemSignatures,
     comptime: &'a ComptimeCheck,
-    type_uses: &'a HashMap<Span, InternedTyId>,
     program_defs: &'a HashMap<ModuleId, DefCollection>,
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     diagnostics: Vec<Diagnostic>,
@@ -322,35 +322,36 @@ impl StaticChecker<'_> {
 
     fn comptime_semantic_uses(&self) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
-        for (span, local_use) in &self.locals.uses {
-            let LocalUse::Local(local_id) = local_use else {
-                continue;
-            };
-            if self
-                .comptime
-                .values
-                .contains_key(&ComptimeKey::Local(*local_id))
-            {
-                builder.insert_local_value_use(*span, *local_id);
-            }
-        }
-        for span in self
-            .values
-            .qualified_values
-            .keys()
-            .chain(self.values.names.keys())
-        {
-            if let Some(global_id) = self.global_comptime_use(*span) {
-                builder.insert_global_value_use(*span, global_id);
+        for (span, value_use) in &self.semantic_uses.value_uses {
+            match value_use {
+                SemanticValueUse::Local(local_id)
+                    if self
+                        .comptime
+                        .values
+                        .contains_key(&ComptimeKey::Local(*local_id)) =>
+                {
+                    builder.insert_local_value_use(*span, *local_id);
+                }
+                SemanticValueUse::Global(global_id)
+                    if self.global_comptime_use(*span) == Some(*global_id) =>
+                {
+                    builder.insert_global_value_use(*span, *global_id);
+                }
+                SemanticValueUse::Local(_) | SemanticValueUse::Global(_) => {}
             }
         }
         builder.extend_local_defs(
-            self.locals
+            self.semantic_uses
                 .local_defs
                 .iter()
                 .map(|(span, local_id)| (*span, *local_id)),
         );
-        builder.extend_type_uses(self.type_uses.iter().map(|(span, ty)| (*span, *ty)));
+        builder.extend_type_uses(
+            self.semantic_uses
+                .type_uses
+                .iter()
+                .map(|(span, ty)| (*span, *ty)),
+        );
         builder.finish()
     }
 
@@ -505,6 +506,7 @@ mod tests {
     use nia_item_signatures::collect_item_signatures;
     use nia_local_resolve::resolve_module_locals;
     use nia_parser::parse_module;
+    use nia_sema_ir::SemanticUseTable;
     use nia_type_lower::lower_module_types_with_id;
     use nia_type_normalize::normalize_module_types;
     use nia_type_resolve::resolve_module_types;
@@ -520,6 +522,7 @@ mod tests {
         let signatures = collect_item_signatures(&module, &defs, &type_lowering);
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
+        let semantic_uses = semantic_use_table(module_id, &values, &locals, &type_lowering);
         let target = nia_target_config::TargetConfig::host();
         let normalization = normalize_module_types(module_id, &type_lowering.interner, &signatures);
         let comptime_module =
@@ -528,6 +531,7 @@ mod tests {
                 defs: &defs,
                 values: &values,
                 locals: &locals,
+                semantic_uses: &semantic_uses,
                 type_uses: &type_lowering.type_uses,
                 const_exprs: &type_lowering.const_exprs,
             });
@@ -559,12 +563,61 @@ mod tests {
             &defs,
             &values,
             &locals,
+            &semantic_uses,
             &signatures,
             &comptime,
-            &type_lowering.type_uses,
             &HashMap::new(),
             &HashMap::new(),
         )
+    }
+
+    fn semantic_use_table(
+        module_id: ModuleId,
+        values: &nia_value_resolve::ValueResolution,
+        locals: &nia_local_resolve::LocalResolution,
+        type_lowering: &nia_type_lower::TypeLowering,
+    ) -> SemanticUseTable {
+        let mut builder = SemanticUseTable::builder();
+        for (span, local_use) in &locals.uses {
+            if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
+                builder.insert_local_value_use(*span, *local_id);
+            }
+        }
+        for (span, global_id) in &values.qualified_values {
+            builder.insert_global_value_use(*span, *global_id);
+        }
+        for (span, resolution) in &values.names {
+            match resolution {
+                nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                    builder.insert_global_value_use(
+                        *span,
+                        nia_ids::GlobalDefId {
+                            module_id,
+                            def_id: *def_id,
+                        },
+                    );
+                }
+                nia_value_resolve::ValueNameResolution::External(global_id) => {
+                    builder.insert_global_value_use(*span, *global_id);
+                }
+                nia_value_resolve::ValueNameResolution::ImportAlias
+                | nia_value_resolve::ValueNameResolution::LocalDeferred
+                | nia_value_resolve::ValueNameResolution::Error => {}
+            }
+        }
+        builder.extend_local_defs(
+            locals
+                .local_defs
+                .iter()
+                .map(|(span, local_id)| (*span, *local_id)),
+        );
+        builder.extend_type_uses(
+            type_lowering
+                .type_uses
+                .iter()
+                .map(|(span, ty)| (*span, *ty)),
+        );
+        builder.finish()
     }
 
     #[test]

@@ -443,6 +443,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-local-resolve",
  "nia-parser",
+ "nia-sema-ir",
  "nia-span",
  "nia-target-config",
  "nia-ty",

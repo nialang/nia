@@ -17,6 +17,7 @@ fn main() i32 {
     let lowered = lower_module_types(&module, &type_resolved);
     let values = nia_value_resolve::resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
+    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let target = nia_target_config::TargetConfig::host();
     let comptime_module =
@@ -25,6 +26,7 @@ fn main() i32 {
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });
@@ -146,6 +148,7 @@ fn main() i32 {
         Some(version),
         &origins,
     );
+    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     let target = nia_target_config::TargetConfig::host();
     let comptime_module =
@@ -154,6 +157,7 @@ fn main() i32 {
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });

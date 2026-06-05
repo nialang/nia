@@ -9,17 +9,67 @@ use nia_function_ir::{
     FunctionTerminator,
 };
 use nia_function_lower::lower_function_body;
-use nia_ids::LocalId;
+use nia_ids::{GlobalDefId, LocalId};
 use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
 use nia_local_resolve::resolve_module_locals;
 use nia_node_id::NodeOriginTable;
 use nia_parser::parse_module;
+use nia_sema_ir::SemanticUseTable;
 use nia_static_ir::StaticInit;
 use nia_type_lower::{TypeLowering, lower_module_types_with_id};
 use nia_type_normalize::normalize_module_types;
 use nia_type_resolve::resolve_module_types;
 use nia_value_resolve::resolve_module_values;
 use std::collections::HashMap;
+
+fn semantic_use_table(
+    module_id: ModuleId,
+    values: &nia_value_resolve::ValueResolution,
+    locals: &nia_local_resolve::LocalResolution,
+    type_lowering: &TypeLowering,
+) -> SemanticUseTable {
+    let mut builder = SemanticUseTable::builder();
+    for (span, local_use) in &locals.uses {
+        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
+            builder.insert_local_value_use(*span, *local_id);
+        }
+    }
+    for (span, global_id) in &values.qualified_values {
+        builder.insert_global_value_use(*span, *global_id);
+    }
+    for (span, resolution) in &values.names {
+        match resolution {
+            nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                builder.insert_global_value_use(
+                    *span,
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                );
+            }
+            nia_value_resolve::ValueNameResolution::External(global_id) => {
+                builder.insert_global_value_use(*span, *global_id);
+            }
+            nia_value_resolve::ValueNameResolution::ImportAlias
+            | nia_value_resolve::ValueNameResolution::LocalDeferred
+            | nia_value_resolve::ValueNameResolution::Error => {}
+        }
+    }
+    builder.extend_local_defs(
+        locals
+            .local_defs
+            .iter()
+            .map(|(span, local_id)| (*span, *local_id)),
+    );
+    builder.extend_type_uses(
+        type_lowering
+            .type_uses
+            .iter()
+            .map(|(span, ty)| (*span, *ty)),
+    );
+    builder.finish()
+}
 
 #[test]
 fn lowers_checked_program_shape() {
@@ -50,6 +100,7 @@ fn main() i32 {
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
+    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &type_lowering);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
     let comptime_module =
@@ -58,6 +109,7 @@ fn main() i32 {
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             type_uses: &type_lowering.type_uses,
             const_exprs: &type_lowering.const_exprs,
         });
@@ -4275,6 +4327,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
     let signatures = collect_item_signatures(&module, &defs, &type_lowering);
     let values = resolve_module_values(&module, &defs);
     let locals = resolve_module_locals(&module, &defs, &values);
+    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &type_lowering);
     let normalization = normalize_module_types(ModuleId(0), &type_lowering.interner, &signatures);
     let target = nia_target_config::TargetConfig::host();
     let comptime_module =
@@ -4283,6 +4336,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             type_uses: &type_lowering.type_uses,
             const_exprs: &type_lowering.const_exprs,
         });
