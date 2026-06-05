@@ -619,13 +619,27 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         let program = load_program(main_path.to_string_lossy().into_owned());
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-        assert_eq!(program.modules.len(), 2);
         let std_alias = program
             .imports
             .get(program.graph.root(), "std")
             .expect("std import alias");
         let std_module = program.graph.get(std_alias.target).expect("std module");
         assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
+        for relative in [
+            "lib/std/io.nia",
+            "lib/std/mem.nia",
+            "lib/std/os.nia",
+            "lib/std/process.nia",
+        ] {
+            assert!(
+                program
+                    .modules
+                    .iter()
+                    .any(|module| module.path.as_str().ends_with(relative)),
+                "missing std facade dependency {relative}: {:?}",
+                program.modules
+            );
+        }
     }
 
     #[test]

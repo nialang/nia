@@ -2,6 +2,15 @@ pub struct ExitCode {
     code: i32,
 }
 
+pub struct Args {
+    len: usize,
+    ptr: &&u8,
+}
+
+pub struct Env {
+    ptr: &&u8,
+}
+
 pub struct Init {
     argc: usize,
     argv: &&u8,
@@ -17,12 +26,84 @@ extend Init {
         self.argc
     }
 
+    pub fn args(&self) Args {
+        Args::init(self.argc, self.argv)
+    }
+
+    pub fn env(&self) Env {
+        Env::init(self.envp)
+    }
+
     pub fn argv(&self) &&u8 {
         self.argv
     }
 
     pub fn envp(&self) &&u8 {
         self.envp
+    }
+}
+
+fn c_string_len(ptr: &u8) usize {
+    var len = 0usize;
+    while ptr[len] != 0u8 {
+        len += 1;
+    }
+    len
+}
+
+fn c_string_bytes(ptr: &u8) &[u8] {
+    & ptr[0..c_string_len(ptr)]
+}
+
+extend Args {
+    pub fn init(len: usize, ptr: &&u8) Args {
+        { len: len, ptr: ptr }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len == 0
+    }
+
+    pub fn get(&self, index: usize) ?&[u8] {
+        if index >= self.len {
+            null
+        } else {
+            ?c_string_bytes(self.ptr[index])
+        }
+    }
+
+    pub fn raw(&self) &&u8 {
+        self.ptr
+    }
+}
+
+extend Env {
+    pub fn init(ptr: &&u8) Env {
+        { ptr: ptr }
+    }
+
+    pub fn len(&self) usize {
+        var len = 0usize;
+        while self.ptr[len] as usize != 0 {
+            len += 1;
+        }
+        len
+    }
+
+    pub fn get(&self, index: usize) ?&[u8] {
+        if index >= self.len() {
+            null
+        } else {
+            ?c_string_bytes(self.ptr[index])
+        }
+    }
+
+    pub fn raw(&self) &&u8 {
+        self.ptr
     }
 }
 
