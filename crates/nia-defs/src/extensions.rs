@@ -35,6 +35,7 @@ pub struct ExtensionMethods {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionMethod {
     pub def_id: GlobalDefId,
+    pub impl_index: usize,
     pub target_ty: InternedTyId,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
@@ -51,6 +52,7 @@ pub struct VisibleExtensionMethods {
 pub struct VisibleExtensionMethod {
     pub name: String,
     pub def_id: GlobalDefId,
+    pub impl_index: usize,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
     pub where_predicates: Vec<WherePredicateSignature>,
@@ -58,6 +60,7 @@ pub struct VisibleExtensionMethod {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VisibleExtensionTarget {
+    pub impl_index: usize,
     pub target_ty: InternedTyId,
     pub methods: Vec<VisibleExtensionMethod>,
 }
@@ -100,16 +103,22 @@ impl ExtensionMethods {
 }
 
 impl VisibleExtensionMethods {
-    pub fn insert(&mut self, target_ty: InternedTyId, method: VisibleExtensionMethod) {
+    pub fn insert(
+        &mut self,
+        impl_index: usize,
+        target_ty: InternedTyId,
+        method: VisibleExtensionMethod,
+    ) {
         if let Some(existing) = self
             .targets
             .iter_mut()
-            .find(|item| item.target_ty == target_ty)
+            .find(|item| item.impl_index == impl_index && item.target_ty == target_ty)
         {
             existing.methods.push(method);
             return;
         }
         self.targets.push(VisibleExtensionTarget {
+            impl_index,
             target_ty,
             methods: vec![method],
         });

@@ -72,6 +72,8 @@ pub struct ProgramTraitSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramTraitImplSignature {
+    pub module_id: nia_ids::ModuleId,
+    pub local_index: usize,
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
     pub trait_args: Vec<InternedTyId>,

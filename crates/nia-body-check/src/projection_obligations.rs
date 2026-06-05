@@ -6,7 +6,7 @@ use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{FunctionSignature, TraitImplSignature, WherePredicateSignature};
 use nia_span::Span;
-use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
+use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{TraitId, TyKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -14,6 +14,13 @@ struct TraitObligation {
     self_ty: InternedTyId,
     trait_id: TraitId,
     trait_args: Vec<InternedTyId>,
+    associated_type_bindings: Vec<TraitObligationAssociatedTypeBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct TraitObligationAssociatedTypeBinding {
+    name: String,
+    ty: InternedTyId,
 }
 
 impl From<TraitObligation> for TraitGoal {
@@ -50,6 +57,7 @@ impl<'a> BodyChecker<'a> {
             self_ty,
             trait_id,
             trait_args,
+            associated_type_bindings: Vec::new(),
         };
         self.resolve_trait_obligation(&obligations, &required)
     }
@@ -84,6 +92,13 @@ impl<'a> BodyChecker<'a> {
             .into_iter()
             .map(TraitGoal::from)
             .collect()
+    }
+
+    pub(crate) fn current_associated_type_assumptions(
+        &mut self,
+    ) -> Vec<AssociatedTypeProjectionEq> {
+        let obligations = self.current_trait_obligations();
+        self.associated_type_assumptions_for_obligations(&obligations)
     }
 
     fn current_trait_obligations(&mut self) -> Vec<TraitObligation> {
@@ -385,7 +400,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         for predicate in predicates {
             for bound in &predicate.bounds {
-                self.push_trait_obligation_from_bound(obligations, predicate.ty, bound.trait_ty);
+                self.push_trait_obligation_from_bound(obligations, predicate.ty, bound);
             }
         }
     }
@@ -410,6 +425,7 @@ impl<'a> BodyChecker<'a> {
                         .intern(TyKind::GenericParam("Self".to_string())),
                     trait_id: TraitId::Source(trait_id),
                     trait_args,
+                    associated_type_bindings: Vec::new(),
                 })
             }
             DefKind::Method => {
@@ -422,6 +438,14 @@ impl<'a> BodyChecker<'a> {
                     self_ty: target_ty,
                     trait_id,
                     trait_args,
+                    associated_type_bindings: impl_signature
+                        .associated_types
+                        .iter()
+                        .map(|associated_type| TraitObligationAssociatedTypeBinding {
+                            name: associated_type.name.clone(),
+                            ty: associated_type.ty,
+                        })
+                        .collect(),
                 })
             }
             _ => None,
@@ -478,10 +502,10 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         obligations: &mut Vec<TraitObligation>,
         self_ty: InternedTyId,
-        bound: InternedTyId,
+        bound: &nia_item_signatures::WhereBoundSignature,
     ) {
-        let bound = self.normalization.normalize(bound);
-        let Some((trait_id, args)) = self.trait_id_and_args(bound) else {
+        let bound_ty = self.normalization.normalize(bound.trait_ty);
+        let Some((trait_id, args)) = self.trait_id_and_args(bound_ty) else {
             return;
         };
         self.push_trait_obligation_with_supertraits(
@@ -490,6 +514,14 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_id,
                 trait_args: args,
+                associated_type_bindings: bound
+                    .associated_type_bindings
+                    .iter()
+                    .map(|binding| TraitObligationAssociatedTypeBinding {
+                        name: binding.name.clone(),
+                        ty: binding.ty,
+                    })
+                    .collect(),
             },
         );
     }
@@ -542,6 +574,7 @@ impl<'a> BodyChecker<'a> {
                             self_ty: obligation.self_ty,
                             trait_id: TraitId::Builtin(supertrait.trait_id),
                             trait_args,
+                            associated_type_bindings: Vec::new(),
                         },
                         visited,
                     );
@@ -575,6 +608,7 @@ impl<'a> BodyChecker<'a> {
                             self_ty: obligation.self_ty,
                             trait_id,
                             trait_args,
+                            associated_type_bindings: Vec::new(),
                         },
                         visited,
                     );
@@ -725,6 +759,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty,
                     trait_id,
                     trait_args,
+                    associated_type_bindings: Vec::new(),
                 };
                 if !self.proves_trait_obligation(obligations, &required) {
                     self.diagnostics.push(nia_diagnostic::Diagnostic::error(
@@ -795,6 +830,7 @@ impl<'a> BodyChecker<'a> {
                     self_ty: predicate.ty,
                     trait_id,
                     trait_args,
+                    associated_type_bindings: Vec::new(),
                 };
                 if !self.proves_trait_obligation(obligations, &required) {
                     self.diagnostics.push(nia_diagnostic::Diagnostic::error(
@@ -826,11 +862,9 @@ impl<'a> BodyChecker<'a> {
         obligations: &[TraitObligation],
         required: &TraitObligation,
     ) -> TraitResolution {
-        let assumptions = obligations
-            .iter()
-            .cloned()
-            .map(TraitGoal::from)
-            .collect::<Vec<_>>();
+        let assumptions = self.trait_goals_for_obligations(obligations);
+        let associated_type_assumptions =
+            self.associated_type_assumptions_for_obligations(obligations);
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -839,12 +873,42 @@ impl<'a> BodyChecker<'a> {
             local_enums: &self.signatures.enums,
             program_enums: Some(self.program_enums),
         };
-        let mut solver = context.solver(&mut self.interner, &assumptions);
+        let mut solver = context.solver_with_associated_type_assumptions(
+            &mut self.interner,
+            &assumptions,
+            &associated_type_assumptions,
+        );
         solver.resolve(TraitGoal {
             self_ty: required.self_ty,
             trait_id: required.trait_id,
             trait_args: required.trait_args.clone(),
         })
+    }
+
+    fn trait_goals_for_obligations(&self, obligations: &[TraitObligation]) -> Vec<TraitGoal> {
+        obligations.iter().cloned().map(TraitGoal::from).collect()
+    }
+
+    fn associated_type_assumptions_for_obligations(
+        &self,
+        obligations: &[TraitObligation],
+    ) -> Vec<AssociatedTypeProjectionEq> {
+        obligations
+            .iter()
+            .flat_map(|obligation| {
+                obligation.associated_type_bindings.iter().map(|binding| {
+                    AssociatedTypeProjectionEq {
+                        goal: TraitGoal {
+                            self_ty: obligation.self_ty,
+                            trait_id: obligation.trait_id,
+                            trait_args: obligation.trait_args.clone(),
+                        },
+                        name: binding.name.clone(),
+                        ty: binding.ty,
+                    }
+                })
+            })
+            .collect()
     }
 
     fn trait_obligations_equivalent(

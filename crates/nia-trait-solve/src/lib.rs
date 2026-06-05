@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use nia_ids::{
     BuiltinAssociatedType, BuiltinTrait, DefId, GlobalDefId, InternedTyId, ModuleId, TraitId,
@@ -14,6 +14,19 @@ pub struct TraitGoal {
     pub self_ty: InternedTyId,
     pub trait_id: TraitId,
     pub trait_args: Vec<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AssociatedTypeProjectionEq {
+    pub goal: TraitGoal,
+    pub name: String,
+    pub ty: InternedTyId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct AssociatedTypeProjectionKey {
+    goal: TraitGoal,
+    name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +58,7 @@ where
     pub normalization: &'a TypeNormalization,
     pub trait_impls: &'a [ProgramTraitImplSignature],
     pub assumptions: &'a [TraitGoal],
+    pub associated_type_assumptions: &'a [AssociatedTypeProjectionEq],
     pub layouts: Option<&'a Layouts>,
     pub is_enum: F,
 }
@@ -70,6 +84,25 @@ impl<'a> TraitSolverContext<'a> {
             normalization: self.normalization,
             trait_impls: self.trait_impls,
             assumptions,
+            associated_type_assumptions: &[],
+            layouts: self.layouts,
+            is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
+        }
+    }
+
+    pub fn solver_with_associated_type_assumptions<'b>(
+        &'b self,
+        interner: &'b mut TyInterner,
+        assumptions: &'b [TraitGoal],
+        associated_type_assumptions: &'b [AssociatedTypeProjectionEq],
+    ) -> TraitSolver<'b, impl Fn(InternedTyId) -> bool + 'b> {
+        let interner_snapshot = interner.clone();
+        TraitSolver {
+            interner,
+            normalization: self.normalization,
+            trait_impls: self.trait_impls,
+            assumptions,
+            associated_type_assumptions,
             layouts: self.layouts,
             is_enum: move |ty| self.is_enum_with_interner(&interner_snapshot, ty),
         }
@@ -409,12 +442,41 @@ where
         trait_args: &[InternedTyId],
         name: &str,
     ) -> Option<InternedTyId> {
-        let goal = TraitGoal {
+        self.resolve_associated_type_inner(self_ty, trait_id, trait_args, name, &mut HashSet::new())
+    }
+
+    fn resolve_associated_type_inner(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: &str,
+        active: &mut HashSet<AssociatedTypeProjectionKey>,
+    ) -> Option<InternedTyId> {
+        let goal = self.normalize_goal(TraitGoal {
             self_ty,
             trait_id,
             trait_args: trait_args.to_vec(),
+        });
+        let key = AssociatedTypeProjectionKey {
+            goal: goal.clone(),
+            name: name.to_string(),
         };
-        match self.resolve(goal) {
+        if !active.insert(key.clone()) {
+            return None;
+        }
+        let assumed = self
+            .associated_type_assumptions
+            .iter()
+            .find(|assumption| {
+                assumption.name == name && self.goals_equivalent(&assumption.goal, &goal)
+            })
+            .map(|assumption| self.normalize(assumption.ty));
+        if let Some(assumed) = assumed {
+            active.remove(&key);
+            return (!self.projection_matches_key(assumed, &key)).then_some(assumed);
+        }
+        let resolved = match self.resolve(goal) {
             TraitResolution::User(user_impl) => {
                 let impl_signature = &self.trait_impls[user_impl.impl_index];
                 let associated_type = impl_signature
@@ -434,6 +496,29 @@ where
             TraitResolution::Assumed(_)
             | TraitResolution::Unsatisfied
             | TraitResolution::Ambiguous => None,
+        };
+        active.remove(&key);
+        resolved
+    }
+
+    fn projection_matches_key(&self, ty: InternedTyId, key: &AssociatedTypeProjectionKey) -> bool {
+        match self.interner.get(self.normalize(ty)) {
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                name == &key.name
+                    && *trait_id == key.goal.trait_id
+                    && trait_args.len() == key.goal.trait_args.len()
+                    && self.types_equivalent(*self_ty, key.goal.self_ty)
+                    && trait_args
+                        .iter()
+                        .zip(&key.goal.trait_args)
+                        .all(|(left, right)| self.types_equivalent(*left, *right))
+            }
+            _ => false,
         }
     }
 
@@ -938,9 +1023,22 @@ where
                 if !self.proves(TraitGoal {
                     self_ty,
                     trait_id,
-                    trait_args,
+                    trait_args: trait_args.clone(),
                 }) {
                     return false;
+                }
+                for binding in &bound.associated_type_bindings {
+                    let binding_ty =
+                        import_type_into(self.interner, &impl_signature.interner, binding.ty);
+                    let binding_ty = self.substitute_ty(binding_ty, substitutions);
+                    let Some(actual_ty) =
+                        self.resolve_associated_type(self_ty, trait_id, &trait_args, &binding.name)
+                    else {
+                        return false;
+                    };
+                    if !self.types_equivalent(actual_ty, binding_ty) {
+                        return false;
+                    }
                 }
             }
         }

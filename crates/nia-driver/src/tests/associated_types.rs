@@ -605,3 +605,63 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn associated_type_resolution_uses_current_impl_identity_not_target_type() {
+    let root = temp_dir("associated_type_resolution_uses_current_impl_identity_not_target_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Reader {
+    type Error;
+
+    fn read(& self) Error!i32;
+}
+
+trait Writer {
+    type Error;
+
+    fn write(& self) Error!i32;
+}
+
+enum ReadError: i32 {
+    Bad = 1,
+    _
+}
+
+enum WriteError: i32 {
+    Bad = 2,
+    _
+}
+
+struct Device {}
+
+extend Device : Writer {
+    type Error = WriteError;
+
+    fn write(& self) Error!i32 {
+        !2
+    }
+}
+
+extend Device : Reader {
+    type Error = ReadError;
+
+    fn read(& self) Error!i32 {
+        !1
+    }
+}
+
+fn main() i32 {
+    var device: Device = {};
+    switch device.read() {
+        !value => value,
+        error! => 0,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

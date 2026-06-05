@@ -166,6 +166,7 @@ fn main() i32 {
         })
         .expect("Point type");
     extensions.insert(
+        0,
         point_ty,
         VisibleExtensionMethod {
             name: "make".to_string(),
@@ -173,6 +174,7 @@ fn main() i32 {
                 module_id: ModuleId(0),
                 def_id: make_id,
             },
+            impl_index: 0,
             trait_id: None,
             trait_args: Vec::new(),
             where_predicates: Vec::new(),
@@ -2700,10 +2702,12 @@ fn main() i32 {
             type_lowering.interner.primitive(nia_ty::PrimitiveTy::I32),
         ));
         extensions.insert(
+            0,
             counter_type,
             VisibleExtensionMethod {
                 name: "add".to_string(),
                 def_id: add_id,
+                impl_index: 0,
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),
                 where_predicates: Vec::new(),
@@ -2885,10 +2889,12 @@ fn main() i32 {
         source_object_ty.set(Some(source_object));
         i32_ty.set(Some(i32_type));
         extensions.insert(
+            0,
             box_pattern,
             VisibleExtensionMethod {
                 name: "add".to_string(),
                 def_id: add_id,
+                impl_index: 0,
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),
                 where_predicates: Vec::new(),
