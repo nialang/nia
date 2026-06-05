@@ -195,10 +195,37 @@ impl ResolvedComptimeFunction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeParam {
-    pub span: Span,
-    pub name: String,
-    pub local_id: LocalId,
-    pub ty: Option<InternedTyId>,
+    span: Span,
+    name: String,
+    local_id: LocalId,
+    ty: Option<InternedTyId>,
+}
+
+impl ResolvedComptimeParam {
+    pub fn new(span: Span, name: String, local_id: LocalId, ty: Option<InternedTyId>) -> Self {
+        Self {
+            span,
+            name,
+            local_id,
+            ty,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn local_id(&self) -> LocalId {
+        self.local_id
+    }
+
+    pub fn ty(&self) -> Option<InternedTyId> {
+        self.ty
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -449,16 +476,52 @@ pub enum ResolvedComptimeArrayElements {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeFieldInit {
-    pub span: Span,
-    pub name: String,
-    pub value: ResolvedComptimeExpr,
+    span: Span,
+    name: String,
+    value: ResolvedComptimeExpr,
+}
+
+impl ResolvedComptimeFieldInit {
+    pub fn new(span: Span, name: String, value: ResolvedComptimeExpr) -> Self {
+        Self { span, name, value }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn value(&self) -> &ResolvedComptimeExpr {
+        &self.value
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeTypeArg {
-    pub span: Span,
-    pub ty_span: Span,
-    pub ty: InternedTyId,
+    span: Span,
+    ty_span: Span,
+    ty: InternedTyId,
+}
+
+impl ResolvedComptimeTypeArg {
+    pub fn new(span: Span, ty_span: Span, ty: InternedTyId) -> Self {
+        Self { span, ty_span, ty }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn ty_span(&self) -> Span {
+        self.ty_span
+    }
+
+    pub fn ty(&self) -> InternedTyId {
+        self.ty
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1440,12 +1503,9 @@ fn resolve_comptime_param(
     let local_id = param
         .local_id
         .ok_or_else(|| unresolved_error(param.span, "comptime function parameter local"))?;
-    Ok(ResolvedComptimeParam {
-        span: param.span,
-        name: param.name,
-        local_id,
-        ty: param.ty,
-    })
+    Ok(ResolvedComptimeParam::new(
+        param.span, param.name, local_id, param.ty,
+    ))
 }
 
 fn resolve_comptime_block(
@@ -1868,23 +1928,23 @@ fn resolve_comptime_slice_range(
 fn resolve_comptime_field_init(
     field: EarlyComptimeFieldInit,
 ) -> Result<ResolvedComptimeFieldInit, ComptimeLowerError> {
-    Ok(ResolvedComptimeFieldInit {
-        span: field.span,
-        name: field.name,
-        value: resolve_expr(field.value)?,
-    })
+    Ok(ResolvedComptimeFieldInit::new(
+        field.span,
+        field.name,
+        resolve_expr(field.value)?,
+    ))
 }
 
 pub fn resolve_type_arg(
     type_arg: EarlyComptimeTypeArg,
 ) -> Result<ResolvedComptimeTypeArg, ComptimeLowerError> {
-    Ok(ResolvedComptimeTypeArg {
-        span: type_arg.span,
-        ty_span: type_arg.ty_span,
-        ty: type_arg
+    Ok(ResolvedComptimeTypeArg::new(
+        type_arg.span,
+        type_arg.ty_span,
+        type_arg
             .ty
             .ok_or_else(|| unresolved_error(type_arg.ty_span, "comptime type argument"))?,
-    })
+    ))
 }
 
 fn unresolved_error(span: Span, what: &str) -> ComptimeLowerError {

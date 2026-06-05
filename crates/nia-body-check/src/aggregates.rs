@@ -796,7 +796,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
         builtin: LayoutBuiltin,
         type_arg: &ResolvedComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let ty_id = self.substitute_current_comptime_generics(type_arg.ty);
+        let ty_id = self.substitute_current_comptime_generics(type_arg.ty());
         let Some(layout) = self.layout_of(ty_id) else {
             return Err(ComptimeError {
                 span,
@@ -865,12 +865,12 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
         param: &ResolvedComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let ty = param.ty.map(|ty| {
+        let ty = param.ty().map(|ty| {
             nia_comptime_check::ComptimeValueType::Runtime(
                 self.substitute_current_comptime_generics(ty),
             )
         });
-        self.bind_comptime_call_local_value(span, param.local_id, false, value, ty)
+        self.bind_comptime_call_local_value(span, param.local_id(), false, value, ty)
     }
 
     fn bind_resolved_function_local(

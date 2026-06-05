@@ -1820,14 +1820,14 @@ fn eval_resolved_struct_literal_flow(
     for field in fields {
         if values
             .insert(
-                field.name.clone(),
-                eval_resolved_value_or_return_flow!(&field.value, env),
+                field.name().to_string(),
+                eval_resolved_value_or_return_flow!(field.value(), env),
             )
             .is_some()
         {
             return Err(ComptimeError {
-                span: field.span,
-                message: format!("duplicate comptime struct field `{}`", field.name),
+                span: field.span(),
+                message: format!("duplicate comptime struct field `{}`", field.name()),
             });
         }
     }
@@ -2048,7 +2048,7 @@ fn eval_resolved_comptime_function_call_inner(
         return Err(err);
     }
     for (param, value) in params.iter().zip(args) {
-        if let Err(err) = env.bind_resolved_function_param(param.span, param, value) {
+        if let Err(err) = env.bind_resolved_function_param(param.span(), param, value) {
             env.pop_comptime_scope();
             return Err(err);
         }

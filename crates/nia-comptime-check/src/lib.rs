@@ -2057,7 +2057,8 @@ impl Analyzer<'_> {
             }
         } else {
             for (generic, arg) in signature.generics.iter().zip(type_args) {
-                let imported = self.import_ty_into_module(arg.span, arg.ty, signature_module_id)?;
+                let imported =
+                    self.import_ty_into_module(arg.span(), arg.ty(), signature_module_id)?;
                 substitutions.insert(generic.clone(), imported);
             }
         }
@@ -2824,12 +2825,12 @@ impl Analyzer<'_> {
         let mut seen = HashSet::new();
         let mut substitutions = HashMap::new();
         for field in fields {
-            if !seen.insert(field.name.as_str()) {
+            if !seen.insert(field.name()) {
                 return None;
             }
-            let expected_field = *field_tys.get(field.name.as_str())?;
+            let expected_field = *field_tys.get(field.name())?;
             if let Some(actual_field) =
-                self.resolved_comptime_struct_field_actual_type(&field.value, expected_field)
+                self.resolved_comptime_struct_field_actual_type(field.value(), expected_field)
             {
                 self.probe_type_generic_inference(
                     span,
@@ -2847,12 +2848,10 @@ impl Analyzer<'_> {
             return None;
         }
         for field in fields {
-            let expected_field = self.substitute_current_ty_generics(
-                *field_tys.get(field.name.as_str())?,
-                &substitutions,
-            )?;
+            let expected_field =
+                self.substitute_current_ty_generics(*field_tys.get(field.name())?, &substitutions)?;
             let actual_field =
-                self.resolved_comptime_arg_runtime_type(&field.value, Some(expected_field))?;
+                self.resolved_comptime_arg_runtime_type(field.value(), Some(expected_field))?;
             if actual_field != expected_field {
                 return None;
             }
@@ -2868,12 +2867,12 @@ impl Analyzer<'_> {
         let mut seen = HashSet::new();
         let mut typed_fields = Vec::with_capacity(fields.len());
         for field in fields {
-            if !seen.insert(field.name.as_str()) {
+            if !seen.insert(field.name()) {
                 return None;
             }
             typed_fields.push(ComptimeValueFieldType {
-                name: field.name.clone(),
-                ty: self.resolved_comptime_expr_type(&field.value, None)?,
+                name: field.name().to_string(),
+                ty: self.resolved_comptime_expr_type(field.value(), None)?,
             });
         }
         Some(ComptimeValueType::Struct(typed_fields))
@@ -4356,7 +4355,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         let module_id = self.current_execution_module_id();
         let ty_id = (|| {
             self.ensure_working_interner(module_id)?;
-            self.import_ty_into_module_or_none(type_arg.ty, module_id)
+            self.import_ty_into_module_or_none(type_arg.ty(), module_id)
         })()
         .map(|ty| self.substitute_ty_generics(ty));
         let Some(ty_id) = ty_id else {
@@ -4439,9 +4438,9 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let ty = param
-            .ty
+            .ty()
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
-        self.bind_local_value(span, param.local_id, false, value, ty)
+        self.bind_local_value(span, param.local_id(), false, value, ty)
     }
 
     fn bind_resolved_function_local(
