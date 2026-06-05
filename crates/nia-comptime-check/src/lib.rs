@@ -5,12 +5,13 @@ use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ResolvedComptimeEnv};
 use nia_comptime_ir::{
     ComptimeBinaryOp, ComptimeNameResolution, ComptimeStringLiteral, ComptimeUnaryOp,
-    ResolvedComptimeArrayElements, ResolvedComptimeAssignTarget, ResolvedComptimeBinding,
-    ResolvedComptimeBlock, ResolvedComptimeEnum, ResolvedComptimeEnumVariant, ResolvedComptimeExpr,
-    ResolvedComptimeExprKind, ResolvedComptimeFieldInit, ResolvedComptimeLocalInitializer,
-    ResolvedComptimeModule, ResolvedComptimeParam, ResolvedComptimeStmtKind,
-    ResolvedComptimeSwitch, ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchPattern,
-    ResolvedComptimeTypeArg,
+    ResolvedComptimeArrayElements, ResolvedComptimeAssignTarget, ResolvedComptimeAssignTargetKind,
+    ResolvedComptimeBinding, ResolvedComptimeBlock, ResolvedComptimeEnum,
+    ResolvedComptimeEnumVariant, ResolvedComptimeExpr, ResolvedComptimeExprKind,
+    ResolvedComptimeFieldInit, ResolvedComptimeLocalInitializer, ResolvedComptimeModule,
+    ResolvedComptimeParam, ResolvedComptimeStmtKind, ResolvedComptimeSwitch,
+    ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchArmBodyKind,
+    ResolvedComptimeSwitchPattern, ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -1577,26 +1578,29 @@ impl Analyzer<'_> {
                 if let Some(ty) = self.find_resolved_switch_pattern_local_type(switch, local_id) {
                     return Some(ty);
                 }
-                switch.arms().iter().find_map(|arm| match arm.body() {
-                    ResolvedComptimeSwitchArmBody::Expr(expr) => {
-                        self.find_local_binding_type_in_resolved_expr(expr, local_id)
-                    }
-                    ResolvedComptimeSwitchArmBody::Stmt(stmt) => match stmt.kind() {
-                        ResolvedComptimeStmtKind::Binding(binding)
-                            if binding.local_id() == local_id =>
-                        {
-                            binding.explicit_type()
-                        }
-                        ResolvedComptimeStmtKind::Expr(expr)
-                        | ResolvedComptimeStmtKind::Return(Some(expr)) => {
+                switch
+                    .arms()
+                    .iter()
+                    .find_map(|arm| match arm.body().kind() {
+                        ResolvedComptimeSwitchArmBodyKind::Expr(expr) => {
                             self.find_local_binding_type_in_resolved_expr(expr, local_id)
                         }
-                        _ => None,
-                    },
-                    ResolvedComptimeSwitchArmBody::Block(block) => {
-                        self.find_local_binding_type_in_resolved_block(block, local_id)
-                    }
-                })
+                        ResolvedComptimeSwitchArmBodyKind::Stmt(stmt) => match stmt.kind() {
+                            ResolvedComptimeStmtKind::Binding(binding)
+                                if binding.local_id() == local_id =>
+                            {
+                                binding.explicit_type()
+                            }
+                            ResolvedComptimeStmtKind::Expr(expr)
+                            | ResolvedComptimeStmtKind::Return(Some(expr)) => {
+                                self.find_local_binding_type_in_resolved_expr(expr, local_id)
+                            }
+                            _ => None,
+                        },
+                        ResolvedComptimeSwitchArmBodyKind::Block(block) => {
+                            self.find_local_binding_type_in_resolved_block(block, local_id)
+                        }
+                    })
             }
             ResolvedComptimeExprKind::Block(block) => {
                 self.find_local_binding_type_in_resolved_block(block, local_id)
@@ -3149,14 +3153,14 @@ impl Analyzer<'_> {
         body: &ResolvedComptimeSwitchArmBody,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeArmType> {
-        match body {
-            ResolvedComptimeSwitchArmBody::Expr(expr) => self
+        match body.kind() {
+            ResolvedComptimeSwitchArmBodyKind::Expr(expr) => self
                 .resolved_comptime_expr_type(expr, expected)
                 .map(ComptimeArmType::Value),
-            ResolvedComptimeSwitchArmBody::Block(block) => {
+            ResolvedComptimeSwitchArmBodyKind::Block(block) => {
                 self.resolved_comptime_switch_block_arm_type(block, expected)
             }
-            ResolvedComptimeSwitchArmBody::Stmt(stmt) => {
+            ResolvedComptimeSwitchArmBodyKind::Stmt(stmt) => {
                 self.resolved_comptime_stmt_arm_type(stmt, expected)
             }
         }
@@ -4478,8 +4482,8 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         target: &ResolvedComptimeAssignTarget,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        match target {
-            ResolvedComptimeAssignTarget::Local { name, local_id, .. } => {
+        match target.kind() {
+            ResolvedComptimeAssignTargetKind::Local { name, local_id, .. } => {
                 self.assign_local_value(span, *local_id, name, value)
             }
         }

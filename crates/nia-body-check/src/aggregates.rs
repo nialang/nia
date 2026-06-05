@@ -6,8 +6,8 @@ use nia_ast::{Expr, ExprKind};
 use nia_comptime_check::{ComptimeKey, ComptimeValueType};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
 use nia_comptime_ir::{
-    ComptimeNameResolution, ResolvedComptimeAssignTarget, ResolvedComptimeBinding,
-    ResolvedComptimeExpr, ResolvedComptimeParam, ResolvedComptimeTypeArg,
+    ComptimeNameResolution, ResolvedComptimeAssignTarget, ResolvedComptimeAssignTargetKind,
+    ResolvedComptimeBinding, ResolvedComptimeExpr, ResolvedComptimeParam, ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -917,8 +917,8 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
         target: &ResolvedComptimeAssignTarget,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        match target {
-            ResolvedComptimeAssignTarget::Local { name, local_id, .. } => {
+        match target.kind() {
+            ResolvedComptimeAssignTargetKind::Local { name, local_id, .. } => {
                 self.assign_comptime_call_local_value(span, *local_id, name, value)
             }
         }

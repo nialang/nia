@@ -7,13 +7,14 @@ use nia_comptime_ir::{
     EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange, EarlyComptimeStmt,
     EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm, EarlyComptimeSwitchArmBody,
     EarlyComptimeSwitchPattern, EarlyComptimeTypeArg, ResolvedComptimeArrayElements,
-    ResolvedComptimeAssign, ResolvedComptimeAssignPathElem, ResolvedComptimeAssignTarget,
-    ResolvedComptimeBinding, ResolvedComptimeBlock, ResolvedComptimeExpr, ResolvedComptimeExprKind,
+    ResolvedComptimeAssign, ResolvedComptimeAssignPathElem, ResolvedComptimeAssignPathElemKind,
+    ResolvedComptimeAssignTarget, ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding,
+    ResolvedComptimeBlock, ResolvedComptimeExpr, ResolvedComptimeExprKind,
     ResolvedComptimeFieldInit, ResolvedComptimeForBinding, ResolvedComptimeForIn,
     ResolvedComptimeFunction, ResolvedComptimeParam, ResolvedComptimeRange,
     ResolvedComptimeSliceRange, ResolvedComptimeStmt, ResolvedComptimeStmtKind,
     ResolvedComptimeSwitch, ResolvedComptimeSwitchArm, ResolvedComptimeSwitchArmBody,
-    ResolvedComptimeSwitchPattern, ResolvedComptimeTypeArg,
+    ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPattern, ResolvedComptimeTypeArg,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
@@ -1439,10 +1440,12 @@ fn eval_resolved_comptime_switch_arm_body(
     body: &ResolvedComptimeSwitchArmBody,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    match body {
-        ResolvedComptimeSwitchArmBody::Expr(expr) => eval_resolved_function_tail_expr(expr, env),
-        ResolvedComptimeSwitchArmBody::Stmt(stmt) => eval_resolved_function_stmt(stmt, env),
-        ResolvedComptimeSwitchArmBody::Block(block) => eval_resolved_function_block(block, env),
+    match body.kind() {
+        ResolvedComptimeSwitchArmBodyKind::Expr(expr) => {
+            eval_resolved_function_tail_expr(expr, env)
+        }
+        ResolvedComptimeSwitchArmBodyKind::Stmt(stmt) => eval_resolved_function_stmt(stmt, env),
+        ResolvedComptimeSwitchArmBodyKind::Block(block) => eval_resolved_function_block(block, env),
     }
 }
 
@@ -2398,8 +2401,8 @@ fn eval_resolved_assign_target_root_value(
     target: &ResolvedComptimeAssignTarget,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
-    match target {
-        ResolvedComptimeAssignTarget::Local { span, local_id, .. } => {
+    match target.kind() {
+        ResolvedComptimeAssignTargetKind::Local { span, local_id, .. } => {
             env.resolve_resolved_name(*span, ComptimeNameResolution::Local(*local_id))
         }
     }
@@ -2424,8 +2427,8 @@ fn eval_resolved_assign_target_value(
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let value = eval_resolved_assign_target_root_value(target, env)?;
-    match target {
-        ResolvedComptimeAssignTarget::Local { path, .. } => {
+    match target.kind() {
+        ResolvedComptimeAssignTargetKind::Local { path, .. } => {
             eval_resolved_assign_path_value(span, value, path, env)
         }
     }
@@ -2485,8 +2488,8 @@ fn eval_resolved_assign_path_value(
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     for elem in path {
-        value = match elem {
-            ResolvedComptimeAssignPathElem::Field { span, name } => match value {
+        value = match elem.kind() {
+            ResolvedComptimeAssignPathElemKind::Field { span, name } => match value {
                 ComptimeValue::Struct(fields) => {
                     fields.get(name).cloned().ok_or_else(|| ComptimeError {
                         span: *span,
@@ -2500,7 +2503,7 @@ fn eval_resolved_assign_path_value(
                     });
                 }
             },
-            ResolvedComptimeAssignPathElem::Index {
+            ResolvedComptimeAssignPathElemKind::Index {
                 span: elem_span,
                 index,
             } => match value {
@@ -2548,8 +2551,8 @@ fn resolved_assign_target_writeback_value(
     value: ComptimeValue,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
-    match target {
-        ResolvedComptimeAssignTarget::Local { path, .. } => {
+    match target.kind() {
+        ResolvedComptimeAssignTargetKind::Local { path, .. } => {
             if path.is_empty() {
                 return Ok(value);
             }
@@ -2623,8 +2626,8 @@ fn write_resolved_assign_path_value(
     let Some((head, tail)) = path.split_first() else {
         return Ok(value);
     };
-    match head {
-        ResolvedComptimeAssignPathElem::Field {
+    match head.kind() {
+        ResolvedComptimeAssignPathElemKind::Field {
             span: field_span,
             name,
         } => {
@@ -2642,7 +2645,7 @@ fn write_resolved_assign_path_value(
             fields.insert(name.clone(), updated);
             Ok(ComptimeValue::Struct(fields))
         }
-        ResolvedComptimeAssignPathElem::Index {
+        ResolvedComptimeAssignPathElemKind::Index {
             span: index_span,
             index,
         } => {
