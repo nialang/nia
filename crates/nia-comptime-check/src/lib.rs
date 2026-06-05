@@ -1495,7 +1495,7 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         for stmt in &block.stmts {
             match &stmt.kind {
-                ComptimeStmtKind::Binding(binding) if binding.local_id == Some(local_id) => {
+                ComptimeStmtKind::Binding(binding) if binding.resolved_local_id() == local_id => {
                     return binding.explicit_type;
                 }
                 ComptimeStmtKind::If {
@@ -1568,7 +1568,7 @@ impl Analyzer<'_> {
                     }
                     ComptimeSwitchArmBody::Stmt(stmt) => match &stmt.kind {
                         ComptimeStmtKind::Binding(binding)
-                            if binding.local_id == Some(local_id) =>
+                            if binding.resolved_local_id() == local_id =>
                         {
                             binding.explicit_type
                         }
@@ -1767,13 +1767,9 @@ impl Analyzer<'_> {
     fn comptime_function_body(
         &self,
         def_id: GlobalDefId,
-    ) -> Option<&nia_comptime_ir::ComptimeFunction> {
+    ) -> Option<&nia_comptime_ir::ResolvedComptimeFunction> {
         if def_id.module_id == self.input.defs.module_id {
-            self.input
-                .module
-                .functions
-                .get(&def_id)
-                .map(nia_comptime_ir::ResolvedComptimeFunction::as_function)
+            self.input.module.functions.get(&def_id)
         } else {
             self.input
                 .program
@@ -1781,7 +1777,6 @@ impl Analyzer<'_> {
                 .get(&def_id.module_id)?
                 .functions
                 .get(&def_id)
-                .map(nia_comptime_ir::ResolvedComptimeFunction::as_function)
         }
     }
 
@@ -2156,13 +2151,7 @@ impl Analyzer<'_> {
             }
         } else {
             for (generic, arg) in signature.generics.iter().zip(type_args) {
-                let Some(ty) = arg.ty else {
-                    return Err(ComptimeError {
-                        span: arg.span,
-                        message: "cannot resolve comptime generic function type argument"
-                            .to_string(),
-                    });
-                };
+                let ty = arg.resolved_ty();
                 let imported = self.import_ty_into_module(arg.span, ty, signature_module_id)?;
                 substitutions.insert(generic.clone(), imported);
             }
@@ -3298,7 +3287,7 @@ impl Analyzer<'_> {
                     .map(|ty| self.substitute_ty_generics(ty))
                     .map(ComptimeValueType::Runtime)
                     .or_else(|| self.comptime_expr_type(&binding.value, None))?;
-                let local_id = binding.local_id?;
+                let local_id = binding.resolved_local_id();
                 self.bind_comptime_local_type(local_id, &binding.name, ty);
                 Some(())
             }
@@ -3368,7 +3357,7 @@ impl Analyzer<'_> {
         let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
         self.push_typed_comptime_scope();
         let result = (|| {
-            let local_id = for_in.binding.local_id?;
+            let local_id = for_in.binding.resolved_local_id();
             self.bind_comptime_local_type(local_id, &for_in.binding.name, binding_ty);
             for stmt in &for_in.body.stmts {
                 self.check_comptime_stmt(stmt)?;
@@ -4469,7 +4458,7 @@ impl ComptimeEnv for Analyzer<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        let value = nia_comptime_engine::eval_comptime_function_call(
+        let value = nia_comptime_engine::eval_resolved_comptime_function_call(
             span,
             function_id.module_id,
             &function,
@@ -4498,12 +4487,7 @@ impl ComptimeEnv for Analyzer<'_> {
         param: &ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = param.local_id else {
-            return Err(ComptimeError {
-                span,
-                message: "failed to bind comptime function parameter".to_string(),
-            });
-        };
+        let local_id = param.resolved_local_id();
         let ty = param
             .ty
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
@@ -4533,12 +4517,7 @@ impl ComptimeEnv for Analyzer<'_> {
         binding: &ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = binding.local_id else {
-            return Err(ComptimeError {
-                span,
-                message: "failed to bind comptime function local".to_string(),
-            });
-        };
+        let local_id = binding.resolved_local_id();
         let ty = binding
             .explicit_type
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)))
@@ -4553,12 +4532,7 @@ impl ComptimeEnv for Analyzer<'_> {
         local_id: Option<LocalId>,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = local_id else {
-            return Err(ComptimeError {
-                span,
-                message: "failed to bind comptime switch pattern local".to_string(),
-            });
-        };
+        let local_id = local_id.expect("resolved comptime switch pattern must have a local id");
         let ty = self
             .find_local_binding_type(local_id)
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
@@ -4572,14 +4546,9 @@ impl ComptimeEnv for Analyzer<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         match target {
-            ComptimeAssignTarget::Local { name, local_id, .. } => {
-                let Some(local_id) = local_id else {
-                    return Err(ComptimeError {
-                        span,
-                        message: format!("failed to resolve comptime assignment target `{name}`"),
-                    });
-                };
-                self.assign_local_value(span, *local_id, name, value)
+            ComptimeAssignTarget::Local { name, .. } => {
+                let local_id = target.resolved_local_id();
+                self.assign_local_value(span, local_id, name, value)
             }
         }
     }

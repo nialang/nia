@@ -5,7 +5,7 @@ use nia_comptime_ir::{
     ComptimeExprKind, ComptimeForBinding, ComptimeForIn, ComptimeFunction, ComptimeNameResolution,
     ComptimeParam, ComptimeRange, ComptimeSliceRange, ComptimeStmt, ComptimeStmtKind,
     ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
-    ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp,
+    ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp, ResolvedComptimeFunction,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
@@ -1053,6 +1053,24 @@ pub fn eval_comptime_function_call(
     });
     env.pop_comptime_scope();
     result
+}
+
+pub fn eval_resolved_comptime_function_call(
+    span: Span,
+    function_module_id: ModuleId,
+    function: &ResolvedComptimeFunction,
+    type_substitutions: Vec<(String, InternedTyId)>,
+    args: Vec<ComptimeValue>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    eval_comptime_function_call(
+        span,
+        function_module_id,
+        function.as_function(),
+        type_substitutions,
+        args,
+        env,
+    )
 }
 
 fn eval_function_block(
