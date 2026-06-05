@@ -122,6 +122,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         defs: &defs,
         values: &values,
         locals: &locals,
+        semantic_uses: &semantic_uses,
         lowered: &lowered,
         signatures: &signatures,
         normalization: &normalization,

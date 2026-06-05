@@ -687,6 +687,7 @@ impl<'a> BodyChecker<'a> {
             program: self.program,
             values: self.values,
             locals: self.locals,
+            semantic_uses: self.semantic_uses,
             interner: self.interner.clone(),
             type_uses: self.type_uses,
             signatures: self.signatures,
