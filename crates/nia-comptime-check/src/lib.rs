@@ -351,10 +351,7 @@ impl ComptimeModuleLowerer<'_> {
             {
                 self.module.local_initializers.insert(
                     local_id,
-                    ResolvedComptimeLocalInitializer {
-                        explicit_type,
-                        value,
-                    },
+                    ResolvedComptimeLocalInitializer::new(explicit_type, value),
                 );
             }
         }
@@ -378,18 +375,18 @@ impl ComptimeModuleLowerer<'_> {
                     .value
                     .as_ref()
                     .and_then(|expr| self.lower_expr(expr));
-                Some(ResolvedComptimeEnumVariant {
-                    def_id: self.global_def_id(variant_id),
-                    span: variant.span,
+                Some(ResolvedComptimeEnumVariant::new(
+                    self.global_def_id(variant_id),
+                    variant.span,
                     value,
-                })
+                ))
             })
             .collect();
-        self.module.enums.push(ResolvedComptimeEnum {
-            def_id: self.global_def_id(enum_id),
-            span: item_span,
+        self.module.enums.push(ResolvedComptimeEnum::new(
+            self.global_def_id(enum_id),
+            item_span,
             variants,
-        });
+        ));
     }
 
     fn lower_global_initializer(&mut self, item_span: Span, value: Option<&Expr>) {
@@ -898,10 +895,11 @@ impl Analyzer<'_> {
     }
 
     fn eval_enum(&mut self, item_enum: &ResolvedComptimeEnum) {
-        let range = self.enum_backing_range(item_enum.def_id.def_id);
+        let enum_id = item_enum.def_id();
+        let range = self.enum_backing_range(enum_id.def_id);
         let mut next_value = 0i128;
-        for variant in &item_enum.variants {
-            let value = if let Some(expr) = variant.value.as_ref() {
+        for variant in item_enum.variants() {
+            let value = if let Some(expr) = variant.value() {
                 match nia_comptime_engine::eval_resolved_comptime_int_expr(expr, self) {
                     Ok(value) => value,
                     Err(err) => {
@@ -917,21 +915,22 @@ impl Analyzer<'_> {
                 && (value < min || value > max)
             {
                 self.diagnostics.push(Diagnostic::error(
-                    variant.span,
+                    variant.span(),
                     format!("enum variant value {value} is out of range for backing type"),
                 ));
             }
+            let variant_id = variant.def_id();
             self.enum_values
-                .insert(variant.def_id.def_id, ComptimeValue::Int(value));
+                .insert(variant_id.def_id, ComptimeValue::Int(value));
             let ty = self
                 .input
                 .signatures
                 .enums
-                .get(&item_enum.def_id.def_id)
+                .get(&enum_id.def_id)
                 .map(|signature| signature.backing_type)
                 .unwrap_or_else(|| self.input.interner.primitive(PrimitiveTy::Isize));
             self.typed_enum_values.insert(
-                variant.def_id.def_id,
+                variant_id.def_id,
                 TypedComptimeValue {
                     value: ComptimeValue::Int(value),
                     ty: ComptimeValueType::Runtime(ty),
@@ -1455,9 +1454,9 @@ impl Analyzer<'_> {
 
     fn find_local_binding_type(&mut self, local_id: LocalId) -> Option<InternedTyId> {
         if let Some(initializer) = self.input.module.local_initializers.get(&local_id)
-            && initializer.explicit_type.is_some()
+            && initializer.explicit_type().is_some()
         {
-            return initializer.explicit_type;
+            return initializer.explicit_type();
         }
         let global_initializers = self
             .input
@@ -1476,7 +1475,7 @@ impl Analyzer<'_> {
             .module
             .local_initializers
             .values()
-            .map(|initializer| initializer.value.clone())
+            .map(|initializer| initializer.value().clone())
             .collect::<Vec<_>>();
         for expr in &local_initializers {
             if let Some(ty) = self.find_local_binding_type_in_resolved_expr(expr, local_id) {
@@ -1645,7 +1644,7 @@ impl Analyzer<'_> {
             .module
             .local_initializers
             .get(&local_id)
-            .map(|initializer| &initializer.value)
+            .map(|initializer| initializer.value())
     }
 
     fn call_local_value(&self, local_id: LocalId) -> Option<ComptimeValue> {

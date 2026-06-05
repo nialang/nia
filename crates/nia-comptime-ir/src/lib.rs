@@ -15,22 +15,87 @@ pub struct ResolvedComptimeModule {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeLocalInitializer {
-    pub explicit_type: Option<InternedTyId>,
-    pub value: ResolvedComptimeExpr,
+    explicit_type: Option<InternedTyId>,
+    value: ResolvedComptimeExpr,
+}
+
+impl ResolvedComptimeLocalInitializer {
+    pub fn new(explicit_type: Option<InternedTyId>, value: ResolvedComptimeExpr) -> Self {
+        Self {
+            explicit_type,
+            value,
+        }
+    }
+
+    pub fn explicit_type(&self) -> Option<InternedTyId> {
+        self.explicit_type
+    }
+
+    pub fn value(&self) -> &ResolvedComptimeExpr {
+        &self.value
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeEnum {
-    pub def_id: GlobalDefId,
-    pub span: Span,
-    pub variants: Vec<ResolvedComptimeEnumVariant>,
+    def_id: GlobalDefId,
+    span: Span,
+    variants: Vec<ResolvedComptimeEnumVariant>,
+}
+
+impl ResolvedComptimeEnum {
+    pub fn new(
+        def_id: GlobalDefId,
+        span: Span,
+        variants: Vec<ResolvedComptimeEnumVariant>,
+    ) -> Self {
+        Self {
+            def_id,
+            span,
+            variants,
+        }
+    }
+
+    pub fn def_id(&self) -> GlobalDefId {
+        self.def_id
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn variants(&self) -> &[ResolvedComptimeEnumVariant] {
+        &self.variants
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeEnumVariant {
-    pub def_id: GlobalDefId,
-    pub span: Span,
-    pub value: Option<ResolvedComptimeExpr>,
+    def_id: GlobalDefId,
+    span: Span,
+    value: Option<ResolvedComptimeExpr>,
+}
+
+impl ResolvedComptimeEnumVariant {
+    pub fn new(def_id: GlobalDefId, span: Span, value: Option<ResolvedComptimeExpr>) -> Self {
+        Self {
+            def_id,
+            span,
+            value,
+        }
+    }
+
+    pub fn def_id(&self) -> GlobalDefId {
+        self.def_id
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn value(&self) -> Option<&ResolvedComptimeExpr> {
+        self.value.as_ref()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
