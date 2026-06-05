@@ -295,6 +295,13 @@ pub fn eval_comptime_expr(
     }
 }
 
+pub fn eval_early_comptime_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    eval_comptime_expr(expr, env)
+}
+
 pub fn eval_resolved_comptime_expr(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -997,6 +1004,13 @@ pub fn eval_comptime_int_expr(
     }
 }
 
+pub fn eval_early_comptime_int_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<i128, ComptimeError> {
+    eval_comptime_int_expr(expr, env)
+}
+
 pub fn eval_resolved_comptime_int_expr(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -1017,6 +1031,13 @@ pub fn eval_comptime_bool_expr(
     }
 }
 
+pub fn eval_early_comptime_bool_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<bool, ComptimeError> {
+    eval_comptime_bool_expr(expr, env)
+}
+
 pub fn eval_resolved_comptime_bool_expr(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -1029,6 +1050,13 @@ pub fn eval_comptime_array_len_expr(
     env: &mut impl ComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     int_to_array_len(expr.span, eval_comptime_int_expr(expr, env)?)
+}
+
+pub fn eval_early_comptime_array_len_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<u64, ComptimeError> {
+    eval_comptime_array_len_expr(expr, env)
 }
 
 pub fn eval_resolved_comptime_array_len_expr(

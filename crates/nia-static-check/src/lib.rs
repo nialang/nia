@@ -270,23 +270,9 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
     ) -> Result<u64, nia_comptime_engine::ComptimeError> {
-        let name_resolution = |span| self.comptime_name_resolution(span);
-        let context =
-            nia_comptime_ir::ComptimeLowerInputs::early().with_name_resolution(&name_resolution);
-        let mut env = StaticComptimeEnv {
-            defs: self.defs,
-            comptime: self.comptime,
-            program_defs: self.program_defs,
-            program_comptime: self.program_comptime,
-        };
-        let expr =
-            nia_comptime_ir::lower_expr_early_with_context(expr, &context).map_err(|err| {
-                nia_comptime_engine::ComptimeError {
-                    span: err.span,
-                    message: err.message,
-                }
-            })?;
-        nia_comptime_engine::eval_comptime_array_len_expr(&expr, &mut env)
+        self.eval_static_early_expr(expr, |expr, env| {
+            nia_comptime_engine::eval_early_comptime_array_len_expr(expr, env)
+        })
     }
 
     fn static_array_repeat_count_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
@@ -299,6 +285,19 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
     ) -> Result<i128, nia_comptime_engine::ComptimeError> {
+        self.eval_static_early_expr(expr, |expr, env| {
+            nia_comptime_engine::eval_early_comptime_int_expr(expr, env)
+        })
+    }
+
+    fn eval_static_early_expr<T>(
+        &self,
+        expr: &Expr,
+        eval: impl FnOnce(
+            &nia_comptime_ir::ComptimeExpr,
+            &mut StaticComptimeEnv<'_>,
+        ) -> Result<T, nia_comptime_engine::ComptimeError>,
+    ) -> Result<T, nia_comptime_engine::ComptimeError> {
         let name_resolution = |span| self.comptime_name_resolution(span);
         let context =
             nia_comptime_ir::ComptimeLowerInputs::early().with_name_resolution(&name_resolution);
@@ -315,7 +314,7 @@ impl StaticChecker<'_> {
                     message: err.message,
                 }
             })?;
-        nia_comptime_engine::eval_comptime_int_expr(&expr, &mut env)
+        eval(&expr, &mut env)
     }
 
     fn comptime_name_resolution(
