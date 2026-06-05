@@ -1018,7 +1018,9 @@ impl Analyzer<'_> {
     fn inferred_type_for_key(&mut self, key: ComptimeKey) -> Option<ComptimeValueType> {
         let expr = self.initializer_for_key(key)?.clone();
         let module_id = self.key_module_id(key);
-        self.with_execution_module(module_id, |this| this.comptime_expr_type(&expr, None))
+        self.with_execution_module(module_id, |this| {
+            this.comptime_expr_type(expr.as_expr(), None)
+        })
     }
 
     fn key_module_id(&self, key: ComptimeKey) -> ModuleId {
@@ -1029,7 +1031,8 @@ impl Analyzer<'_> {
     }
 
     fn initializer_span_for_key(&self, key: ComptimeKey) -> Option<Span> {
-        self.initializer_for_key(key).map(|expr| expr.span)
+        self.initializer_for_key(key)
+            .map(|expr| expr.as_expr().span)
     }
 
     fn validate_typed_value(&mut self, span: Span, value: &ComptimeValue, ty: &ComptimeValueType) {
@@ -1457,7 +1460,7 @@ impl Analyzer<'_> {
             .cloned()
             .collect::<Vec<_>>();
         for expr in &global_initializers {
-            if let Some(ty) = self.find_local_binding_type_in_expr(expr, local_id) {
+            if let Some(ty) = self.find_local_binding_type_in_expr(expr.as_expr(), local_id) {
                 return Some(ty);
             }
         }
@@ -1469,7 +1472,7 @@ impl Analyzer<'_> {
             .map(|initializer| initializer.value.clone())
             .collect::<Vec<_>>();
         for expr in &local_initializers {
-            if let Some(ty) = self.find_local_binding_type_in_expr(expr, local_id) {
+            if let Some(ty) = self.find_local_binding_type_in_expr(expr.as_expr(), local_id) {
                 return Some(ty);
             }
         }
@@ -1478,7 +1481,7 @@ impl Analyzer<'_> {
             .module
             .functions
             .values()
-            .map(|function| function.body.clone())
+            .map(|function| function.body().clone())
             .collect::<Vec<_>>();
         for body in &function_bodies {
             if let Some(ty) = self.find_local_binding_type_in_block(body, local_id) {

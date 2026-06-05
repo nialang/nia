@@ -47,18 +47,6 @@ impl ResolvedComptimeExpr {
     pub fn as_expr(&self) -> &ComptimeExpr {
         &self.expr
     }
-
-    pub fn into_inner(self) -> ComptimeExpr {
-        self.expr
-    }
-}
-
-impl std::ops::Deref for ResolvedComptimeExpr {
-    type Target = ComptimeExpr;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_expr()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,20 +60,16 @@ impl ResolvedComptimeFunction {
         Ok(Self { function })
     }
 
-    pub fn as_function(&self) -> &ComptimeFunction {
-        &self.function
+    pub fn span(&self) -> Span {
+        self.function.span
     }
 
-    pub fn into_inner(self) -> ComptimeFunction {
-        self.function
+    pub fn params(&self) -> &[ComptimeParam] {
+        &self.function.params
     }
-}
 
-impl std::ops::Deref for ResolvedComptimeFunction {
-    type Target = ComptimeFunction;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_function()
+    pub fn body(&self) -> &ComptimeBlock {
+        &self.function.body
     }
 }
 
