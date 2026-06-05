@@ -1260,19 +1260,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn comptime_function(&self, callee: &ComptimeExpr) -> Option<GlobalDefId> {
-        match &callee.kind {
-            ComptimeExprKind::Ident {
-                resolution: Some(ComptimeNameResolution::Global(global_id)),
-                ..
-            }
-            | ComptimeExprKind::Qualified {
-                resolution: Some(ComptimeNameResolution::Global(global_id)),
-                ..
-            } => {
-                return (self.global_def_kind(*global_id) == Some(DefKind::Function))
-                    .then_some(*global_id);
-            }
-            _ => {}
+        if let Some(Some(ComptimeNameResolution::Global(global_id))) =
+            callee.try_resolved_name_resolution()
+            && self.global_def_kind(global_id) == Some(DefKind::Function)
+        {
+            return Some(global_id);
         }
         None
     }
