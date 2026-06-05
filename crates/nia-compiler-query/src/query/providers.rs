@@ -485,12 +485,14 @@ pub(super) fn provide_comptime_module(
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
+    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     nia_comptime_check::lower_module_comptime(nia_comptime_check::ComptimeModuleInput {
         module: &loaded.module,
         defs: &defs,
         values: &values,
         locals: &locals,
+        semantic_uses: &semantic_uses,
         type_uses: &type_lowering.type_uses,
         const_exprs: &type_lowering.const_exprs,
     })
@@ -635,9 +637,9 @@ pub(super) fn provide_static_check(
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
+    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let signatures = db.query(ItemSignaturesQuery(module_id));
     let comptime = db.query(ComptimeQuery(module_id));
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_comptime = db.query(ProgramComptimeQuery);
     nia_static_check::check_module_static_initializers(
@@ -645,9 +647,9 @@ pub(super) fn provide_static_check(
         &defs,
         &values,
         &locals,
+        &semantic_uses,
         &signatures,
         &comptime,
-        &type_lowering.type_uses,
         &program_defs,
         &program_comptime,
     )

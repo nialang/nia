@@ -7,7 +7,7 @@ pub(super) use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatur
 pub(super) use nia_local_resolve::resolve_module_locals;
 pub(super) use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
 pub(super) use nia_parser::{parse_module, parse_module_syntax_with_origins};
-pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue};
+pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue, SemanticUseTable};
 pub(super) use nia_source::{SourceId, SourceRevision, SourceVersion};
 pub(super) use nia_type_lower::lower_module_types;
 pub(super) use nia_type_resolve::resolve_module_types;
@@ -30,6 +30,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
     assert!(values.diagnostics.is_empty(), "{:?}", values.diagnostics);
     let locals = resolve_module_locals(&module, &defs, &values);
     assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
+    let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
     let signatures = collect_item_signatures(&module, &defs, &lowered);
     assert!(
         signatures.diagnostics.is_empty(),
@@ -43,6 +44,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });
@@ -145,4 +147,53 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
             modules: &HashMap::new(),
         },
     })
+}
+
+pub(super) fn semantic_use_table(
+    module_id: ModuleId,
+    values: &nia_value_resolve::ValueResolution,
+    locals: &nia_local_resolve::LocalResolution,
+    type_lowering: &nia_type_lower::TypeLowering,
+) -> SemanticUseTable {
+    let mut builder = SemanticUseTable::builder();
+    for (span, local_use) in &locals.uses {
+        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
+            builder.insert_local_value_use(*span, *local_id);
+        }
+    }
+    for (span, global_id) in &values.qualified_values {
+        builder.insert_global_value_use(*span, *global_id);
+    }
+    for (span, resolution) in &values.names {
+        match resolution {
+            nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                builder.insert_global_value_use(
+                    *span,
+                    nia_ids::GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                );
+            }
+            nia_value_resolve::ValueNameResolution::External(global_id) => {
+                builder.insert_global_value_use(*span, *global_id);
+            }
+            nia_value_resolve::ValueNameResolution::ImportAlias
+            | nia_value_resolve::ValueNameResolution::LocalDeferred
+            | nia_value_resolve::ValueNameResolution::Error => {}
+        }
+    }
+    builder.extend_local_defs(
+        locals
+            .local_defs
+            .iter()
+            .map(|(span, local_id)| (*span, *local_id)),
+    );
+    builder.extend_type_uses(
+        type_lowering
+            .type_uses
+            .iter()
+            .map(|(span, ty)| (*span, *ty)),
+    );
+    builder.finish()
 }
