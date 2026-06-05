@@ -279,12 +279,13 @@ impl StaticChecker<'_> {
             program_defs: self.program_defs,
             program_comptime: self.program_comptime,
         };
-        let expr = nia_comptime_ir::lower_expr_with_context(expr, &context).map_err(|err| {
-            nia_comptime_engine::ComptimeError {
-                span: err.span,
-                message: err.message,
-            }
-        })?;
+        let expr =
+            nia_comptime_ir::lower_expr_early_with_context(expr, &context).map_err(|err| {
+                nia_comptime_engine::ComptimeError {
+                    span: err.span,
+                    message: err.message,
+                }
+            })?;
         nia_comptime_engine::eval_comptime_array_len_expr(&expr, &mut env)
     }
 
@@ -307,12 +308,13 @@ impl StaticChecker<'_> {
             program_defs: self.program_defs,
             program_comptime: self.program_comptime,
         };
-        let expr = nia_comptime_ir::lower_expr_with_context(expr, &context).map_err(|err| {
-            nia_comptime_engine::ComptimeError {
-                span: err.span,
-                message: err.message,
-            }
-        })?;
+        let expr =
+            nia_comptime_ir::lower_expr_early_with_context(expr, &context).map_err(|err| {
+                nia_comptime_engine::ComptimeError {
+                    span: err.span,
+                    message: err.message,
+                }
+            })?;
         nia_comptime_engine::eval_comptime_int_expr(&expr, &mut env)
     }
 

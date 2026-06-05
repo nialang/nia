@@ -393,7 +393,14 @@ pub struct ComptimeLowerError {
 }
 
 pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<ComptimeExpr, ComptimeLowerError> {
-    lower_expr_with_context(expr, &ComptimeLowerContext::default())
+    lower_expr_internal(expr, &ComptimeLowerContext::default())
+}
+
+pub fn lower_expr_early_with_context(
+    expr: &nia_ast::Expr,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeExpr, ComptimeLowerError> {
+    lower_expr_internal(expr, context)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -439,7 +446,7 @@ impl<'a> ComptimeLowerContext<'a> {
     }
 }
 
-pub fn lower_expr_with_context(
+fn lower_expr_internal(
     expr: &nia_ast::Expr,
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeExpr, ComptimeLowerError> {
@@ -468,7 +475,7 @@ pub fn lower_expr_with_context(
             resolution: resolve_name(context, expr.span)?,
         },
         nia_ast::ExprKind::Field { lhs, name } => ComptimeExprKind::Field {
-            lhs: Box::new(lower_expr_with_context(lhs, context)?),
+            lhs: Box::new(lower_expr_internal(lhs, context)?),
             name: name.clone(),
         },
         nia_ast::ExprKind::BracketSuffix { callee, args } => {
@@ -486,17 +493,17 @@ pub fn lower_expr_with_context(
                 });
             };
             ComptimeExprKind::Index {
-                lhs: Box::new(lower_expr_with_context(callee, context)?),
-                index: Box::new(lower_expr_with_context(index, context)?),
+                lhs: Box::new(lower_expr_internal(callee, context)?),
+                index: Box::new(lower_expr_internal(index, context)?),
             }
         }
         nia_ast::ExprKind::Index { lhs, index } => match index {
             nia_ast::IndexArg::Expr(index) => ComptimeExprKind::Index {
-                lhs: Box::new(lower_expr_with_context(lhs, context)?),
-                index: Box::new(lower_expr_with_context(index, context)?),
+                lhs: Box::new(lower_expr_internal(lhs, context)?),
+                index: Box::new(lower_expr_internal(index, context)?),
             },
             nia_ast::IndexArg::Range(range) => ComptimeExprKind::Slice {
-                lhs: Box::new(lower_expr_with_context(lhs, context)?),
+                lhs: Box::new(lower_expr_internal(lhs, context)?),
                 range: lower_slice_range_with_context(range, context)?,
             },
         },
@@ -549,30 +556,30 @@ pub fn lower_expr_with_context(
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
         nia_ast::ExprKind::Unary { op, expr } => ComptimeExprKind::Unary {
             op: lower_unary_op(*op),
-            expr: Box::new(lower_expr_with_context(expr, context)?),
+            expr: Box::new(lower_expr_internal(expr, context)?),
         },
         nia_ast::ExprKind::OptionalSome { expr } => ComptimeExprKind::OptionalSome {
-            expr: Box::new(lower_expr_with_context(expr, context)?),
+            expr: Box::new(lower_expr_internal(expr, context)?),
         },
         nia_ast::ExprKind::ErrorOk { expr } => ComptimeExprKind::ErrorOk {
-            expr: Box::new(lower_expr_with_context(expr, context)?),
+            expr: Box::new(lower_expr_internal(expr, context)?),
         },
         nia_ast::ExprKind::ErrorErr { expr } => ComptimeExprKind::ErrorErr {
-            expr: Box::new(lower_expr_with_context(expr, context)?),
+            expr: Box::new(lower_expr_internal(expr, context)?),
         },
         nia_ast::ExprKind::Try { expr } => ComptimeExprKind::Try {
-            expr: Box::new(lower_expr_with_context(expr, context)?),
+            expr: Box::new(lower_expr_internal(expr, context)?),
         },
         nia_ast::ExprKind::Binary { lhs, op, rhs } => ComptimeExprKind::Binary {
-            lhs: Box::new(lower_expr_with_context(lhs, context)?),
+            lhs: Box::new(lower_expr_internal(lhs, context)?),
             op: lower_binary_op(*op),
-            rhs: Box::new(lower_expr_with_context(rhs, context)?),
+            rhs: Box::new(lower_expr_internal(rhs, context)?),
         },
         nia_ast::ExprKind::Assign { lhs, op, rhs } => {
             ComptimeExprKind::Assign(Box::new(ComptimeAssign {
                 lhs: lower_assign_target_with_context(lhs, context)?,
                 op: lower_assign_op(*op),
-                rhs: lower_expr_with_context(rhs, context)?,
+                rhs: lower_expr_internal(rhs, context)?,
             }))
         }
         nia_ast::ExprKind::Range(range) => {
@@ -583,11 +590,11 @@ pub fn lower_expr_with_context(
             then_branch,
             else_branch,
         } => ComptimeExprKind::If {
-            cond: Box::new(lower_expr_with_context(cond, context)?),
+            cond: Box::new(lower_expr_internal(cond, context)?),
             then_branch: lower_block_with_context(then_branch, context)?,
             else_branch: else_branch
                 .as_deref()
-                .map(|else_branch| lower_expr_with_context(else_branch, context))
+                .map(|else_branch| lower_expr_internal(else_branch, context))
                 .transpose()?
                 .map(Box::new),
         },
@@ -598,7 +605,7 @@ pub fn lower_expr_with_context(
             lower_switch_with_context(expr.span, switch, context)?,
         )),
         nia_ast::ExprKind::Cast { expr, ty } => ComptimeExprKind::Cast {
-            expr: Box::new(lower_expr_with_context(expr, context)?),
+            expr: Box::new(lower_expr_internal(expr, context)?),
             ty: lower_type_id(context, ty.span)?,
         },
         nia_ast::ExprKind::Block(block) => {
@@ -621,7 +628,7 @@ pub fn lower_expr_resolved_with_context(
     expr: &nia_ast::Expr,
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeExpr, ComptimeLowerError> {
-    lower_expr_with_context(expr, &context.with_mode(ComptimeLowerMode::Resolved))
+    lower_expr_internal(expr, &context.with_mode(ComptimeLowerMode::Resolved))
 }
 
 fn lower_string_literal(literal: &nia_ast::StringLiteral) -> ComptimeStringLiteral {
@@ -690,7 +697,7 @@ fn lower_call_with_context(
         && name == "len"
     {
         return Ok(ComptimeExprKind::Len {
-            lhs: Box::new(lower_expr_with_context(lhs, context)?),
+            lhs: Box::new(lower_expr_internal(lhs, context)?),
         });
     }
     if args.is_empty()
@@ -698,7 +705,7 @@ fn lower_call_with_context(
         && name == "iter"
     {
         return Ok(ComptimeExprKind::RangeIter {
-            lhs: Box::new(lower_expr_with_context(lhs, context)?),
+            lhs: Box::new(lower_expr_internal(lhs, context)?),
         });
     }
     let (callee, type_args) = match &callee.kind {
@@ -712,11 +719,11 @@ fn lower_call_with_context(
         _ => (callee, Vec::new()),
     };
     Ok(ComptimeExprKind::Call {
-        callee: Box::new(lower_expr_with_context(callee, context)?),
+        callee: Box::new(lower_expr_internal(callee, context)?),
         type_args,
         args: args
             .iter()
-            .map(|arg| lower_expr_with_context(arg, context))
+            .map(|arg| lower_expr_internal(arg, context))
             .collect::<Result<Vec<_>, _>>()?,
     })
 }
@@ -729,13 +736,13 @@ fn lower_comptime_range_with_context(
         start: range
             .start
             .as_deref()
-            .map(|start| lower_expr_with_context(start, context))
+            .map(|start| lower_expr_internal(start, context))
             .transpose()?
             .map(Box::new),
         end: range
             .end
             .as_deref()
-            .map(|end| lower_expr_with_context(end, context))
+            .map(|end| lower_expr_internal(end, context))
             .transpose()?
             .map(Box::new),
         inclusive: range.inclusive,
@@ -759,12 +766,12 @@ fn lower_comptime_if_with_context(
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeExprKind, ComptimeLowerError> {
     Ok(ComptimeExprKind::If {
-        cond: Box::new(lower_expr_with_context(&comptime_if.cond, context)?),
+        cond: Box::new(lower_expr_internal(&comptime_if.cond, context)?),
         then_branch: lower_block_with_context(&comptime_if.then_branch, context)?,
         else_branch: comptime_if
             .else_branch
             .as_deref()
-            .map(|else_branch| lower_expr_with_context(else_branch, context))
+            .map(|else_branch| lower_expr_internal(else_branch, context))
             .transpose()?
             .map(Box::new),
     })
@@ -832,7 +839,7 @@ fn lower_assign_target_base_with_context(
             };
             path.push(ComptimeAssignPathElem::Index {
                 span: expr.span,
-                index: lower_expr_with_context(index, context)?,
+                index: lower_expr_internal(index, context)?,
             });
             Ok(base)
         }
@@ -854,7 +861,7 @@ fn lower_assign_target_base_with_context(
             };
             path.push(ComptimeAssignPathElem::Index {
                 span: expr.span,
-                index: lower_expr_with_context(index, context)?,
+                index: lower_expr_internal(index, context)?,
             });
             Ok(base)
         }
@@ -873,12 +880,12 @@ fn lower_array_elements_with_context(
         nia_ast::ArrayElements::List(elems) => Ok(ComptimeArrayElements::List(
             elems
                 .iter()
-                .map(|elem| lower_expr_with_context(elem, context))
+                .map(|elem| lower_expr_internal(elem, context))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
         nia_ast::ArrayElements::Repeat { value, count } => Ok(ComptimeArrayElements::Repeat {
-            value: Box::new(lower_expr_with_context(value, context)?),
-            count: Box::new(lower_expr_with_context(count, context)?),
+            value: Box::new(lower_expr_internal(value, context)?),
+            count: Box::new(lower_expr_internal(count, context)?),
         }),
     }
 }
@@ -929,10 +936,10 @@ pub fn lower_function_early(
     function_span: Span,
     function: &nia_ast::FunctionItem,
 ) -> Result<ComptimeFunction, ComptimeLowerError> {
-    lower_function_with_context(function_span, function, &ComptimeLowerContext::default())
+    lower_function_internal(function_span, function, &ComptimeLowerContext::default())
 }
 
-pub fn lower_function_with_context(
+fn lower_function_internal(
     function_span: Span,
     function: &nia_ast::FunctionItem,
     context: &ComptimeLowerContext<'_>,
@@ -984,7 +991,7 @@ pub fn lower_function_resolved_with_context(
     function: &nia_ast::FunctionItem,
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeFunction, ComptimeLowerError> {
-    lower_function_with_context(
+    lower_function_internal(
         function_span,
         function,
         &context.with_mode(ComptimeLowerMode::Resolved),
@@ -1005,7 +1012,7 @@ fn lower_block_with_context(
         tail: block
             .tail
             .as_deref()
-            .map(|tail| lower_expr_with_context(tail, context))
+            .map(|tail| lower_expr_internal(tail, context))
             .transpose()?
             .map(Box::new),
     })
@@ -1034,14 +1041,14 @@ fn lower_stmt_with_context(
                     .transpose()?
                     .flatten(),
                 is_mutable: !binding.is_let,
-                value: lower_expr_with_context(value, context)?,
+                value: lower_expr_internal(value, context)?,
             })
         }
         nia_ast::StmtKind::Expr(expr) => lower_expr_stmt_with_context(expr, context)?,
         nia_ast::StmtKind::Return(value) => ComptimeStmtKind::Return(
             value
                 .as_ref()
-                .map(|value| lower_expr_with_context(value, context))
+                .map(|value| lower_expr_internal(value, context))
                 .transpose()?,
         ),
         nia_ast::StmtKind::Break => ComptimeStmtKind::Break,
@@ -1052,11 +1059,11 @@ fn lower_stmt_with_context(
                 name: for_in.binding.name.clone(),
                 local_id: lower_local_id(context, for_in.binding.span)?,
             },
-            iter: lower_expr_with_context(&for_in.iter, context)?,
+            iter: lower_expr_internal(&for_in.iter, context)?,
             body: lower_block_with_context(&for_in.body, context)?,
         }),
         nia_ast::StmtKind::While(while_stmt) => ComptimeStmtKind::While {
-            cond: lower_expr_with_context(&while_stmt.cond, context)?,
+            cond: lower_expr_internal(&while_stmt.cond, context)?,
             body: lower_block_with_context(&while_stmt.body, context)?,
         },
         nia_ast::StmtKind::Loop(loop_stmt) => ComptimeStmtKind::Loop {
@@ -1085,16 +1092,14 @@ fn lower_expr_stmt_with_context(
             then_branch,
             else_branch,
         } => Ok(ComptimeStmtKind::If {
-            cond: lower_expr_with_context(cond, context)?,
+            cond: lower_expr_internal(cond, context)?,
             then_branch: lower_block_with_context(then_branch, context)?,
             else_branch: else_branch
                 .as_deref()
                 .map(|else_branch| lower_if_stmt_else_branch_with_context(else_branch, context))
                 .transpose()?,
         }),
-        _ => Ok(ComptimeStmtKind::Expr(lower_expr_with_context(
-            expr, context,
-        )?)),
+        _ => Ok(ComptimeStmtKind::Expr(lower_expr_internal(expr, context)?)),
     }
 }
 
@@ -1115,7 +1120,7 @@ fn lower_if_stmt_else_branch_with_context(
         _ => Ok(ComptimeBlock {
             span: expr.span,
             stmts: Vec::new(),
-            tail: Some(Box::new(lower_expr_with_context(expr, context)?)),
+            tail: Some(Box::new(lower_expr_internal(expr, context)?)),
         }),
     }
 }
@@ -1127,7 +1132,7 @@ fn lower_switch_with_context(
 ) -> Result<ComptimeSwitch, ComptimeLowerError> {
     Ok(ComptimeSwitch {
         span,
-        target: lower_expr_with_context(&switch.target, context)?,
+        target: lower_expr_internal(&switch.target, context)?,
         arms: switch
             .arms
             .iter()
@@ -1178,7 +1183,7 @@ fn lower_switch_pattern_with_context(
             span: *span,
         }),
         nia_ast::SwitchPattern::Expr(expr) => {
-            lower_expr_with_context(expr, context).map(ComptimeSwitchPattern::Expr)
+            lower_expr_internal(expr, context).map(ComptimeSwitchPattern::Expr)
         }
         nia_ast::SwitchPattern::Range {
             start,
@@ -1186,8 +1191,8 @@ fn lower_switch_pattern_with_context(
             inclusive,
             span,
         } => Ok(ComptimeSwitchPattern::Range {
-            start: lower_expr_with_context(start, context)?,
-            end: lower_expr_with_context(end, context)?,
+            start: lower_expr_internal(start, context)?,
+            end: lower_expr_internal(end, context)?,
             inclusive: *inclusive,
             span: *span,
         }),
@@ -1200,7 +1205,7 @@ fn lower_switch_arm_body_with_context(
 ) -> Result<ComptimeSwitchArmBody, ComptimeLowerError> {
     match body {
         nia_ast::SwitchArmBody::Expr(expr) => {
-            lower_expr_with_context(expr, context).map(ComptimeSwitchArmBody::Expr)
+            lower_expr_internal(expr, context).map(ComptimeSwitchArmBody::Expr)
         }
         nia_ast::SwitchArmBody::Stmt(stmt) => {
             lower_stmt_with_context(stmt, context).map(ComptimeSwitchArmBody::Stmt)
@@ -1218,6 +1223,6 @@ fn lower_field_init_with_context(
     Ok(ComptimeFieldInit {
         span: field.span,
         name: field.name.clone(),
-        value: lower_expr_with_context(&field.value, context)?,
+        value: lower_expr_internal(&field.value, context)?,
     })
 }
