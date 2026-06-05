@@ -6,7 +6,7 @@ mod query;
 use nia_abi_check::AbiCheck;
 use nia_ast::Module;
 use nia_backend_lower::BackendLowering;
-use nia_body_check::BodyCheck;
+use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
@@ -21,6 +21,7 @@ use nia_monomorphize::Monomorphization;
 use nia_node_id::NodeOriginTable;
 use nia_opt::OptimizationPolicy;
 use nia_parser::ParseError;
+use nia_sema_ir::SemanticFacts;
 use nia_source::{SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
 use nia_target_config::TargetConfig;
@@ -89,7 +90,9 @@ pub struct CheckedModule {
     pub layouts: Layouts,
     pub abi_check: AbiCheck,
     pub flow_check: FlowCheck,
-    pub body_check: BodyCheck,
+    pub body_ir: BodyIr,
+    pub semantic_facts: SemanticFacts,
+    pub body_diagnostics: Vec<Diagnostic>,
 }
 
 pub(crate) fn module_diagnostics(

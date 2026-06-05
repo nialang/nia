@@ -690,6 +690,7 @@ pub(super) fn provide_checked_module(
     module_id: ModuleId,
 ) -> CheckedModule {
     let loaded = db.query(LoadedModuleQuery(module_id));
+    let body_check = db.query(BodyCheckQuery(module_id));
     CheckedModule {
         id: loaded.id,
         path: loaded.path,
@@ -705,7 +706,9 @@ pub(super) fn provide_checked_module(
         layouts: db.query(LayoutsQuery(module_id)),
         abi_check: db.query(AbiCheckQuery(module_id)),
         flow_check: db.query(FlowCheckQuery(module_id)),
-        body_check: db.query(BodyCheckQuery(module_id)),
+        body_ir: body_check.ir,
+        semantic_facts: body_check.facts,
+        body_diagnostics: body_check.diagnostics,
     }
 }
 
@@ -727,10 +730,10 @@ pub(super) fn provide_monomorphization(
             .map(|module| MonomorphizeModuleInput {
                 module_id: module.id,
                 defs: &module.defs,
-                interner: &module.body_check.ir.interner,
+                interner: &module.body_ir.interner,
                 comptime: &module.comptime,
                 const_exprs: &module.type_lowering.const_exprs,
-                instantiations: &module.body_check.facts.generic_instantiations,
+                instantiations: &module.semantic_facts.generic_instantiations,
             })
             .collect::<Vec<_>>(),
     )
@@ -772,8 +775,8 @@ pub(super) fn provide_backend_lowering(
                     type_lowering: &checked_module.type_lowering,
                     signatures: &checked_module.item_signatures,
                     type_normalization: &checked_module.type_normalization,
-                    body_ir: &checked_module.body_check.ir,
-                    semantic_facts: &checked_module.body_check.facts,
+                    body_ir: &checked_module.body_ir,
+                    semantic_facts: &checked_module.semantic_facts,
                     comptime: &checked_module.comptime,
                     layouts: &checked_module.layouts,
                     function_bodies,
@@ -867,10 +870,7 @@ pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<Pr
             &checked.path,
             &checked.flow_check.diagnostics,
         ));
-        diagnostics.extend(module_diagnostics(
-            &checked.path,
-            &checked.body_check.diagnostics,
-        ));
+        diagnostics.extend(module_diagnostics(&checked.path, &checked.body_diagnostics));
     }
 
     let monomorphization = db.query(MonomorphizationQuery);

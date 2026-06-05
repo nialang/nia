@@ -23,14 +23,14 @@ fn use_child(child: & Child) void {
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(
         program.modules.iter().any(|module| {
-            !module.body_check.facts.trait_object_upcasts.is_empty()
-                && !module.body_check.facts.node_trait_object_upcasts.is_empty()
+            !module.semantic_facts.trait_object_upcasts.is_empty()
+                && !module.semantic_facts.node_trait_object_upcasts.is_empty()
         }),
         "{:?}",
         program
             .modules
             .iter()
-            .map(|module| &module.body_check.facts.trait_object_upcasts)
+            .map(|module| &module.semantic_facts.trait_object_upcasts)
             .collect::<Vec<_>>()
     );
 }
@@ -97,10 +97,9 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
-        !module.body_check.facts.trait_object_coercions.is_empty()
+        !module.semantic_facts.trait_object_coercions.is_empty()
             && module
-                .body_check
-                .ir
+                .body_ir
                 .function_bodies
                 .values()
                 .any(body_contains_dynamic_trait_callee)
@@ -146,8 +145,7 @@ fn main() i32 {
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
         module
-            .body_check
-            .ir
+            .body_ir
             .function_bodies
             .values()
             .any(body_contains_dynamic_trait_callee)
@@ -227,10 +225,9 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
-        module.body_check.facts.trait_object_upcasts.len() >= 2
+        module.semantic_facts.trait_object_upcasts.len() >= 2
             && module
-                .body_check
-                .ir
+                .body_ir
                 .function_bodies
                 .values()
                 .any(body_contains_dynamic_trait_callee)
