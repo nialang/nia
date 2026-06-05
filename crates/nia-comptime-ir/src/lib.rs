@@ -392,7 +392,7 @@ pub struct ComptimeLowerError {
     pub message: String,
 }
 
-pub fn lower_expr(expr: &nia_ast::Expr) -> Result<ComptimeExpr, ComptimeLowerError> {
+pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<ComptimeExpr, ComptimeLowerError> {
     lower_expr_with_context(expr, &ComptimeLowerContext::default())
 }
 
@@ -899,25 +899,11 @@ fn lower_type_id(
     Ok(ty)
 }
 
-pub fn lower_function(
+pub fn lower_function_early(
     function_span: Span,
     function: &nia_ast::FunctionItem,
 ) -> Result<ComptimeFunction, ComptimeLowerError> {
     lower_function_with_context(function_span, function, &ComptimeLowerContext::default())
-}
-
-pub fn lower_function_with_locals(
-    function_span: Span,
-    function: &nia_ast::FunctionItem,
-    local_id_for_span: &impl Fn(Span) -> Option<LocalId>,
-) -> Result<ComptimeFunction, ComptimeLowerError> {
-    let context = ComptimeLowerContext {
-        name_resolution: None,
-        local_id: Some(local_id_for_span),
-        type_id: None,
-        require_resolved_semantics: false,
-    };
-    lower_function_with_context(function_span, function, &context)
 }
 
 pub fn lower_function_with_context(

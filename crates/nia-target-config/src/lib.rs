@@ -80,7 +80,7 @@ pub fn eval_config_bool(
         functions: &functions,
         call_locals: Vec::new(),
     };
-    let expr = match nia_comptime_ir::lower_expr(expr) {
+    let expr = match nia_comptime_ir::lower_expr_early(expr) {
         Ok(expr) => expr,
         Err(err) => {
             diagnostics.push(Diagnostic::error(err.span, err.message));
@@ -741,7 +741,7 @@ impl Pruner<'_> {
             functions: &self.functions,
             call_locals: Vec::new(),
         };
-        let expr = match nia_comptime_ir::lower_expr(expr) {
+        let expr = match nia_comptime_ir::lower_expr_early(expr) {
             Ok(expr) => expr,
             Err(err) => {
                 self.diagnostics
@@ -788,7 +788,7 @@ fn lower_early_comptime_functions(module: &Module) -> EarlyComptimeFunctions {
         if !function.is_comptime {
             continue;
         }
-        match nia_comptime_ir::lower_function(function.span, function) {
+        match nia_comptime_ir::lower_function_early(function.span, function) {
             Ok(lowered) => {
                 functions.insert(function.name.clone(), lowered);
             }
