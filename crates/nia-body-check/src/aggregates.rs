@@ -7,7 +7,7 @@ use nia_comptime_check::{ComptimeKey, ComptimeValueType};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
 use nia_comptime_ir::{
     ComptimeNameResolution, ResolvedComptimeAssignTarget, ResolvedComptimeBinding,
-    ResolvedComptimeExpr, ResolvedComptimeExprKind, ResolvedComptimeParam, ResolvedComptimeTypeArg,
+    ResolvedComptimeExpr, ResolvedComptimeParam, ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -354,13 +354,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn comptime_field_expr_runtime_type(&mut self, lhs: &Expr, name: &str) -> Option<InternedTyId> {
-        let expr = ResolvedComptimeExpr {
-            span: lhs.span,
-            kind: ResolvedComptimeExprKind::Field {
-                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?),
-                name: name.to_string(),
-            },
-        };
+        let expr = ResolvedComptimeExpr::field(
+            lhs.span,
+            self.lower_comptime_expr(lhs).ok()?,
+            name.to_string(),
+        );
         match self.comptime_expr_type_for_ir_with_expected(&expr, None)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
@@ -372,13 +370,11 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         index: &Expr,
     ) -> Option<InternedTyId> {
-        let expr = ResolvedComptimeExpr {
-            span: lhs.span,
-            kind: ResolvedComptimeExprKind::Index {
-                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?),
-                index: Box::new(self.lower_comptime_expr(index).ok()?),
-            },
-        };
+        let expr = ResolvedComptimeExpr::index(
+            lhs.span,
+            self.lower_comptime_expr(lhs).ok()?,
+            self.lower_comptime_expr(index).ok()?,
+        );
         match self.comptime_expr_type_for_ir_with_expected(&expr, None)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             _ => Some(self.interner.intern(TyKind::ComptimeOnly)),

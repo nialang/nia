@@ -35,13 +35,64 @@ pub struct ResolvedComptimeEnumVariant {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeExpr {
-    pub span: Span,
-    pub kind: ResolvedComptimeExprKind,
+    span: Span,
+    kind: ResolvedComptimeExprKind,
 }
 
 impl ResolvedComptimeExpr {
     fn new(expr: ComptimeExpr) -> Result<Self, ComptimeLowerError> {
         resolve_expr(expr)
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> &ResolvedComptimeExprKind {
+        &self.kind
+    }
+
+    pub fn name(span: Span, resolution: ComptimeNameResolution) -> Self {
+        Self {
+            span,
+            kind: ResolvedComptimeExprKind::Name(resolution),
+        }
+    }
+
+    pub fn field(span: Span, lhs: ResolvedComptimeExpr, name: String) -> Self {
+        Self {
+            span,
+            kind: ResolvedComptimeExprKind::Field {
+                lhs: Box::new(lhs),
+                name,
+            },
+        }
+    }
+
+    pub fn index(span: Span, lhs: ResolvedComptimeExpr, index: ResolvedComptimeExpr) -> Self {
+        Self {
+            span,
+            kind: ResolvedComptimeExprKind::Index {
+                lhs: Box::new(lhs),
+                index: Box::new(index),
+            },
+        }
+    }
+
+    pub fn call(
+        span: Span,
+        callee: ResolvedComptimeExpr,
+        type_args: Vec<ResolvedComptimeTypeArg>,
+        args: Vec<ResolvedComptimeExpr>,
+    ) -> Self {
+        Self {
+            span,
+            kind: ResolvedComptimeExprKind::Call {
+                callee: Box::new(callee),
+                type_args,
+                args,
+            },
+        }
     }
 
     pub fn name_resolution(&self) -> Option<ComptimeNameResolution> {
@@ -497,6 +548,16 @@ pub enum ComptimeSwitchArmBody {
 pub struct ComptimeExpr {
     pub span: Span,
     pub kind: ComptimeExprKind,
+}
+
+impl ComptimeExpr {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> &ComptimeExprKind {
+        &self.kind
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
