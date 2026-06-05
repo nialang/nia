@@ -68,7 +68,7 @@ fn emits_freestanding_start_entry_as_extern_start_calling_root_main() {
         r#"
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     !{}
 }
@@ -93,6 +93,78 @@ pub fn main(init: process::Init) process::Exit!void {
     assert!(ir.contains("define void @_start("), "{ir}");
     assert!(ir.contains("define void @nia__m0__"), "{ir}");
     assert!(ir.contains("call void @nia__m0__"), "{ir}");
+}
+
+#[test]
+fn emits_ref_receiver_method_with_struct_arg_and_nested_tagged_payload() {
+    let root = temp_dir("emits_ref_receiver_method_with_struct_arg_and_nested_tagged_payload");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Layout {
+    len: usize,
+    align: usize,
+}
+
+struct Z {}
+
+enum Error: i32 {
+    Bad = 1,
+    _
+}
+
+extend Layout {
+    fn init(len: usize, align: usize) Error!Layout {
+        !{ len: len, align: align }
+    }
+
+    fn len(&self) usize {
+        self.len
+    }
+}
+
+extend Z {
+    fn init() Z {
+        {}
+    }
+
+    fn alloc(&self, layout: Layout) Error!?Layout {
+        if layout.len() == 0 {
+            !null
+        } else {
+            !(?layout)
+        }
+    }
+}
+
+fn main() i32 {
+    var z = Z::init();
+    var layout: Layout;
+    switch Layout::init(7, 1) {
+        !value => layout = value,
+        error! => return 1,
+    }
+    switch z.alloc(layout) {
+        !maybe => switch maybe {
+            ?value => return value.len() as i32,
+            null => return 2,
+        },
+        error! => return 3,
+    }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("call void @nia__m0__d"), "{ir}");
+    assert!(ir.contains("tagged.payload"), "{ir}");
 }
 
 #[test]

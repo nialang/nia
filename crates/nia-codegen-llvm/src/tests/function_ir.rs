@@ -42,6 +42,7 @@ fn emits_function_body_from_function_ir_when_available() {
             interner,
             comptime: Default::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -333,6 +334,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
             interner,
             comptime: nia_comptime_check::ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: vec![
                     (
@@ -448,6 +450,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
             interner,
             comptime,
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![
                     (elem, TypeLayout { size: 1, align: 1 }),
                     (array_ty, TypeLayout { size: 4, align: 1 }),
@@ -514,6 +517,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: Vec::new(),
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -552,7 +556,8 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
                     local_id: None,
                     name: Some("value".to_string()),
                     receiver: None,
-                    ty: box_ty,
+                    passing_ty: box_ty,
+                    local_ty: box_ty,
                     span,
                 }],
                 return_type: i32_ty,
@@ -597,6 +602,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -700,6 +706,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (canonical_struct_ty, TypeLayout { size: 0, align: 1 }),
@@ -848,6 +855,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -920,6 +928,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (ptr_ty, TypeLayout { size: 8, align: 8 }),
@@ -996,6 +1005,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![
                     (i32_ty, TypeLayout { size: 4, align: 4 }),
                     (struct_ty, TypeLayout { size: 4, align: 4 }),
@@ -1082,6 +1092,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -1180,6 +1191,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -1256,6 +1268,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
             interner,
             comptime: ComptimeCheck::default(),
             layouts: BackendLayouts {
+                target: nia_layout::TargetDataLayout::LP64,
                 types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
                 structs: Vec::new(),
                 unions: Vec::new(),
@@ -1338,6 +1351,7 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
     let program = single_module_program(
         interner,
         BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
             types: vec![
                 (i32_ty, TypeLayout { size: 4, align: 4 }),
                 (fn_ptr_ty, TypeLayout { size: 8, align: 8 }),
@@ -1395,6 +1409,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
     let program = single_module_program(
         interner,
         BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
             types: vec![
                 (i32_ty, TypeLayout { size: 4, align: 4 }),
                 (ptr_ty, TypeLayout { size: 8, align: 8 }),
@@ -1523,6 +1538,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
     let program = single_module_program(
         interner,
         BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
             types: vec![
                 (i32_ty, TypeLayout { size: 4, align: 4 }),
                 (struct_ty, TypeLayout { size: 4, align: 4 }),
@@ -1628,6 +1644,7 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
     let program = single_module_program(
         interner,
         BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
             structs: Vec::new(),
             unions: Vec::new(),
@@ -1702,6 +1719,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
                                 self_ty: i32_ty,
                                 trait_args: Vec::new(),
                                 args: Vec::new(),
+                                receiver_kind: nia_ast::ReceiverKind::Value,
                                 receiver: Box::new(FunctionExpr {
                                     span,
                                     ty: i32_ty,
@@ -1722,6 +1740,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
     let program = single_module_program(
         interner,
         BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
             structs: Vec::new(),
             unions: Vec::new(),
@@ -1807,6 +1826,7 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
     let program = single_module_program(
         interner,
         BackendLayouts {
+            target: nia_layout::TargetDataLayout::LP64,
             types: vec![(i32_ty, TypeLayout { size: 4, align: 4 })],
             structs: Vec::new(),
             unions: Vec::new(),

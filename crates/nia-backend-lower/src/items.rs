@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::ModuleLowerer;
-use nia_ast::{BindingItem, FunctionItem};
+use nia_ast::{BindingItem, FunctionItem, ReceiverKind};
 use nia_backend_ir::{
     BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendFunctionAttribute,
     BackendGlobal, BackendParam, BackendStruct, BackendUnion,
@@ -10,6 +10,7 @@ use nia_defs::DefKind;
 use nia_item_signatures::FunctionAttribute;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
+use nia_ty::TyKind;
 
 pub(crate) const SIMPLIFY_STATIC_INIT_PASS: &str = "simplify-static-init";
 
@@ -187,7 +188,7 @@ impl<'a> ModuleLowerer<'a> {
                         .node_local_defs
                         .get(&param.node_key)
                         .copied();
-                    let ty = if signature.receiver.is_some() {
+                    let local_ty = if signature.receiver.is_some() {
                         local_id
                             .and_then(|local_id| {
                                 self.input
@@ -200,11 +201,16 @@ impl<'a> ModuleLowerer<'a> {
                     } else {
                         signature.ty
                     };
+                    let passing_ty = signature
+                        .receiver
+                        .map(|receiver| self.receiver_passing_ty(receiver, local_ty))
+                        .unwrap_or(signature.ty);
                     BackendParam {
                         local_id,
                         name: param.name.clone(),
                         receiver: signature.receiver,
-                        ty,
+                        passing_ty,
+                        local_ty,
                         span: param.span,
                     }
                 })
@@ -222,6 +228,31 @@ impl<'a> ModuleLowerer<'a> {
             function_body,
             span,
         })
+    }
+
+    fn receiver_passing_ty(
+        &mut self,
+        receiver: ReceiverKind,
+        local_ty: nia_ids::InternedTyId,
+    ) -> nia_ids::InternedTyId {
+        match receiver {
+            ReceiverKind::Value => local_ty,
+            ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Pointer {
+                is_readonly: true,
+                elem: self.receiver_base_ty(local_ty).unwrap_or(local_ty),
+            }),
+            ReceiverKind::Ref => self.interner.intern(TyKind::Pointer {
+                is_readonly: false,
+                elem: self.receiver_base_ty(local_ty).unwrap_or(local_ty),
+            }),
+        }
+    }
+
+    fn receiver_base_ty(&self, ty: nia_ids::InternedTyId) -> Option<nia_ids::InternedTyId> {
+        match self.interner.get(ty) {
+            Some(TyKind::Pointer { elem, .. }) => Some(*elem),
+            _ => None,
+        }
     }
 }
 

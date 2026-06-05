@@ -138,8 +138,10 @@ impl<'a> ModuleLowerer<'a> {
             self.collect_struct_instance_ty(function.return_type, &mut seen, struct_instances);
             self.collect_union_instance_ty(function.return_type, &mut seen_unions, union_instances);
             for param in &function.params {
-                self.collect_struct_instance_ty(param.ty, &mut seen, struct_instances);
-                self.collect_union_instance_ty(param.ty, &mut seen_unions, union_instances);
+                self.collect_struct_instance_ty(param.passing_ty, &mut seen, struct_instances);
+                self.collect_union_instance_ty(param.passing_ty, &mut seen_unions, union_instances);
+                self.collect_struct_instance_ty(param.local_ty, &mut seen, struct_instances);
+                self.collect_union_instance_ty(param.local_ty, &mut seen_unions, union_instances);
             }
             if let Some(body) = &function.function_body {
                 self.collect_struct_instances_body(body, &mut seen, struct_instances);
@@ -150,8 +152,10 @@ impl<'a> ModuleLowerer<'a> {
             self.collect_struct_instance_ty(function.return_type, &mut seen, struct_instances);
             self.collect_union_instance_ty(function.return_type, &mut seen_unions, union_instances);
             for param in &function.params {
-                self.collect_struct_instance_ty(param.ty, &mut seen, struct_instances);
-                self.collect_union_instance_ty(param.ty, &mut seen_unions, union_instances);
+                self.collect_struct_instance_ty(param.passing_ty, &mut seen, struct_instances);
+                self.collect_union_instance_ty(param.passing_ty, &mut seen_unions, union_instances);
+                self.collect_struct_instance_ty(param.local_ty, &mut seen, struct_instances);
+                self.collect_union_instance_ty(param.local_ty, &mut seen_unions, union_instances);
             }
             if let Some(body) = &function.function_body {
                 self.collect_struct_instances_body(body, &mut seen, struct_instances);

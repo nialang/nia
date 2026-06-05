@@ -243,7 +243,8 @@ impl<'a> ModuleLowerer<'a> {
                 local_id: param.local_id,
                 name: param.name.clone(),
                 receiver: param.receiver,
-                ty: self.instantiate_ty_with_id(param.ty, substitutions),
+                passing_ty: self.instantiate_ty_with_id(param.passing_ty, substitutions),
+                local_ty: self.instantiate_ty_with_id(param.local_ty, substitutions),
                 span: param.span,
             })
             .collect()
@@ -265,7 +266,7 @@ impl<'a> ModuleLowerer<'a> {
         {
             self.instance_extension_trait_method_candidates = Some((
                 instantiation_module_id,
-                crate::index_extension_trait_method_candidates(extensions),
+                crate::index_extension_trait_method_candidates(extensions, interner),
             ));
             self.instance_extension_interner = Some(*interner);
         }
@@ -612,20 +613,6 @@ impl<'a> ModuleLowerer<'a> {
         };
         let mut solver = context.solver(&mut self.interner, &[]);
         solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
-    }
-
-    fn import_extension_type(&mut self, ty: InternedTyId) -> InternedTyId {
-        if let Some(extension_interner) = self.instance_extension_interner
-            && ty.interner_id == extension_interner.interner_id()
-        {
-            return nia_ty::import_type_into(&mut self.interner, extension_interner, ty);
-        }
-        if let Some(extension_interner) = self.input.extension_interner
-            && ty.interner_id == extension_interner.interner_id()
-        {
-            return nia_ty::import_type_into(&mut self.interner, extension_interner, ty);
-        }
-        ty
     }
 
     fn extension_ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {

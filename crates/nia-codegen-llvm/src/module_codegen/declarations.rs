@@ -154,7 +154,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 return Err(self.error(instance.span, "missing function owner module"));
             };
             let ty = self.function_signature_type_in(FunctionSignature {
-                param_tys: instance.params.iter().map(|param| (param.ty, param.span)),
+                param_tys: instance
+                    .params
+                    .iter()
+                    .map(|param| (param.passing_ty, param.span)),
                 return_type: instance.return_type,
                 is_extern: instance.is_extern,
                 is_variadic: instance.is_variadic,

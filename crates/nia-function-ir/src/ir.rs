@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use nia_ast::{AssignOp, BinaryOp, UnaryOp};
+use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, InternedTyId, LayoutBuiltin, LocalId};
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, TraitId};
@@ -349,6 +349,7 @@ pub enum FunctionCallee {
     Method {
         def_id: nia_ids::GlobalDefId,
         args: Vec<InternedTyId>,
+        receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,
     },
     TraitMethod {
@@ -358,6 +359,7 @@ pub enum FunctionCallee {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
+        receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,
     },
     DynamicTraitMethod {
@@ -369,6 +371,7 @@ pub enum FunctionCallee {
         slot: usize,
         params: Vec<InternedTyId>,
         return_type: InternedTyId,
+        receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,
     },
     BuiltinMethod {

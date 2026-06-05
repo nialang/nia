@@ -942,9 +942,9 @@ fn emit_exe_links_freestanding_executable() {
         r#"
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::exit(7)!
+    process::ExitCode::init(7)!
 }
 "#,
     )
@@ -981,12 +981,12 @@ import std.os;
 import std.io;
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var stdout = os::stdout();
-    switch io::write_all[os::Fd](& stdout, b"nia\n") {
+    var stdout = os::File::stdout();
+    switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
-        error! => return process::exit(1)!,
+        error! => return process::ExitCode::init(1)!,
     }
     !{}
 }
@@ -1015,6 +1015,124 @@ pub fn main(init: process::Init) process::Exit!void {
 }
 
 #[test]
+fn emit_exe_can_use_std_io_fixed_buffers() {
+    let root = temp_dir("emit_exe_can_use_std_io_fixed_buffers");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
+    var writer = io::FixedBufferWriter::init(&mut storage[..]);
+    switch writer.write_all(b"nia") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    if writer.len() != 3 {
+        return process::ExitCode::init(2)!;
+    }
+
+    var copied: [3]u8 = [0, 0, 0];
+    var reader = io::FixedBufferReader::init(writer.written());
+    switch reader.read_exact(&mut copied[..]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    var expected = b"nia";
+    if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] {
+        return process::ExitCode::init(4)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_mut_ref_receiver_updates_original_aggregate() {
+    let root = temp_dir("emit_exe_mut_ref_receiver_updates_original_aggregate");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter {
+    fn init() Counter {
+        { value: 0 }
+    }
+
+    fn add(&mut self, amount: i32) void {
+        self.value += amount;
+    }
+
+    fn get(&self) i32 {
+        self.value
+    }
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var counter = Counter::init();
+    counter.add(7);
+    if counter.get() != 7 {
+        return process::ExitCode::init(1)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_allocate_with_std_mem_page_allocator() {
     let root = temp_dir("emit_exe_can_allocate_with_std_mem_page_allocator");
     let main = root.join("main.nia");
@@ -1025,22 +1143,30 @@ fn emit_exe_can_allocate_with_std_mem_page_allocator() {
 import std.mem;
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var allocator = mem::page_allocator();
-    switch mem::allocate[mem::PageAllocator](& allocator, 4096, 1) {
-        !block => {
-            var ptr = mem::block_ptr(block);
-            ptr.* = 42u8;
-            if ptr.* != 42u8 {
-                return process::exit(2)!;
-            }
-            switch mem::deallocate[mem::PageAllocator](& allocator, block) {
-                !ok => _ = ok,
-                error! => return process::exit(3)!,
-            }
+    var allocator = mem::PageAllocator::init();
+    var layout: mem::Layout;
+    switch mem::Layout::init(4096, 1) {
+        !value => layout = value,
+        error! => return process::ExitCode::init(5)!,
+    }
+    switch allocator.alloc(layout) {
+        !maybe_block => switch maybe_block {
+            ?block => {
+                var ptr = block.ptr();
+                ptr.* = 42u8;
+                if ptr.* != 42u8 {
+                    return process::ExitCode::init(2)!;
+                }
+                switch allocator.free(block) {
+                    !ok => _ = ok,
+                    error! => return process::ExitCode::init(3)!,
+                }
+            },
+            null => return process::ExitCode::init(4)!,
         },
-        error! => return process::exit(1)!,
+        error! => return process::ExitCode::init(1)!,
     }
     !{}
 }
@@ -1076,9 +1202,9 @@ fn emit_exe_reports_private_root_entry_called_by_freestanding_start() {
         r#"
 import std.process;
 
-fn main(init: process::Init) process::Exit!void {
+fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::exit(7)!
+    process::ExitCode::init(7)!
 }
 "#,
     )
@@ -1202,9 +1328,9 @@ fn emit_exe_preserves_output_paths_that_look_like_optimization_flags() {
         r#"
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::exit(9)!
+    process::ExitCode::init(9)!
 }
 "#,
     )
@@ -1267,9 +1393,9 @@ fn emit_exe_can_emit_optimization_report_to_stderr() {
         r#"
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::exit(5)!
+    process::ExitCode::init(5)!
 }
 "#,
     )
@@ -1333,13 +1459,13 @@ fn plus_two(value: i32) i32 {
     value + 2
 }
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var x = answer();
     var y = x;
     y = identity[i32](y);
     var unused = plus_two(99);
-    process::exit(pick(true, plus_two(y), unused))!
+    process::ExitCode::init(pick(true, plus_two(y), unused))!
 }
 "#,
     )

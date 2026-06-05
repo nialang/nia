@@ -1,27 +1,164 @@
 import std.os;
 
+pub enum Error: i32 {
+    EndOfStream = 1,
+    ShortWrite = 2,
+    NoSpace = 3,
+    _,
+}
+
 pub trait Writer {
     type Error;
 
-    fn write(&self, bytes: &[u8]) [Self as Writer]::Error!usize;
-}
+    fn short_write(&self) [Self as Writer]::Error;
 
-pub fn write_all[W](writer: &W, bytes: &[u8]) [W as Writer]::Error!void
-where W: Writer
-{
-    var written = 0usize;
-    while written < bytes.len() {
-        var chunk = & bytes[written..];
-        var n = writer.write(chunk).?;
-        written += n;
+    fn write(&mut self, bytes: &[u8]) [Self as Writer]::Error!usize;
+
+    fn flush(&mut self) [Self as Writer]::Error!void {
+        !{}
     }
-    !{}
+
+    fn write_all(&mut self, bytes: &[u8]) [Self as Writer]::Error!void {
+        var written = 0usize;
+        while written < bytes.len() {
+            var chunk = & bytes[written..];
+            var n = self.write(chunk).?;
+            if n == 0 {
+                return self.short_write()!;
+            }
+            written += n;
+        }
+        !{}
+    }
 }
 
-extend os::Fd : Writer {
+pub trait Reader {
+    type Error;
+
+    fn end_of_stream(&self) [Self as Reader]::Error;
+
+    fn read(&mut self, bytes: &mut [u8]) [Self as Reader]::Error!usize;
+
+    fn read_exact(&mut self, bytes: &mut [u8]) [Self as Reader]::Error!void {
+        var read = 0usize;
+        while read < bytes.len() {
+            var chunk = &mut bytes[read..];
+            var n = self.read(chunk).?;
+            if n == 0 {
+                return self.end_of_stream()!;
+            }
+            read += n;
+        }
+        !{}
+    }
+}
+
+pub struct FixedBufferWriter {
+    buffer: &mut [u8],
+    len: usize,
+}
+
+pub struct FixedBufferReader {
+    buffer: &[u8],
+    cursor: usize,
+}
+
+extend FixedBufferWriter {
+    pub fn init(buffer: &mut [u8]) FixedBufferWriter {
+        { buffer: buffer, len: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn written(&self) &[u8] {
+        & self.buffer[0..self.len]
+    }
+}
+
+extend FixedBufferWriter : Writer {
+    type Error = Error;
+
+    pub fn short_write(&self) Error {
+        Error::NoSpace
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+        var remaining = self.buffer.len() - self.len;
+        var count = bytes.len();
+        if count > remaining {
+            count = remaining;
+        }
+
+        var index = 0usize;
+        while index < count {
+            self.buffer[self.len + index] = bytes[index];
+            index += 1;
+        }
+        self.len += count;
+        !count
+    }
+}
+
+extend FixedBufferReader {
+    pub fn init(buffer: &[u8]) FixedBufferReader {
+        { buffer: buffer, cursor: 0 }
+    }
+
+    pub fn remaining(&self) usize {
+        self.buffer.len() - self.cursor
+    }
+}
+
+extend FixedBufferReader : Reader {
+    type Error = Error;
+
+    pub fn end_of_stream(&self) Error {
+        Error::EndOfStream
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        var remaining = self.buffer.len() - self.cursor;
+        var count = bytes.len();
+        if count > remaining {
+            count = remaining;
+        }
+
+        var index = 0usize;
+        while index < count {
+            bytes[index] = self.buffer[self.cursor + index];
+            index += 1;
+        }
+        self.cursor += count;
+        !count
+    }
+}
+
+extend os::File : Writer {
     type Error = os::Error;
 
-    fn write(&self, bytes: &[u8]) os::Error!usize {
-        os::write(self.*, bytes)
+    pub fn short_write(&self) os::Error {
+        os::Error::Io
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) os::Error!usize {
+        self.write_some(bytes)
+    }
+}
+
+extend os::File : Reader {
+    type Error = os::Error;
+
+    pub fn end_of_stream(&self) os::Error {
+        os::Error::Io
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) os::Error!usize {
+        self.read_some(bytes)
     }
 }

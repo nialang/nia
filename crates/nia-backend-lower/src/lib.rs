@@ -21,7 +21,8 @@ use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_item_signatures::{
-    ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature, ProgramTraitSignature,
+    ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramTraitImplSignature,
+    ProgramTraitSignature,
 };
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
@@ -91,6 +92,7 @@ pub struct BackendLowerModuleInput<'a> {
         (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
     >,
     pub program_type_interners: &'a std::collections::HashMap<ModuleId, &'a nia_ty::TyInterner>,
+    pub program_functions: &'a std::collections::HashMap<GlobalDefId, ProgramFunctionSignature>,
     pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
     pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
@@ -208,11 +210,12 @@ pub(crate) struct ExtensionTraitMethodKey {
     trait_arg_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ExtensionTraitMethodCandidate {
     target_ty: InternedTyId,
     method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
+    source_interner: nia_ty::TyInterner,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -246,6 +249,7 @@ impl<'a> ModuleLowerer<'a> {
             extension_targets_by_method: index_extension_targets_by_method(input.extensions),
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
+                input.extension_interner.unwrap_or(&input.body_ir.interner),
             ),
             instance_extension_trait_method_candidates: None,
             instance_extension_interner: None,
@@ -448,6 +452,22 @@ impl<'a> ModuleLowerer<'a> {
             .copied()
     }
 
+    pub(crate) fn receiver_kind_for_method(
+        &self,
+        method_id: GlobalDefId,
+    ) -> Option<nia_ast::ReceiverKind> {
+        if method_id.module_id == self.input.module_id
+            && let Some(signature) = self.input.signatures.functions.get(&method_id.def_id)
+        {
+            return signature.params.first().and_then(|param| param.receiver);
+        }
+        self.input
+            .program_functions
+            .get(&method_id)
+            .and_then(|signature| signature.signature.params.first())
+            .and_then(|param| param.receiver)
+    }
+
     fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {
         let def_id = self.input.defs.def_spans.get(span)?;
         let def = self.input.defs.defs.get(def_id)?;
@@ -567,6 +587,7 @@ fn index_extension_targets_by_method(
 
 fn index_extension_trait_method_candidates(
     extensions: &VisibleExtensionMethods,
+    source_interner: &nia_ty::TyInterner,
 ) -> HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> {
     let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
         HashMap::new();
@@ -586,6 +607,7 @@ fn index_extension_trait_method_candidates(
                     target_ty: target.target_ty,
                     method_def_id: method.def_id,
                     trait_args: method.trait_args.clone(),
+                    source_interner: source_interner.clone(),
                 });
         }
     }
@@ -593,7 +615,7 @@ fn index_extension_trait_method_candidates(
 }
 
 fn index_trait_methods_with_defaults(input: &BackendLowerModuleInput<'_>) -> HashSet<GlobalDefId> {
-    input
+    let mut methods = input
         .signatures
         .traits
         .values()
@@ -603,7 +625,24 @@ fn index_trait_methods_with_defaults(input: &BackendLowerModuleInput<'_>) -> Has
             module_id: input.module_id,
             def_id: method.def_id,
         })
-        .collect()
+        .collect::<HashSet<_>>();
+    methods.extend(
+        input
+            .program_traits
+            .iter()
+            .flat_map(|(trait_id, signature)| {
+                signature
+                    .signature
+                    .methods
+                    .iter()
+                    .filter(|method| method.has_default)
+                    .map(|method| GlobalDefId {
+                        module_id: trait_id.module_id,
+                        def_id: method.def_id,
+                    })
+            }),
+    );
+    methods
 }
 
 fn index_method_names_by_def(input: &BackendLowerModuleInput<'_>) -> HashMap<GlobalDefId, String> {

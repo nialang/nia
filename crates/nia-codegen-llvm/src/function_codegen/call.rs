@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::module_codegen::{AbiParam, AbiReturn};
+use nia_ast::ReceiverKind;
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{FunctionBuiltinOperatorOp, FunctionCallee, FunctionExpr, FunctionExprKind};
+use nia_ids::InternedTyId;
 use nia_llvm::values::{BasicValueEnum, CallSiteValue};
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, TyKind};
@@ -225,7 +227,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let llvm_args = if function_item.is_extern {
                     self.emit_c_call_args(args)?
                 } else {
-                    self.emit_call_args(expr.span, args, out_ptr)?
+                    let param_tys = function_item.params.iter().map(|param| param.passing_ty);
+                    self.emit_call_args(expr.span, args, param_tys, out_ptr)?
                 };
                 self.builder
                     .build_call(function, &llvm_args, "calltmp")
@@ -241,7 +244,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let llvm_args = if instance.is_extern {
                     self.emit_c_call_args(args)?
                 } else {
-                    self.emit_call_args(expr.span, args, out_ptr)?
+                    let param_tys = instance.params.iter().map(|param| param.passing_ty);
+                    self.emit_call_args(expr.span, args, param_tys, out_ptr)?
                 };
                 self.builder
                     .build_call(
@@ -258,14 +262,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             FunctionCallee::Method {
                 def_id,
                 args: type_args,
+                receiver_kind,
                 receiver,
             } => {
-                let (function, is_extern) = if type_args.is_empty() {
+                let (function, is_extern, param_tys) = if type_args.is_empty() {
+                    let item = self.module.function_item(*def_id);
                     (
                         self.module.function(*def_id),
-                        self.module
-                            .function_item(*def_id)
-                            .is_some_and(|item| item.is_extern),
+                        item.is_some_and(|item| item.is_extern),
+                        item.map(|item| {
+                            item.params
+                                .iter()
+                                .map(|param| param.passing_ty)
+                                .collect::<Vec<_>>()
+                        }),
                     )
                 } else {
                     let instance = self.module.function_instance_item(*def_id, type_args);
@@ -275,18 +285,58 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                                 .function_instance_value(instance.def_id, &instance.args)
                         }),
                         instance.is_some_and(|instance| instance.is_extern),
+                        instance.map(|instance| {
+                            instance
+                                .params
+                                .iter()
+                                .map(|param| param.passing_ty)
+                                .collect::<Vec<_>>()
+                        }),
                     )
                 };
                 let Some(function) = function else {
                     return Err(self.error(expr.span, "missing method function"));
                 };
-                let mut call_args = Vec::with_capacity(args.len() + 1);
-                call_args.push(receiver.as_ref());
-                call_args.extend(args.iter());
+                let Some(param_tys) = param_tys else {
+                    return Err(self.error(expr.span, "missing method metadata"));
+                };
                 let llvm_args = if is_extern {
+                    let mut call_args = Vec::with_capacity(args.len() + 1);
+                    call_args.push(receiver.as_ref());
+                    call_args.extend(args.iter());
                     self.emit_c_call_args_refs(&call_args)?
                 } else {
-                    self.emit_call_arg_refs(expr.span, &call_args, out_ptr)?
+                    let mut llvm_args = Vec::new();
+                    if let Some(out_ptr) = out_ptr {
+                        llvm_args.push(out_ptr.into());
+                    }
+                    let receiver_ty = param_tys.first().copied().ok_or_else(|| {
+                        self.error(expr.span, "method metadata is missing receiver parameter")
+                    })?;
+                    match self
+                        .module
+                        .classify_function_params(std::iter::once(receiver_ty))
+                        .into_iter()
+                        .next()
+                        .unwrap_or(AbiParam::Omit)
+                    {
+                        AbiParam::Direct(_) => llvm_args.push(self.emit_method_receiver_arg(
+                            *receiver_kind,
+                            receiver_ty,
+                            receiver,
+                        )?),
+                        AbiParam::IndirectReadonly(_) => {
+                            llvm_args.push(self.emit_arg_address(expr.span, receiver)?.into())
+                        }
+                        AbiParam::Omit => self.emit_effect_expr(receiver)?,
+                    }
+                    llvm_args.extend(self.emit_call_args(
+                        expr.span,
+                        args,
+                        param_tys.into_iter().skip(1),
+                        None,
+                    )?);
+                    llvm_args
                 };
                 self.builder
                     .build_call(function, &llvm_args, "calltmp")
@@ -346,7 +396,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     callee.span,
                 )?;
                 let function_pointer = self.emit_expr(callee)?.into_pointer_value()?;
-                let llvm_args = self.emit_call_args(expr.span, args, out_ptr)?;
+                let llvm_args =
+                    self.emit_call_args(expr.span, args, params.iter().copied(), out_ptr)?;
                 self.builder
                     .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
                     .map_err(|_| self.error(expr.span, "failed to build indirect call"))
@@ -403,7 +454,12 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             llvm_args.push(out_ptr.into());
         }
         llvm_args.push(object_ptr);
-        llvm_args.extend(self.emit_call_args(call.expr.span, call.args, None)?);
+        llvm_args.extend(self.emit_call_args(
+            call.expr.span,
+            call.args,
+            call.params.iter().copied(),
+            None,
+        )?);
         self.builder
             .build_indirect_call(function_type, function_pointer, &llvm_args, "calltmp")
             .map_err(|_| self.error(call.expr.span, "failed to build dynamic trait call"))
@@ -413,17 +469,24 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         span: Span,
         args: &[FunctionExpr],
+        param_tys: impl IntoIterator<Item = InternedTyId>,
         out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
     ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
         let mut llvm_args = Vec::new();
         if let Some(out_ptr) = out_ptr {
             llvm_args.push(out_ptr.into());
         }
-        for (arg, classification) in args.iter().zip(
-            self.module
-                .classify_function_params(args.iter().map(|arg| arg.ty)),
-        ) {
+        for (arg, classification) in args
+            .iter()
+            .zip(self.module.classify_function_params(param_tys))
+        {
             match classification {
+                AbiParam::Direct(ty)
+                    if matches!(self.module.ty_kind(ty), Some(TyKind::Pointer { .. }))
+                        && !matches!(self.module.ty_kind(arg.ty), Some(TyKind::Pointer { .. })) =>
+                {
+                    llvm_args.push(self.emit_arg_address(span, arg)?.into())
+                }
                 AbiParam::Direct(_) => llvm_args.push(self.emit_expr(arg)?),
                 AbiParam::IndirectReadonly(_) => {
                     llvm_args.push(self.emit_arg_address(span, arg)?.into())
@@ -434,29 +497,26 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         Ok(llvm_args)
     }
 
-    fn emit_call_arg_refs(
+    fn emit_method_receiver_arg(
         &mut self,
-        span: Span,
-        args: &[&FunctionExpr],
-        out_ptr: Option<nia_llvm::values::PointerValue<'ctx>>,
-    ) -> Result<Vec<BasicValueEnum<'ctx>>, Diagnostic> {
-        let mut llvm_args = Vec::new();
-        if let Some(out_ptr) = out_ptr {
-            llvm_args.push(out_ptr.into());
-        }
-        for (arg, classification) in args.iter().zip(
-            self.module
-                .classify_function_params(args.iter().map(|arg| arg.ty)),
-        ) {
-            match classification {
-                AbiParam::Direct(_) => llvm_args.push(self.emit_expr(arg)?),
-                AbiParam::IndirectReadonly(_) => {
-                    llvm_args.push(self.emit_arg_address(span, arg)?.into())
+        receiver_kind: ReceiverKind,
+        passing_ty: InternedTyId,
+        receiver: &FunctionExpr,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        match receiver_kind {
+            ReceiverKind::Value => self.emit_expr(receiver),
+            ReceiverKind::RefReadOnly | ReceiverKind::Ref => {
+                if receiver.ty == passing_ty
+                    || matches!(
+                        self.module.ty_kind(receiver.ty),
+                        Some(TyKind::Pointer { .. })
+                    )
+                {
+                    return self.emit_expr(receiver);
                 }
-                AbiParam::Omit => self.emit_effect_expr(arg)?,
+                Ok(self.emit_addr_of(receiver)?.into())
             }
         }
-        Ok(llvm_args)
     }
 
     fn emit_c_call_args(
@@ -479,6 +539,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         arg: &FunctionExpr,
     ) -> Result<nia_llvm::values::PointerValue<'ctx>, Diagnostic> {
         match &arg.kind {
+            FunctionExprKind::Local(local_id) if self.is_zero_sized(arg.ty) => {
+                self.local_addr(*local_id, span)
+            }
+            _ if self.is_zero_sized(arg.ty) => self
+                .builder
+                .build_alloca(self.module.context.i8_type(), "zst.arg")
+                .map_err(|_| self.error(span, "failed to allocate zero-sized argument")),
             FunctionExprKind::AddrOf(place) => self.emit_typed_place_addr(place),
             FunctionExprKind::ArrayLiteral { elems } => {
                 let ty = self.module.llvm_basic_type(arg.ty, span)?;

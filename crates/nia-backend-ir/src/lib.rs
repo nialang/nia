@@ -34,6 +34,7 @@ pub struct BackendModule {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendLayouts {
+    pub target: nia_layout::TargetDataLayout,
     pub types: Vec<(InternedTyId, TypeLayout)>,
     pub structs: Vec<(GlobalDefId, StructLayout)>,
     pub unions: Vec<(GlobalDefId, StructLayout)>,
@@ -50,6 +51,7 @@ pub struct BackendStructInstanceKey {
 impl BackendLayouts {
     pub fn from_module_layouts(module_id: ModuleId, layouts: &Layouts) -> Self {
         Self {
+            target: layouts.target,
             types: layouts
                 .types
                 .iter()
@@ -277,6 +279,7 @@ pub struct BackendParam {
     pub local_id: Option<LocalId>,
     pub name: Option<String>,
     pub receiver: Option<ReceiverKind>,
-    pub ty: InternedTyId,
+    pub passing_ty: InternedTyId,
+    pub local_ty: InternedTyId,
     pub span: Span,
 }

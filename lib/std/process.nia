@@ -1,4 +1,4 @@
-pub struct Exit {
+pub struct ExitCode {
     code: i32,
 }
 
@@ -8,26 +8,38 @@ pub struct Init {
     envp: &&u8,
 }
 
-pub fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
-    { argc: argc, argv: argv, envp: envp }
+extend Init {
+    pub fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
+        { argc: argc, argv: argv, envp: envp }
+    }
+
+    pub fn argc(&self) usize {
+        self.argc
+    }
+
+    pub fn argv(&self) &&u8 {
+        self.argv
+    }
+
+    pub fn envp(&self) &&u8 {
+        self.envp
+    }
 }
 
-pub fn exit(code: i32) Exit {
-    { code: code }
+extend ExitCode {
+    pub fn init(code: i32) ExitCode {
+        { code: code }
+    }
+
+    pub fn success() ExitCode {
+        ExitCode::init(0)
+    }
+
+    pub fn code(&self) i32 {
+        self.code
+    }
 }
 
-pub fn exit_code(exit: Exit) i32 {
-    exit.code
-}
-
-pub fn argc(init: Init) usize {
-    init.argc
-}
-
-pub fn argv(init: Init) &&u8 {
-    init.argv
-}
-
-pub fn envp(init: Init) &&u8 {
-    init.envp
+pub fn exit(code: i32) ExitCode {
+    ExitCode::init(code)
 }

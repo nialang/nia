@@ -1,9 +1,13 @@
 import std.os;
 
-pub struct Block {
-    ptr: &mut u8,
+pub struct Layout {
     len: usize,
     align: usize,
+}
+
+pub struct Block {
+    ptr: &mut u8,
+    layout: Layout,
 }
 
 pub struct PageAllocator {}
@@ -11,62 +15,72 @@ pub struct PageAllocator {}
 pub trait Allocator {
     type Error;
 
-    fn allocate(&self, len: usize, align: usize) [Self as Allocator]::Error!Block;
-    fn deallocate(&self, block: Block) [Self as Allocator]::Error!void;
+    fn alloc(&self, layout: Layout) [Self as Allocator]::Error!?Block;
+    fn free(&self, block: Block) [Self as Allocator]::Error!void;
 }
 
-pub fn block(ptr: &mut u8, len: usize, align: usize) Block {
-    { ptr: ptr, len: len, align: align }
+extend Layout {
+    pub fn init(len: usize, align: usize) os::Error!Layout {
+        if align == 0 {
+            os::Error::Invalid!
+        } else {
+            !{ len: len, align: align }
+        }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn align(&self) usize {
+        self.align
+    }
 }
 
-pub fn block_ptr(block: Block) &mut u8 {
-    block.ptr
+extend Block {
+    pub fn init(ptr: &mut u8, layout: Layout) Block {
+        { ptr: ptr, layout: layout }
+    }
+
+    pub fn ptr(&self) &mut u8 {
+        self.ptr
+    }
+
+    pub fn layout(&self) Layout {
+        self.layout
+    }
+
+    pub fn len(&self) usize {
+        self.layout.len()
+    }
+
+    pub fn align(&self) usize {
+        self.layout.align()
+    }
 }
 
-pub fn block_len(block: Block) usize {
-    block.len
-}
-
-pub fn block_align(block: Block) usize {
-    block.align
-}
-
-pub fn page_allocator() PageAllocator {
-    {}
+extend PageAllocator {
+    pub fn init() PageAllocator {
+        {}
+    }
 }
 
 extend PageAllocator : Allocator {
     type Error = os::Error;
 
-    fn allocate(&self, len: usize, align: usize) os::Error!Block {
+    pub fn alloc(&self, layout: Layout) os::Error!?Block {
         _ = self;
-        if len == 0 {
-            !(block(0usize as &mut u8, 0, align))
+        if layout.len() == 0 {
+            !null
         } else {
-            var ptr = os::map_pages(len).?;
-            !(block(ptr, len, align))
+            var ptr = os::map_pages(layout.len(), layout.align()).?;
+            !(?Block::init(ptr, layout))
         }
     }
 
-    fn deallocate(&self, block: Block) os::Error!void {
+    pub fn free(&self, block: Block) os::Error!void {
         _ = self;
-        if block.len == 0 {
-            !{}
-        } else {
-            os::unmap_pages(block.ptr, block.len).?;
-            !{}
-        }
+        os::unmap_pages(block.ptr(), block.len()).?;
+        !{}
     }
-}
-
-pub fn allocate[A](allocator: &A, len: usize, align: usize) [A as Allocator]::Error!Block
-where A: Allocator
-{
-    allocator.allocate(len, align)
-}
-
-pub fn deallocate[A](allocator: &A, block: Block) [A as Allocator]::Error!void
-where A: Allocator
-{
-    allocator.deallocate(block)
 }

@@ -148,20 +148,54 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(layout) = self.program.type_layout(ty) {
             return Some(layout.clone());
         }
-        let Some(TyKind::Nominal { def_id, args }) = owner.interner.get(ty) else {
-            return None;
-        };
-        if args.is_empty() {
-            self.program
+        match owner.interner.get(ty) {
+            Some(TyKind::Primitive(primitive)) => self.primitive_layout(*primitive),
+            Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. }) => Some(TypeLayout {
+                size: owner.layouts.target.pointer_size,
+                align: owner.layouts.target.pointer_align,
+            }),
+            Some(TyKind::Slice { .. } | TyKind::TraitObject { .. }) => Some(TypeLayout {
+                size: owner.layouts.target.pointer_size * 2,
+                align: owner.layouts.target.pointer_align,
+            }),
+            Some(TyKind::Range { bound: None, .. }) => Some(TypeLayout { size: 0, align: 1 }),
+            Some(TyKind::Range {
+                bound: Some(bound), ..
+            }) => {
+                let bound = self.layout_of(*bound)?;
+                Some(TypeLayout {
+                    size: bound.size * 2,
+                    align: bound.align,
+                })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let len = self.array_len_in(len, Span::default()).ok()?;
+                let elem = self.layout_of(*elem)?;
+                Some(TypeLayout {
+                    size: elem.size.saturating_mul(len),
+                    align: elem.align,
+                })
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.layout_of(*elem)?;
+                Some(tagged_union_layout(&[elem]))
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.layout_of(*error)?;
+                let value = self.layout_of(*value)?;
+                Some(tagged_union_layout(&[error, value]))
+            }
+            Some(TyKind::Nominal { def_id, args }) if args.is_empty() => self
+                .program
                 .struct_layout(*def_id)
                 .or_else(|| self.program.union_layout(*def_id))
                 .map(|layout| layout.layout.clone())
                 .or_else(|| {
                     let enum_item = self.program.enums.get(def_id).copied()?;
                     self.layout_of(enum_item.backing_type)
-                })
-        } else {
-            self.program
+                }),
+            Some(TyKind::Nominal { def_id, args }) => self
+                .program
                 .struct_instance_layout(*def_id, args)
                 .map(|layout| layout.layout.clone())
                 .or_else(|| {
@@ -184,8 +218,40 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                             self.same_type_args(&item.key.args, args)
                                 .then_some(item.layout.layout.clone())
                         })
-                })
+                }),
+            Some(
+                TyKind::GenericParam(_)
+                | TyKind::BuiltinTrait { .. }
+                | TyKind::Projection { .. }
+                | TyKind::ComptimeOnly
+                | TyKind::Error,
+            )
+            | None => None,
         }
+    }
+
+    fn primitive_layout(&self, primitive: PrimitiveTy) -> Option<TypeLayout> {
+        Some(match primitive {
+            PrimitiveTy::Void | PrimitiveTy::Never => TypeLayout { size: 0, align: 1 },
+            PrimitiveTy::Bool | PrimitiveTy::I8 | PrimitiveTy::U8 => {
+                TypeLayout { size: 1, align: 1 }
+            }
+            PrimitiveTy::I16 | PrimitiveTy::U16 => TypeLayout { size: 2, align: 2 },
+            PrimitiveTy::I32 | PrimitiveTy::U32 | PrimitiveTy::F32 | PrimitiveTy::Char => {
+                TypeLayout { size: 4, align: 4 }
+            }
+            PrimitiveTy::I64 | PrimitiveTy::U64 | PrimitiveTy::F64 => {
+                TypeLayout { size: 8, align: 8 }
+            }
+            PrimitiveTy::I128 | PrimitiveTy::U128 => TypeLayout {
+                size: 16,
+                align: 16,
+            },
+            PrimitiveTy::Isize | PrimitiveTy::Usize => TypeLayout {
+                size: self.source.layouts.target.pointer_size,
+                align: self.source.layouts.target.pointer_align,
+            },
+        })
     }
 
     pub(super) fn integer_llvm_type(
@@ -335,5 +401,29 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
 
     pub(super) fn diagnostic_from_llvm_error(error: LlvmError) -> Diagnostic {
         error.diagnostic()
+    }
+}
+
+fn tagged_union_layout(payloads: &[TypeLayout]) -> TypeLayout {
+    let tag = TypeLayout { size: 1, align: 1 };
+    let payload_size = payloads.iter().map(|layout| layout.size).max().unwrap_or(0);
+    let payload_align = payloads
+        .iter()
+        .map(|layout| layout.align)
+        .max()
+        .unwrap_or(1);
+    let align = tag.align.max(payload_align);
+    let payload_offset = align_to(tag.size, payload_align);
+    TypeLayout {
+        size: align_to(payload_offset.saturating_add(payload_size), align),
+        align,
+    }
+}
+
+fn align_to(value: u64, align: u64) -> u64 {
+    if align <= 1 {
+        value
+    } else {
+        value.div_ceil(align) * align
     }
 }
