@@ -1190,6 +1190,48 @@ impl EarlyComptimeExpr {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EarlyComptimeName {
+    Unresolved(String),
+    Resolved {
+        display: String,
+        resolution: ComptimeNameResolution,
+    },
+}
+
+impl EarlyComptimeName {
+    pub fn unresolved(display: String) -> Self {
+        Self::Unresolved(display)
+    }
+
+    pub fn resolved(display: String, resolution: ComptimeNameResolution) -> Self {
+        Self::Resolved {
+            display,
+            resolution,
+        }
+    }
+
+    pub fn display(&self) -> &str {
+        match self {
+            Self::Unresolved(display) | Self::Resolved { display, .. } => display,
+        }
+    }
+
+    pub fn resolution(&self) -> Option<ComptimeNameResolution> {
+        match self {
+            Self::Unresolved(_) => None,
+            Self::Resolved { resolution, .. } => Some(*resolution),
+        }
+    }
+
+    fn into_resolution(self, span: Span) -> Result<ComptimeNameResolution, ComptimeLowerError> {
+        match self {
+            Self::Resolved { resolution, .. } => Ok(resolution),
+            Self::Unresolved(_) => Err(unresolved_error(span, "comptime name")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum EarlyComptimeExprKind {
     Integer(String),
@@ -1201,14 +1243,8 @@ pub enum EarlyComptimeExprKind {
     CString(ComptimeStringLiteral),
     Bool(bool),
     Null,
-    Ident {
-        name: String,
-        resolution: Option<ComptimeNameResolution>,
-    },
-    Qualified {
-        name: String,
-        resolution: Option<ComptimeNameResolution>,
-    },
+    Ident(EarlyComptimeName),
+    Qualified(EarlyComptimeName),
     Field {
         lhs: Box<EarlyComptimeExpr>,
         name: String,
@@ -1529,14 +1565,12 @@ fn lower_expr_internal(
         }
         nia_ast::ExprKind::Bool(value) => EarlyComptimeExprKind::Bool(*value),
         nia_ast::ExprKind::Null => EarlyComptimeExprKind::Null,
-        nia_ast::ExprKind::Ident(name) => EarlyComptimeExprKind::Ident {
-            name: name.clone(),
-            resolution: resolve_name(context, expr.span)?,
-        },
-        nia_ast::ExprKind::Qualified { name, .. } => EarlyComptimeExprKind::Qualified {
-            name: name.clone(),
-            resolution: resolve_name(context, expr.span)?,
-        },
+        nia_ast::ExprKind::Ident(name) => {
+            EarlyComptimeExprKind::Ident(lower_comptime_name(name, expr.span, context)?)
+        }
+        nia_ast::ExprKind::Qualified { name, .. } => {
+            EarlyComptimeExprKind::Qualified(lower_comptime_name(name, expr.span, context)?)
+        }
         nia_ast::ExprKind::Field { lhs, name } => EarlyComptimeExprKind::Field {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
             name: name.clone(),
@@ -1963,6 +1997,17 @@ fn resolve_name(
     context.resolve_name(span)
 }
 
+fn lower_comptime_name(
+    name: &str,
+    span: Span,
+    context: &dyn ComptimeLowerContext,
+) -> Result<EarlyComptimeName, ComptimeLowerError> {
+    match resolve_name(context, span)? {
+        Some(resolution) => Ok(EarlyComptimeName::resolved(name.to_string(), resolution)),
+        None => Ok(EarlyComptimeName::unresolved(name.to_string())),
+    }
+}
+
 fn lower_local_id(
     context: &dyn ComptimeLowerContext,
     span: Span,
@@ -2097,10 +2142,9 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
         EarlyComptimeExprKind::CString(value) => ResolvedComptimeExprKind::CString(value),
         EarlyComptimeExprKind::Bool(value) => ResolvedComptimeExprKind::Bool(value),
         EarlyComptimeExprKind::Null => ResolvedComptimeExprKind::Null,
-        EarlyComptimeExprKind::Ident { resolution, .. }
-        | EarlyComptimeExprKind::Qualified { resolution, .. } => ResolvedComptimeExprKind::Name(
-            resolution.ok_or_else(|| unresolved_error(span, "comptime name"))?,
-        ),
+        EarlyComptimeExprKind::Ident(name) | EarlyComptimeExprKind::Qualified(name) => {
+            ResolvedComptimeExprKind::Name(name.into_resolution(span)?)
+        }
         EarlyComptimeExprKind::Field { lhs, name } => ResolvedComptimeExprKind::Field {
             lhs: Box::new(resolve_expr(*lhs)?),
             name,
@@ -2766,10 +2810,7 @@ mod tests {
     fn resolved_expr_rejects_unresolved_names() {
         let expr = EarlyComptimeExpr {
             span: span(),
-            kind: EarlyComptimeExprKind::Ident {
-                name: "x".to_string(),
-                resolution: None,
-            },
+            kind: EarlyComptimeExprKind::Ident(EarlyComptimeName::unresolved("x".to_string())),
         };
 
         let err = ResolvedComptimeExpr::new(expr).expect_err("unresolved name must be rejected");
@@ -2848,6 +2889,30 @@ mod tests {
         let err = lower_expr_resolved_with_context(&ast_ident("x"), &context)
             .expect_err("resolved lowering must reject unresolved names");
         assert_eq!(err.message, "failed to resolve comptime name");
+    }
+
+    #[test]
+    fn early_name_lowering_separates_unresolved_and_resolved_states() {
+        let early =
+            lower_expr_early(&ast_ident("x")).expect("early lowering should keep display name");
+        let EarlyComptimeExprKind::Ident(name) = early.kind else {
+            panic!("identifier should lower to early comptime name");
+        };
+        assert_eq!(name.display(), "x");
+        assert_eq!(name.resolution(), None);
+
+        let name_resolution = |_| Some(ComptimeNameResolution::Local(LocalId(0)));
+        let context = EarlyComptimeLowerInputs::default().with_name_resolution(&name_resolution);
+        let early = lower_expr_early_with_context(&ast_ident("x"), &context)
+            .expect("early lowering with semantic inputs should resolve names");
+        let EarlyComptimeExprKind::Ident(name) = early.kind else {
+            panic!("identifier should lower to early comptime name");
+        };
+        assert_eq!(name.display(), "x");
+        assert_eq!(
+            name.resolution(),
+            Some(ComptimeNameResolution::Local(LocalId(0)))
+        );
     }
 
     #[test]
