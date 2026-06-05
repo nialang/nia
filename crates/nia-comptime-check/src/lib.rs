@@ -1039,7 +1039,7 @@ impl Analyzer<'_> {
     }
 
     fn initializer_span_for_key(&self, key: ComptimeKey) -> Option<Span> {
-        self.initializer_for_key(key).map(|expr| expr.span)
+        self.initializer_for_key(key).map(|expr| expr.span())
     }
 
     fn validate_typed_value(&mut self, span: Span, value: &ComptimeValue, ty: &ComptimeValueType) {
@@ -1563,7 +1563,7 @@ impl Analyzer<'_> {
         expr: &ResolvedComptimeExpr,
         local_id: LocalId,
     ) -> Option<InternedTyId> {
-        match &expr.kind {
+        match expr.kind() {
             ResolvedComptimeExprKind::If {
                 then_branch,
                 else_branch,
@@ -2164,7 +2164,7 @@ impl Analyzer<'_> {
         expr: &ResolvedComptimeExpr,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
-        match &expr.kind {
+        match expr.kind() {
             ResolvedComptimeExprKind::Name(resolution) => {
                 self.comptime_name_resolution_type(*resolution)
             }
@@ -2208,7 +2208,7 @@ impl Analyzer<'_> {
                 self.resolved_comptime_array_literal_type(elems, expected)
             }
             ResolvedComptimeExprKind::StructLiteral { ty: None, fields } => {
-                self.resolved_comptime_struct_literal_type(expr.span, fields, expected)
+                self.resolved_comptime_struct_literal_type(expr.span(), fields, expected)
             }
             ResolvedComptimeExprKind::OptionalSome { expr: inner } => {
                 let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
@@ -2262,7 +2262,7 @@ impl Analyzer<'_> {
             }
             ResolvedComptimeExprKind::Index { lhs, index } => {
                 let lhs_ty = self.resolved_comptime_expr_type(lhs, None)?;
-                self.resolved_comptime_index_type(expr.span, lhs_ty, index)
+                self.resolved_comptime_index_type(expr.span(), lhs_ty, index)
             }
             ResolvedComptimeExprKind::Slice { lhs, range } => {
                 let lhs_ty = self.resolved_comptime_expr_type(lhs, None)?;
@@ -2299,7 +2299,7 @@ impl Analyzer<'_> {
             ResolvedComptimeExprKind::Call { callee, args, .. }
                 if args.is_empty()
                     && matches!(
-                        callee.kind,
+                        callee.kind(),
                         ResolvedComptimeExprKind::BuiltinValue(ValueBuiltin::Builtin)
                     ) =>
             {
@@ -2310,7 +2310,7 @@ impl Analyzer<'_> {
                 type_args,
                 args,
             } => self
-                .resolved_comptime_call_return_type(expr.span, callee, type_args, args)
+                .resolved_comptime_call_return_type(expr.span(), callee, type_args, args)
                 .map(ComptimeValueType::Runtime),
             ResolvedComptimeExprKind::LayoutBuiltin { .. }
             | ResolvedComptimeExprKind::Null
