@@ -41,7 +41,7 @@ pub struct ResolvedComptimeExpr {
 
 impl ResolvedComptimeExpr {
     fn new(expr: ComptimeExpr) -> Result<Self, ComptimeLowerError> {
-        resolve_comptime_expr(expr)
+        resolve_expr(expr)
     }
 
     pub fn name_resolution(&self) -> Option<ComptimeNameResolution> {
@@ -61,7 +61,7 @@ pub struct ResolvedComptimeFunction {
 
 impl ResolvedComptimeFunction {
     fn new(function: ComptimeFunction) -> Result<Self, ComptimeLowerError> {
-        resolve_comptime_function(function)
+        resolve_function(function)
     }
 
     pub fn span(&self) -> Span {
@@ -1284,7 +1284,7 @@ fn lower_type_id(
     context.lower_type_id(span)
 }
 
-fn resolve_comptime_function(
+pub fn resolve_function(
     function: ComptimeFunction,
 ) -> Result<ResolvedComptimeFunction, ComptimeLowerError> {
     let params = function
@@ -1324,7 +1324,7 @@ fn resolve_comptime_block(
         .collect::<Result<Vec<_>, _>>()?;
     let tail = block
         .tail
-        .map(|tail| resolve_comptime_expr(*tail).map(Box::new))
+        .map(|tail| resolve_expr(*tail).map(Box::new))
         .transpose()?;
     Ok(ResolvedComptimeBlock {
         span: block.span,
@@ -1338,11 +1338,9 @@ fn resolve_comptime_stmt(stmt: ComptimeStmt) -> Result<ResolvedComptimeStmt, Com
         ComptimeStmtKind::Binding(binding) => {
             ResolvedComptimeStmtKind::Binding(resolve_comptime_binding(binding)?)
         }
-        ComptimeStmtKind::Expr(expr) => {
-            ResolvedComptimeStmtKind::Expr(resolve_comptime_expr(expr)?)
-        }
+        ComptimeStmtKind::Expr(expr) => ResolvedComptimeStmtKind::Expr(resolve_expr(expr)?),
         ComptimeStmtKind::Return(expr) => {
-            ResolvedComptimeStmtKind::Return(expr.map(resolve_comptime_expr).transpose()?)
+            ResolvedComptimeStmtKind::Return(expr.map(resolve_expr).transpose()?)
         }
         ComptimeStmtKind::Break => ResolvedComptimeStmtKind::Break,
         ComptimeStmtKind::Continue => ResolvedComptimeStmtKind::Continue,
@@ -1351,7 +1349,7 @@ fn resolve_comptime_stmt(stmt: ComptimeStmt) -> Result<ResolvedComptimeStmt, Com
             then_branch,
             else_branch,
         } => ResolvedComptimeStmtKind::If {
-            cond: resolve_comptime_expr(cond)?,
+            cond: resolve_expr(cond)?,
             then_branch: resolve_comptime_block(then_branch)?,
             else_branch: else_branch.map(resolve_comptime_block).transpose()?,
         },
@@ -1359,7 +1357,7 @@ fn resolve_comptime_stmt(stmt: ComptimeStmt) -> Result<ResolvedComptimeStmt, Com
             ResolvedComptimeStmtKind::ForIn(resolve_comptime_for_in(for_in)?)
         }
         ComptimeStmtKind::While { cond, body } => ResolvedComptimeStmtKind::While {
-            cond: resolve_comptime_expr(cond)?,
+            cond: resolve_expr(cond)?,
             body: resolve_comptime_block(body)?,
         },
         ComptimeStmtKind::Loop { body } => ResolvedComptimeStmtKind::Loop {
@@ -1384,7 +1382,7 @@ fn resolve_comptime_binding(
         local_id,
         explicit_type: binding.explicit_type,
         is_mutable: binding.is_mutable,
-        value: resolve_comptime_expr(binding.value)?,
+        value: resolve_expr(binding.value)?,
     })
 }
 
@@ -1401,12 +1399,12 @@ fn resolve_comptime_for_in(
             name: for_in.binding.name,
             local_id,
         },
-        iter: resolve_comptime_expr(for_in.iter)?,
+        iter: resolve_expr(for_in.iter)?,
         body: resolve_comptime_block(for_in.body)?,
     })
 }
 
-fn resolve_comptime_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {
+pub fn resolve_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {
     let span = expr.span;
     let kind = match expr.kind {
         ComptimeExprKind::Integer(value) => ResolvedComptimeExprKind::Integer(value),
@@ -1423,21 +1421,21 @@ fn resolve_comptime_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, Com
             resolution.ok_or_else(|| unresolved_error(span, "comptime name"))?,
         ),
         ComptimeExprKind::Field { lhs, name } => ResolvedComptimeExprKind::Field {
-            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            lhs: Box::new(resolve_expr(*lhs)?),
             name,
         },
         ComptimeExprKind::Len { lhs } => ResolvedComptimeExprKind::Len {
-            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            lhs: Box::new(resolve_expr(*lhs)?),
         },
         ComptimeExprKind::RangeIter { lhs } => ResolvedComptimeExprKind::RangeIter {
-            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            lhs: Box::new(resolve_expr(*lhs)?),
         },
         ComptimeExprKind::Index { lhs, index } => ResolvedComptimeExprKind::Index {
-            lhs: Box::new(resolve_comptime_expr(*lhs)?),
-            index: Box::new(resolve_comptime_expr(*index)?),
+            lhs: Box::new(resolve_expr(*lhs)?),
+            index: Box::new(resolve_expr(*index)?),
         },
         ComptimeExprKind::Slice { lhs, range } => ResolvedComptimeExprKind::Slice {
-            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            lhs: Box::new(resolve_expr(*lhs)?),
             range: resolve_comptime_slice_range(range)?,
         },
         ComptimeExprKind::ArrayLiteral { ty, elems } => ResolvedComptimeExprKind::ArrayLiteral {
@@ -1455,7 +1453,7 @@ fn resolve_comptime_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, Com
         ComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
             ResolvedComptimeExprKind::LayoutBuiltin {
                 builtin,
-                type_arg: resolve_comptime_type_arg(type_arg)?,
+                type_arg: resolve_type_arg(type_arg)?,
             }
         }
         ComptimeExprKind::Call {
@@ -1463,36 +1461,36 @@ fn resolve_comptime_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, Com
             type_args,
             args,
         } => ResolvedComptimeExprKind::Call {
-            callee: Box::new(resolve_comptime_expr(*callee)?),
+            callee: Box::new(resolve_expr(*callee)?),
             type_args: type_args
                 .into_iter()
-                .map(resolve_comptime_type_arg)
+                .map(resolve_type_arg)
                 .collect::<Result<Vec<_>, _>>()?,
             args: args
                 .into_iter()
-                .map(resolve_comptime_expr)
+                .map(resolve_expr)
                 .collect::<Result<Vec<_>, _>>()?,
         },
         ComptimeExprKind::Unary { op, expr } => ResolvedComptimeExprKind::Unary {
             op,
-            expr: Box::new(resolve_comptime_expr(*expr)?),
+            expr: Box::new(resolve_expr(*expr)?),
         },
         ComptimeExprKind::OptionalSome { expr } => ResolvedComptimeExprKind::OptionalSome {
-            expr: Box::new(resolve_comptime_expr(*expr)?),
+            expr: Box::new(resolve_expr(*expr)?),
         },
         ComptimeExprKind::ErrorOk { expr } => ResolvedComptimeExprKind::ErrorOk {
-            expr: Box::new(resolve_comptime_expr(*expr)?),
+            expr: Box::new(resolve_expr(*expr)?),
         },
         ComptimeExprKind::ErrorErr { expr } => ResolvedComptimeExprKind::ErrorErr {
-            expr: Box::new(resolve_comptime_expr(*expr)?),
+            expr: Box::new(resolve_expr(*expr)?),
         },
         ComptimeExprKind::Try { expr } => ResolvedComptimeExprKind::Try {
-            expr: Box::new(resolve_comptime_expr(*expr)?),
+            expr: Box::new(resolve_expr(*expr)?),
         },
         ComptimeExprKind::Binary { lhs, op, rhs } => ResolvedComptimeExprKind::Binary {
-            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            lhs: Box::new(resolve_expr(*lhs)?),
             op,
-            rhs: Box::new(resolve_comptime_expr(*rhs)?),
+            rhs: Box::new(resolve_expr(*rhs)?),
         },
         ComptimeExprKind::Assign(assign) => {
             ResolvedComptimeExprKind::Assign(Box::new(resolve_comptime_assign(*assign)?))
@@ -1505,17 +1503,17 @@ fn resolve_comptime_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, Com
             then_branch,
             else_branch,
         } => ResolvedComptimeExprKind::If {
-            cond: Box::new(resolve_comptime_expr(*cond)?),
+            cond: Box::new(resolve_expr(*cond)?),
             then_branch: resolve_comptime_block(then_branch)?,
             else_branch: else_branch
-                .map(|else_branch| resolve_comptime_expr(*else_branch).map(Box::new))
+                .map(|else_branch| resolve_expr(*else_branch).map(Box::new))
                 .transpose()?,
         },
         ComptimeExprKind::Switch(switch) => {
             ResolvedComptimeExprKind::Switch(Box::new(resolve_comptime_switch(*switch)?))
         }
         ComptimeExprKind::Cast { expr, ty } => ResolvedComptimeExprKind::Cast {
-            expr: Box::new(resolve_comptime_expr(*expr)?),
+            expr: Box::new(resolve_expr(*expr)?),
             ty: ty.ok_or_else(|| unresolved_error(span, "comptime cast type"))?,
         },
         ComptimeExprKind::Block(block) => {
@@ -1531,7 +1529,7 @@ fn resolve_comptime_assign(
     Ok(ResolvedComptimeAssign {
         lhs: resolve_comptime_assign_target(assign.lhs)?,
         op: assign.op,
-        rhs: resolve_comptime_expr(assign.rhs)?,
+        rhs: resolve_expr(assign.rhs)?,
     })
 }
 
@@ -1570,7 +1568,7 @@ fn resolve_comptime_assign_path_elem(
         ComptimeAssignPathElem::Index { span, index } => {
             Ok(ResolvedComptimeAssignPathElem::Index {
                 span,
-                index: resolve_comptime_expr(index)?,
+                index: resolve_expr(index)?,
             })
         }
     }
@@ -1581,7 +1579,7 @@ fn resolve_comptime_switch(
 ) -> Result<ResolvedComptimeSwitch, ComptimeLowerError> {
     Ok(ResolvedComptimeSwitch {
         span: switch.span,
-        target: resolve_comptime_expr(switch.target)?,
+        target: resolve_expr(switch.target)?,
         arms: switch
             .arms
             .into_iter()
@@ -1643,7 +1641,7 @@ fn resolve_comptime_switch_pattern(
             span,
         }),
         ComptimeSwitchPattern::Expr(expr) => {
-            resolve_comptime_expr(expr).map(ResolvedComptimeSwitchPattern::Expr)
+            resolve_expr(expr).map(ResolvedComptimeSwitchPattern::Expr)
         }
         ComptimeSwitchPattern::Range {
             start,
@@ -1651,8 +1649,8 @@ fn resolve_comptime_switch_pattern(
             inclusive,
             span,
         } => Ok(ResolvedComptimeSwitchPattern::Range {
-            start: resolve_comptime_expr(start)?,
-            end: resolve_comptime_expr(end)?,
+            start: resolve_expr(start)?,
+            end: resolve_expr(end)?,
             inclusive,
             span,
         }),
@@ -1664,7 +1662,7 @@ fn resolve_comptime_switch_arm_body(
 ) -> Result<ResolvedComptimeSwitchArmBody, ComptimeLowerError> {
     match body {
         ComptimeSwitchArmBody::Expr(expr) => {
-            resolve_comptime_expr(expr).map(ResolvedComptimeSwitchArmBody::Expr)
+            resolve_expr(expr).map(ResolvedComptimeSwitchArmBody::Expr)
         }
         ComptimeSwitchArmBody::Stmt(stmt) => {
             resolve_comptime_stmt(stmt).map(ResolvedComptimeSwitchArmBody::Stmt)
@@ -1681,13 +1679,13 @@ fn resolve_comptime_array_elements(
     match elems {
         ComptimeArrayElements::List(elems) => elems
             .into_iter()
-            .map(resolve_comptime_expr)
+            .map(resolve_expr)
             .collect::<Result<Vec<_>, _>>()
             .map(ResolvedComptimeArrayElements::List),
         ComptimeArrayElements::Repeat { value, count } => {
             Ok(ResolvedComptimeArrayElements::Repeat {
-                value: Box::new(resolve_comptime_expr(*value)?),
-                count: Box::new(resolve_comptime_expr(*count)?),
+                value: Box::new(resolve_expr(*value)?),
+                count: Box::new(resolve_expr(*count)?),
             })
         }
     }
@@ -1699,11 +1697,11 @@ fn resolve_comptime_range(
     Ok(ResolvedComptimeRange {
         start: range
             .start
-            .map(|start| resolve_comptime_expr(*start).map(Box::new))
+            .map(|start| resolve_expr(*start).map(Box::new))
             .transpose()?,
         end: range
             .end
-            .map(|end| resolve_comptime_expr(*end).map(Box::new))
+            .map(|end| resolve_expr(*end).map(Box::new))
             .transpose()?,
         inclusive: range.inclusive,
     })
@@ -1715,11 +1713,11 @@ fn resolve_comptime_slice_range(
     Ok(ResolvedComptimeSliceRange {
         start: range
             .start
-            .map(|start| resolve_comptime_expr(*start).map(Box::new))
+            .map(|start| resolve_expr(*start).map(Box::new))
             .transpose()?,
         end: range
             .end
-            .map(|end| resolve_comptime_expr(*end).map(Box::new))
+            .map(|end| resolve_expr(*end).map(Box::new))
             .transpose()?,
         inclusive: range.inclusive,
     })
@@ -1731,11 +1729,11 @@ fn resolve_comptime_field_init(
     Ok(ResolvedComptimeFieldInit {
         span: field.span,
         name: field.name,
-        value: resolve_comptime_expr(field.value)?,
+        value: resolve_expr(field.value)?,
     })
 }
 
-fn resolve_comptime_type_arg(
+pub fn resolve_type_arg(
     type_arg: ComptimeTypeArg,
 ) -> Result<ResolvedComptimeTypeArg, ComptimeLowerError> {
     Ok(ResolvedComptimeTypeArg {
