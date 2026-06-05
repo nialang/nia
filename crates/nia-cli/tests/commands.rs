@@ -1073,6 +1073,77 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_use_std_io_discarding_writer_and_limited_reader() {
+    let root = temp_dir("emit_exe_can_use_std_io_discarding_writer_and_limited_reader");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var discard = io::DiscardingWriter::init();
+    switch discard.write_all(b"abcdef") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    if discard.len() != 6 {
+        return process::ExitCode::init(2)!;
+    }
+
+    var source = io::FixedBufferReader::init(b"abcdef");
+    var limited = io::LimitedReader[io::FixedBufferReader]::init(
+        &mut source,
+        io::Limit::limited(3),
+    );
+    var copied: [4]u8 = [0, 0, 0, 0];
+    var n: usize;
+    switch limited.read(&mut copied[..]) {
+        !value => n = value,
+        error! => return process::ExitCode::init(3)!,
+    }
+    if n != 3 {
+        return process::ExitCode::init(4)!;
+    }
+    if copied[0] != b'a' or copied[1] != b'b' or copied[2] != b'c' {
+        return process::ExitCode::init(5)!;
+    }
+    switch limited.read(&mut copied[..]) {
+        !value => n = value,
+        error! => return process::ExitCode::init(6)!,
+    }
+    if n != 0 {
+        return process::ExitCode::init(7)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_mut_ref_receiver_updates_original_aggregate() {
     let root = temp_dir("emit_exe_mut_ref_receiver_updates_original_aggregate");
     let main = root.join("main.nia");

@@ -63,6 +63,19 @@ pub struct FixedBufferReader {
     cursor: usize,
 }
 
+pub struct DiscardingWriter {
+    len: usize,
+}
+
+pub struct Limit {
+    remaining: ?usize,
+}
+
+pub struct LimitedReader[R] {
+    reader: &mut R,
+    limit: Limit,
+}
+
 extend FixedBufferWriter {
     pub fn init(buffer: &mut [u8]) FixedBufferWriter {
         { buffer: buffer, len: 0 }
@@ -136,6 +149,89 @@ extend FixedBufferReader : Reader {
         }
         self.cursor += count;
         !count
+    }
+}
+
+extend DiscardingWriter {
+    pub fn init() DiscardingWriter {
+        { len: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+}
+
+extend DiscardingWriter : Writer {
+    type Error = Error;
+
+    pub fn short_write(&self) Error {
+        _ = self;
+        Error::ShortWrite
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+        self.len += bytes.len();
+        !bytes.len()
+    }
+}
+
+extend Limit {
+    pub fn unlimited() Limit {
+        { remaining: null }
+    }
+
+    pub fn limited(remaining: usize) Limit {
+        { remaining: ?remaining }
+    }
+
+    pub fn remaining(&self) ?usize {
+        self.remaining
+    }
+}
+
+extend[R] LimitedReader[R]
+where R: Reader
+{
+    pub fn init(reader: &mut R, limit: Limit) LimitedReader[R] {
+        { reader: reader, limit: limit }
+    }
+
+    pub fn remaining(&self) ?usize {
+        self.limit.remaining()
+    }
+}
+
+extend[R] LimitedReader[R] : Reader
+where R: Reader
+{
+    type Error = [R as Reader]::Error;
+
+    pub fn end_of_stream(&self) [R as Reader]::Error {
+        self.reader.end_of_stream()
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) [R as Reader]::Error!usize {
+        switch self.limit.remaining {
+            ?remaining => {
+                if remaining == 0 {
+                    !0
+                } else {
+                    var count = bytes.len();
+                    if count > remaining {
+                        count = remaining;
+                    }
+                    var chunk = &mut bytes[0..count];
+                    var n = self.reader.read(chunk).?;
+                    switch self.limit.remaining {
+                        ?current => self.limit = Limit::limited(current - n),
+                        null => {},
+                    }
+                    !n
+                }
+            },
+            null => self.reader.read(bytes),
+        }
     }
 }
 

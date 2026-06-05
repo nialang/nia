@@ -207,6 +207,47 @@ fn main(value: &Box[bool]) i32 {
 }
 
 #[test]
+fn trait_impl_where_clause_is_available_inside_impl_methods() {
+    let root = temp_dir("trait_impl_where_clause_is_available_inside_impl_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    type Item;
+
+    fn get(& self) [Self as Source]::Item;
+}
+
+trait Wrapper {
+    type Item;
+
+    fn get_wrapped(& self) [Self as Wrapper]::Item;
+}
+
+struct Box[T] {
+    value: &T,
+}
+
+extend[T] Box[T] : Wrapper
+where T: Source {
+    type Item = [T as Source]::Item;
+
+    fn get_wrapped(& self) [T as Source]::Item {
+        self.value.get()
+    }
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn cross_module_trait_impls_are_checked() {
     let root = temp_dir("cross_module_trait_impls_are_checked");
     write(
