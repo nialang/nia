@@ -146,6 +146,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-node-id",
  "nia-parser",
+ "nia-sema",
  "nia-source",
  "nia-span",
  "nia-static-ir",
@@ -264,6 +265,7 @@ dependencies = [
  "nia-layout",
  "nia-local-resolve",
  "nia-parser",
+ "nia-sema",
  "nia-span",
  "nia-target-config",
  "nia-ty",
@@ -282,6 +284,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-ids",
  "nia-parser",
+ "nia-sema",
  "nia-span",
 ]
 
@@ -543,6 +546,13 @@ dependencies = [
 [[package]]
 name = "nia-query"
 version = "0.3.2"
+
+[[package]]
+name = "nia-sema"
+version = "0.3.2"
+dependencies = [
+ "nia-span",
+]
 
 [[package]]
 name = "nia-source"

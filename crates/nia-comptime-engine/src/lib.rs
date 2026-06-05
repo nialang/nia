@@ -18,6 +18,7 @@ use nia_comptime_ir::{
     ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
+use nia_sema::{NamedField, check_unique_field_set};
 use nia_span::Span;
 use std::collections::BTreeMap;
 
@@ -1784,20 +1785,25 @@ fn eval_struct_literal_flow(
     fields: &[nia_comptime_ir::EarlyComptimeFieldInit],
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
+    if let Some(field) = check_unique_field_set(
+        fields
+            .iter()
+            .map(|field| NamedField::new(field.span, field.name.as_str())),
+    )
+    .into_iter()
+    .next()
+    {
+        return Err(ComptimeError {
+            span: field.span,
+            message: format!("duplicate comptime struct field `{}`", field.name),
+        });
+    }
     let mut values = BTreeMap::new();
     for field in fields {
-        if values
-            .insert(
-                field.name.clone(),
-                eval_value_or_return_flow!(&field.value, env),
-            )
-            .is_some()
-        {
-            return Err(ComptimeError {
-                span: field.span,
-                message: format!("duplicate comptime struct field `{}`", field.name),
-            });
-        }
+        values.insert(
+            field.name.clone(),
+            eval_value_or_return_flow!(&field.value, env),
+        );
     }
     Ok(ComptimeEvalFlow::Value(ComptimeValue::Struct(values)))
 }
@@ -1806,20 +1812,25 @@ fn eval_resolved_struct_literal_flow(
     fields: &[ResolvedComptimeFieldInit],
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
+    if let Some(field) = check_unique_field_set(
+        fields
+            .iter()
+            .map(|field| NamedField::new(field.span(), field.name())),
+    )
+    .into_iter()
+    .next()
+    {
+        return Err(ComptimeError {
+            span: field.span,
+            message: format!("duplicate comptime struct field `{}`", field.name),
+        });
+    }
     let mut values = BTreeMap::new();
     for field in fields {
-        if values
-            .insert(
-                field.name().to_string(),
-                eval_resolved_value_or_return_flow!(field.value(), env),
-            )
-            .is_some()
-        {
-            return Err(ComptimeError {
-                span: field.span(),
-                message: format!("duplicate comptime struct field `{}`", field.name()),
-            });
-        }
+        values.insert(
+            field.name().to_string(),
+            eval_resolved_value_or_return_flow!(field.value(), env),
+        );
     }
     Ok(ComptimeEvalFlow::Value(ComptimeValue::Struct(values)))
 }

@@ -9,6 +9,7 @@ license.workspace = true
 nia-comptime-ir.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
+nia-sema.workspace = true
 nia-span.workspace = true
 
 [dev-dependencies]

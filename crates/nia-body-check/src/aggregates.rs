@@ -13,6 +13,7 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
+use nia_sema::{NamedField, check_required_field_set};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
@@ -245,32 +246,37 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect();
-        let mut seen_fields = HashSet::new();
+        let field_set = check_required_field_set(
+            fields
+                .iter()
+                .map(|field| NamedField::new(field.span, field.name.as_str())),
+            signature_fields.iter().map(|field| field.name.as_str()),
+        );
         for field in fields {
-            if !seen_fields.insert(field.name.as_str()) {
-                self.diagnostics.push(Diagnostic::error(
-                    field.span,
-                    format!("duplicate struct field `{}`", field.name),
-                ));
-            }
             if let Some(expected) = field_tys.get(field.name.as_str()).copied() {
                 let actual = self.check_expr_with_expected(&field.value, Some(expected));
                 self.expect_expr_type(&field.value, expected, actual, "struct literal field");
             } else {
                 self.check_expr(&field.value);
-                self.diagnostics.push(Diagnostic::error(
-                    field.span,
-                    format!("unknown struct field `{}`", field.name),
-                ));
             }
         }
-        for field in &signature_fields {
-            if !seen_fields.contains(field.name.as_str()) {
-                self.diagnostics.push(Diagnostic::error(
-                    span,
-                    format!("missing struct field `{}`", field.name),
-                ));
-            }
+        for field in field_set.duplicate_fields {
+            self.diagnostics.push(Diagnostic::error(
+                field.span,
+                format!("duplicate struct field `{}`", field.name),
+            ));
+        }
+        for field in field_set.unknown_fields {
+            self.diagnostics.push(Diagnostic::error(
+                field.span,
+                format!("unknown struct field `{}`", field.name),
+            ));
+        }
+        for name in field_set.missing_fields {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("missing struct field `{name}`"),
+            ));
         }
         aggregate_ty
     }

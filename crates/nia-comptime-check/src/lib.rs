@@ -20,6 +20,7 @@ use nia_ids::{
 };
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
+use nia_sema::{FieldSetCheck, NamedField, check_required_field_set, check_value_field_set};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
@@ -1068,21 +1069,20 @@ impl Analyzer<'_> {
                     self.push_comptime_type_mismatch(span, "struct");
                     return;
                 };
-                let expected_names = fields
-                    .iter()
-                    .map(|field| field.name.as_str())
-                    .collect::<HashSet<_>>();
+                let field_set: FieldSetCheck<String> = check_value_field_set(
+                    values.keys().cloned(),
+                    fields.iter().map(|field| field.name.clone()),
+                );
                 for field in fields {
                     if let Some(value) = values.get(&field.name) {
                         self.validate_typed_value(span, value, &field.ty);
-                    } else {
-                        self.push_comptime_missing_struct_field(span, &field.name);
                     }
                 }
-                for name in values.keys() {
-                    if !expected_names.contains(name.as_str()) {
-                        self.push_comptime_extra_struct_field(span, name);
-                    }
+                for name in &field_set.missing_fields {
+                    self.push_comptime_missing_struct_field(span, name);
+                }
+                for field in &field_set.unknown_fields {
+                    self.push_comptime_extra_struct_field(span, &field.name);
                 }
             }
             ComptimeValueType::Int => {
@@ -1301,21 +1301,18 @@ impl Analyzer<'_> {
         let Some(field_tys) = self.comptime_struct_field_types(&signature, &args) else {
             return;
         };
-        let expected_names = field_tys
-            .iter()
-            .map(|(name, _)| name.as_str())
-            .collect::<HashSet<_>>();
+        let field_set: FieldSetCheck<String> =
+            check_value_field_set(values.keys().cloned(), field_tys.keys().cloned());
         for (name, field_ty) in &field_tys {
             if let Some(value) = values.get(name.as_str()) {
                 self.validate_runtime_typed_value(span, value, *field_ty);
-            } else {
-                self.push_comptime_missing_struct_field(span, name);
             }
         }
-        for name in values.keys() {
-            if !expected_names.contains(name.as_str()) {
-                self.push_comptime_extra_struct_field(span, name);
-            }
+        for name in &field_set.missing_fields {
+            self.push_comptime_missing_struct_field(span, name);
+        }
+        for field in &field_set.unknown_fields {
+            self.push_comptime_extra_struct_field(span, &field.name);
         }
     }
 
@@ -2813,12 +2810,17 @@ impl Analyzer<'_> {
         }
         let signature = self.struct_signature_for(def_id)?;
         let field_tys = self.comptime_struct_field_types(&signature, &expected_args)?;
-        let mut seen = HashSet::new();
+        let field_set = check_required_field_set(
+            fields
+                .iter()
+                .map(|field| NamedField::new(field.span(), field.name())),
+            field_tys.keys().map(String::as_str),
+        );
+        if !field_set.is_valid() {
+            return None;
+        }
         let mut substitutions = HashMap::new();
         for field in fields {
-            if !seen.insert(field.name()) {
-                return None;
-            }
             let expected_field = *field_tys.get(field.name())?;
             if let Some(actual_field) =
                 self.resolved_comptime_struct_field_actual_type(field.value(), expected_field)
@@ -2830,13 +2832,6 @@ impl Analyzer<'_> {
                     &mut substitutions,
                 )?;
             }
-        }
-        if signature
-            .fields
-            .iter()
-            .any(|field| !seen.contains(field.name.as_str()))
-        {
-            return None;
         }
         for field in fields {
             let expected_field =
