@@ -404,12 +404,10 @@ impl ComptimeModuleLowerer<'_> {
             |span| self.name_resolution_with_allowed_locals(span, &function_locals);
         let local_id = |span| self.input.locals.local_defs.get(&span).copied();
         let type_id = |span| self.input.type_uses.get(&span).copied();
-        let context = nia_comptime_ir::ComptimeLowerContext {
-            name_resolution: Some(&name_resolution),
-            local_id: Some(&local_id),
-            type_id: Some(&type_id),
-            require_resolved_semantics: true,
-        };
+        let context = nia_comptime_ir::ComptimeLowerContext::early()
+            .with_name_resolution(&name_resolution)
+            .with_local_id(&local_id)
+            .with_type_id(&type_id);
         match nia_comptime_ir::lower_function_resolved_with_context(
             function_span,
             function,
@@ -433,12 +431,10 @@ impl ComptimeModuleLowerer<'_> {
             |span| self.name_resolution_with_allowed_locals(span, &allowed_locals);
         let local_id = |span| self.input.locals.local_defs.get(&span).copied();
         let type_id = |span| self.input.type_uses.get(&span).copied();
-        let context = nia_comptime_ir::ComptimeLowerContext {
-            name_resolution: Some(&name_resolution),
-            local_id: Some(&local_id),
-            type_id: Some(&type_id),
-            require_resolved_semantics: true,
-        };
+        let context = nia_comptime_ir::ComptimeLowerContext::early()
+            .with_name_resolution(&name_resolution)
+            .with_local_id(&local_id)
+            .with_type_id(&type_id);
         match nia_comptime_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
             Err(err) => {

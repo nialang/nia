@@ -270,12 +270,9 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
     ) -> Result<u64, nia_comptime_engine::ComptimeError> {
-        let context = nia_comptime_ir::ComptimeLowerContext {
-            name_resolution: Some(&|span| self.comptime_name_resolution(span)),
-            local_id: None,
-            type_id: None,
-            require_resolved_semantics: false,
-        };
+        let name_resolution = |span| self.comptime_name_resolution(span);
+        let context =
+            nia_comptime_ir::ComptimeLowerContext::early().with_name_resolution(&name_resolution);
         let mut env = StaticComptimeEnv {
             defs: self.defs,
             comptime: self.comptime,
@@ -301,12 +298,9 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
     ) -> Result<i128, nia_comptime_engine::ComptimeError> {
-        let context = nia_comptime_ir::ComptimeLowerContext {
-            name_resolution: Some(&|span| self.comptime_name_resolution(span)),
-            local_id: None,
-            type_id: None,
-            require_resolved_semantics: false,
-        };
+        let name_resolution = |span| self.comptime_name_resolution(span);
+        let context =
+            nia_comptime_ir::ComptimeLowerContext::early().with_name_resolution(&name_resolution);
         let mut env = StaticComptimeEnv {
             defs: self.defs,
             comptime: self.comptime,

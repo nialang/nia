@@ -401,15 +401,41 @@ pub struct ComptimeLowerContext<'a> {
     pub name_resolution: Option<&'a dyn Fn(Span) -> Option<ComptimeNameResolution>>,
     pub local_id: Option<&'a dyn Fn(Span) -> Option<LocalId>>,
     pub type_id: Option<&'a dyn Fn(Span) -> Option<InternedTyId>>,
-    pub require_resolved_semantics: bool,
+    mode: ComptimeLowerMode,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum ComptimeLowerMode {
+    #[default]
+    Early,
+    Resolved,
 }
 
 impl<'a> ComptimeLowerContext<'a> {
-    fn with_required_semantics(self) -> Self {
-        Self {
-            require_resolved_semantics: true,
-            ..self
-        }
+    pub fn early() -> Self {
+        Self::default()
+    }
+
+    pub fn with_name_resolution(
+        mut self,
+        name_resolution: &'a dyn Fn(Span) -> Option<ComptimeNameResolution>,
+    ) -> Self {
+        self.name_resolution = Some(name_resolution);
+        self
+    }
+
+    pub fn with_local_id(mut self, local_id: &'a dyn Fn(Span) -> Option<LocalId>) -> Self {
+        self.local_id = Some(local_id);
+        self
+    }
+
+    pub fn with_type_id(mut self, type_id: &'a dyn Fn(Span) -> Option<InternedTyId>) -> Self {
+        self.type_id = Some(type_id);
+        self
+    }
+
+    fn with_mode(self, mode: ComptimeLowerMode) -> Self {
+        Self { mode, ..self }
     }
 }
 
@@ -595,7 +621,7 @@ pub fn lower_expr_resolved_with_context(
     expr: &nia_ast::Expr,
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeExpr, ComptimeLowerError> {
-    lower_expr_with_context(expr, &context.with_required_semantics())
+    lower_expr_with_context(expr, &context.with_mode(ComptimeLowerMode::Resolved))
 }
 
 fn lower_string_literal(literal: &nia_ast::StringLiteral) -> ComptimeStringLiteral {
@@ -862,7 +888,7 @@ fn resolve_name(
     span: Span,
 ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
     let resolution = context.name_resolution.and_then(|resolve| resolve(span));
-    if context.require_resolved_semantics && resolution.is_none() {
+    if context.mode == ComptimeLowerMode::Resolved && resolution.is_none() {
         return Err(ComptimeLowerError {
             span,
             message: "failed to resolve comptime name".to_string(),
@@ -876,7 +902,7 @@ fn lower_local_id(
     span: Span,
 ) -> Result<Option<LocalId>, ComptimeLowerError> {
     let local_id = context.local_id.and_then(|local_id| local_id(span));
-    if context.require_resolved_semantics && local_id.is_none() {
+    if context.mode == ComptimeLowerMode::Resolved && local_id.is_none() {
         return Err(ComptimeLowerError {
             span,
             message: "failed to resolve comptime local binding".to_string(),
@@ -890,7 +916,7 @@ fn lower_type_id(
     span: Span,
 ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
     let ty = context.type_id.and_then(|type_id| type_id(span));
-    if context.require_resolved_semantics && ty.is_none() {
+    if context.mode == ComptimeLowerMode::Resolved && ty.is_none() {
         return Err(ComptimeLowerError {
             span,
             message: "failed to resolve comptime type".to_string(),
@@ -958,7 +984,11 @@ pub fn lower_function_resolved_with_context(
     function: &nia_ast::FunctionItem,
     context: &ComptimeLowerContext<'_>,
 ) -> Result<ComptimeFunction, ComptimeLowerError> {
-    lower_function_with_context(function_span, function, &context.with_required_semantics())
+    lower_function_with_context(
+        function_span,
+        function,
+        &context.with_mode(ComptimeLowerMode::Resolved),
+    )
 }
 
 fn lower_block_with_context(
