@@ -1166,10 +1166,11 @@ impl<'a> BodyChecker<'a> {
         let name_resolution = |span| self.comptime_name_resolution(span);
         let local_id = |span| self.locals.local_defs.get(&span).copied();
         let type_id = |span| self.type_uses.get(&span).copied();
-        let context = nia_comptime_ir::ComptimeLowerInputs::early()
-            .with_name_resolution(&name_resolution)
-            .with_local_id(&local_id)
-            .with_type_id(&type_id);
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(
+            &name_resolution,
+            &local_id,
+            &type_id,
+        );
         nia_comptime_ir::lower_expr_resolved_with_context(expr, &context)
     }
 

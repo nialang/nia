@@ -300,7 +300,7 @@ impl StaticChecker<'_> {
     ) -> Result<T, nia_comptime_engine::ComptimeError> {
         let name_resolution = |span| self.comptime_name_resolution(span);
         let context =
-            nia_comptime_ir::ComptimeLowerInputs::early().with_name_resolution(&name_resolution);
+            nia_comptime_ir::EarlyComptimeLowerInputs::new().with_name_resolution(&name_resolution);
         let mut env = StaticComptimeEnv {
             defs: self.defs,
             comptime: self.comptime,
