@@ -3,12 +3,11 @@ use std::collections::HashMap;
 
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, ItemKind, Module, UnaryOp};
 use nia_comptime_check::{ComptimeCheck, ComptimeKey};
-use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, EarlyComptimeEnv};
-use nia_comptime_ir::EarlyComptimeName;
-use nia_comptime_ir::EarlyComptimeTypeArg;
+use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
+use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalResolution, LocalUse};
 use nia_span::Span;
@@ -26,6 +25,7 @@ pub fn check_module_static_initializers(
     locals: &LocalResolution,
     signatures: &ItemSignatures,
     comptime: &ComptimeCheck,
+    type_uses: &HashMap<Span, InternedTyId>,
     program_defs: &HashMap<ModuleId, DefCollection>,
     program_comptime: &HashMap<ModuleId, ComptimeCheck>,
 ) -> StaticCheck {
@@ -35,6 +35,7 @@ pub fn check_module_static_initializers(
         locals,
         signatures,
         comptime,
+        type_uses,
         program_defs,
         program_comptime,
         diagnostics: Vec::new(),
@@ -51,6 +52,7 @@ struct StaticChecker<'a> {
     locals: &'a LocalResolution,
     signatures: &'a ItemSignatures,
     comptime: &'a ComptimeCheck,
+    type_uses: &'a HashMap<Span, InternedTyId>,
     program_defs: &'a HashMap<ModuleId, DefCollection>,
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     diagnostics: Vec<Diagnostic>,
@@ -271,8 +273,8 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
     ) -> Result<u64, nia_comptime_engine::ComptimeError> {
-        self.eval_static_early_expr(expr, |expr, env| {
-            nia_comptime_engine::eval_early_comptime_array_len_expr(expr, env)
+        self.eval_static_resolved_expr(expr, |expr, env| {
+            nia_comptime_engine::eval_resolved_comptime_array_len_expr(expr, env)
         })
     }
 
@@ -286,22 +288,27 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
     ) -> Result<i128, nia_comptime_engine::ComptimeError> {
-        self.eval_static_early_expr(expr, |expr, env| {
-            nia_comptime_engine::eval_early_comptime_int_expr(expr, env)
+        self.eval_static_resolved_expr(expr, |expr, env| {
+            nia_comptime_engine::eval_resolved_comptime_int_expr(expr, env)
         })
     }
 
-    fn eval_static_early_expr<T>(
+    fn eval_static_resolved_expr<T>(
         &self,
         expr: &Expr,
         eval: impl FnOnce(
-            &nia_comptime_ir::EarlyComptimeExpr,
+            &ResolvedComptimeExpr,
             &mut StaticComptimeEnv<'_>,
         ) -> Result<T, nia_comptime_engine::ComptimeError>,
     ) -> Result<T, nia_comptime_engine::ComptimeError> {
         let name_resolution = |span| self.comptime_name_resolution(span);
-        let context =
-            nia_comptime_ir::EarlyComptimeLowerInputs::new().with_name_resolution(&name_resolution);
+        let local_id = |span| self.local_id(span);
+        let type_id = |span| self.type_uses.get(&span).copied();
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(
+            &name_resolution,
+            &local_id,
+            &type_id,
+        );
         let mut env = StaticComptimeEnv {
             defs: self.defs,
             comptime: self.comptime,
@@ -309,13 +316,20 @@ impl StaticChecker<'_> {
             program_comptime: self.program_comptime,
         };
         let expr =
-            nia_comptime_ir::lower_expr_early_with_context(expr, &context).map_err(|err| {
+            nia_comptime_ir::lower_expr_resolved_with_context(expr, &context).map_err(|err| {
                 nia_comptime_engine::ComptimeError {
                     span: err.span,
                     message: err.message,
                 }
             })?;
         eval(&expr, &mut env)
+    }
+
+    fn local_id(&self, span: Span) -> Option<LocalId> {
+        match self.locals.uses.get(&span) {
+            Some(LocalUse::Local(local_id)) => Some(*local_id),
+            _ => None,
+        }
     }
 
     fn comptime_name_resolution(
@@ -412,51 +426,40 @@ struct StaticComptimeEnv<'a> {
 
 impl ComptimeCommonEnv for StaticComptimeEnv<'_> {}
 
-impl EarlyComptimeEnv for StaticComptimeEnv<'_> {
-    fn resolve_name(
+impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
+    fn resolve_resolved_name(
         &mut self,
         span: Span,
-        name: &EarlyComptimeName,
+        resolution: nia_comptime_ir::ComptimeNameResolution,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let EarlyComptimeName::Resolved {
-            display,
-            resolution,
-        } = name
-        else {
-            return Err(ComptimeError {
-                span,
-                message: "static constant expression requires resolved comptime values".to_string(),
-            });
-        };
         let key = match resolution {
             nia_comptime_ir::ComptimeNameResolution::Local(local_id) => {
-                ComptimeKey::Local(*local_id)
+                ComptimeKey::Local(local_id)
             }
             nia_comptime_ir::ComptimeNameResolution::Global(global_id) => {
-                if self.global_def_kind(*global_id) != Some(DefKind::Comptime) {
+                if self.global_def_kind(global_id) != Some(DefKind::Comptime) {
                     return Err(ComptimeError {
                         span,
-                        message: format!(
-                            "static constant expression can only use comptime bindings: `{display}`"
-                        ),
+                        message: "static constant expression can only use comptime bindings"
+                            .to_string(),
                     });
                 }
-                ComptimeKey::Global(*global_id)
+                ComptimeKey::Global(global_id)
             }
         };
         self.value_for_key(key)
             .cloned()
             .ok_or_else(|| ComptimeError {
                 span,
-                message: format!("failed to evaluate comptime value `{display}`"),
+                message: "failed to evaluate comptime value".to_string(),
             })
     }
 
-    fn resolve_layout_builtin(
+    fn resolve_resolved_layout_builtin(
         &mut self,
         span: Span,
         _builtin: nia_ids::LayoutBuiltin,
-        _type_arg: &EarlyComptimeTypeArg,
+        _type_arg: &ResolvedComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
@@ -553,6 +556,7 @@ mod tests {
             &locals,
             &signatures,
             &comptime,
+            &type_lowering.type_uses,
             &HashMap::new(),
             &HashMap::new(),
         )
