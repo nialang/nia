@@ -129,7 +129,7 @@ impl nia_comptime_engine::ComptimeCommonEnv for TargetComptimeEnv<'_> {
     }
 }
 
-impl nia_comptime_engine::RawComptimeEnv for TargetComptimeEnv<'_> {
+impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
     fn resolve_ident(
         &mut self,
         span: Span,
