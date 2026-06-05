@@ -1,0 +1,15 @@
+[package]
+name = "nia-sema-ir"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+nia-ids.workspace = true
+nia-node-id.workspace = true
+nia-span.workspace = true
+nia-ty.workspace = true
+
+[lib]
+path = "src/lib.rs"

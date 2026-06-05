@@ -2,12 +2,12 @@
 use std::collections::{HashMap, HashSet};
 
 use nia_ast::Expr;
-use nia_body_ir::GenericInstantiation;
 use nia_comptime_check::ComptimeCheck;
 use nia_defs::{DefCollection, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_mangle::{mangle_base_symbol, mangle_type_with, sanitize_symbol_part};
+use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
 use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 
@@ -677,10 +677,10 @@ fn collect_recorded_generics_by_def(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nia_body_ir::GenericInstantiation;
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_ids::ConstExprId;
     use nia_parser::parse_module;
+    use nia_sema_ir::GenericInstantiation;
     use nia_span::Span;
     use nia_ty::{ArrayLenTy, PrimitiveTy};
 

@@ -147,6 +147,7 @@ dependencies = [
  "nia-node-id",
  "nia-parser",
  "nia-sema",
+ "nia-sema-ir",
  "nia-source",
  "nia-span",
  "nia-static-ir",
@@ -167,6 +168,7 @@ dependencies = [
  "nia-ast",
  "nia-ids",
  "nia-node-id",
+ "nia-sema-ir",
  "nia-span",
  "nia-static-ir",
  "nia-ty",
@@ -515,6 +517,7 @@ dependencies = [
  "nia-ids",
  "nia-mangle",
  "nia-parser",
+ "nia-sema-ir",
  "nia-span",
  "nia-ty",
 ]
@@ -551,6 +554,16 @@ version = "0.3.2"
 name = "nia-sema"
 version = "0.3.2"
 dependencies = [
+ "nia-span",
+ "nia-ty",
+]
+
+[[package]]
+name = "nia-sema-ir"
+version = "0.3.2"
+dependencies = [
+ "nia-ids",
+ "nia-node-id",
  "nia-span",
  "nia-ty",
 ]

@@ -13,6 +13,7 @@ nia-defs.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-mangle.workspace = true
+nia-sema-ir.workspace = true
 nia-span.workspace = true
 nia-ty.workspace = true
 

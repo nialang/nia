@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
 
 use nia_ast::{AssignOp, BinaryOp, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
-use nia_node_id::NodeKey;
+pub use nia_sema_ir::{
+    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
+    ComptimeIfSelection, FunctionReference, GenericInstantiation, SemanticFacts,
+    TraitObjectCoercion, TraitObjectUpcast,
+};
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_ty::{BuiltinTrait, TraitId, TyInterner};
@@ -17,87 +22,23 @@ pub struct BodyIr {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BodyFacts {
-    pub expr_types: HashMap<Span, InternedTyId>,
-    pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
-    pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
-    pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
-    pub trait_object_coercions: HashMap<Span, TraitObjectCoercion>,
-    pub trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
-    pub local_types: HashMap<LocalId, InternedTyId>,
-    pub comptime_if_selections: HashMap<Span, ComptimeIfSelection>,
-    pub builtin_values: HashMap<Span, BuiltinValue>,
-    pub array_repeat_counts: HashMap<Span, u64>,
-    pub switch_pattern_values: HashMap<Span, i128>,
+    pub semantic: SemanticFacts,
     pub resolved_calls: HashMap<Span, ResolvedCall>,
-    pub function_references: HashMap<Span, FunctionReference>,
-    pub generic_instantiations: Vec<GenericInstantiation>,
-    pub node_expr_types: HashMap<NodeKey, InternedTyId>,
-    pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
-    pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
-    pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
-    pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
-    pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
-    pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
-    pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
-    pub node_function_references: HashMap<NodeKey, FunctionReference>,
+    pub node_resolved_calls: HashMap<nia_node_id::NodeKey, ResolvedCall>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ComptimeIfSelection {
-    Then,
-    Else,
-    None,
+impl Deref for BodyFacts {
+    type Target = SemanticFacts;
+
+    fn deref(&self) -> &Self::Target {
+        &self.semantic
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BuiltinValue {
-    Usize(u64),
-    Layout {
-        builtin: LayoutBuiltin,
-        ty: InternedTyId,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BracketSuffixResolution {
-    Index,
-    GenericCall,
-    TypePrefixInstantiation,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ArrayToSliceCoercion {
-    pub array_ty: InternedTyId,
-    pub slice_ty: InternedTyId,
-    pub is_readonly: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CStringPointerCoercion {
-    pub array_ty: InternedTyId,
-    pub pointer_ty: InternedTyId,
-    pub is_readonly: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TraitObjectCoercion {
-    pub source_ty: InternedTyId,
-    pub target_ty: InternedTyId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TraitObjectUpcast {
-    pub source_ty: InternedTyId,
-    pub target_ty: InternedTyId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GenericInstantiation {
-    pub def_id: GlobalDefId,
-    pub args: Vec<InternedTyId>,
-    pub generics: Vec<String>,
-    pub span: Span,
-    pub source_def_id: Option<GlobalDefId>,
+impl DerefMut for BodyFacts {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.semantic
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,12 +85,6 @@ pub enum ResolvedCall {
         trait_args: Vec<InternedTyId>,
     },
     FunctionPointer,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FunctionReference {
-    pub def_id: GlobalDefId,
-    pub args: Vec<InternedTyId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
