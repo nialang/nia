@@ -383,6 +383,9 @@ impl<'a> ModuleLowerer<'a> {
                                             callee: FunctionCallee::Method {
                                                 def_id,
                                                 args: target_args,
+                                                receiver_kind: self
+                                                    .receiver_kind_for_method(def_id)
+                                                    .unwrap_or(nia_ast::ReceiverKind::Value),
                                                 receiver,
                                             },
                                             args,
@@ -469,6 +472,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::Method {
                 def_id,
                 args,
+                receiver_kind,
                 receiver,
             } => FunctionCallee::Method {
                 def_id,
@@ -476,6 +480,7 @@ impl<'a> ModuleLowerer<'a> {
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect(),
+                receiver_kind,
                 receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
             },
             FunctionCallee::TraitMethod {
@@ -485,6 +490,7 @@ impl<'a> ModuleLowerer<'a> {
                 self_ty,
                 trait_args,
                 args,
+                receiver_kind,
                 receiver,
             } => {
                 let self_ty = self.instantiate_ty_with_id(self_ty, substitutions);
@@ -509,6 +515,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionCallee::Method {
                         def_id,
                         args: instance_args,
+                        receiver_kind,
                         receiver,
                     }
                 } else if self.trait_method_has_default(method_id) {
@@ -518,6 +525,7 @@ impl<'a> ModuleLowerer<'a> {
                     FunctionCallee::Method {
                         def_id: method_id,
                         args: instance_args,
+                        receiver_kind,
                         receiver,
                     }
                 } else {
@@ -532,6 +540,7 @@ impl<'a> ModuleLowerer<'a> {
                         self_ty,
                         trait_args,
                         args,
+                        receiver_kind,
                         receiver,
                     }
                 }
@@ -575,6 +584,7 @@ impl<'a> ModuleLowerer<'a> {
                 slot,
                 params,
                 return_type,
+                receiver_kind,
                 receiver,
             } => FunctionCallee::DynamicTraitMethod {
                 object_ty: self.instantiate_ty_with_id(object_ty, substitutions),
@@ -591,6 +601,7 @@ impl<'a> ModuleLowerer<'a> {
                     .map(|param| self.instantiate_ty_with_id(param, substitutions))
                     .collect(),
                 return_type: self.instantiate_ty_with_id(return_type, substitutions),
+                receiver_kind,
                 receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
             },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),

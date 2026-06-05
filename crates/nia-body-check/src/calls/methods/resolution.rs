@@ -88,7 +88,7 @@ impl<'a> BodyChecker<'a> {
         receiver_ty: InternedTyId,
         name: &str,
     ) -> Vec<TraitMethodCandidate> {
-        let Some(self_ty) = self.generic_receiver_self_ty(receiver_ty) else {
+        let Some(self_ty) = self.trait_receiver_self_ty(receiver_ty) else {
             return Vec::new();
         };
         let mut candidates = Vec::new();
@@ -146,7 +146,44 @@ impl<'a> BodyChecker<'a> {
                 );
             }
         }
+        self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
         candidates
+    }
+
+    fn push_visible_impl_trait_method_candidates(
+        &mut self,
+        candidates: &mut Vec<TraitMethodCandidate>,
+        self_ty: InternedTyId,
+        name: &str,
+    ) {
+        let trait_ids = self
+            .program_traits
+            .iter()
+            .filter_map(|(trait_id, signature)| {
+                signature
+                    .signature
+                    .methods
+                    .iter()
+                    .any(|method| method.name == name)
+                    .then_some(*trait_id)
+            })
+            .collect::<Vec<_>>();
+        for trait_id in trait_ids {
+            let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
+                continue;
+            };
+            for trait_args in self.visible_trait_arg_candidates(self_ty, TraitId::Source(trait_id))
+            {
+                self.push_trait_method_candidates(
+                    candidates,
+                    trait_id,
+                    trait_args,
+                    self_ty,
+                    name,
+                    &trait_signature,
+                );
+            }
+        }
     }
 
     pub(in crate::calls::methods) fn dynamic_trait_method_candidates_for_receiver(
@@ -276,12 +313,31 @@ impl<'a> BodyChecker<'a> {
     ) {
         for method in &trait_signature.methods {
             if method.name == name {
+                let method_id = GlobalDefId {
+                    module_id: trait_id.module_id,
+                    def_id: method.def_id,
+                };
+                if candidates.iter().any(|candidate| {
+                    candidate.trait_id == trait_id
+                        && candidate.method_id == method_id
+                        && self.types_equivalent_without_projection_resolution(
+                            candidate.self_ty,
+                            self_ty,
+                        )
+                        && candidate.trait_args.len() == trait_args.len()
+                        && candidate
+                            .trait_args
+                            .iter()
+                            .zip(&trait_args)
+                            .all(|(left, right)| {
+                                self.types_equivalent_without_projection_resolution(*left, *right)
+                            })
+                }) {
+                    continue;
+                }
                 candidates.push(TraitMethodCandidate {
                     trait_id,
-                    method_id: GlobalDefId {
-                        module_id: trait_id.module_id,
-                        def_id: method.def_id,
-                    },
+                    method_id,
                     self_ty,
                     trait_generics: trait_signature.generics.clone(),
                     trait_args: trait_args.clone(),
@@ -331,15 +387,19 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn generic_receiver_self_ty(&mut self, receiver_ty: InternedTyId) -> Option<InternedTyId> {
+    fn trait_receiver_self_ty(&mut self, receiver_ty: InternedTyId) -> Option<InternedTyId> {
         let receiver_ty = self.normalization.normalize(receiver_ty);
         match self.interner.get(receiver_ty).cloned() {
-            Some(TyKind::GenericParam(_)) => Some(receiver_ty),
+            Some(TyKind::TraitObject { .. }) => None,
             Some(TyKind::Pointer { elem, .. }) => {
                 let elem = self.normalization.normalize(elem);
-                matches!(self.interner.get(elem), Some(TyKind::GenericParam(_))).then_some(elem)
+                if matches!(self.interner.get(elem), Some(TyKind::TraitObject { .. })) {
+                    None
+                } else {
+                    Some(elem)
+                }
             }
-            _ => None,
+            _ => Some(receiver_ty),
         }
     }
 

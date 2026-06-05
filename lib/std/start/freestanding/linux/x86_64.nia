@@ -2,9 +2,9 @@ import root;
 import std.os;
 import std.process;
 
-fn call_user_main(init: process::Init) process::Exit {
+fn call_user_main(init: process::Init) process::ExitCode {
     switch root::main(init) {
-        !ok => process::exit(0),
+        !ok => process::ExitCode::success(),
         error! => error,
     }
 }
@@ -13,9 +13,9 @@ extern fn nia_start_stack(stack: &usize) void {
     var argc = stack.*;
     var argv = (stack as usize + @size[usize]()) as &&u8;
     var envp = (stack as usize + @size[usize]() * (argc + 2)) as &&u8;
-    var init = process::init(argc, argv, envp);
+    var init = process::Init::init(argc, argv, envp);
     var exit = call_user_main(init);
-    os::exit(process::exit_code(exit));
+    os::exit(exit.code());
     loop {}
 }
 

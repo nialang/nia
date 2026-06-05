@@ -28,8 +28,8 @@ Nia provides:
 - C ABI interop through `extern`;
 - file-level modules with explicit `import`, `using`, and `pub using`;
 - a small visibility model based on `pub`;
-- host execution by default, with object/LLVM output available for bare or
-  custom build flows.
+- freestanding executable startup through the standard library, with object and
+  LLVM output available for custom build flows.
 
 The current core language keeps these systems outside the language surface:
 
@@ -59,21 +59,21 @@ The current user entry contract is intentionally single-shaped:
 ```nia
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     !{}
 }
 ```
 
 Returning `!{}` means process success. Returning an error payload such as
-`process::exit(1)!` asks the startup layer to terminate with that exit status:
+`process::ExitCode::init(1)!` asks the startup layer to terminate with that exit status:
 
 ```nia
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    process::exit(1)!
+    process::ExitCode::init(1)!
 }
 ```
 
@@ -83,7 +83,7 @@ Nia distinguishes two execution models:
   facade for the selected runtime. The current default is freestanding startup
   linked without CRT startup; the current target implementation is Linux
   x86_64. The user entry remains the Nia-level
-  `root::main(process::Init) process::Exit!void` contract.
+  `root::main(process::Init) process::ExitCode!void` contract.
 - bare/object/IR emission: no startup logic is injected and `main` is not
   required. The compiler
   emits LLVM IR or object files for an external build system, custom entry
@@ -96,9 +96,13 @@ as the C ABI entry point; that responsibility belongs to `std.start`.
 The current standard library surface is intentionally small:
 
 - `std.process` defines the executable entry payload and process exit value.
-- `std.os` defines a target-dispatched OS facade. It currently exposes `Fd`,
-  `WriteError`, `stdin()`, `stdout()`, `stderr()`, `write(fd, bytes)`, and
-  `exit(code)`.
+- `std.os` defines a target-dispatched OS facade. It currently exposes
+  `Error`, `File`, page mapping helpers, and process termination.
+- `std.io` defines `Reader` and `Writer` traits plus fixed-buffer adapters.
+  `os::File` implements those traits, so complete reads and writes are provided
+  by `std.io` rather than by platform file-descriptor helpers.
+- `std.mem` defines allocation layout and block types plus an initial
+  `PageAllocator` implementation.
 
 `std.os` is a Nia-defined OS layer, not libc. Platform-specific implementation
 modules such as `std.os.linux` may use syscalls directly. A future `std.c` can

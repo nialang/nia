@@ -13,11 +13,16 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let mut substitutions = HashMap::new();
-        if !self.match_extension_type_pattern(candidate.target_ty, self_ty, &mut substitutions) {
+        let target_ty = nia_ty::import_type_into(
+            &mut self.interner,
+            &candidate.source_interner,
+            candidate.target_ty,
+        );
+        if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
         }
         let args = self
-            .generic_params_in_extension_ty(candidate.target_ty)
+            .generic_params_in_extension_ty(target_ty)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
@@ -59,11 +64,16 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let mut substitutions = HashMap::new();
-        if !self.match_extension_type_pattern(candidate.target_ty, self_ty, &mut substitutions) {
+        let target_ty = nia_ty::import_type_into(
+            &mut self.interner,
+            &candidate.source_interner,
+            candidate.target_ty,
+        );
+        if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
             return None;
         }
         let args = self
-            .generic_params_in_extension_ty(candidate.target_ty)
+            .generic_params_in_extension_ty(target_ty)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
@@ -80,7 +90,11 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .zip(trait_args)
             .all(|(actual, expected)| {
-                let actual = self.import_extension_type(*actual);
+                let actual = nia_ty::import_type_into(
+                    &mut self.interner,
+                    &candidate.source_interner,
+                    *actual,
+                );
                 self.types_match(actual, *expected)
             })
     }

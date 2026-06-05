@@ -251,6 +251,7 @@ impl BackendValidator<'_> {
                 def_id,
                 args,
                 receiver,
+                ..
             } => {
                 self.validate_expr(receiver);
                 if args.is_empty() {
@@ -317,6 +318,7 @@ impl BackendValidator<'_> {
                 trait_args,
                 args,
                 receiver,
+                ..
             } => {
                 self.validate_type(*self_ty, span);
                 for arg in trait_args.iter().chain(args) {

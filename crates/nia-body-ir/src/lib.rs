@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{AssignOp, BinaryOp, UnaryOp};
+use nia_ast::{AssignOp, BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 pub use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinMethod, BuiltinOperatorOp, BuiltinValue,
@@ -368,6 +368,7 @@ pub enum TypedCallee {
     Method {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        receiver_kind: ReceiverKind,
         receiver: Box<TypedExpr>,
     },
     TraitMethod {
@@ -377,6 +378,7 @@ pub enum TypedCallee {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
+        receiver_kind: ReceiverKind,
         receiver: Box<TypedExpr>,
     },
     DynamicTraitMethod {
@@ -388,6 +390,7 @@ pub enum TypedCallee {
         slot: usize,
         params: Vec<InternedTyId>,
         return_type: InternedTyId,
+        receiver_kind: ReceiverKind,
         receiver: Box<TypedExpr>,
     },
     BuiltinMethod {

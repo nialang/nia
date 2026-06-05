@@ -770,10 +770,12 @@ impl FunctionLowerer {
             TypedCallee::Method {
                 def_id,
                 args,
+                receiver_kind,
                 receiver,
             } => FunctionCallee::Method {
                 def_id: *def_id,
                 args: args.clone(),
+                receiver_kind: *receiver_kind,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
             TypedCallee::TraitMethod {
@@ -783,6 +785,7 @@ impl FunctionLowerer {
                 self_ty,
                 trait_args,
                 args,
+                receiver_kind,
                 receiver,
             } => FunctionCallee::TraitMethod {
                 trait_id: *trait_id,
@@ -791,6 +794,7 @@ impl FunctionLowerer {
                 self_ty: *self_ty,
                 trait_args: trait_args.clone(),
                 args: args.clone(),
+                receiver_kind: *receiver_kind,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
             TypedCallee::DynamicTraitMethod {
@@ -802,6 +806,7 @@ impl FunctionLowerer {
                 slot,
                 params,
                 return_type,
+                receiver_kind,
                 receiver,
             } => FunctionCallee::DynamicTraitMethod {
                 object_ty: *object_ty,
@@ -812,6 +817,7 @@ impl FunctionLowerer {
                 slot: *slot,
                 params: params.clone(),
                 return_type: *return_type,
+                receiver_kind: *receiver_kind,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),
             },
             TypedCallee::BuiltinMethod {

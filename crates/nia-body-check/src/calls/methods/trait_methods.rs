@@ -102,6 +102,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty: candidate.self_ty,
                 trait_args: candidate.trait_args.clone(),
                 args: method_instantiation_args,
+                receiver_kind,
             },
         );
         let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
@@ -191,6 +192,7 @@ impl<'a> BodyChecker<'a> {
                 slot: candidate.slot,
                 params,
                 return_type,
+                receiver_kind,
             },
         );
         Some(self.normalize_projection(return_type))

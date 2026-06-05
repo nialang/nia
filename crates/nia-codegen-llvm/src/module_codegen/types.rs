@@ -46,7 +46,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         layouts: &BackendLayouts,
     ) -> Result<FunctionType<'ctx>, Diagnostic> {
         self.function_signature_type_in(FunctionSignature {
-            param_tys: function.params.iter().map(|param| (param.ty, param.span)),
+            param_tys: function
+                .params
+                .iter()
+                .map(|param| (param.passing_ty, param.span)),
             return_type: function.return_type,
             is_extern: function.is_extern,
             is_variadic: function.is_variadic,
@@ -545,7 +548,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         Ok(ty)
     }
 
-    fn array_len_in(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
+    pub(super) fn array_len_in(&self, len: &ArrayLenTy, span: Span) -> Result<u64, Diagnostic> {
         match len {
             ArrayLenTy::ConstValue(value) => Ok(*value),
             ArrayLenTy::ConstExpr(id) => self

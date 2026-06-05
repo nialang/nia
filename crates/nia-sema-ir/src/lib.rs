@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ast::{BinaryOp, UnaryOp};
+use nia_ast::{BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_node_id::NodeKey;
 use nia_span::Span;
@@ -189,6 +189,7 @@ pub enum ResolvedCall {
     Method {
         def_id: GlobalDefId,
         args: Vec<InternedTyId>,
+        receiver_kind: ReceiverKind,
     },
     TraitMethod {
         trait_id: GlobalDefId,
@@ -197,6 +198,7 @@ pub enum ResolvedCall {
         self_ty: InternedTyId,
         trait_args: Vec<InternedTyId>,
         args: Vec<InternedTyId>,
+        receiver_kind: ReceiverKind,
     },
     DynamicTraitMethod {
         object_ty: InternedTyId,
@@ -207,6 +209,7 @@ pub enum ResolvedCall {
         slot: usize,
         params: Vec<InternedTyId>,
         return_type: InternedTyId,
+        receiver_kind: ReceiverKind,
     },
     BuiltinTraitMethod {
         trait_id: BuiltinTrait,

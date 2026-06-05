@@ -59,7 +59,8 @@ impl BackendValidator<'_> {
             if function.generics.is_empty() {
                 self.validate_type(function.return_type, function.span);
                 for param in &function.params {
-                    self.validate_runtime_type(param.ty, param.span);
+                    self.validate_runtime_type(param.passing_ty, param.span);
+                    self.validate_runtime_type(param.local_ty, param.span);
                 }
                 if let Some(body) = &function.function_body {
                     self.validate_function_body(body);
@@ -69,7 +70,8 @@ impl BackendValidator<'_> {
         for function in &module.function_instances {
             self.validate_type(function.return_type, function.span);
             for param in &function.params {
-                self.validate_runtime_type(param.ty, param.span);
+                self.validate_runtime_type(param.passing_ty, param.span);
+                self.validate_runtime_type(param.local_ty, param.span);
             }
             if let Some(body) = &function.function_body {
                 self.validate_function_body(body);

@@ -1114,9 +1114,14 @@ impl<'a> BodyChecker<'a> {
             ResolvedCall::FunctionInstance { def_id, args } => {
                 TypedCallee::FunctionInstance { def_id, args }
             }
-            ResolvedCall::Method { def_id, args } => TypedCallee::Method {
+            ResolvedCall::Method {
                 def_id,
                 args,
+                receiver_kind,
+            } => TypedCallee::Method {
+                def_id,
+                args,
+                receiver_kind,
                 receiver: Box::new(
                     self.lower_receiver_expr(callee)
                         .unwrap_or_else(|| self.lower_expr(callee)),
@@ -1129,6 +1134,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_args,
                 args,
+                receiver_kind,
             } => TypedCallee::TraitMethod {
                 trait_id,
                 method_id,
@@ -1136,6 +1142,7 @@ impl<'a> BodyChecker<'a> {
                 self_ty,
                 trait_args,
                 args,
+                receiver_kind,
                 receiver: Box::new(
                     self.lower_receiver_expr(callee)
                         .unwrap_or_else(|| self.lower_expr(callee)),
@@ -1150,6 +1157,7 @@ impl<'a> BodyChecker<'a> {
                 slot,
                 params,
                 return_type,
+                receiver_kind,
             } => TypedCallee::DynamicTraitMethod {
                 object_ty,
                 trait_id,
@@ -1159,6 +1167,7 @@ impl<'a> BodyChecker<'a> {
                 slot,
                 params,
                 return_type,
+                receiver_kind,
                 receiver: Box::new(
                     self.lower_receiver_expr(callee)
                         .unwrap_or_else(|| self.lower_expr(callee)),

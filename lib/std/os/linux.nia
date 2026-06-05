@@ -1,20 +1,87 @@
-import std.os;
-
 comptime if @builtin().target.arch == "x86_64" {
     import std.os.linux.x86_64.syscall;
 }
 
-pub fn write(fd: os::Fd, bytes: &[u8]) os::Error!usize {
-    var ptr = bytes.get_ptr_read();
-    var ret = syscall::syscall3(1, os::fd_raw(fd) as usize, ptr as usize, bytes.len());
-    if ret < 0 {
-        (os::error((0isize - ret) as i32))!
-    } else {
-        !(ret as usize)
+pub enum Error: i32 {
+    PermissionDenied = 1,
+    NoEntry = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    NoMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    Exists = 17,
+    Invalid = 22,
+    NoSpace = 28,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    _,
+}
+
+pub struct File {
+    fd: i32,
+}
+
+pub fn error(code: i32) Error {
+    code as Error
+}
+
+fn syscall_error(ret: isize) Error {
+    error((0isize - ret) as i32)
+}
+
+extend File {
+    pub fn init(fd: i32) File {
+        { fd: fd }
+    }
+
+    pub fn stdin() File {
+        File::init(0)
+    }
+
+    pub fn stdout() File {
+        File::init(1)
+    }
+
+    pub fn stderr() File {
+        File::init(2)
+    }
+
+    pub fn raw(&self) i32 {
+        self.fd
+    }
+
+    pub fn write_some(&self, bytes: &[u8]) Error!usize {
+        var ptr = bytes.get_ptr_read();
+        var ret = syscall::syscall3(1, self.fd as usize, ptr as usize, bytes.len());
+        if ret < 0 {
+            syscall_error(ret)!
+        } else {
+            !(ret as usize)
+        }
+    }
+
+    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
+        var ptr = bytes.get_ptr();
+        var ret = syscall::syscall3(0, self.fd as usize, ptr as usize, bytes.len());
+        if ret < 0 {
+            syscall_error(ret)!
+        } else {
+            !(ret as usize)
+        }
     }
 }
 
-pub fn map_pages(len: usize) os::Error!&mut u8 {
+pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
+    if align == 0 {
+        return Error::Invalid!;
+    }
+    if align > 4096 {
+        return Error::Invalid!;
+    }
     var prot_read_write = 3usize;
     var private_anonymous = 34usize;
     var ret = syscall::syscall6(
@@ -27,16 +94,16 @@ pub fn map_pages(len: usize) os::Error!&mut u8 {
         0,
     );
     if ret < 0 {
-        (os::error((0isize - ret) as i32))!
+        syscall_error(ret)!
     } else {
         !((ret as usize) as &mut u8)
     }
 }
 
-pub fn unmap_pages(ptr: &mut u8, len: usize) os::Error!void {
+pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
     var ret = syscall::syscall3(11, ptr as usize, len, 0);
     if ret < 0 {
-        (os::error((0isize - ret) as i32))!
+        syscall_error(ret)!
     } else {
         !{}
     }

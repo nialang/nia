@@ -158,7 +158,7 @@ fn freestanding_start_can_call_public_root_main() {
         r#"
 import std.process;
 
-pub fn main(init: process::Init) process::Exit!void {
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     !{}
 }

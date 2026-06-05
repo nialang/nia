@@ -399,10 +399,12 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::Method {
                 def_id,
                 args,
+                receiver_kind,
                 receiver,
             } => FunctionCallee::Method {
                 def_id,
                 args,
+                receiver_kind,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
             FunctionCallee::TraitMethod {
@@ -412,16 +414,61 @@ impl<'a> ModuleLowerer<'a> {
                 self_ty,
                 trait_args,
                 args,
+                receiver_kind,
                 receiver,
-            } => FunctionCallee::TraitMethod {
-                trait_id,
-                method_id,
-                method_name,
-                self_ty,
-                trait_args,
-                args,
-                receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
-            },
+            } => {
+                let receiver = Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver));
+                if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                    if let Some((def_id, target_args)) = self.resolve_trait_method_impl(
+                        trait_id,
+                        &trait_args,
+                        method_id,
+                        &method_name,
+                        self_ty,
+                    ) {
+                        let mut instance_args = target_args;
+                        instance_args.extend(args);
+                        FunctionCallee::Method {
+                            def_id,
+                            args: instance_args,
+                            receiver_kind,
+                            receiver,
+                        }
+                    } else if self.trait_method_has_default(method_id) {
+                        let mut instance_args = vec![self_ty];
+                        instance_args.extend(trait_args.iter().copied());
+                        instance_args.extend(args);
+                        FunctionCallee::Method {
+                            def_id: method_id,
+                            args: instance_args,
+                            receiver_kind,
+                            receiver,
+                        }
+                    } else {
+                        FunctionCallee::TraitMethod {
+                            trait_id,
+                            method_id,
+                            method_name,
+                            self_ty,
+                            trait_args,
+                            args,
+                            receiver_kind,
+                            receiver,
+                        }
+                    }
+                } else {
+                    FunctionCallee::TraitMethod {
+                        trait_id,
+                        method_id,
+                        method_name,
+                        self_ty,
+                        trait_args,
+                        args,
+                        receiver_kind,
+                        receiver,
+                    }
+                }
+            }
             FunctionCallee::BuiltinMethod {
                 method,
                 self_ty,
@@ -453,6 +500,7 @@ impl<'a> ModuleLowerer<'a> {
                 slot,
                 params,
                 return_type,
+                receiver_kind,
                 receiver,
             } => FunctionCallee::DynamicTraitMethod {
                 object_ty,
@@ -463,6 +511,7 @@ impl<'a> ModuleLowerer<'a> {
                 slot,
                 params,
                 return_type,
+                receiver_kind,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
             },
             FunctionCallee::BuiltinOperator(operator) => FunctionCallee::BuiltinOperator(operator),
@@ -470,6 +519,40 @@ impl<'a> ModuleLowerer<'a> {
                 self.resolve_builtin_operator_calls_in_expr(*expr),
             )),
         }
+    }
+
+    fn trait_method_call_is_concrete(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+        method_args: &[InternedTyId],
+    ) -> bool {
+        !self.ty_contains_generic_param(self_ty)
+            && !trait_args
+                .iter()
+                .chain(method_args)
+                .any(|arg| self.ty_contains_generic_param(*arg))
+    }
+
+    fn ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
+        let body_interner = &self.input.body_ir.interner;
+        let extension_interner = self.input.extension_interner;
+        let mut ty_kind = |ty: InternedTyId| {
+            if ty.interner_id == body_interner.interner_id() {
+                return body_interner.get(ty).cloned();
+            }
+            if let Some(extension_interner) = extension_interner
+                && ty.interner_id == extension_interner.interner_id()
+            {
+                return extension_interner.get(ty).cloned();
+            }
+            None
+        };
+        crate::function_instances::contains_generic_param(
+            ty,
+            &mut ty_kind,
+            Some(&mut self.generic_param_presence),
+        )
     }
 
     fn resolve_builtin_operator_calls_in_place(&mut self, place: FunctionPlace) -> FunctionPlace {
@@ -585,6 +668,9 @@ impl<'a> ModuleLowerer<'a> {
                 callee: FunctionCallee::Method {
                     def_id,
                     args: method_args,
+                    receiver_kind: self
+                        .receiver_kind_for_method(def_id)
+                        .unwrap_or(nia_ast::ReceiverKind::Value),
                     receiver: Box::new(receiver.clone()),
                 },
                 args: Vec::new(),
@@ -623,6 +709,9 @@ impl<'a> ModuleLowerer<'a> {
                 callee: FunctionCallee::Method {
                     def_id,
                     args: method_args,
+                    receiver_kind: self
+                        .receiver_kind_for_method(def_id)
+                        .unwrap_or(nia_ast::ReceiverKind::Value),
                     receiver: Box::new(lhs.clone()),
                 },
                 args: vec![rhs.clone()],
@@ -650,6 +739,9 @@ impl<'a> ModuleLowerer<'a> {
                 callee: FunctionCallee::Method {
                     def_id,
                     args: method_args,
+                    receiver_kind: self
+                        .receiver_kind_for_method(def_id)
+                        .unwrap_or(nia_ast::ReceiverKind::Value),
                     receiver: Box::new(receiver),
                 },
                 args,

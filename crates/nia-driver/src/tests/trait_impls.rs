@@ -34,6 +34,41 @@ fn main() i32 {
 }
 
 #[test]
+fn concrete_trait_default_method_dispatch_finds_impl_trait() {
+    let root = temp_dir("concrete_trait_default_method_dispatch_finds_impl_trait");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Show {
+    fn show(& self) i32;
+
+    fn double(& self) i32 {
+        self.show() * 2
+    }
+}
+
+struct Point {
+    x: i32,
+}
+
+extend Point : Show {
+    fn show(& self) i32 {
+        self.x
+    }
+}
+
+fn main() i32 {
+    var point: Point = { x: 7 };
+    point.double()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn trait_impl_rejects_extra_missing_and_mismatched_methods() {
     let root = temp_dir("trait_impl_rejects_extra_missing_and_mismatched_methods");
     write(
@@ -238,9 +273,10 @@ pub trait Writer {
     type Error;
 
     fn write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
+    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!void;
 }
 
-pub fn write_all[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
+pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
 where W: Writer
 {
     var written = writer.write(bytes).?;
@@ -254,7 +290,7 @@ where W: Writer
         r#"
 import .io;
 
-struct Fd {
+struct File {
     raw: i32,
 }
 
@@ -263,22 +299,28 @@ enum Error: i32 {
     _,
 }
 
-fn write(fd: Fd, bytes: &[u8]) Error!usize {
-    _ = fd;
-    !(bytes.len())
-}
-
-extend Fd : io::Writer {
+extend File : io::Writer {
     type Error = Error;
 
     fn write(& self, bytes: &[u8]) Error!usize {
-        write(self.*, bytes)
+        _ = self;
+        !(bytes.len())
+    }
+
+    fn write_all(& self, bytes: &[u8]) Error!void {
+        var written = 0usize;
+        while written < bytes.len() {
+            var chunk = & bytes[written..];
+            var n = self.write(chunk).?;
+            written += n;
+        }
+        !{}
     }
 }
 
 fn main() void {
-    var stdout: Fd = { raw: 1 };
-    switch io::write_all[Fd](& stdout, b"nia\n") {
+    var stdout: File = { raw: 1 };
+    switch io::write_fully_with[File](& stdout, b"nia\n") {
         !ok => _ = ok,
         error! => {},
     }
@@ -298,7 +340,7 @@ fn cross_module_generic_trait_method_dispatch_finds_impl_in_generic_module_for_f
     write(
         &root.join("os.nia"),
         r#"
-pub struct Fd {
+pub struct File {
     raw: i32,
 }
 
@@ -307,13 +349,10 @@ pub enum Error: i32 {
     _,
 }
 
-pub fn stdout() Fd {
-    { raw: 1 }
-}
-
-pub fn write(fd: Fd, bytes: &[u8]) Error!usize {
-    _ = fd;
-    !(bytes.len())
+extend File {
+    pub fn stdout() File {
+        { raw: 1 }
+    }
 }
 "#,
     );
@@ -326,9 +365,10 @@ pub trait Writer {
     type Error;
 
     fn write(& self, bytes: &[u8]) [Self as Writer]::Error!usize;
+    fn write_all(& self, bytes: &[u8]) [Self as Writer]::Error!void;
 }
 
-pub fn write_all[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
+pub fn write_fully_with[W](writer: & W, bytes: &[u8]) [W as Writer]::Error!void
 where W: Writer
 {
     var written = writer.write(bytes).?;
@@ -336,11 +376,22 @@ where W: Writer
     !{}
 }
 
-extend os::Fd : Writer {
+extend os::File : Writer {
     type Error = os::Error;
 
     fn write(& self, bytes: &[u8]) os::Error!usize {
-        os::write(self.*, bytes)
+        _ = self;
+        !(bytes.len())
+    }
+
+    fn write_all(& self, bytes: &[u8]) os::Error!void {
+        var written = 0usize;
+        while written < bytes.len() {
+            var chunk = & bytes[written..];
+            var n = self.write(chunk).?;
+            written += n;
+        }
+        !{}
     }
 }
 "#,
@@ -352,8 +403,8 @@ import .io;
 import .os;
 
 fn main() void {
-    var stdout = os::stdout();
-    switch io::write_all[os::Fd](& stdout, b"nia\n") {
+    var stdout = os::File::stdout();
+    switch io::write_fully_with[os::File](& stdout, b"nia\n") {
         !ok => _ = ok,
         error! => {},
     }

@@ -135,7 +135,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     fn store_params(&mut self) -> Result<(), Diagnostic> {
         let classifications = self
             .module
-            .classify_function_params(self.function.params.iter().map(|param| param.ty));
+            .classify_function_params(self.function.params.iter().map(|param| param.passing_ty));
         let mut llvm_index = usize::from(matches!(
             self.module
                 .classify_function_return(self.function.return_type),
@@ -358,10 +358,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     .map_err(|_| self.error(expr.span, "failed to extract tagged union tag"))
             }
             FunctionExprKind::TaggedUnionPayload { expr: inner } => {
-                let aggregate = self.emit_expr(inner)?.into_struct_value()?;
-                self.builder
-                    .build_extract_value(aggregate, 1, "tagged.payload")
-                    .map_err(|_| self.error(expr.span, "failed to extract tagged union payload"))
+                self.emit_tagged_union_payload(expr.span, inner, expr.ty)
             }
             FunctionExprKind::Try { .. } => Err(self.error(
                 expr.span,
@@ -630,6 +627,41 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             Some(TyKind::ErrorUnion { error, .. }) => Some(*error),
             _ => None,
         }
+    }
+
+    fn emit_tagged_union_payload(
+        &mut self,
+        span: Span,
+        tagged: &FunctionExpr,
+        payload_ty: InternedTyId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let tagged_value = self.emit_expr(tagged)?;
+        self.load_tagged_union_payload_from_value(span, tagged_value, tagged.ty, payload_ty)
+    }
+
+    fn load_tagged_union_payload_from_value(
+        &mut self,
+        span: Span,
+        tagged_value: BasicValueEnum<'ctx>,
+        tagged_ty: InternedTyId,
+        payload_ty: InternedTyId,
+    ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
+        let tagged_ty = self.module.llvm_basic_type(tagged_ty, span)?;
+        let tagged_ptr = self
+            .builder
+            .build_alloca(tagged_ty, "tagged.payload.copy")
+            .map_err(|_| self.error(span, "failed to allocate tagged union payload copy"))?;
+        self.builder
+            .build_store(tagged_ptr, tagged_value)
+            .map_err(|_| self.error(span, "failed to store tagged union payload copy"))?;
+        let payload_ptr = self
+            .builder
+            .build_struct_gep(tagged_ty, tagged_ptr, 1, "tagged.payload.ptr")
+            .map_err(|_| self.error(span, "failed to build tagged union payload address"))?;
+        let payload_llvm_ty = self.module.llvm_basic_type(payload_ty, span)?;
+        self.builder
+            .build_load(payload_llvm_ty, payload_ptr, "tagged.payload")
+            .map_err(|_| self.error(span, "failed to load tagged union payload"))
     }
 
     fn is_integer_like(&self, ty: InternedTyId) -> bool {

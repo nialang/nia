@@ -359,7 +359,8 @@ mod tests {
                 local_id: None,
                 name: Some("value".to_string()),
                 receiver: None,
-                ty: i32_ty,
+                passing_ty: i32_ty,
+                local_ty: i32_ty,
                 span: Span::default(),
             }],
             return_type: i32_ty,
@@ -386,6 +387,7 @@ mod tests {
                 interner,
                 comptime: ComptimeCheck::default(),
                 layouts: BackendLayouts {
+                    target: nia_layout::TargetDataLayout::LP64,
                     types: vec![
                         (i32_ty, TypeLayout { size: 4, align: 4 }),
                         (object_ty, TypeLayout { size: 16, align: 8 }),

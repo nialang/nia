@@ -243,6 +243,7 @@ fn main() i32 {
         extension_interner: None,
         program_extensions: &HashMap::new(),
         program_type_interners: &HashMap::new(),
+        program_functions: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
         trait_impls: &[],
@@ -422,7 +423,8 @@ fn main() i32 {
         .expect("id instance function body");
     let i32_ty = module.interner.primitive(nia_ty::PrimitiveTy::I32);
 
-    assert_eq!(instance.params[0].ty, i32_ty);
+    assert_eq!(instance.params[0].passing_ty, i32_ty);
+    assert_eq!(instance.params[0].local_ty, i32_ty);
     assert_eq!(instance.return_type, i32_ty);
     assert_eq!(body.ty, i32_ty);
     assert!(body.locals.iter().all(|local| local.ty == i32_ty));
@@ -470,7 +472,8 @@ fn main() i32 {
         .expect("inner instance");
 
     assert_eq!(instance.args, vec![i32_ptr]);
-    assert_eq!(instance.params[0].ty, i32_ptr);
+    assert_eq!(instance.params[0].passing_ty, i32_ptr);
+    assert_eq!(instance.params[0].local_ty, i32_ptr);
     assert_eq!(instance.return_type, i32_ptr);
     assert!(module.interner.get(instance.args[0]).is_some());
 }
@@ -2654,6 +2657,7 @@ fn main() i32 {
                 slot: 0,
                 params: vec![i32_ty],
                 return_type: i32_ty,
+                receiver_kind: nia_ast::ReceiverKind::Ref,
                 receiver: Box::new(FunctionExpr {
                     span,
                     ty: source_object_ty,
@@ -2827,6 +2831,7 @@ fn main() i32 {
                 slot: 0,
                 params: vec![i32_ty],
                 return_type: i32_ty,
+                receiver_kind: nia_ast::ReceiverKind::Ref,
                 receiver: Box::new(FunctionExpr {
                     span,
                     ty: source_object_ty,
@@ -4460,6 +4465,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         extension_interner: None,
         program_extensions: &HashMap::new(),
         program_type_interners: &HashMap::new(),
+        program_functions: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
         trait_impls: &[],

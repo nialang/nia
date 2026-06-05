@@ -387,17 +387,22 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to build propagation branch"))?;
 
         self.builder.position_at_end(failure_block);
-        self.emit_try_failure_return(body, block, span, aggregate, kind)?;
+        self.emit_try_failure_return(body, block, span, aggregate, value.ty, kind)?;
 
         self.builder.position_at_end(success_block);
         if !self.is_zero_sized_local(success_local) {
-            let payload = self
-                .builder
-                .build_extract_value(aggregate, 1, "try.payload")
-                .map_err(|_| self.error(span, "failed to extract propagation payload"))?;
             let Some(ptr) = self.locals.get(&success_local).copied() else {
                 return Err(self.error(span, "missing propagation success local"));
             };
+            let Some(payload_ty) = self.local_tys.get(&success_local).copied() else {
+                return Err(self.error(span, "missing propagation success local type"));
+            };
+            let payload = self.load_tagged_union_payload_from_value(
+                span,
+                aggregate.into(),
+                value.ty,
+                payload_ty,
+            )?;
             self.builder
                 .build_store(ptr, payload)
                 .map_err(|_| self.error(span, "failed to store propagation payload"))?;
@@ -411,6 +416,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         block: FunctionBlockId,
         span: Span,
         aggregate: nia_llvm::values::StructValue<'ctx>,
+        aggregate_ty: nia_ids::InternedTyId,
         kind: FunctionTryKind,
     ) -> Result<(), Diagnostic> {
         let return_ty = self.function.return_type;
@@ -440,16 +446,18 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if let Some(payload_ty) = self.error_union_error_ty(return_ty)
                     && !self.is_zero_sized(payload_ty)
                 {
-                    let payload = self
-                        .builder
-                        .build_extract_value(aggregate, 1, "try.error")
-                        .map_err(|_| self.error(span, "failed to extract propagated error"))?;
                     let payload_ptr = self
                         .builder
                         .build_struct_gep(return_llvm_ty, return_ptr, 1, "try.return.payload")
                         .map_err(|_| {
                             self.error(span, "failed to build propagation return payload")
                         })?;
+                    let payload = self.load_tagged_union_payload_from_value(
+                        span,
+                        aggregate.into(),
+                        aggregate_ty,
+                        payload_ty,
+                    )?;
                     self.builder
                         .build_store(payload_ptr, payload)
                         .map_err(|_| {

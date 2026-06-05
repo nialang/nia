@@ -635,7 +635,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         let main_path = root.join("main.nia");
         write(
             &main_path,
-            "import std.process; pub fn main(init: process::Init) process::Exit!void { _ = init; !{} }",
+            "import std.process; pub fn main(init: process::Init) process::ExitCode!void { _ = init; !{} }",
         );
 
         let program = load_program_with_map_and_entry_runtime(

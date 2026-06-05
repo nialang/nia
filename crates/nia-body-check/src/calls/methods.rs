@@ -313,6 +313,7 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::Method {
                     def_id: method_id,
                     args: instance_args,
+                    receiver_kind,
                 },
             );
         } else {
@@ -322,6 +323,7 @@ impl<'a> BodyChecker<'a> {
                 ResolvedCall::Method {
                     def_id: method_id,
                     args: Vec::new(),
+                    receiver_kind,
                 },
             );
         }
