@@ -455,7 +455,7 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn trait_impl_signature_args(
+    pub(crate) fn trait_impl_signature_args(
         &mut self,
         impl_signature: &TraitImplSignature,
         trait_id: TraitId,

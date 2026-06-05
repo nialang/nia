@@ -47,12 +47,17 @@ pub fn lower_module_types_with_id(
     module: &Module,
     resolved: &TypeResolution,
 ) -> TypeLowering {
+    let defs = nia_defs::collect_module_defs(module_id, module);
+    let mut program_defs = HashMap::new();
+    program_defs.insert(module_id, defs);
     let item_tree = ModuleItemTree::from_module(module);
     lower_module_types_from_item_tree_with_defs(
         module_id,
         &item_tree,
         resolved,
-        ProgramDefsContext::empty(),
+        ProgramDefsContext {
+            defs: Some(&program_defs),
+        },
     )
 }
 
@@ -113,6 +118,7 @@ fn lower_module_types_from_items(
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
+        associated_type_scope_stack: Vec::new(),
         next_const_expr_id: 0,
     };
     for item in items {
@@ -136,7 +142,16 @@ struct TypeLowerer<'a> {
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
     self_type_stack: Vec<InternedTyId>,
+    associated_type_scope_stack: Vec<AssociatedTypeScope>,
     next_const_expr_id: u32,
+}
+
+#[derive(Debug, Clone)]
+struct AssociatedTypeScope {
+    self_ty: InternedTyId,
+    trait_id: TraitId,
+    trait_args: Vec<InternedTyId>,
+    names: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,12 +197,49 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                         .interner
                         .intern(TyKind::GenericParam("Self".to_string()));
                     lowerer.with_self_type(self_ty, |lowerer| {
-                        for supertrait in &item_trait.supertraits {
-                            lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
-                        }
-                        lowerer.lower_where_clause(&item_trait.where_clause);
-                        for method in &item_trait.methods {
-                            lowerer.visit_function(&method.function);
+                        if let Some(trait_id) = lowerer.local_trait_id(item.span) {
+                            let trait_args = item_trait
+                                .generics
+                                .iter()
+                                .map(|generic| {
+                                    lowerer
+                                        .interner
+                                        .intern(TyKind::GenericParam(generic.clone()))
+                                })
+                                .collect::<Vec<_>>();
+                            let associated_types = item_trait
+                                .associated_types
+                                .iter()
+                                .map(|associated_type| associated_type.name.clone())
+                                .collect::<Vec<_>>();
+                            lowerer.with_associated_type_scope(
+                                AssociatedTypeScope {
+                                    self_ty,
+                                    trait_id: TraitId::Source(trait_id),
+                                    trait_args,
+                                    names: associated_types,
+                                },
+                                |lowerer| {
+                                    for supertrait in &item_trait.supertraits {
+                                        lowerer.lower_type_in_context(
+                                            supertrait,
+                                            TypeContext::TraitBound,
+                                        );
+                                    }
+                                    lowerer.lower_where_clause(&item_trait.where_clause);
+                                    for method in &item_trait.methods {
+                                        lowerer.visit_function(&method.function);
+                                    }
+                                },
+                            );
+                        } else {
+                            for supertrait in &item_trait.supertraits {
+                                lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
+                            }
+                            lowerer.lower_where_clause(&item_trait.where_clause);
+                            for method in &item_trait.methods {
+                                lowerer.visit_function(&method.function);
+                            }
                         }
                     });
                 });
@@ -195,16 +247,26 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             ItemKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |lowerer| {
                     let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
-                    if let Some(trait_ref) = &extend.trait_ref {
-                        lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
-                    }
+                    let trait_scope = extend.trait_ref.as_ref().and_then(|trait_ref| {
+                        let trait_ty =
+                            lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
+                        lowerer.associated_type_scope_for_trait_impl(self_ty, trait_ty)
+                    });
                     lowerer.with_self_type(self_ty, |lowerer| {
                         lowerer.lower_where_clause(&extend.where_clause);
                         for associated_type in &extend.associated_types {
                             lowerer.lower_type_in_context(&associated_type.ty, TypeContext::Value);
                         }
-                        for method in &extend.methods {
-                            lowerer.visit_function(&method.function);
+                        if let Some(trait_scope) = trait_scope {
+                            lowerer.with_associated_type_scope(trait_scope, |lowerer| {
+                                for method in &extend.methods {
+                                    lowerer.visit_function(&method.function);
+                                }
+                            });
+                        } else {
+                            for method in &extend.methods {
+                                lowerer.visit_function(&method.function);
+                            }
                         }
                     });
                 });
@@ -326,12 +388,49 @@ impl TypeLowerer<'_> {
                         .interner
                         .intern(TyKind::GenericParam("Self".to_string()));
                     lowerer.with_self_type(self_ty, |lowerer| {
-                        for supertrait in &item_trait.supertraits {
-                            lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
-                        }
-                        lowerer.lower_where_clause(&item_trait.where_clause);
-                        for method in &item_trait.methods {
-                            lowerer.visit_function(&method.function);
+                        if let Some(trait_id) = lowerer.local_trait_id(item.span) {
+                            let trait_args = item_trait
+                                .generics
+                                .iter()
+                                .map(|generic| {
+                                    lowerer
+                                        .interner
+                                        .intern(TyKind::GenericParam(generic.clone()))
+                                })
+                                .collect::<Vec<_>>();
+                            let associated_types = item_trait
+                                .associated_types
+                                .iter()
+                                .map(|associated_type| associated_type.name.clone())
+                                .collect::<Vec<_>>();
+                            lowerer.with_associated_type_scope(
+                                AssociatedTypeScope {
+                                    self_ty,
+                                    trait_id: TraitId::Source(trait_id),
+                                    trait_args,
+                                    names: associated_types,
+                                },
+                                |lowerer| {
+                                    for supertrait in &item_trait.supertraits {
+                                        lowerer.lower_type_in_context(
+                                            supertrait,
+                                            TypeContext::TraitBound,
+                                        );
+                                    }
+                                    lowerer.lower_where_clause(&item_trait.where_clause);
+                                    for method in &item_trait.methods {
+                                        lowerer.visit_function(&method.function);
+                                    }
+                                },
+                            );
+                        } else {
+                            for supertrait in &item_trait.supertraits {
+                                lowerer.lower_type_in_context(supertrait, TypeContext::TraitBound);
+                            }
+                            lowerer.lower_where_clause(&item_trait.where_clause);
+                            for method in &item_trait.methods {
+                                lowerer.visit_function(&method.function);
+                            }
                         }
                     });
                 });
@@ -339,16 +438,26 @@ impl TypeLowerer<'_> {
             ItemTreeNodeKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |lowerer| {
                     let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
-                    if let Some(trait_ref) = &extend.trait_ref {
-                        lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
-                    }
+                    let trait_scope = extend.trait_ref.as_ref().and_then(|trait_ref| {
+                        let trait_ty =
+                            lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
+                        lowerer.associated_type_scope_for_trait_impl(self_ty, trait_ty)
+                    });
                     lowerer.with_self_type(self_ty, |lowerer| {
                         lowerer.lower_where_clause(&extend.where_clause);
                         for associated_type in &extend.associated_types {
                             lowerer.lower_type_in_context(&associated_type.ty, TypeContext::Value);
                         }
-                        for method in &extend.methods {
-                            lowerer.visit_function(&method.function);
+                        if let Some(trait_scope) = trait_scope {
+                            lowerer.with_associated_type_scope(trait_scope, |lowerer| {
+                                for method in &extend.methods {
+                                    lowerer.visit_function(&method.function);
+                                }
+                            });
+                        } else {
+                            for method in &extend.methods {
+                                lowerer.visit_function(&method.function);
+                            }
                         }
                     });
                 });
@@ -492,6 +601,9 @@ impl<'a> TypeLowerer<'a> {
                     Some(TypeNameResolution::GenericParam) => self
                         .interner
                         .intern(TyKind::GenericParam(first.name.clone())),
+                    Some(TypeNameResolution::AssociatedType) => {
+                        self.lower_scoped_associated_type(ty.span, &first.name, type_segment)
+                    }
                     Some(TypeNameResolution::Def(def_id)) => {
                         let def_id = self
                             .resolved
@@ -1039,6 +1151,94 @@ impl<'a> TypeLowerer<'a> {
         self.self_type_stack.pop();
     }
 
+    fn with_associated_type_scope(
+        &mut self,
+        scope: AssociatedTypeScope,
+        f: impl FnOnce(&mut Self),
+    ) {
+        self.associated_type_scope_stack.push(scope);
+        f(self);
+        self.associated_type_scope_stack.pop();
+    }
+
+    fn lower_scoped_associated_type(
+        &mut self,
+        span: Span,
+        name: &str,
+        segment: &TypePathSegment,
+    ) -> InternedTyId {
+        if !segment.args.is_empty() {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                "associated type shorthand cannot take generic arguments",
+            ));
+            return self.interner.error();
+        }
+        let Some(scope) = self
+            .associated_type_scope_stack
+            .iter()
+            .rev()
+            .find(|scope| scope.names.iter().any(|associated| associated == name))
+            .cloned()
+        else {
+            self.diagnostics.push(Diagnostic::error(
+                span,
+                format!("unknown associated type `{name}`"),
+            ));
+            return self.interner.error();
+        };
+        self.interner.intern(TyKind::Projection {
+            self_ty: scope.self_ty,
+            trait_id: scope.trait_id,
+            trait_args: scope.trait_args,
+            name: name.to_string(),
+        })
+    }
+
+    fn local_trait_id(&self, span: Span) -> Option<GlobalDefId> {
+        let defs = self.defs_for_module(self.module_id)?;
+        let def_id = defs.def_spans.get(span)?;
+        Some(GlobalDefId {
+            module_id: self.module_id,
+            def_id,
+        })
+    }
+
+    fn associated_type_scope_for_trait_impl(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_ty: InternedTyId,
+    ) -> Option<AssociatedTypeScope> {
+        let trait_ty = self.normalize_if_known(trait_ty);
+        let Some((trait_id, trait_args)) = self.projection_trait_id(trait_ty) else {
+            return None;
+        };
+        let names = match trait_id {
+            TraitId::Source(def_id) => self.source_trait_associated_type_names(def_id),
+            TraitId::Builtin(_) => Vec::new(),
+        };
+        Some(AssociatedTypeScope {
+            self_ty,
+            trait_id,
+            trait_args,
+            names,
+        })
+    }
+
+    fn source_trait_associated_type_names(&self, trait_id: GlobalDefId) -> Vec<String> {
+        let Some(defs) = self.defs_for_module(trait_id.module_id) else {
+            return Vec::new();
+        };
+        defs.defs
+            .iter()
+            .filter_map(|(_, def)| {
+                (def.parent == Some(trait_id.def_id)
+                    && def.kind == nia_defs::DefKind::TraitAssociatedType)
+                    .then_some(def.name.clone())
+            })
+            .collect()
+    }
+
     fn lower_where_clause(&mut self, clause: &WhereClause) {
         for predicate in &clause.predicates {
             self.lower_type_in_context(&predicate.ty, TypeContext::Value);
@@ -1207,7 +1407,7 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
             "{:?}",
             resolved.diagnostics
         );
-        let lowered = lower_module_types(&module, &resolved);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         assert!(
             lowered
@@ -1239,6 +1439,56 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Pointer { .. })))
         );
+    }
+
+    #[test]
+    fn lowers_trait_associated_type_shorthand_to_projection() {
+        let (module, errors) = parse_module(
+            r#"
+trait Writer {
+    type Error;
+
+    fn write(& self) Error!void;
+}
+
+enum BufferError: i32 {
+    Bad = 1,
+    _,
+}
+
+struct Sink {}
+
+extend Sink : Writer {
+    type Error = BufferError;
+
+    fn write(& self) Error!void {
+        _ = self;
+        !{}
+    }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let shorthand_projections = lowered
+            .node_type_uses
+            .values()
+            .filter(|ty_id| {
+                matches!(
+                    lowered.interner.get(**ty_id),
+                    Some(TyKind::Projection { name, .. }) if name == "Error"
+                )
+            })
+            .count();
+        assert!(shorthand_projections >= 2, "{:?}", lowered.node_type_uses);
     }
 
     #[test]

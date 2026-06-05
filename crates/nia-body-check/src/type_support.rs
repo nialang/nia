@@ -131,15 +131,24 @@ impl<'a> BodyChecker<'a> {
                     .into_iter()
                     .map(|arg| self.normalize_projection(arg))
                     .collect::<Vec<_>>();
-                self.resolve_associated_type_projection_from_current_bounds(
+                self.resolve_associated_type_projection_from_current_impl(
                     self_ty,
                     trait_id,
                     &trait_args,
                     &name,
                 )
                 .or_else(|| {
+                    self.resolve_associated_type_projection_from_current_bounds(
+                        self_ty,
+                        trait_id,
+                        &trait_args,
+                        &name,
+                    )
+                })
+                .or_else(|| {
                     self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
                 })
+                .map(|resolved| self.normalize_projection(resolved))
                 .unwrap_or_else(|| {
                     self.interner.intern(TyKind::Projection {
                         self_ty,
@@ -157,6 +166,54 @@ impl<'a> BodyChecker<'a> {
             )
             | None => ty,
         }
+    }
+
+    fn resolve_associated_type_projection_from_current_impl(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let current_def_id = self.current_def_id?;
+        if current_def_id.module_id != self.defs.module_id {
+            return None;
+        }
+        let method = self.defs.defs.get(current_def_id.def_id)?;
+        if method.kind != DefKind::Method {
+            return None;
+        }
+
+        let impl_signature = self
+            .trait_impl_signature_for_method(current_def_id)?
+            .clone();
+        let impl_trait_id = self.extension_trait_id_for_method(current_def_id)?;
+        if impl_trait_id != trait_id {
+            return None;
+        }
+
+        let impl_self_ty = self.normalization.normalize(impl_signature.target_ty);
+        if !self.types_equivalent_without_projection_resolution(impl_self_ty, self_ty) {
+            return None;
+        }
+
+        let impl_trait_args = self.trait_impl_signature_args(&impl_signature, impl_trait_id)?;
+        if impl_trait_args.len() != trait_args.len()
+            || !impl_trait_args
+                .iter()
+                .zip(trait_args)
+                .all(|(actual, required)| {
+                    self.types_equivalent_without_projection_resolution(*actual, *required)
+                })
+        {
+            return None;
+        }
+
+        impl_signature
+            .associated_types
+            .iter()
+            .find(|associated_type| associated_type.name == name)
+            .map(|associated_type| self.normalize_projection(associated_type.ty))
     }
 
     fn resolve_associated_type_projection_from_current_bounds(

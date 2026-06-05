@@ -1,6 +1,6 @@
 import std.os;
 
-pub enum Error: i32 {
+pub enum BufferError: i32 {
     EndOfStream = 1,
     ShortWrite = 2,
     NoSpace = 3,
@@ -10,15 +10,15 @@ pub enum Error: i32 {
 pub trait Writer {
     type Error;
 
-    fn short_write(&self) [Self as Writer]::Error;
+    fn short_write(&self) Error;
 
-    fn write(&mut self, bytes: &[u8]) [Self as Writer]::Error!usize;
+    fn write(&mut self, bytes: &[u8]) Error!usize;
 
-    fn flush(&mut self) [Self as Writer]::Error!void {
+    fn flush(&mut self) Error!void {
         !{}
     }
 
-    fn write_all(&mut self, bytes: &[u8]) [Self as Writer]::Error!void {
+    fn write_all(&mut self, bytes: &[u8]) Error!void {
         var written = 0usize;
         while written < bytes.len() {
             var chunk = & bytes[written..];
@@ -35,11 +35,11 @@ pub trait Writer {
 pub trait Reader {
     type Error;
 
-    fn end_of_stream(&self) [Self as Reader]::Error;
+    fn end_of_stream(&self) Error;
 
-    fn read(&mut self, bytes: &mut [u8]) [Self as Reader]::Error!usize;
+    fn read(&mut self, bytes: &mut [u8]) Error!usize;
 
-    fn read_exact(&mut self, bytes: &mut [u8]) [Self as Reader]::Error!void {
+    fn read_exact(&mut self, bytes: &mut [u8]) Error!void {
         var read = 0usize;
         while read < bytes.len() {
             var chunk = &mut bytes[read..];
@@ -95,13 +95,13 @@ extend FixedBufferWriter {
 }
 
 extend FixedBufferWriter : Writer {
-    type Error = Error;
+    type Error = BufferError;
 
-    pub fn short_write(&self) Error {
-        Error::NoSpace
+    pub fn short_write(&self) BufferError {
+        BufferError::NoSpace
     }
 
-    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+    pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
         var remaining = self.buffer.len() - self.len;
         var count = bytes.len();
         if count > remaining {
@@ -129,13 +129,13 @@ extend FixedBufferReader {
 }
 
 extend FixedBufferReader : Reader {
-    type Error = Error;
+    type Error = BufferError;
 
-    pub fn end_of_stream(&self) Error {
-        Error::EndOfStream
+    pub fn end_of_stream(&self) BufferError {
+        BufferError::EndOfStream
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+    pub fn read(&mut self, bytes: &mut [u8]) BufferError!usize {
         var remaining = self.buffer.len() - self.cursor;
         var count = bytes.len();
         if count > remaining {
@@ -163,14 +163,14 @@ extend DiscardingWriter {
 }
 
 extend DiscardingWriter : Writer {
-    type Error = Error;
+    type Error = BufferError;
 
-    pub fn short_write(&self) Error {
+    pub fn short_write(&self) BufferError {
         _ = self;
-        Error::ShortWrite
+        BufferError::ShortWrite
     }
 
-    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+    pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
         self.len += bytes.len();
         !bytes.len()
     }
@@ -207,11 +207,11 @@ where R: Reader
 {
     type Error = [R as Reader]::Error;
 
-    pub fn end_of_stream(&self) [R as Reader]::Error {
+    pub fn end_of_stream(&self) Error {
         self.reader.end_of_stream()
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) [R as Reader]::Error!usize {
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
         switch self.limit.remaining {
             ?remaining => {
                 if remaining == 0 {
@@ -238,11 +238,11 @@ where R: Reader
 extend os::File : Writer {
     type Error = os::Error;
 
-    pub fn short_write(&self) os::Error {
+    pub fn short_write(&self) Error {
         os::Error::Io
     }
 
-    pub fn write(&mut self, bytes: &[u8]) os::Error!usize {
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
         self.write_some(bytes)
     }
 }
@@ -250,11 +250,11 @@ extend os::File : Writer {
 extend os::File : Reader {
     type Error = os::Error;
 
-    pub fn end_of_stream(&self) os::Error {
+    pub fn end_of_stream(&self) Error {
         os::Error::Io
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) os::Error!usize {
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
         self.read_some(bytes)
     }
 }

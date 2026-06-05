@@ -166,6 +166,7 @@ impl<'a> ModuleLowerer<'a> {
             return None;
         }
         let global_def_id = self.global_def_id(def_id);
+        let previous_function = self.current_instantiated_function.replace(global_def_id);
         let function_body = self
             .input
             .function_bodies
@@ -173,7 +174,7 @@ impl<'a> ModuleLowerer<'a> {
             .cloned()
             .map(|body| self.resolve_builtin_operator_calls_in_body(body))
             .map(|body| self.optimize_function_body(global_def_id, false, 0, body));
-        Some(BackendFunction {
+        let backend_function = Some(BackendFunction {
             def_id: global_def_id,
             name: function.name.clone(),
             generics: signature.generics.clone(),
@@ -205,17 +206,19 @@ impl<'a> ModuleLowerer<'a> {
                         .receiver
                         .map(|receiver| self.receiver_passing_ty(receiver, local_ty))
                         .unwrap_or(signature.ty);
+                    let substitutions = std::collections::HashMap::new();
                     BackendParam {
                         local_id,
                         name: param.name.clone(),
                         receiver: signature.receiver,
-                        passing_ty,
-                        local_ty,
+                        passing_ty: self.instantiate_ty(passing_ty, &substitutions),
+                        local_ty: self.instantiate_ty(local_ty, &substitutions),
                         span: param.span,
                     }
                 })
                 .collect(),
-            return_type: signature.return_type,
+            return_type: self
+                .instantiate_ty(signature.return_type, &std::collections::HashMap::new()),
             is_extern: signature.is_extern,
             is_variadic: signature.is_variadic,
             attributes: signature
@@ -227,7 +230,9 @@ impl<'a> ModuleLowerer<'a> {
                 .collect(),
             function_body,
             span,
-        })
+        });
+        self.current_instantiated_function = previous_function;
+        backend_function
     }
 
     fn receiver_passing_ty(
