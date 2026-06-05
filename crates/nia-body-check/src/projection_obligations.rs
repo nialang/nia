@@ -108,9 +108,7 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
     ) -> Vec<TraitObligation> {
         let mut obligations = Vec::new();
-        if let Some(trait_obligation) = self.method_trait_obligation(def_id) {
-            self.push_trait_obligation_with_supertraits(&mut obligations, trait_obligation);
-        }
+        self.push_method_owner_trait_obligations(def_id, &mut obligations);
         self.push_where_predicate_obligations(&mut obligations, &signature.where_predicates);
         obligations
     }
