@@ -5,8 +5,7 @@ use nia_ast::{
     StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_body_ir::{
-    BracketSuffixResolution, BuiltinConst, BuiltinOperator, BuiltinOperatorOp, BuiltinPlaceMethod,
-    BuiltinValue, ComptimeIfSelection, PlaceBase, PlaceElem, ResolvedCall, TypedArrayElements,
+    BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, PlaceBase, PlaceElem, TypedArrayElements,
     TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
     TypedForIterator, TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange,
     TypedRangeIteratorKind, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
@@ -14,6 +13,9 @@ use nia_body_ir::{
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
+use nia_sema_ir::{
+    BracketSuffixResolution, BuiltinOperatorOp, BuiltinValue, ComptimeIfSelection, ResolvedCall,
+};
 use nia_span::Span;
 use nia_trait_solve::TraitResolution;
 use nia_ty::{BuiltinTrait, RangeTyKind, TyKind};

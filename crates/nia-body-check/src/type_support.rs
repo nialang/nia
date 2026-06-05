@@ -6,10 +6,10 @@ use crate::literals::{
     string_literal_char_len,
 };
 use nia_ast::{Expr, ExprKind, UnaryOp};
-use nia_body_ir::{ArrayToSliceCoercion, CStringPointerCoercion};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
+use nia_sema_ir::{ArrayToSliceCoercion, CStringPointerCoercion};
 use nia_span::Span;
 use nia_trait_solve::TraitSolverContext;
 use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, PrimitiveTy, TraitId, TyKind};

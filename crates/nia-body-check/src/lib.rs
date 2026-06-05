@@ -18,11 +18,7 @@ pub use nia_ty::import_type_into;
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, SliceRange, Stmt, StmtKind,
 };
-use nia_body_ir::{
-    ArrayToSliceCoercion, BodyFacts, BodyIr, BracketSuffixResolution, BuiltinValue,
-    CStringPointerCoercion, ComptimeIfSelection, FunctionReference, GenericInstantiation,
-    ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
-};
+use nia_body_ir::{BodyFacts, BodyIr};
 use nia_comptime_check::ComptimeCheck;
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
@@ -37,7 +33,11 @@ use nia_item_signatures::{
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
-use nia_sema_ir::SemanticFacts;
+use nia_sema_ir::{
+    ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
+    ComptimeIfSelection, FunctionReference, GenericInstantiation, ResolvedCall,
+    TraitObjectCoercion, TraitObjectUpcast,
+};
 use nia_source::SourceVersion;
 use nia_span::Span;
 use nia_target_config::TargetConfig;
@@ -321,31 +321,29 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             global_inits: checker.global_inits,
         },
         facts: BodyFacts {
-            semantic: SemanticFacts {
-                expr_types: checker.expr_types,
-                bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
-                array_to_slice_coercions: checker.array_to_slice_coercions,
-                c_string_pointer_coercions: checker.c_string_pointer_coercions,
-                trait_object_coercions: checker.trait_object_coercions,
-                trait_object_upcasts: checker.trait_object_upcasts,
-                local_types: checker.local_types,
-                comptime_if_selections: checker.comptime_if_selections,
-                builtin_values: checker.builtin_values,
-                array_repeat_counts: checker.array_repeat_counts,
-                switch_pattern_values: checker.switch_pattern_values,
-                function_references: checker.function_references,
-                generic_instantiations: checker.generic_instantiations,
-                node_expr_types: checker.node_expr_types,
-                node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
-                node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
-                node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
-                node_trait_object_coercions: checker.node_trait_object_coercions,
-                node_trait_object_upcasts: checker.node_trait_object_upcasts,
-                node_builtin_values: checker.node_builtin_values,
-                node_function_references: checker.node_function_references,
-            },
+            expr_types: checker.expr_types,
+            bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
+            array_to_slice_coercions: checker.array_to_slice_coercions,
+            c_string_pointer_coercions: checker.c_string_pointer_coercions,
+            trait_object_coercions: checker.trait_object_coercions,
+            trait_object_upcasts: checker.trait_object_upcasts,
+            local_types: checker.local_types,
+            comptime_if_selections: checker.comptime_if_selections,
+            builtin_values: checker.builtin_values,
+            array_repeat_counts: checker.array_repeat_counts,
+            switch_pattern_values: checker.switch_pattern_values,
             resolved_calls: checker.resolved_calls,
+            function_references: checker.function_references,
+            generic_instantiations: checker.generic_instantiations,
+            node_expr_types: checker.node_expr_types,
+            node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
+            node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
+            node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
+            node_trait_object_coercions: checker.node_trait_object_coercions,
+            node_trait_object_upcasts: checker.node_trait_object_upcasts,
+            node_builtin_values: checker.node_builtin_values,
             node_resolved_calls: checker.node_resolved_calls,
+            node_function_references: checker.node_function_references,
         },
         diagnostics: checker.diagnostics,
     }

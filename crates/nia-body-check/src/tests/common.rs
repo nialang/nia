@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub(super) use crate::*;
-pub(super) use nia_body_ir::{BracketSuffixResolution, BuiltinValue};
 pub(super) use nia_defs::{
     DefKind, ModuleId, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs,
 };
@@ -8,6 +7,7 @@ pub(super) use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatur
 pub(super) use nia_local_resolve::resolve_module_locals;
 pub(super) use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
 pub(super) use nia_parser::{parse_module, parse_module_syntax_with_origins};
+pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue};
 pub(super) use nia_source::{SourceId, SourceRevision, SourceVersion};
 pub(super) use nia_type_lower::lower_module_types;
 pub(super) use nia_type_resolve::resolve_module_types;

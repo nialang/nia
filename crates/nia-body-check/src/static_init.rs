@@ -5,10 +5,10 @@ use crate::literals::{
     decode_char_literal, decode_string_literal, numeric_literal_body, parse_int_literal,
 };
 use nia_ast::{ArrayElements, Expr, ExprKind, IndexArg};
-use nia_body_ir::BuiltinValue;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_local_resolve::LocalUse;
+use nia_sema_ir::BuiltinValue;
 use nia_static_ir::{StaticAddressElem, StaticFieldInit, StaticInit};
 use nia_value_resolve::ValueNameResolution;
 

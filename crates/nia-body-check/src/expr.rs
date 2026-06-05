@@ -2,11 +2,11 @@
 use crate::BodyChecker;
 use crate::literals::{float_literal_suffix_ty, integer_literal_suffix_ty};
 use nia_ast::{AssignOp, BinaryOp, BracketArg, ComptimeIfExpr, Expr, ExprKind, IndexArg, UnaryOp};
-use nia_body_ir::{BracketSuffixResolution, BuiltinOperatorOp, ComptimeIfSelection};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
+use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, ComptimeIfSelection};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;

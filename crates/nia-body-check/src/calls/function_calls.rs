@@ -3,10 +3,10 @@ use std::collections::HashMap;
 
 use crate::{BodyChecker, ResolvedFunctionSignature, generic_inst_base};
 use nia_ast::{BracketArg, Expr, ExprKind};
-use nia_body_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
+use nia_sema_ir::{BracketSuffixResolution, FunctionReference, ResolvedCall};
 use nia_span::Span;
 use nia_ty::TyKind;
 use nia_value_resolve::ValueNameResolution;
