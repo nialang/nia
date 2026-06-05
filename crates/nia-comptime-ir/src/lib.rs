@@ -6,11 +6,73 @@ use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ResolvedComptimeModule {
-    pub enums: Vec<ResolvedComptimeEnum>,
-    pub global_initializers: HashMap<GlobalDefId, ResolvedComptimeExpr>,
-    pub local_initializers: HashMap<LocalId, ResolvedComptimeLocalInitializer>,
-    pub functions: HashMap<GlobalDefId, ResolvedComptimeFunction>,
-    pub const_exprs: HashMap<GlobalConstExprId, ResolvedComptimeExpr>,
+    enums: Vec<ResolvedComptimeEnum>,
+    global_initializers: HashMap<GlobalDefId, ResolvedComptimeExpr>,
+    local_initializers: HashMap<LocalId, ResolvedComptimeLocalInitializer>,
+    functions: HashMap<GlobalDefId, ResolvedComptimeFunction>,
+    const_exprs: HashMap<GlobalConstExprId, ResolvedComptimeExpr>,
+}
+
+impl ResolvedComptimeModule {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn enums(&self) -> &[ResolvedComptimeEnum] {
+        &self.enums
+    }
+
+    pub fn global_initializers(&self) -> &HashMap<GlobalDefId, ResolvedComptimeExpr> {
+        &self.global_initializers
+    }
+
+    pub fn local_initializers(&self) -> &HashMap<LocalId, ResolvedComptimeLocalInitializer> {
+        &self.local_initializers
+    }
+
+    pub fn functions(&self) -> &HashMap<GlobalDefId, ResolvedComptimeFunction> {
+        &self.functions
+    }
+
+    pub fn const_exprs(&self) -> &HashMap<GlobalConstExprId, ResolvedComptimeExpr> {
+        &self.const_exprs
+    }
+
+    pub fn push_enum(&mut self, item: ResolvedComptimeEnum) {
+        self.enums.push(item);
+    }
+
+    pub fn insert_global_initializer(
+        &mut self,
+        id: GlobalDefId,
+        value: ResolvedComptimeExpr,
+    ) -> Option<ResolvedComptimeExpr> {
+        self.global_initializers.insert(id, value)
+    }
+
+    pub fn insert_local_initializer(
+        &mut self,
+        id: LocalId,
+        value: ResolvedComptimeLocalInitializer,
+    ) -> Option<ResolvedComptimeLocalInitializer> {
+        self.local_initializers.insert(id, value)
+    }
+
+    pub fn insert_function(
+        &mut self,
+        id: GlobalDefId,
+        function: ResolvedComptimeFunction,
+    ) -> Option<ResolvedComptimeFunction> {
+        self.functions.insert(id, function)
+    }
+
+    pub fn insert_const_expr(
+        &mut self,
+        id: GlobalConstExprId,
+        expr: ResolvedComptimeExpr,
+    ) -> Option<ResolvedComptimeExpr> {
+        self.const_exprs.insert(id, expr)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

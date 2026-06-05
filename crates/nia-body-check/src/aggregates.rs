@@ -1189,11 +1189,11 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
     ) -> Option<&nia_comptime_ir::ResolvedComptimeFunction> {
         if def_id.module_id == self.defs.module_id {
-            return self.comptime_module.functions.get(&def_id);
+            return self.comptime_module.functions().get(&def_id);
         }
         self.program_comptime_modules
             .get(&def_id.module_id)?
-            .functions
+            .functions()
             .get(&def_id)
     }
 }

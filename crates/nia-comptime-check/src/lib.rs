@@ -350,7 +350,7 @@ impl ComptimeModuleLowerer<'_> {
                 && let Some((expr, explicit_type)) = self.local_initializer(local_id)
                 && let Some(value) = self.lower_expr(&expr)
             {
-                self.module.local_initializers.insert(
+                self.module.insert_local_initializer(
                     local_id,
                     ResolvedComptimeLocalInitializer::new(explicit_type, value),
                 );
@@ -358,7 +358,7 @@ impl ComptimeModuleLowerer<'_> {
         }
         for (id, expr) in self.input.const_exprs {
             if let Some(lowered) = self.lower_expr(expr) {
-                self.module.const_exprs.insert(*id, lowered);
+                self.module.insert_const_expr(*id, lowered);
             }
         }
     }
@@ -383,7 +383,7 @@ impl ComptimeModuleLowerer<'_> {
                 ))
             })
             .collect();
-        self.module.enums.push(ResolvedComptimeEnum::new(
+        self.module.push_enum(ResolvedComptimeEnum::new(
             self.global_def_id(enum_id),
             item_span,
             variants,
@@ -399,8 +399,7 @@ impl ComptimeModuleLowerer<'_> {
         };
         if let Some(value) = self.lower_expr(value) {
             self.module
-                .global_initializers
-                .insert(self.global_def_id(def_id), value);
+                .insert_global_initializer(self.global_def_id(def_id), value);
         }
     }
 
@@ -425,8 +424,7 @@ impl ComptimeModuleLowerer<'_> {
         ) {
             Ok(function) => {
                 self.module
-                    .functions
-                    .insert(self.global_def_id(def_id), function);
+                    .insert_function(self.global_def_id(def_id), function);
             }
             Err(err) => self
                 .diagnostics
@@ -851,11 +849,11 @@ impl Analyzer<'_> {
     }
 
     fn analyze_module(&mut self) {
-        let enums = self.input.module.enums.clone();
+        let enums = self.input.module.enums().to_vec();
         for item_enum in &enums {
             self.eval_enum(item_enum);
         }
-        let const_exprs = self.input.module.const_exprs.clone();
+        let const_exprs = self.input.module.const_exprs().clone();
         for (id, expr) in const_exprs {
             if let Some(value) = self.eval_resolved_array_len_expr(&expr) {
                 self.array_lengths.insert(id, value);
@@ -864,7 +862,7 @@ impl Analyzer<'_> {
         let global_initializers = self
             .input
             .module
-            .global_initializers
+            .global_initializers()
             .keys()
             .copied()
             .collect::<Vec<_>>();
@@ -879,7 +877,7 @@ impl Analyzer<'_> {
         let local_initializers = self
             .input
             .module
-            .local_initializers
+            .local_initializers()
             .keys()
             .copied()
             .collect::<Vec<_>>();
@@ -1454,7 +1452,7 @@ impl Analyzer<'_> {
     }
 
     fn find_local_binding_type(&mut self, local_id: LocalId) -> Option<InternedTyId> {
-        if let Some(initializer) = self.input.module.local_initializers.get(&local_id)
+        if let Some(initializer) = self.input.module.local_initializers().get(&local_id)
             && initializer.explicit_type().is_some()
         {
             return initializer.explicit_type();
@@ -1462,7 +1460,7 @@ impl Analyzer<'_> {
         let global_initializers = self
             .input
             .module
-            .global_initializers
+            .global_initializers()
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -1474,7 +1472,7 @@ impl Analyzer<'_> {
         let local_initializers = self
             .input
             .module
-            .local_initializers
+            .local_initializers()
             .values()
             .map(|initializer| initializer.value().clone())
             .collect::<Vec<_>>();
@@ -1486,7 +1484,7 @@ impl Analyzer<'_> {
         let function_bodies = self
             .input
             .module
-            .functions
+            .functions()
             .values()
             .map(|function| function.body().clone())
             .collect::<Vec<_>>();
@@ -1623,13 +1621,13 @@ impl Analyzer<'_> {
 
     fn global_initializer(&self, global_id: GlobalDefId) -> Option<&ResolvedComptimeExpr> {
         if global_id.module_id == self.input.defs.module_id {
-            self.input.module.global_initializers.get(&global_id)
+            self.input.module.global_initializers().get(&global_id)
         } else {
             self.input
                 .program
                 .modules?
                 .get(&global_id.module_id)?
-                .global_initializers
+                .global_initializers()
                 .get(&global_id)
         }
     }
@@ -1645,7 +1643,7 @@ impl Analyzer<'_> {
     fn local_initializer(&self, local_id: LocalId) -> Option<&ResolvedComptimeExpr> {
         self.input
             .module
-            .local_initializers
+            .local_initializers()
             .get(&local_id)
             .map(|initializer| initializer.value())
     }
@@ -1678,13 +1676,13 @@ impl Analyzer<'_> {
         def_id: GlobalDefId,
     ) -> Option<&nia_comptime_ir::ResolvedComptimeFunction> {
         if def_id.module_id == self.input.defs.module_id {
-            self.input.module.functions.get(&def_id)
+            self.input.module.functions().get(&def_id)
         } else {
             self.input
                 .program
                 .modules?
                 .get(&def_id.module_id)?
-                .functions
+                .functions()
                 .get(&def_id)
         }
     }
@@ -2581,13 +2579,13 @@ impl Analyzer<'_> {
 
     fn eval_array_len_const_expr_id(&mut self, id: GlobalConstExprId) -> Option<u64> {
         let expr = if id.module_id == self.input.defs.module_id {
-            self.input.module.const_exprs.get(&id)?.clone()
+            self.input.module.const_exprs().get(&id)?.clone()
         } else {
             self.input
                 .program
                 .modules?
                 .get(&id.module_id)?
-                .const_exprs
+                .const_exprs()
                 .get(&id)?
                 .clone()
         };
