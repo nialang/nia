@@ -1600,24 +1600,12 @@ impl Analyzer<'_> {
         let target_ty = self.comptime_arg_runtime_type(&switch.target, None)?;
         for arm in &switch.arms {
             for pattern in &arm.patterns {
-                if self.switch_pattern_local_id(pattern) == Some(local_id) {
+                if pattern.resolved_local_id() == Some(local_id) {
                     return self.switch_pattern_binding_type(pattern, target_ty);
                 }
             }
         }
         None
-    }
-
-    fn switch_pattern_local_id(&self, pattern: &ComptimeSwitchPattern) -> Option<LocalId> {
-        match pattern {
-            ComptimeSwitchPattern::OptionalSome { local_id, .. }
-            | ComptimeSwitchPattern::ErrorOk { local_id, .. }
-            | ComptimeSwitchPattern::ErrorErr { local_id, .. } => *local_id,
-            ComptimeSwitchPattern::Default
-            | ComptimeSwitchPattern::OptionalNull { .. }
-            | ComptimeSwitchPattern::Expr(_)
-            | ComptimeSwitchPattern::Range { .. } => None,
-        }
     }
 
     fn switch_pattern_binding_type(
@@ -1745,19 +1733,11 @@ impl Analyzer<'_> {
     }
 
     fn comptime_function(&self, callee: &ComptimeExpr) -> Option<GlobalDefId> {
-        match &callee.kind {
-            ComptimeExprKind::Ident {
-                resolution: Some(ComptimeNameResolution::Global(global_id)),
-                ..
-            }
-            | ComptimeExprKind::Qualified {
-                resolution: Some(ComptimeNameResolution::Global(global_id)),
-                ..
-            } => {
-                return (self.def_kind_of(*global_id) == Some(DefKind::Function))
-                    .then_some(*global_id);
-            }
-            _ => {}
+        if let Some(Some(ComptimeNameResolution::Global(global_id))) =
+            callee.try_resolved_name_resolution()
+            && self.def_kind_of(global_id) == Some(DefKind::Function)
+        {
+            return Some(global_id);
         }
         None
     }
@@ -3140,30 +3120,29 @@ impl Analyzer<'_> {
     ) -> Option<()> {
         for pattern in patterns {
             let (name, local_id, ty) = match pattern {
-                ComptimeSwitchPattern::OptionalSome { name, local_id, .. } => {
+                ComptimeSwitchPattern::OptionalSome { name, .. } => {
                     let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, local_id, elem)
+                    (name, pattern.resolved_local_id()?, elem)
                 }
-                ComptimeSwitchPattern::ErrorOk { name, local_id, .. } => {
+                ComptimeSwitchPattern::ErrorOk { name, .. } => {
                     let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, local_id, value)
+                    (name, pattern.resolved_local_id()?, value)
                 }
-                ComptimeSwitchPattern::ErrorErr { name, local_id, .. } => {
+                ComptimeSwitchPattern::ErrorErr { name, .. } => {
                     let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, local_id, error)
+                    (name, pattern.resolved_local_id()?, error)
                 }
                 ComptimeSwitchPattern::Default
                 | ComptimeSwitchPattern::OptionalNull { .. }
                 | ComptimeSwitchPattern::Expr(_)
                 | ComptimeSwitchPattern::Range { .. } => continue,
             };
-            let local_id = (*local_id)?;
             self.bind_comptime_local_type(local_id, name, ComptimeValueType::Runtime(ty));
         }
         Some(())
@@ -4316,13 +4295,22 @@ impl ComptimeEnv for Analyzer<'_> {
         type_arg: &ComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
         let module_id = self.current_execution_module_id();
-        let ty_id = type_arg
-            .ty
-            .and_then(|ty| {
+        let ty_id = {
+            let Some(ty) = type_arg.try_resolved_ty() else {
+                return Err(ComptimeError {
+                    span,
+                    message: format!(
+                        "cannot resolve type argument for comptime builtin `@{}`",
+                        builtin.name()
+                    ),
+                });
+            };
+            (|| {
                 self.ensure_working_interner(module_id)?;
                 self.import_ty_into_module_or_none(ty, module_id)
-            })
-            .map(|ty| self.substitute_ty_generics(ty));
+            })()
+        }
+        .map(|ty| self.substitute_ty_generics(ty));
         let Some(ty_id) = ty_id else {
             return Err(ComptimeError {
                 span,
