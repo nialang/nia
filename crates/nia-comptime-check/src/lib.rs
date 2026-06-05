@@ -1715,15 +1715,8 @@ impl Analyzer<'_> {
     }
 
     fn comptime_function(&self, callee: &ComptimeExpr) -> Option<GlobalDefId> {
-        let resolution = match &callee.kind {
-            ComptimeExprKind::Ident { resolution, .. }
-            | ComptimeExprKind::Qualified { resolution, .. } => *resolution,
-            _ => None,
-        };
-        let Some(ComptimeNameResolution::Global(global_id)) = resolution else {
-            return None;
-        };
-        (self.def_kind_of(global_id) == Some(DefKind::Function)).then_some(global_id)
+        let callee = nia_comptime_ir::resolve_expr(callee.clone()).ok()?;
+        self.resolved_comptime_function(&callee)
     }
 
     fn resolved_comptime_function(&self, callee: &ResolvedComptimeExpr) -> Option<GlobalDefId> {
@@ -2065,74 +2058,6 @@ impl Analyzer<'_> {
             .get_mut(&module_id)
             .expect("working interner must exist for current execution module");
         substitute_ty_generics_in_interner(interner, ty, &|name| substitutions.get(name).copied())
-    }
-
-    fn instantiate_function_generics(
-        &mut self,
-        span: Span,
-        _function_id: GlobalDefId,
-        signature_module_id: ModuleId,
-        signature: &FunctionSignature,
-        type_args: &[ComptimeTypeArg],
-        arg_exprs: &[ComptimeExpr],
-    ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
-        if self.ensure_working_interner(signature_module_id).is_none() {
-            return Err(ComptimeError {
-                span,
-                message: "cannot instantiate comptime function without module type interner"
-                    .to_string(),
-            });
-        }
-        if !type_args.is_empty() && type_args.len() != signature.generics.len() {
-            return Err(ComptimeError {
-                span,
-                message: format!(
-                    "generic argument count mismatch for comptime function: expected {}, got {}",
-                    signature.generics.len(),
-                    type_args.len()
-                ),
-            });
-        }
-        let mut substitutions = HashMap::new();
-        if type_args.is_empty() {
-            for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
-                let expected = self.comptime_expected_param_type(
-                    signature_module_id,
-                    param.ty,
-                    &substitutions,
-                );
-                let Some(arg_ty) = self.comptime_arg_runtime_type(arg_expr, expected) else {
-                    continue;
-                };
-                self.infer_generics_from_tys(
-                    span,
-                    signature_module_id,
-                    param.ty,
-                    arg_ty,
-                    &mut substitutions,
-                )?;
-            }
-            for generic in &signature.generics {
-                if !substitutions.contains_key(generic) {
-                    return Err(ComptimeError {
-                        span,
-                        message: format!("cannot infer comptime generic type argument `{generic}`"),
-                    });
-                }
-            }
-        } else {
-            for (generic, arg) in signature.generics.iter().zip(type_args) {
-                let Some(ty) = arg.ty else {
-                    return Err(ComptimeError {
-                        span: arg.span,
-                        message: "cannot resolve comptime generic type argument".to_string(),
-                    });
-                };
-                let imported = self.import_ty_into_module(arg.span, ty, signature_module_id)?;
-                substitutions.insert(generic.clone(), imported);
-            }
-        }
-        Ok(substitutions)
     }
 
     fn instantiate_resolved_function_generics(
@@ -4803,19 +4728,20 @@ impl Analyzer<'_> {
         type_args: &[ComptimeTypeArg],
         args: &[ComptimeExpr],
     ) -> Option<InternedTyId> {
-        let function_id = self.comptime_function(callee)?;
-        let signature = self
-            .signatures_for_module(function_id.module_id)?
-            .functions
-            .get(&function_id.def_id)?
-            .clone();
-        let substitutions =
-            self.probe_comptime_function_generics(span, function_id, &signature, type_args, args)?;
-        self.substitute_ty_into_current_module(
-            function_id.module_id,
-            signature.return_type,
-            &substitutions,
-        )
+        let callee = nia_comptime_ir::resolve_expr(callee.clone()).ok()?;
+        let type_args = type_args
+            .iter()
+            .cloned()
+            .map(nia_comptime_ir::resolve_type_arg)
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        let args = args
+            .iter()
+            .cloned()
+            .map(nia_comptime_ir::resolve_expr)
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        self.resolved_comptime_call_return_type(span, &callee, &type_args, &args)
     }
 
     fn resolved_comptime_call_return_type(
@@ -4845,25 +4771,6 @@ impl Analyzer<'_> {
             signature.return_type,
             &substitutions,
         )
-    }
-
-    fn probe_comptime_function_generics(
-        &mut self,
-        span: Span,
-        function_id: GlobalDefId,
-        signature: &FunctionSignature,
-        type_args: &[ComptimeTypeArg],
-        arg_exprs: &[ComptimeExpr],
-    ) -> Option<HashMap<String, InternedTyId>> {
-        self.instantiate_function_generics(
-            span,
-            function_id,
-            function_id.module_id,
-            signature,
-            type_args,
-            arg_exprs,
-        )
-        .ok()
     }
 
     fn substitute_ty_into_current_module(
@@ -5598,58 +5505,36 @@ impl RawComptimeEnv for Analyzer<'_> {
         arg_exprs: &[ComptimeExpr],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let Some(function_id) = self.comptime_function(callee) else {
+        if self.comptime_function(callee).is_none() {
             return Err(ComptimeError {
                 span,
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
-        };
-        let Some(signature) = self
-            .signatures_for_module(function_id.module_id)
-            .and_then(|signatures| signatures.functions.get(&function_id.def_id))
-            .cloned()
-        else {
-            return Err(ComptimeError {
-                span,
-                message: "comptime expression can only call `comptime fn`".to_string(),
-            });
-        };
-        let type_substitutions = self.instantiate_function_generics(
-            span,
-            function_id,
-            function_id.module_id,
-            &signature,
-            type_args,
-            arg_exprs,
-        )?;
-        let return_ty = self
-            .substitute_ty_into_current_module(
-                function_id.module_id,
-                signature.return_type,
-                &type_substitutions,
-            )
-            .ok_or_else(|| ComptimeError {
-                span,
-                message: "cannot resolve comptime function return type".to_string(),
+        }
+        let callee =
+            nia_comptime_ir::resolve_expr(callee.clone()).map_err(|err| ComptimeError {
+                span: err.span,
+                message: err.message,
             })?;
-        let Some(function) = self.comptime_function_body(function_id).cloned() else {
-            return Err(ComptimeError {
-                span,
-                message: "comptime expression can only call `comptime fn`".to_string(),
-            });
-        };
-        let value = nia_comptime_engine::eval_resolved_comptime_function_call(
-            span,
-            function_id.module_id,
-            &function,
-            type_substitutions.into_iter().collect(),
-            args,
-            self,
-        )?;
-        let return_ty = ComptimeValueType::Runtime(return_ty);
-        let value = self.normalize_typed_comptime_value(value, &return_ty);
-        self.validate_typed_value(span, &value, &return_ty);
-        Ok(value)
+        let type_args = type_args
+            .iter()
+            .cloned()
+            .map(nia_comptime_ir::resolve_type_arg)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| ComptimeError {
+                span: err.span,
+                message: err.message,
+            })?;
+        let arg_exprs = arg_exprs
+            .iter()
+            .cloned()
+            .map(nia_comptime_ir::resolve_expr)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| ComptimeError {
+                span: err.span,
+                message: err.message,
+            })?;
+        self.call_resolved_function(span, &callee, &type_args, &arg_exprs, args)
     }
 
     fn bind_function_param(
@@ -6258,27 +6143,24 @@ fn numeric_literal_suffix(text: &str) -> Option<&str> {
 mod tests {
     use super::{
         ComptimeCheck, ComptimeInput, ComptimeKey, ComptimeModuleInput, ComptimeModuleLowering,
-        ComptimeProgramContext, ComptimeValueType, TypedComptimeQueryInput, check_module_comptime,
-        lower_module_comptime,
+        ComptimeProgramContext, ComptimeValueType, check_module_comptime, lower_module_comptime,
     };
     use nia_comptime_ir::{ComptimeExpr, ComptimeExprKind, ComptimeTypeArg};
     use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
-    use nia_item_signatures::{ItemSignatures, collect_item_signatures};
+    use nia_item_signatures::collect_item_signatures;
     use nia_local_resolve::{LocalResolution, resolve_module_locals};
     use nia_parser::parse_module;
     use nia_span::Span;
     use nia_ty::{PrimitiveTy, TyKind};
     use nia_type_lower::{TypeLowering, lower_module_types_with_id};
     use nia_type_resolve::resolve_module_types;
-    use nia_value_resolve::{ValueResolution, resolve_module_values};
+    use nia_value_resolve::resolve_module_values;
     use std::collections::HashMap;
 
     struct CheckedFixture {
         defs: DefCollection,
-        values: ValueResolution,
         locals: LocalResolution,
         lowered: TypeLowering,
-        signatures: ItemSignatures,
         comptime_module: ComptimeModuleLowering,
         checked: ComptimeCheck,
     }
@@ -6315,10 +6197,8 @@ mod tests {
         });
         CheckedFixture {
             defs,
-            values,
             locals,
             lowered,
-            signatures,
             comptime_module,
             checked,
         }
@@ -6412,55 +6292,6 @@ enum Code: u8 {
     }
 
     #[test]
-    fn unresolved_comptime_function_callee_does_not_fall_back_to_name_lookup() {
-        let fixture = check_source(
-            r#"
-comptime fn width() usize {
-    4
-}
-"#,
-        );
-        let normalized = HashMap::new();
-        let target = nia_target_config::TargetConfig::host();
-        let analyzer = super::Analyzer::for_typed_query(TypedComptimeQueryInput {
-            module: &fixture.comptime_module.module,
-            defs: &fixture.defs,
-            values: &fixture.values,
-            locals: &fixture.locals,
-            signatures: &fixture.signatures,
-            interner: &fixture.lowered.interner,
-            type_uses: &fixture.lowered.type_uses,
-            normalized: &normalized,
-            target: &target,
-            program: ComptimeProgramContext::empty(),
-            typed_values: &fixture.checked.typed_values,
-            array_lengths: &fixture.checked.array_lengths,
-            frames: &[],
-        });
-        let width_def = fixture
-            .defs
-            .module_scope
-            .values
-            .get("width")
-            .expect("width def");
-        let width_span = fixture
-            .defs
-            .defs
-            .get(width_def)
-            .expect("width def metadata")
-            .span;
-        let callee = ComptimeExpr {
-            span: width_span,
-            kind: ComptimeExprKind::Ident {
-                name: "width".to_string(),
-                resolution: None,
-            },
-        };
-
-        assert_eq!(analyzer.comptime_function(&callee), None);
-    }
-
-    #[test]
     fn semantic_comptime_lowering_requires_resolved_function_locals() {
         let (module, errors) = parse_module(
             r#"
@@ -6504,24 +6335,6 @@ comptime fn add_one(x: usize) usize {
 
     #[test]
     fn layout_builtin_requires_resolved_type_arg() {
-        let fixture = check_source("");
-        let normalized = HashMap::new();
-        let target = nia_target_config::TargetConfig::host();
-        let mut analyzer = super::Analyzer::for_typed_query(TypedComptimeQueryInput {
-            module: &fixture.comptime_module.module,
-            defs: &fixture.defs,
-            values: &fixture.values,
-            locals: &fixture.locals,
-            signatures: &fixture.signatures,
-            interner: &fixture.lowered.interner,
-            type_uses: &fixture.lowered.type_uses,
-            normalized: &normalized,
-            target: &target,
-            program: ComptimeProgramContext::empty(),
-            typed_values: &fixture.checked.typed_values,
-            array_lengths: &fixture.checked.array_lengths,
-            frames: &[],
-        });
         let expr = ComptimeExpr {
             span: Span::new(0, 1),
             kind: ComptimeExprKind::LayoutBuiltin {
@@ -6534,11 +6347,8 @@ comptime fn add_one(x: usize) usize {
             },
         };
 
-        let err = nia_comptime_engine::eval_raw_comptime_body_expr(&expr, &mut analyzer)
-            .expect_err("layout builtin should require a resolved type arg");
-        assert_eq!(
-            err.message,
-            "cannot resolve type argument for comptime builtin `@size`"
-        );
+        let err =
+            nia_comptime_ir::resolve_expr(expr).expect_err("layout builtin should not resolve");
+        assert_eq!(err.message, "failed to resolve comptime type argument");
     }
 }
