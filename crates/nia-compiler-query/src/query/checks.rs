@@ -153,6 +153,51 @@ impl QueryKey<DriverContext> for BodyCheckQuery {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BodyIrQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for BodyIrQuery {
+    type Value = nia_body_ir::BodyIr;
+
+    fn name() -> &'static str {
+        "body_ir"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.body_ir)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SemanticFactsQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for SemanticFactsQuery {
+    type Value = nia_sema_ir::SemanticFacts;
+
+    fn name() -> &'static str {
+        "semantic_facts"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.semantic_facts)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct BodyDiagnosticsQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for BodyDiagnosticsQuery {
+    type Value = Vec<Diagnostic>;
+
+    fn name() -> &'static str {
+        "body_diagnostics"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.body_diagnostics)(db, self.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct FunctionBodiesQuery(pub(super) ModuleId);
 
 impl QueryKey<DriverContext> for FunctionBodiesQuery {

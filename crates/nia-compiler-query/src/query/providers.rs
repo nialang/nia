@@ -42,6 +42,9 @@ pub(super) struct CompilerQueryProviders {
     pub(super) static_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_static_check::StaticCheck,
     pub(super) flow_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_flow_check::FlowCheck,
     pub(super) body_check: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_check::BodyCheck,
+    pub(super) body_ir: fn(&QueryDb<DriverContext>, ModuleId) -> nia_body_ir::BodyIr,
+    pub(super) semantic_facts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_sema_ir::SemanticFacts,
+    pub(super) body_diagnostics: fn(&QueryDb<DriverContext>, ModuleId) -> Vec<Diagnostic>,
     pub(super) function_bodies: fn(
         &QueryDb<DriverContext>,
         ModuleId,
@@ -88,6 +91,9 @@ impl Default for CompilerQueryProviders {
             static_check: provide_static_check,
             flow_check: provide_flow_check,
             body_check: provide_body_check,
+            body_ir: provide_body_ir,
+            semantic_facts: provide_semantic_facts,
+            body_diagnostics: provide_body_diagnostics,
             function_bodies: provide_function_bodies,
             checked_module: provide_checked_module,
             checked_modules: provide_checked_modules,
@@ -668,21 +674,38 @@ pub(super) fn provide_function_bodies(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> HashMap<GlobalDefId, nia_function_ir::FunctionBody> {
-    let body_check = db.query(BodyCheckQuery(module_id));
-    body_check
-        .ir
+    let body_ir = db.query(BodyIrQuery(module_id));
+    body_ir
         .function_bodies
         .iter()
         .map(|(def_id, body)| {
             (
                 *def_id,
-                nia_function_lower::lower_function_body_with_interner(
-                    body,
-                    &body_check.ir.interner,
-                ),
+                nia_function_lower::lower_function_body_with_interner(body, &body_ir.interner),
             )
         })
         .collect()
+}
+
+pub(super) fn provide_body_ir(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_body_ir::BodyIr {
+    db.query(BodyCheckQuery(module_id)).ir
+}
+
+pub(super) fn provide_semantic_facts(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_sema_ir::SemanticFacts {
+    db.query(BodyCheckQuery(module_id)).facts
+}
+
+pub(super) fn provide_body_diagnostics(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> Vec<Diagnostic> {
+    db.query(BodyCheckQuery(module_id)).diagnostics
 }
 
 pub(super) fn provide_checked_module(
@@ -690,7 +713,6 @@ pub(super) fn provide_checked_module(
     module_id: ModuleId,
 ) -> CheckedModule {
     let loaded = db.query(LoadedModuleQuery(module_id));
-    let body_check = db.query(BodyCheckQuery(module_id));
     CheckedModule {
         id: loaded.id,
         path: loaded.path,
@@ -706,9 +728,9 @@ pub(super) fn provide_checked_module(
         layouts: db.query(LayoutsQuery(module_id)),
         abi_check: db.query(AbiCheckQuery(module_id)),
         flow_check: db.query(FlowCheckQuery(module_id)),
-        body_ir: body_check.ir,
-        semantic_facts: body_check.facts,
-        body_diagnostics: body_check.diagnostics,
+        body_ir: db.query(BodyIrQuery(module_id)),
+        semantic_facts: db.query(SemanticFactsQuery(module_id)),
+        body_diagnostics: db.query(BodyDiagnosticsQuery(module_id)),
     }
 }
 
