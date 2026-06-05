@@ -45,7 +45,6 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
-            type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });
     assert!(
@@ -58,9 +57,9 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         defs: &defs,
         values: &values,
         locals: &locals,
+        semantic_uses: &semantic_uses,
         signatures: &signatures,
         interner: &lowered.interner,
-        type_uses: &lowered.type_uses,
         normalized: &std::collections::HashMap::new(),
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),

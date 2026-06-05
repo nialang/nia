@@ -110,7 +110,6 @@ fn main() i32 {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
-            type_uses: &type_lowering.type_uses,
             const_exprs: &type_lowering.const_exprs,
         });
     assert!(
@@ -123,9 +122,9 @@ fn main() i32 {
         defs: &defs,
         values: &values,
         locals: &locals,
+        semantic_uses: &semantic_uses,
         signatures: &signatures,
         interner: &normalization.interner,
-        type_uses: &type_lowering.type_uses,
         normalized: &normalization.normalized,
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
@@ -4338,7 +4337,6 @@ fn lower_source_with_body_check_mutation_and_optimization(
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
-            type_uses: &type_lowering.type_uses,
             const_exprs: &type_lowering.const_exprs,
         });
     assert!(
@@ -4351,9 +4349,9 @@ fn lower_source_with_body_check_mutation_and_optimization(
         defs: &defs,
         values: &values,
         locals: &locals,
+        semantic_uses: &semantic_uses,
         signatures: &signatures,
         interner: &normalization.interner,
-        type_uses: &type_lowering.type_uses,
         normalized: &normalization.normalized,
         target: &target,
         program: nia_comptime_check::ComptimeProgramContext::empty(),
