@@ -492,7 +492,10 @@ fn main() i32 {
             dependency.from.name == "backend_lowering" && dependency.to.name == "function_bodies"
         }));
         assert!(trace.dependencies.iter().any(|dependency| {
-            dependency.from.name == "function_bodies" && dependency.to.name == "body_check"
+            dependency.from.name == "function_bodies" && dependency.to.name == "body_ir"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "body_ir" && dependency.to.name == "body_check"
         }));
     }
 
