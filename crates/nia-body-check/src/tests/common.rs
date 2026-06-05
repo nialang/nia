@@ -94,6 +94,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
                 continue;
             }
             extensions.insert(
+                0,
                 target_ty,
                 VisibleExtensionMethod {
                     name: method_def.name.clone(),
@@ -101,6 +102,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
                         module_id: ModuleId(0),
                         def_id: method_id,
                     },
+                    impl_index: 0,
                     trait_id: None,
                     trait_args: Vec::new(),
                     where_predicates: Vec::new(),

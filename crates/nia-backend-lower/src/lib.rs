@@ -174,6 +174,7 @@ pub(crate) struct ModuleLowerer<'a> {
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
     extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
+    trait_impls_by_method: HashMap<GlobalDefId, usize>,
     extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     instance_extension_trait_method_candidates: Option<(
@@ -249,6 +250,7 @@ impl<'a> ModuleLowerer<'a> {
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
             extension_targets_by_method: index_extension_targets_by_method(input.extensions),
+            trait_impls_by_method: index_trait_impls_by_method(input),
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
                 input.extension_interner.unwrap_or(&input.body_ir.interner),
@@ -586,6 +588,28 @@ fn index_extension_targets_by_method(
         }
     }
     targets_by_method
+}
+
+fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<GlobalDefId, usize> {
+    let local_impls = input
+        .trait_impls
+        .iter()
+        .enumerate()
+        .filter_map(|(program_index, impl_signature)| {
+            (impl_signature.module_id == input.module_id)
+                .then_some((impl_signature.local_index, program_index))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut impls_by_method = HashMap::new();
+    for target in input.extensions.targets() {
+        for method in &target.methods {
+            let Some(program_index) = local_impls.get(&method.impl_index).copied() else {
+                continue;
+            };
+            impls_by_method.insert(method.def_id, program_index);
+        }
+    }
+    impls_by_method
 }
 
 fn index_extension_trait_method_candidates(

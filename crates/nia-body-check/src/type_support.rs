@@ -13,7 +13,15 @@ use nia_sema_ir::{ArrayToSliceCoercion, CStringPointerCoercion};
 use nia_span::Span;
 use nia_trait_solve::TraitSolverContext;
 use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, PrimitiveTy, TraitId, TyKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ProjectionNormalizationKey {
+    self_ty: InternedTyId,
+    trait_id: TraitId,
+    trait_args: Vec<InternedTyId>,
+    name: String,
+}
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn associated_type_binding_keys_match(
@@ -32,22 +40,31 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
+        self.normalize_projection_inner(ty, &mut HashSet::new())
+    }
+
+    fn normalize_projection_inner(
+        &mut self,
+        ty: InternedTyId,
+        active_projections: &mut HashSet<ProjectionNormalizationKey>,
+    ) -> InternedTyId {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty).cloned() {
             Some(TyKind::Pointer { is_readonly, elem }) => {
-                let elem = self.normalize_projection(elem);
+                let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Pointer { is_readonly, elem })
             }
             Some(TyKind::Slice { is_readonly, elem }) => {
-                let elem = self.normalize_projection(elem);
+                let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
             Some(TyKind::Array { len, elem }) => {
-                let elem = self.normalize_projection(elem);
+                let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Array { len, elem })
             }
             Some(TyKind::Range { kind, bound }) => {
-                let bound = bound.map(|bound| self.normalize_projection(bound));
+                let bound =
+                    bound.map(|bound| self.normalize_projection_inner(bound, active_projections));
                 self.interner.intern(TyKind::Range { kind, bound })
             }
             Some(TyKind::FunctionPointer {
@@ -57,9 +74,9 @@ impl<'a> BodyChecker<'a> {
             }) => {
                 let params = params
                     .into_iter()
-                    .map(|param| self.normalize_projection(param))
+                    .map(|param| self.normalize_projection_inner(param, active_projections))
                     .collect();
-                let return_type = self.normalize_projection(return_type);
+                let return_type = self.normalize_projection_inner(return_type, active_projections);
                 self.interner.intern(TyKind::FunctionPointer {
                     params,
                     return_type,
@@ -67,25 +84,25 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             Some(TyKind::Optional { elem }) => {
-                let elem = self.normalize_projection(elem);
+                let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Optional { elem })
             }
             Some(TyKind::ErrorUnion { error, value }) => {
-                let error = self.normalize_projection(error);
-                let value = self.normalize_projection(value);
+                let error = self.normalize_projection_inner(error, active_projections);
+                let value = self.normalize_projection_inner(value, active_projections);
                 self.interner.intern(TyKind::ErrorUnion { error, value })
             }
             Some(TyKind::Nominal { def_id, args }) => {
                 let args = args
                     .into_iter()
-                    .map(|arg| self.normalize_projection(arg))
+                    .map(|arg| self.normalize_projection_inner(arg, active_projections))
                     .collect();
                 self.interner.intern(TyKind::Nominal { def_id, args })
             }
             Some(TyKind::BuiltinTrait { trait_id, args }) => {
                 let args = args
                     .into_iter()
-                    .map(|arg| self.normalize_projection(arg))
+                    .map(|arg| self.normalize_projection_inner(arg, active_projections))
                     .collect();
                 self.interner
                     .intern(TyKind::BuiltinTrait { trait_id, args })
@@ -98,7 +115,7 @@ impl<'a> BodyChecker<'a> {
             }) => {
                 let trait_args = trait_args
                     .into_iter()
-                    .map(|arg| self.normalize_projection(arg))
+                    .map(|arg| self.normalize_projection_inner(arg, active_projections))
                     .collect();
                 let associated_type_bindings = associated_type_bindings
                     .into_iter()
@@ -107,10 +124,10 @@ impl<'a> BodyChecker<'a> {
                         trait_args: binding
                             .trait_args
                             .into_iter()
-                            .map(|arg| self.normalize_projection(arg))
+                            .map(|arg| self.normalize_projection_inner(arg, active_projections))
                             .collect(),
                         name: binding.name,
-                        ty: self.normalize_projection(binding.ty),
+                        ty: self.normalize_projection_inner(binding.ty, active_projections),
                     })
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
@@ -126,37 +143,32 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 name,
             }) => {
-                let self_ty = self.normalize_projection(self_ty);
+                let self_ty = self.normalize_projection_inner(self_ty, active_projections);
                 let trait_args = trait_args
                     .into_iter()
-                    .map(|arg| self.normalize_projection(arg))
+                    .map(|arg| self.normalize_projection_inner(arg, active_projections))
                     .collect::<Vec<_>>();
-                self.resolve_associated_type_projection_from_current_impl(
+                let key = ProjectionNormalizationKey {
                     self_ty,
                     trait_id,
-                    &trait_args,
-                    &name,
-                )
-                .or_else(|| {
-                    self.resolve_associated_type_projection_from_current_bounds(
-                        self_ty,
-                        trait_id,
-                        &trait_args,
-                        &name,
-                    )
-                })
-                .or_else(|| {
-                    self.resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
-                })
-                .map(|resolved| self.normalize_projection(resolved))
-                .unwrap_or_else(|| {
-                    self.interner.intern(TyKind::Projection {
-                        self_ty,
-                        trait_id,
-                        trait_args,
-                        name,
-                    })
-                })
+                    trait_args: trait_args.clone(),
+                    name: name.clone(),
+                };
+                let projection = self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args: trait_args.clone(),
+                    name: name.clone(),
+                });
+                if !active_projections.insert(key.clone()) {
+                    return projection;
+                }
+                let normalized = self
+                    .resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                    .map(|resolved| self.normalize_projection_inner(resolved, active_projections))
+                    .unwrap_or(projection);
+                active_projections.remove(&key);
+                normalized
             }
             Some(
                 TyKind::Error
@@ -168,117 +180,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn resolve_associated_type_projection_from_current_impl(
-        &mut self,
-        self_ty: InternedTyId,
-        trait_id: TraitId,
-        trait_args: &[InternedTyId],
-        name: &str,
-    ) -> Option<InternedTyId> {
-        let current_def_id = self.current_def_id?;
-        if current_def_id.module_id != self.defs.module_id {
-            return None;
-        }
-        let method = self.defs.defs.get(current_def_id.def_id)?;
-        if method.kind != DefKind::Method {
-            return None;
-        }
-
-        let impl_signature = self
-            .trait_impl_signature_for_method(current_def_id)?
-            .clone();
-        let impl_trait_id = self.extension_trait_id_for_method(current_def_id)?;
-        if impl_trait_id != trait_id {
-            return None;
-        }
-
-        let impl_self_ty = self.normalization.normalize(impl_signature.target_ty);
-        if !self.types_equivalent_without_projection_resolution(impl_self_ty, self_ty) {
-            return None;
-        }
-
-        let impl_trait_args = self.trait_impl_signature_args(&impl_signature, impl_trait_id)?;
-        if impl_trait_args.len() != trait_args.len()
-            || !impl_trait_args
-                .iter()
-                .zip(trait_args)
-                .all(|(actual, required)| {
-                    self.types_equivalent_without_projection_resolution(*actual, *required)
-                })
-        {
-            return None;
-        }
-
-        impl_signature
-            .associated_types
-            .iter()
-            .find(|associated_type| associated_type.name == name)
-            .map(|associated_type| self.normalize_projection(associated_type.ty))
-    }
-
-    fn resolve_associated_type_projection_from_current_bounds(
-        &mut self,
-        self_ty: InternedTyId,
-        trait_id: TraitId,
-        trait_args: &[InternedTyId],
-        name: &str,
-    ) -> Option<InternedTyId> {
-        let current_def_id = self.current_def_id?;
-        let signature = self.current_function_signature_in_active_interner(current_def_id)?;
-        let mut matches = Vec::new();
-        for predicate in signature.where_predicates {
-            if !self.types_equivalent_without_projection_resolution(predicate.ty, self_ty) {
-                continue;
-            }
-            for bound in predicate.bounds {
-                let Some((bound_trait_id, bound_trait_args)) =
-                    self.trait_id_and_args(bound.trait_ty)
-                else {
-                    continue;
-                };
-                if bound_trait_id != trait_id
-                    || bound_trait_args.len() != trait_args.len()
-                    || !bound_trait_args
-                        .iter()
-                        .zip(trait_args)
-                        .all(|(bound, required)| {
-                            self.types_equivalent_without_projection_resolution(*bound, *required)
-                        })
-                {
-                    continue;
-                }
-                matches.extend(
-                    bound
-                        .associated_type_bindings
-                        .iter()
-                        .filter(|binding| binding.name == name)
-                        .map(|binding| binding.ty),
-                );
-            }
-        }
-        match matches.as_slice() {
-            [ty] => Some(*ty),
-            _ => None,
-        }
-    }
-
-    fn current_function_signature_in_active_interner(
-        &mut self,
-        current_def_id: nia_ids::GlobalDefId,
-    ) -> Option<nia_item_signatures::FunctionSignature> {
-        if current_def_id.module_id == self.defs.module_id {
-            let signature = self
-                .signatures
-                .functions
-                .get(&current_def_id.def_id)?
-                .clone();
-            let source = self.normalization.interner.clone();
-            Some(self.import_function_signature_from(&source, &signature))
-        } else {
-            Some(self.resolved_function_signature(current_def_id)?.signature)
-        }
-    }
-
     pub(crate) fn resolve_associated_type_projection(
         &mut self,
         self_ty: InternedTyId,
@@ -287,6 +188,7 @@ impl<'a> BodyChecker<'a> {
         name: &str,
     ) -> Option<InternedTyId> {
         let assumptions = self.current_trait_goals();
+        let associated_type_assumptions = self.current_associated_type_assumptions();
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -295,7 +197,11 @@ impl<'a> BodyChecker<'a> {
             local_enums: &self.signatures.enums,
             program_enums: Some(self.program_enums),
         };
-        let mut solver = context.solver(&mut self.interner, &assumptions);
+        let mut solver = context.solver_with_associated_type_assumptions(
+            &mut self.interner,
+            &assumptions,
+            &associated_type_assumptions,
+        );
         solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
     }
 

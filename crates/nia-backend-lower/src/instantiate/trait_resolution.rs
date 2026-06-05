@@ -200,6 +200,8 @@ impl<'a> ModuleLowerer<'a> {
                         expr: Box::new(receiver),
                     },
                 };
+                let substitutions = self.empty_type_substitution_id();
+                let mut active_projections = std::collections::HashSet::new();
                 Some(FunctionExpr {
                     span: range.span,
                     ty: self.resolve_associated_type_projection(
@@ -207,6 +209,8 @@ impl<'a> ModuleLowerer<'a> {
                         TraitId::Builtin(trait_id),
                         trait_args,
                         BuiltinTrait::OUTPUT_ASSOC_TYPE,
+                        substitutions,
+                        &mut active_projections,
                     )?,
                     kind: FunctionExprKind::Slice {
                         lhs: Box::new(base),

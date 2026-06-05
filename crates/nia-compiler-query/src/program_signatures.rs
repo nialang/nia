@@ -255,7 +255,7 @@ pub(crate) fn collect_program_trait_impls(
 ) -> Vec<ProgramTraitImplSignature> {
     let mut trait_impls = Vec::new();
     for module in modules {
-        for impl_signature in &module.signatures.trait_impls {
+        for (local_index, impl_signature) in module.signatures.trait_impls.iter().enumerate() {
             let Some(trait_ty) = impl_signature.trait_ty else {
                 continue;
             };
@@ -265,6 +265,8 @@ pub(crate) fn collect_program_trait_impls(
                 continue;
             };
             trait_impls.push(ProgramTraitImplSignature {
+                module_id: module.module_id,
+                local_index,
                 target_ty: impl_signature.target_ty,
                 trait_id,
                 trait_args,
@@ -325,6 +327,7 @@ pub(crate) fn collect_extension_methods(
         .collect::<HashMap<_, _>>();
     let trait_impls = collect_extension_trait_impls(modules);
     for module in modules {
+        let mut impl_index = 0;
         for item in &module.module.module.items {
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
@@ -396,6 +399,7 @@ pub(crate) fn collect_extension_methods(
                             module_id: module.module.id,
                             def_id: method_id,
                         },
+                        impl_index,
                         target_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
@@ -404,6 +408,7 @@ pub(crate) fn collect_extension_methods(
                     },
                 );
             }
+            impl_index += 1;
         }
     }
     (extensions, diagnostics)
@@ -1643,10 +1648,12 @@ pub(crate) fn visible_extensions_for_module(
             target_ty,
         );
         visible.insert(
+            method.impl_index,
             target_ty,
             VisibleExtensionMethod {
                 name: method_def.name.clone(),
                 def_id: method.def_id,
+                impl_index: method.impl_index,
                 trait_id: method.trait_id,
                 trait_args: method
                     .trait_args

@@ -177,6 +177,7 @@ impl<'a> BodyChecker<'a> {
         associated_type_bindings: &[AssociatedTypeBindingTy],
     ) -> bool {
         let assumptions = self.current_trait_goals();
+        let associated_type_assumptions = self.current_associated_type_assumptions();
         let context = TraitSolverContext {
             normalization: self.normalization,
             trait_impls: self.program_trait_impls,
@@ -186,7 +187,11 @@ impl<'a> BodyChecker<'a> {
             program_enums: Some(self.program_enums),
         };
         let proven = {
-            let mut solver = context.solver(&mut self.interner, &assumptions);
+            let mut solver = context.solver_with_associated_type_assumptions(
+                &mut self.interner,
+                &assumptions,
+                &associated_type_assumptions,
+            );
             solver.proves(TraitGoal {
                 self_ty,
                 trait_id,
