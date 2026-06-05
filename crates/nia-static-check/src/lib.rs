@@ -10,7 +10,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalResolution, LocalUse};
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::SemanticUseTable;
 use nia_span::Span;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
@@ -321,38 +321,37 @@ impl StaticChecker<'_> {
     }
 
     fn comptime_semantic_uses(&self) -> SemanticUseTable {
-        let mut value_uses = self
-            .locals
-            .uses
-            .iter()
-            .filter_map(|(span, local_use)| {
-                let LocalUse::Local(local_id) = local_use else {
-                    return None;
-                };
-                self.comptime
-                    .values
-                    .contains_key(&ComptimeKey::Local(*local_id))
-                    .then_some((*span, SemanticValueUse::Local(*local_id)))
-            })
-            .collect::<HashMap<_, _>>();
+        let mut builder = SemanticUseTable::builder();
+        for (span, local_use) in &self.locals.uses {
+            let LocalUse::Local(local_id) = local_use else {
+                continue;
+            };
+            if self
+                .comptime
+                .values
+                .contains_key(&ComptimeKey::Local(*local_id))
+            {
+                builder.insert_local_value_use(*span, *local_id);
+            }
+        }
         for span in self
             .values
             .qualified_values
             .keys()
             .chain(self.values.names.keys())
         {
-            if value_uses.contains_key(span) {
-                continue;
-            }
             if let Some(global_id) = self.global_comptime_use(*span) {
-                value_uses.insert(*span, SemanticValueUse::Global(global_id));
+                builder.insert_global_value_use(*span, global_id);
             }
         }
-        SemanticUseTable {
-            value_uses,
-            local_defs: self.locals.local_defs.clone(),
-            type_uses: self.type_uses.clone(),
-        }
+        builder.extend_local_defs(
+            self.locals
+                .local_defs
+                .iter()
+                .map(|(span, local_id)| (*span, *local_id)),
+        );
+        builder.extend_type_uses(self.type_uses.iter().map(|(span, ty)| (*span, *ty)));
+        builder.finish()
     }
 
     fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {

@@ -24,7 +24,7 @@ use nia_sema::{
     ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
     check_exact_arity, check_required_field_set, check_value_field_set,
 };
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::SemanticUseTable;
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
@@ -449,26 +449,22 @@ impl ComptimeModuleLowerer<'_> {
         &self,
         allowed_locals: &HashSet<LocalId>,
     ) -> SemanticUseTable {
-        let mut value_uses = self
-            .input
-            .locals
-            .uses
-            .iter()
-            .filter_map(|(span, local_use)| match local_use {
-                LocalUse::Local(local_id)
-                    if allowed_locals.contains(local_id)
-                        || self
-                            .input
-                            .locals
-                            .locals
-                            .get(*local_id)
-                            .is_some_and(|local| local.kind == LocalKind::ComptimeBinding) =>
-                {
-                    Some((*span, SemanticValueUse::Local(*local_id)))
-                }
-                _ => None,
-            })
-            .collect::<HashMap<_, _>>();
+        let mut builder = SemanticUseTable::builder();
+        for (span, local_use) in &self.input.locals.uses {
+            let LocalUse::Local(local_id) = local_use else {
+                continue;
+            };
+            if allowed_locals.contains(local_id)
+                || self
+                    .input
+                    .locals
+                    .locals
+                    .get(*local_id)
+                    .is_some_and(|local| local.kind == LocalKind::ComptimeBinding)
+            {
+                builder.insert_local_value_use(*span, *local_id);
+            }
+        }
         for span in self
             .input
             .values
@@ -476,18 +472,19 @@ impl ComptimeModuleLowerer<'_> {
             .keys()
             .chain(self.input.values.names.keys())
         {
-            if value_uses.contains_key(span) {
-                continue;
-            }
             if let Some(global_id) = self.global_value_use(*span) {
-                value_uses.insert(*span, SemanticValueUse::Global(global_id));
+                builder.insert_global_value_use(*span, global_id);
             }
         }
-        SemanticUseTable {
-            value_uses,
-            local_defs: self.input.locals.local_defs.clone(),
-            type_uses: self.input.type_uses.clone(),
-        }
+        builder.extend_local_defs(
+            self.input
+                .locals
+                .local_defs
+                .iter()
+                .map(|(span, local_id)| (*span, *local_id)),
+        );
+        builder.extend_type_uses(self.input.type_uses.iter().map(|(span, ty)| (*span, *ty)));
+        builder.finish()
     }
 
     fn function_locals(&self, function: &nia_ast::FunctionItem) -> HashSet<LocalId> {

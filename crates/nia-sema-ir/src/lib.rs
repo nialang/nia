@@ -15,6 +15,10 @@ pub struct SemanticUseTable {
 }
 
 impl SemanticUseTable {
+    pub fn builder() -> SemanticUseTableBuilder {
+        SemanticUseTableBuilder::new()
+    }
+
     pub fn value_use(&self, span: Span) -> Option<SemanticValueUse> {
         self.value_uses.get(&span).copied()
     }
@@ -25,6 +29,50 @@ impl SemanticUseTable {
 
     pub fn type_use(&self, span: Span) -> Option<InternedTyId> {
         self.type_uses.get(&span).copied()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SemanticUseTableBuilder {
+    table: SemanticUseTable,
+}
+
+impl SemanticUseTableBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert_local_value_use(&mut self, span: Span, local_id: LocalId) {
+        self.table
+            .value_uses
+            .insert(span, SemanticValueUse::Local(local_id));
+    }
+
+    pub fn insert_global_value_use(&mut self, span: Span, global_id: GlobalDefId) {
+        self.table
+            .value_uses
+            .entry(span)
+            .or_insert(SemanticValueUse::Global(global_id));
+    }
+
+    pub fn insert_local_def(&mut self, span: Span, local_id: LocalId) {
+        self.table.local_defs.insert(span, local_id);
+    }
+
+    pub fn extend_local_defs(&mut self, local_defs: impl IntoIterator<Item = (Span, LocalId)>) {
+        self.table.local_defs.extend(local_defs);
+    }
+
+    pub fn insert_type_use(&mut self, span: Span, ty: InternedTyId) {
+        self.table.type_uses.insert(span, ty);
+    }
+
+    pub fn extend_type_uses(&mut self, type_uses: impl IntoIterator<Item = (Span, InternedTyId)>) {
+        self.table.type_uses.extend(type_uses);
+    }
+
+    pub fn finish(self) -> SemanticUseTable {
+        self.table
     }
 }
 
@@ -272,5 +320,35 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::GetPtrRead
             | BuiltinTraitMethod::GetPtr => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nia_ids::ModuleId;
+
+    fn span() -> Span {
+        Span::new(4, 7)
+    }
+
+    #[test]
+    fn semantic_use_builder_keeps_local_value_uses_over_globals() {
+        let mut builder = SemanticUseTable::builder();
+        builder.insert_local_value_use(span(), LocalId(2));
+        builder.insert_global_value_use(
+            span(),
+            GlobalDefId {
+                module_id: ModuleId(1),
+                def_id: nia_ids::DefId(3),
+            },
+        );
+
+        let table = builder.finish();
+
+        assert_eq!(
+            table.value_use(span()),
+            Some(SemanticValueUse::Local(LocalId(2)))
+        );
     }
 }
