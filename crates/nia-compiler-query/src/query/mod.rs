@@ -12,7 +12,7 @@ use crate::{
 };
 use nia_backend_lower::BackendLowerModuleInput;
 use nia_comptime_check::{ComptimeCheck, ComptimeModuleLowering};
-use nia_comptime_ir::ComptimeModule;
+use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, ModuleUsingScope, PublicSurfaces};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};

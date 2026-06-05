@@ -24,7 +24,7 @@ use nia_body_ir::{
     ResolvedCall, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_comptime_check::ComptimeCheck;
-use nia_comptime_ir::ComptimeModule;
+use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
@@ -62,7 +62,7 @@ struct SwitchInterval {
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramComptimeMaps<'a> {
     pub comptimes: &'a HashMap<ModuleId, ComptimeCheck>,
-    pub modules: &'a HashMap<ModuleId, ComptimeModule>,
+    pub modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -99,7 +99,7 @@ pub struct BodyCheckInput<'a> {
     pub normalization: &'a TypeNormalization,
     pub target: &'a TargetConfig,
     pub comptime: &'a ComptimeCheck,
-    pub comptime_module: &'a ComptimeModule,
+    pub comptime_module: &'a ResolvedComptimeModule,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
@@ -121,7 +121,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub normalization: &'a TypeNormalization,
     pub target: &'a TargetConfig,
     pub comptime: &'a ComptimeCheck,
-    pub comptime_module: &'a ComptimeModule,
+    pub comptime_module: &'a ResolvedComptimeModule,
     pub extensions: &'a VisibleExtensionMethods,
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
@@ -157,7 +157,7 @@ pub fn check_module_bodies(
     let empty_comptimes = HashMap::new();
     let empty_program_comptime = HashMap::new();
     let empty_program_comptime_modules = HashMap::new();
-    let empty_comptime_module = ComptimeModule::default();
+    let empty_comptime_module = ResolvedComptimeModule::default();
     let empty_structs = HashMap::new();
     let empty_unions = HashMap::new();
     let empty_enums = HashMap::new();
@@ -362,7 +362,7 @@ struct BodyChecker<'a> {
     normalization: &'a TypeNormalization,
     target: &'a TargetConfig,
     comptime: &'a ComptimeCheck,
-    comptime_module: &'a ComptimeModule,
+    comptime_module: &'a ResolvedComptimeModule,
     layouts: &'a Layouts,
     extensions: &'a VisibleExtensionMethods,
     program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
@@ -374,7 +374,7 @@ struct BodyChecker<'a> {
     program_traits: &'a HashMap<GlobalDefId, ProgramTraitSignature>,
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
-    program_comptime_modules: &'a HashMap<ModuleId, ComptimeModule>,
+    program_comptime_modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
     expr_types: HashMap<Span, InternedTyId>,
     bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
     array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,

@@ -21,7 +21,7 @@ impl QueryKey<DriverContext> for ComptimeModuleQuery {
 pub(super) struct ProgramComptimeModulesQuery;
 
 impl QueryKey<DriverContext> for ProgramComptimeModulesQuery {
-    type Value = HashMap<ModuleId, ComptimeModule>;
+    type Value = HashMap<ModuleId, ResolvedComptimeModule>;
 
     fn name() -> &'static str {
         "program_comptime_modules"
