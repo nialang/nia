@@ -472,7 +472,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
-        let body_interner = &self.input.body_check.ir.interner;
+        let body_interner = &self.input.body_ir.interner;
         let extension_interner = self.input.extension_interner;
         contains_generic_param(
             ty,

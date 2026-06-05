@@ -112,8 +112,7 @@ impl<'a> ModuleLowerer<'a> {
             .unwrap_or_else(|| self.error_ty());
         let init = self
             .input
-            .body_check
-            .ir
+            .body_ir
             .global_inits
             .get(&global_def_id)
             .cloned()
@@ -186,8 +185,7 @@ impl<'a> ModuleLowerer<'a> {
                         local_id
                             .and_then(|local_id| {
                                 self.input
-                                    .body_check
-                                    .facts
+                                    .semantic_facts
                                     .local_types
                                     .get(&local_id)
                                     .copied()

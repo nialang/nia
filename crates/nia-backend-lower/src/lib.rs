@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 
 use nia_ast::{Expr, ItemKind, Module};
 use nia_backend_ir::{BackendLayouts, BackendModule, BackendProgram, BackendStructInstanceKey};
-use nia_body_check::BodyCheck;
+use nia_body_ir::BodyIr;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
@@ -28,6 +28,7 @@ use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
 use nia_monomorphize::Monomorphization;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
+use nia_sema_ir::SemanticFacts;
 use nia_span::Span;
 use nia_trait_solve::TraitResolution;
 use nia_ty::TyKind;
@@ -78,7 +79,8 @@ pub struct BackendLowerModuleInput<'a> {
     pub type_lowering: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub type_normalization: &'a TypeNormalization,
-    pub body_check: &'a BodyCheck,
+    pub body_ir: &'a BodyIr,
+    pub semantic_facts: &'a SemanticFacts,
     pub extensions: &'a VisibleExtensionMethods,
     pub comptime: &'a nia_comptime_check::ComptimeCheck,
     pub layouts: &'a Layouts,
@@ -227,7 +229,7 @@ impl<'a> ModuleLowerer<'a> {
             input,
             monomorphization,
             optimization,
-            interner: input.body_check.ir.interner.clone(),
+            interner: input.body_ir.interner.clone(),
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
@@ -378,8 +380,7 @@ impl<'a> ModuleLowerer<'a> {
             trait_object_vtables,
             generic_instantiations: self
                 .input
-                .body_check
-                .facts
+                .semantic_facts
                 .generic_instantiations
                 .iter()
                 .map(|inst| nia_backend_ir::BackendGenericInstantiation {
@@ -429,8 +430,7 @@ impl<'a> ModuleLowerer<'a> {
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
         self.input
-            .body_check
-            .facts
+            .semantic_facts
             .expr_types
             .get(&expr.span)
             .copied()
@@ -525,12 +525,12 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn error_ty(&self) -> InternedTyId {
-        self.input.body_check.ir.interner.error()
+        self.input.body_ir.interner.error()
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        if ty.interner_id == self.input.body_check.ir.interner.interner_id() {
-            return self.input.body_check.ir.interner.get(ty);
+        if ty.interner_id == self.input.body_ir.interner.interner_id() {
+            return self.input.body_ir.interner.get(ty);
         }
         if let Some(extension_interner) = self.input.extension_interner
             && ty.interner_id == extension_interner.interner_id()
