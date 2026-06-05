@@ -49,11 +49,7 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::Reserved => return self.error(),
         };
         if let Some(layout) = self.layout_of(ty) {
-            let value = match builtin {
-                LayoutBuiltin::Size => layout.size,
-                LayoutBuiltin::Align => layout.align,
-            };
-            self.record_builtin_value(span, BuiltinValue::Usize(value));
+            self.record_builtin_value(span, BuiltinValue::Usize(layout.builtin_value(builtin)));
         } else {
             self.record_builtin_value(span, BuiltinValue::Layout { builtin, ty });
         }

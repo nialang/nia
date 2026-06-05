@@ -12,7 +12,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
 use nia_span::Span;
 use nia_trait_solve::TraitSolverContext;
-use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, LayoutBuiltin, PrimitiveTy, TraitId, TyKind};
+use nia_ty::{ArrayLenTy, AssociatedTypeBindingTy, PrimitiveTy, TraitId, TyKind};
 use std::collections::HashMap;
 
 impl<'a> BodyChecker<'a> {
@@ -815,10 +815,7 @@ impl<'a> BodyChecker<'a> {
                         builtin.name()
                     ));
                 };
-                match builtin {
-                    LayoutBuiltin::Size => Ok(layout.size),
-                    LayoutBuiltin::Align => Ok(layout.align),
-                }
+                Ok(layout.builtin_value(*builtin))
             }
             ArrayLenTy::Infer => Err(format!("array length at {span:?} is not concrete")),
         }

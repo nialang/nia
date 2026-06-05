@@ -806,11 +806,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                 ),
             });
         };
-        let value = match builtin {
-            LayoutBuiltin::Size => layout.size,
-            LayoutBuiltin::Align => layout.align,
-        };
-        Ok(ComptimeValue::Int(value as i128))
+        Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128))
     }
 
     fn call_resolved_function(
