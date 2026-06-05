@@ -970,6 +970,119 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_use_std_root_facade_modules() {
+    let root = temp_dir("emit_exe_can_use_std_root_facade_modules");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+
+pub fn main(init: std::process::Init) std::process::ExitCode!void {
+    _ = init;
+    var writer = std::io::DiscardingWriter::init();
+    switch writer.write_all(b"nia") {
+        !ok => _ = ok,
+        error! => return std::process::ExitCode::init(1)!,
+    }
+    if writer.len() != 3 {
+        return std::process::ExitCode::init(2)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_exposes_process_args_without_raw_argv() {
+    let root = temp_dir("emit_exe_exposes_process_args_without_raw_argv");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+
+pub fn main(init: std::process::Init) std::process::ExitCode!void {
+    var args = init.args();
+    if args.len() != 3 {
+        return std::process::ExitCode::init(1)!;
+    }
+    var first: &[u8] = switch args.get(1) {
+        ?value => value,
+        null => return std::process::ExitCode::init(2)!,
+    };
+    var second: &[u8] = switch args.get(2) {
+        ?value => value,
+        null => return std::process::ExitCode::init(3)!,
+    };
+    if first.len() != 3 {
+        return std::process::ExitCode::init(4)!;
+    }
+    if first[0] != 110u8 or first[1] != 105u8 or first[2] != 97u8 {
+        return std::process::ExitCode::init(5)!;
+    }
+    if second.len() != 4 {
+        return std::process::ExitCode::init(6)!;
+    }
+    switch args.get(3) {
+        ?value => {
+            _ = value;
+            return std::process::ExitCode::init(7)!;
+        },
+        null => {},
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .arg("nia")
+        .arg("lang")
+        .status()
+        .expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_write_stdout_through_std_os() {
     let root = temp_dir("emit_exe_can_write_stdout_through_std_os");
     let main = root.join("main.nia");

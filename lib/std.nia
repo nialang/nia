@@ -1,4 +1,11 @@
 // Nia standard library root.
 //
-// This module is intentionally small while the startup/runtime model is being
-// built. Public standard-library surfaces should be re-exported from here.
+// Public standard-library surfaces are re-exported from here so users can
+// import `std` as the stable facade.
+
+import std.io;
+import std.mem;
+import std.os;
+import std.process;
+
+pub using {io, mem, os, process};
