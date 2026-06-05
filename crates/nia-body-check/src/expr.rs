@@ -266,6 +266,7 @@ impl<'a> BodyChecker<'a> {
                 .or_else(|| self.coerce_array_to_slice(expr, expected, ty))
                 .or_else(|| self.coerce_trait_object_to_supertrait(expr, expected, ty))
                 .or_else(|| self.coerce_pointer_to_trait_object(expr, expected, ty))
+                .or_else(|| self.coerce_value_to_trait_object(expr, expected, ty))
                 .or_else(|| self.materialize_inferred_array_type(expected, ty))
                 .unwrap_or(ty)
         } else {
