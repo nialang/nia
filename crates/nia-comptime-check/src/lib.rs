@@ -1759,33 +1759,7 @@ impl Analyzer<'_> {
             }
             _ => {}
         }
-        if let Some(global_id) = self
-            .input
-            .values
-            .qualified_values
-            .get(&callee.span)
-            .copied()
-        {
-            if self.def_kind_of(global_id) == Some(DefKind::Function) {
-                return Some(global_id);
-            }
-            return None;
-        }
-        let ComptimeExprKind::Ident { .. } = &callee.kind else {
-            return None;
-        };
-        let Some(ValueNameResolution::Def(def_id)) = self.input.values.names.get(&callee.span)
-        else {
-            return None;
-        };
-        let def = self.input.defs.defs.get(*def_id)?;
-        if def.kind != DefKind::Function {
-            return None;
-        }
-        Some(GlobalDefId {
-            module_id: self.input.defs.module_id,
-            def_id: *def_id,
-        })
+        None
     }
 
     fn comptime_function_body(
@@ -5139,8 +5113,20 @@ comptime fn width() usize {
             array_lengths: &fixture.checked.array_lengths,
             frames: &[],
         });
+        let width_def = fixture
+            .defs
+            .module_scope
+            .values
+            .get("width")
+            .expect("width def");
+        let width_span = fixture
+            .defs
+            .defs
+            .get(width_def)
+            .expect("width def metadata")
+            .span;
         let callee = ComptimeExpr {
-            span: Span::new(0, 0),
+            span: width_span,
             kind: ComptimeExprKind::Ident {
                 name: "width".to_string(),
                 resolution: None,

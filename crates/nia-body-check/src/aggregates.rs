@@ -1293,22 +1293,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => {}
         }
-        if let Some(global_id) = self.values.qualified_values.get(&callee.span).copied() {
-            if self.global_def_kind(global_id) == Some(DefKind::Function) {
-                return Some(global_id);
-            }
-            return None;
-        }
-        let ComptimeExprKind::Ident { .. } = &callee.kind else {
-            return None;
-        };
-        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
-            self.values.names.get(&callee.span)
-        else {
-            return None;
-        };
-        let def = self.defs.defs.get(*def_id)?;
-        (def.kind == DefKind::Function).then_some(self.global_def_id(*def_id))
+        None
     }
 
     fn comptime_function_body(
