@@ -493,7 +493,6 @@ pub(super) fn provide_comptime_module(
         values: &values,
         locals: &locals,
         semantic_uses: &semantic_uses,
-        type_uses: &type_lowering.type_uses,
         const_exprs: &type_lowering.const_exprs,
     })
 }
@@ -523,18 +522,18 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
         .collect::<HashMap<_, _>>();
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
+    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let item_signatures = db.query(ItemSignaturesQuery(module_id));
     let type_normalization = db.query(TypeNormalizationQuery(module_id));
-    let type_lowering = db.query(TypeLoweringQuery(module_id));
     let mut comptime =
         nia_comptime_check::check_module_comptime(nia_comptime_check::ComptimeInput {
             module: &module.module,
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             signatures: &item_signatures,
             interner: &type_normalization.interner,
-            type_uses: &type_lowering.type_uses,
             normalized: &type_normalization.normalized,
             target: &db.context().target,
             program: nia_comptime_check::ComptimeProgramContext {

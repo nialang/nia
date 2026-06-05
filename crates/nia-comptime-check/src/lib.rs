@@ -188,9 +188,9 @@ pub struct ComptimeInput<'a> {
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
+    pub semantic_uses: &'a SemanticUseTable,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
-    pub type_uses: &'a HashMap<Span, nia_ids::InternedTyId>,
     pub normalized: &'a HashMap<nia_ids::InternedTyId, nia_ids::InternedTyId>,
     pub target: &'a TargetConfig,
     pub program: ComptimeProgramContext<'a>,
@@ -209,7 +209,6 @@ pub struct ComptimeModuleInput<'a> {
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
     pub semantic_uses: &'a SemanticUseTable,
-    pub type_uses: &'a HashMap<Span, InternedTyId>,
     pub const_exprs: &'a HashMap<GlobalConstExprId, Expr>,
 }
 
@@ -260,9 +259,9 @@ pub struct TypedComptimeQueryInput<'a> {
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
+    pub semantic_uses: &'a SemanticUseTable,
     pub signatures: &'a ItemSignatures,
     pub interner: &'a TyInterner,
-    pub type_uses: &'a HashMap<Span, InternedTyId>,
     pub normalized: &'a HashMap<InternedTyId, InternedTyId>,
     pub target: &'a TargetConfig,
     pub program: ComptimeProgramContext<'a>,
@@ -490,7 +489,7 @@ impl ComptimeModuleLowerer<'_> {
     fn function_locals(&self, function: &nia_ast::FunctionItem) -> HashSet<LocalId> {
         let mut locals = HashSet::new();
         for param in &function.params {
-            if let Some(local_id) = self.input.locals.local_defs.get(&param.span).copied() {
+            if let Some(local_id) = self.input.semantic_uses.local_def(param.span) {
                 locals.insert(local_id);
             }
         }
@@ -512,7 +511,7 @@ impl ComptimeModuleLowerer<'_> {
     fn collect_stmt_locals(&self, stmt: &nia_ast::Stmt, out: &mut HashSet<LocalId>) {
         match &stmt.kind {
             nia_ast::StmtKind::Binding(binding) => {
-                if let Some(local_id) = self.input.locals.local_defs.get(&stmt.span).copied() {
+                if let Some(local_id) = self.input.semantic_uses.local_def(stmt.span) {
                     out.insert(local_id);
                 }
                 if let Some(value) = &binding.value {
@@ -523,13 +522,7 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::StmtKind::Return(Some(expr))
             | nia_ast::StmtKind::Defer(expr) => self.collect_expr_locals(expr, out),
             nia_ast::StmtKind::ForIn(for_stmt) => {
-                if let Some(local_id) = self
-                    .input
-                    .locals
-                    .local_defs
-                    .get(&for_stmt.binding.span)
-                    .copied()
-                {
+                if let Some(local_id) = self.input.semantic_uses.local_def(for_stmt.binding.span) {
                     out.insert(local_id);
                 }
                 self.collect_expr_locals(&for_stmt.iter, out);
@@ -673,7 +666,7 @@ impl ComptimeModuleLowerer<'_> {
             nia_ast::SwitchPattern::OptionalSome { span, .. }
             | nia_ast::SwitchPattern::ErrorOk { span, .. }
             | nia_ast::SwitchPattern::ErrorErr { span, .. } => {
-                if let Some(local_id) = self.input.locals.local_defs.get(span).copied() {
+                if let Some(local_id) = self.input.semantic_uses.local_def(*span) {
                     out.insert(local_id);
                 }
             }
@@ -715,7 +708,7 @@ impl ComptimeModuleLowerer<'_> {
         for stmt in &block.stmts {
             match &stmt.kind {
                 nia_ast::StmtKind::Binding(binding)
-                    if self.input.locals.local_defs.get(&stmt.span).copied() == Some(local_id) =>
+                    if self.input.semantic_uses.local_def(stmt.span) == Some(local_id) =>
                 {
                     return binding.value.clone().map(|value| {
                         (
@@ -723,7 +716,7 @@ impl ComptimeModuleLowerer<'_> {
                             binding
                                 .ty
                                 .as_ref()
-                                .and_then(|ty| self.input.type_uses.get(&ty.span).copied()),
+                                .and_then(|ty| self.input.semantic_uses.type_use(ty.span)),
                         )
                     });
                 }
@@ -808,9 +801,9 @@ impl Analyzer<'_> {
                 defs: input.defs,
                 values: input.values,
                 locals: input.locals,
+                semantic_uses: input.semantic_uses,
                 signatures: input.signatures,
                 interner: input.interner,
-                type_uses: input.type_uses,
                 normalized: input.normalized,
                 target: input.target,
                 program: input.program,
@@ -4848,7 +4841,6 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
-            type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });
         let checked = check_module_comptime(ComptimeInput {
@@ -4856,9 +4848,9 @@ mod tests {
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             signatures: &signatures,
             interner: &lowered.interner,
-            type_uses: &lowered.type_uses,
             normalized: &HashMap::new(),
             target: &target,
             program: ComptimeProgramContext::empty(),
@@ -5033,7 +5025,6 @@ comptime fn add_one(x: usize) usize {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
-            type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });
 

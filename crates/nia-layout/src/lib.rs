@@ -842,7 +842,6 @@ mod tests {
             values: &values,
             locals: &locals,
             semantic_uses: &semantic_uses,
-            type_uses: &lowered.type_uses,
             const_exprs: &lowered.const_exprs,
         });
         assert!(
@@ -855,9 +854,9 @@ mod tests {
             defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             signatures,
             interner: &lowered.interner,
-            type_uses: &lowered.type_uses,
             normalized: &HashMap::new(),
             target: &target,
             program: ComptimeProgramContext::empty(),

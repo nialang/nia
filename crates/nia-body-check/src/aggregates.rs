@@ -1013,9 +1013,9 @@ impl<'a> BodyChecker<'a> {
                 defs: self.defs,
                 values: self.values,
                 locals: self.locals,
+                semantic_uses: self.semantic_uses,
                 signatures: self.signatures,
                 interner: &self.interner,
-                type_uses: self.type_uses,
                 normalized: &self.normalization.normalized,
                 target: self.target,
                 program: nia_comptime_check::ComptimeProgramContext {
@@ -1043,9 +1043,9 @@ impl<'a> BodyChecker<'a> {
             defs: self.defs,
             values: self.values,
             locals: self.locals,
+            semantic_uses: self.semantic_uses,
             signatures: self.signatures,
             interner: &self.interner,
-            type_uses: self.type_uses,
             normalized: &self.normalization.normalized,
             target: self.target,
             program: nia_comptime_check::ComptimeProgramContext {

@@ -532,7 +532,6 @@ mod tests {
                 values: &values,
                 locals: &locals,
                 semantic_uses: &semantic_uses,
-                type_uses: &type_lowering.type_uses,
                 const_exprs: &type_lowering.const_exprs,
             });
         assert!(
@@ -546,9 +545,9 @@ mod tests {
                 defs: &defs,
                 values: &values,
                 locals: &locals,
+                semantic_uses: &semantic_uses,
                 signatures: &signatures,
                 interner: &normalization.interner,
-                type_uses: &type_lowering.type_uses,
                 normalized: &normalization.normalized,
                 target: &target,
                 program: nia_comptime_check::ComptimeProgramContext::empty(),
