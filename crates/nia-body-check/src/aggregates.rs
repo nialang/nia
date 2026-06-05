@@ -357,11 +357,11 @@ impl<'a> BodyChecker<'a> {
         let expr = ComptimeExpr {
             span: lhs.span,
             kind: ComptimeExprKind::Field {
-                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?),
+                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?.as_expr().clone()),
                 name: name.to_string(),
             },
         };
-        match self.comptime_expr_type_for_ir(&expr)? {
+        match self.comptime_expr_type_for_raw_ir(&expr)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
         }
@@ -375,11 +375,11 @@ impl<'a> BodyChecker<'a> {
         let expr = ComptimeExpr {
             span: lhs.span,
             kind: ComptimeExprKind::Index {
-                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?),
-                index: Box::new(self.lower_comptime_expr(index).ok()?),
+                lhs: Box::new(self.lower_comptime_expr(lhs).ok()?.as_expr().clone()),
+                index: Box::new(self.lower_comptime_expr(index).ok()?.as_expr().clone()),
             },
         };
-        match self.comptime_expr_type_for_ir(&expr)? {
+        match self.comptime_expr_type_for_raw_ir(&expr)? {
             ComptimeValueType::Runtime(ty) => Some(ty),
             _ => Some(self.interner.intern(TyKind::ComptimeOnly)),
         }
@@ -937,7 +937,7 @@ impl ComptimeEnv for BodyChecker<'_> {
                     self.substitute_current_comptime_generics(ty),
                 )
             })
-            .or_else(|| self.comptime_expr_type_for_ir(&binding.value));
+            .or_else(|| self.comptime_expr_type_for_raw_ir(&binding.value));
         self.bind_comptime_call_local_value(
             span,
             local_id,
@@ -983,7 +983,7 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn lower_comptime_expr(
         &self,
         expr: &Expr,
-    ) -> Result<nia_comptime_ir::ComptimeExpr, nia_comptime_ir::ComptimeLowerError> {
+    ) -> Result<nia_comptime_ir::ResolvedComptimeExpr, nia_comptime_ir::ComptimeLowerError> {
         let name_resolution = |span| self.comptime_name_resolution(span);
         let local_id = |span| self.locals.local_defs.get(&span).copied();
         let type_id = |span| self.type_uses.get(&span).copied();
@@ -992,7 +992,6 @@ impl<'a> BodyChecker<'a> {
             .with_local_id(&local_id)
             .with_type_id(&type_id);
         nia_comptime_ir::lower_expr_resolved_with_context(expr, &context)
-            .map(nia_comptime_ir::ResolvedComptimeExpr::into_inner)
     }
 
     fn comptime_name_resolution(
@@ -1036,7 +1035,7 @@ impl<'a> BodyChecker<'a> {
                     message: err.message,
                 }
             })?;
-            nia_comptime_engine::eval_comptime_array_len_expr(&count, this)
+            nia_comptime_engine::eval_resolved_comptime_array_len_expr(&count, this)
         })
     }
 
@@ -1120,22 +1119,25 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    fn comptime_expr_type_for_ir(
+    fn comptime_expr_type_for_raw_ir(
         &self,
         expr: &ComptimeExpr,
     ) -> Option<nia_comptime_check::ComptimeValueType> {
-        self.comptime_expr_type_for_ir_with_expected(expr, None)
+        let frames = self.typed_comptime_frames();
+        let mut input = self.typed_comptime_query_input();
+        input.frames = &frames;
+        nia_comptime_check::infer_comptime_expr_type(input, expr, None)
     }
 
     pub(crate) fn comptime_expr_type_for_ir_with_expected(
         &self,
-        expr: &ComptimeExpr,
+        expr: &nia_comptime_ir::ResolvedComptimeExpr,
         expected: Option<InternedTyId>,
     ) -> Option<nia_comptime_check::ComptimeValueType> {
         let frames = self.typed_comptime_frames();
         let mut input = self.typed_comptime_query_input();
         input.frames = &frames;
-        nia_comptime_check::infer_comptime_expr_type(input, expr, expected)
+        nia_comptime_check::infer_comptime_expr_type(input, expr.as_expr(), expected)
     }
 
     fn comptime_type_arg(&mut self, arg: &ComptimeTypeArg) -> Option<InternedTyId> {

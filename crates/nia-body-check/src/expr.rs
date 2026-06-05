@@ -611,7 +611,7 @@ impl<'a> BodyChecker<'a> {
                     message: err.message,
                 }
             })?;
-            nia_comptime_engine::eval_comptime_bool_expr(&cond, this)
+            nia_comptime_engine::eval_resolved_comptime_bool_expr(&cond, this)
         }) {
             Ok(true) => {
                 self.comptime_if_selections

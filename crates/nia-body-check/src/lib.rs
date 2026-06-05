@@ -1446,7 +1446,7 @@ impl<'a> BodyChecker<'a> {
                             message: err.message,
                         }
                     })?;
-                    nia_comptime_engine::eval_comptime_expr(&expr, this)
+                    nia_comptime_engine::eval_resolved_comptime_expr(&expr, this)
                 })
                 .ok()?
             {
