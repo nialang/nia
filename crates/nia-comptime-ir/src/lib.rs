@@ -759,7 +759,7 @@ impl ComptimeTypeArg {
 
     fn from_type_ref(
         ty: &nia_ast::TypeRef,
-        context: &ComptimeLowerInputs<'_>,
+        context: &dyn ComptimeLowerContext,
     ) -> Result<Self, ComptimeLowerError> {
         Ok(Self {
             span: ty.span,
@@ -776,33 +776,25 @@ pub struct ComptimeLowerError {
 }
 
 pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<ComptimeExpr, ComptimeLowerError> {
-    lower_expr_internal(expr, &ComptimeLowerInputs::default())
+    lower_expr_internal(expr, &EarlyComptimeLowerInputs::default())
 }
 
 pub fn lower_expr_early_with_context(
     expr: &nia_ast::Expr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &EarlyComptimeLowerInputs<'_>,
 ) -> Result<ComptimeExpr, ComptimeLowerError> {
     lower_expr_internal(expr, context)
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct ComptimeLowerInputs<'a> {
+pub struct EarlyComptimeLowerInputs<'a> {
     pub name_resolution: Option<&'a dyn Fn(Span) -> Option<ComptimeNameResolution>>,
     pub local_id: Option<&'a dyn Fn(Span) -> Option<LocalId>>,
     pub type_id: Option<&'a dyn Fn(Span) -> Option<InternedTyId>>,
-    mode: ComptimeLowerMode,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum ComptimeLowerMode {
-    #[default]
-    Early,
-    Resolved,
-}
-
-impl<'a> ComptimeLowerInputs<'a> {
-    pub fn early() -> Self {
+impl<'a> EarlyComptimeLowerInputs<'a> {
+    pub fn new() -> Self {
         Self::default()
     }
 
@@ -823,15 +815,83 @@ impl<'a> ComptimeLowerInputs<'a> {
         self.type_id = Some(type_id);
         self
     }
+}
 
-    fn with_mode(self, mode: ComptimeLowerMode) -> Self {
-        Self { mode, ..self }
+#[derive(Clone, Copy)]
+pub struct ResolvedComptimeLowerInputs<'a> {
+    pub name_resolution: &'a dyn Fn(Span) -> Option<ComptimeNameResolution>,
+    pub local_id: &'a dyn Fn(Span) -> Option<LocalId>,
+    pub type_id: &'a dyn Fn(Span) -> Option<InternedTyId>,
+}
+
+impl<'a> ResolvedComptimeLowerInputs<'a> {
+    pub fn new(
+        name_resolution: &'a dyn Fn(Span) -> Option<ComptimeNameResolution>,
+        local_id: &'a dyn Fn(Span) -> Option<LocalId>,
+        type_id: &'a dyn Fn(Span) -> Option<InternedTyId>,
+    ) -> Self {
+        Self {
+            name_resolution,
+            local_id,
+            type_id,
+        }
+    }
+}
+
+trait ComptimeLowerContext {
+    fn resolve_name(
+        &self,
+        span: Span,
+    ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError>;
+
+    fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError>;
+
+    fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError>;
+}
+
+impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
+    fn resolve_name(
+        &self,
+        span: Span,
+    ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
+        Ok(self.name_resolution.and_then(|resolve| resolve(span)))
+    }
+
+    fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError> {
+        Ok(self.local_id.and_then(|local_id| local_id(span)))
+    }
+
+    fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError> {
+        Ok(self.type_id.and_then(|type_id| type_id(span)))
+    }
+}
+
+impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
+    fn resolve_name(
+        &self,
+        span: Span,
+    ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
+        (self.name_resolution)(span)
+            .map(Some)
+            .ok_or_else(|| unresolved_error(span, "comptime name"))
+    }
+
+    fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError> {
+        (self.local_id)(span)
+            .map(Some)
+            .ok_or_else(|| unresolved_error(span, "comptime local binding"))
+    }
+
+    fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError> {
+        (self.type_id)(span)
+            .map(Some)
+            .ok_or_else(|| unresolved_error(span, "comptime type"))
     }
 }
 
 fn lower_expr_internal(
     expr: &nia_ast::Expr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeExpr, ComptimeLowerError> {
     let kind = match &expr.kind {
         nia_ast::ExprKind::Integer(text) => ComptimeExprKind::Integer(text.clone()),
@@ -1009,9 +1069,9 @@ fn lower_expr_internal(
 
 pub fn lower_expr_resolved_with_context(
     expr: &nia_ast::Expr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &ResolvedComptimeLowerInputs<'_>,
 ) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {
-    let expr = lower_expr_internal(expr, &context.with_mode(ComptimeLowerMode::Resolved))?;
+    let expr = lower_expr_internal(expr, context)?;
     ResolvedComptimeExpr::new(expr)
 }
 
@@ -1074,7 +1134,7 @@ fn lower_assign_op(op: nia_ast::AssignOp) -> ComptimeAssignOp {
 fn lower_call_with_context(
     callee: &nia_ast::Expr,
     args: &[nia_ast::Expr],
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeExprKind, ComptimeLowerError> {
     if args.is_empty()
         && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
@@ -1114,7 +1174,7 @@ fn lower_call_with_context(
 
 fn lower_comptime_range_with_context(
     range: &nia_ast::SliceRange,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeRange, ComptimeLowerError> {
     Ok(ComptimeRange {
         start: range
@@ -1135,7 +1195,7 @@ fn lower_comptime_range_with_context(
 
 fn lower_slice_range_with_context(
     range: &nia_ast::SliceRange,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeSliceRange, ComptimeLowerError> {
     let range = lower_comptime_range_with_context(range, context)?;
     Ok(ComptimeSliceRange {
@@ -1147,7 +1207,7 @@ fn lower_slice_range_with_context(
 
 fn lower_comptime_if_with_context(
     comptime_if: &nia_ast::ComptimeIfExpr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeExprKind, ComptimeLowerError> {
     Ok(ComptimeExprKind::If {
         cond: Box::new(lower_expr_internal(&comptime_if.cond, context)?),
@@ -1163,7 +1223,7 @@ fn lower_comptime_if_with_context(
 
 fn lower_type_args_with_context(
     args: &[nia_ast::BracketArg],
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<Vec<ComptimeTypeArg>, ComptimeLowerError> {
     args.iter()
         .map(|arg| {
@@ -1184,7 +1244,7 @@ fn lower_type_args_with_context(
 
 fn lower_assign_target_with_context(
     expr: &nia_ast::Expr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeAssignTarget, ComptimeLowerError> {
     let mut path = Vec::new();
     let (span, name, local_id) = lower_assign_target_base_with_context(expr, context, &mut path)?;
@@ -1198,7 +1258,7 @@ fn lower_assign_target_with_context(
 
 fn lower_assign_target_base_with_context(
     expr: &nia_ast::Expr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
     path: &mut Vec<ComptimeAssignPathElem>,
 ) -> Result<(Span, String, Option<LocalId>), ComptimeLowerError> {
     match &expr.kind {
@@ -1258,7 +1318,7 @@ fn lower_assign_target_base_with_context(
 
 fn lower_array_elements_with_context(
     elems: &nia_ast::ArrayElements,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeArrayElements, ComptimeLowerError> {
     match elems {
         nia_ast::ArrayElements::List(elems) => Ok(ComptimeArrayElements::List(
@@ -1275,45 +1335,24 @@ fn lower_array_elements_with_context(
 }
 
 fn resolve_name(
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
     span: Span,
 ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
-    let resolution = context.name_resolution.and_then(|resolve| resolve(span));
-    if context.mode == ComptimeLowerMode::Resolved && resolution.is_none() {
-        return Err(ComptimeLowerError {
-            span,
-            message: "failed to resolve comptime name".to_string(),
-        });
-    }
-    Ok(resolution)
+    context.resolve_name(span)
 }
 
 fn lower_local_id(
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
     span: Span,
 ) -> Result<Option<LocalId>, ComptimeLowerError> {
-    let local_id = context.local_id.and_then(|local_id| local_id(span));
-    if context.mode == ComptimeLowerMode::Resolved && local_id.is_none() {
-        return Err(ComptimeLowerError {
-            span,
-            message: "failed to resolve comptime local binding".to_string(),
-        });
-    }
-    Ok(local_id)
+    context.lower_local_id(span)
 }
 
 fn lower_type_id(
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
     span: Span,
 ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
-    let ty = context.type_id.and_then(|type_id| type_id(span));
-    if context.mode == ComptimeLowerMode::Resolved && ty.is_none() {
-        return Err(ComptimeLowerError {
-            span,
-            message: "failed to resolve comptime type".to_string(),
-        });
-    }
-    Ok(ty)
+    context.lower_type_id(span)
 }
 
 fn resolve_comptime_function(
@@ -1790,13 +1829,17 @@ pub fn lower_function_early(
     function_span: Span,
     function: &nia_ast::FunctionItem,
 ) -> Result<ComptimeFunction, ComptimeLowerError> {
-    lower_function_internal(function_span, function, &ComptimeLowerInputs::default())
+    lower_function_internal(
+        function_span,
+        function,
+        &EarlyComptimeLowerInputs::default(),
+    )
 }
 
 fn lower_function_internal(
     function_span: Span,
     function: &nia_ast::FunctionItem,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeFunction, ComptimeLowerError> {
     if !function.is_comptime || function.is_extern {
         return Err(ComptimeLowerError {
@@ -1843,19 +1886,15 @@ fn lower_function_internal(
 pub fn lower_function_resolved_with_context(
     function_span: Span,
     function: &nia_ast::FunctionItem,
-    context: &ComptimeLowerInputs<'_>,
+    context: &ResolvedComptimeLowerInputs<'_>,
 ) -> Result<ResolvedComptimeFunction, ComptimeLowerError> {
-    let function = lower_function_internal(
-        function_span,
-        function,
-        &context.with_mode(ComptimeLowerMode::Resolved),
-    )?;
+    let function = lower_function_internal(function_span, function, context)?;
     ResolvedComptimeFunction::new(function)
 }
 
 fn lower_block_with_context(
     block: &nia_ast::Block,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeBlock, ComptimeLowerError> {
     Ok(ComptimeBlock {
         span: block.span,
@@ -1875,7 +1914,7 @@ fn lower_block_with_context(
 
 fn lower_stmt_with_context(
     stmt: &nia_ast::Stmt,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeStmt, ComptimeLowerError> {
     let kind = match &stmt.kind {
         nia_ast::StmtKind::Binding(binding) => {
@@ -1939,7 +1978,7 @@ fn lower_stmt_with_context(
 
 fn lower_expr_stmt_with_context(
     expr: &nia_ast::Expr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeStmtKind, ComptimeLowerError> {
     match &expr.kind {
         nia_ast::ExprKind::If {
@@ -1960,7 +1999,7 @@ fn lower_expr_stmt_with_context(
 
 fn lower_if_stmt_else_branch_with_context(
     expr: &nia_ast::Expr,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeBlock, ComptimeLowerError> {
     match &expr.kind {
         nia_ast::ExprKind::Block(block) => lower_block_with_context(block, context),
@@ -1983,7 +2022,7 @@ fn lower_if_stmt_else_branch_with_context(
 fn lower_switch_with_context(
     span: Span,
     switch: &nia_ast::SwitchStmt,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeSwitch, ComptimeLowerError> {
     Ok(ComptimeSwitch {
         span,
@@ -1998,7 +2037,7 @@ fn lower_switch_with_context(
 
 fn lower_switch_arm_with_context(
     arm: &nia_ast::SwitchArm,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeSwitchArm, ComptimeLowerError> {
     Ok(ComptimeSwitchArm {
         span: arm.span,
@@ -2013,7 +2052,7 @@ fn lower_switch_arm_with_context(
 
 fn lower_switch_pattern_with_context(
     pattern: &nia_ast::SwitchPattern,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeSwitchPattern, ComptimeLowerError> {
     match pattern {
         nia_ast::SwitchPattern::Default => Ok(ComptimeSwitchPattern::Default),
@@ -2056,7 +2095,7 @@ fn lower_switch_pattern_with_context(
 
 fn lower_switch_arm_body_with_context(
     body: &nia_ast::SwitchArmBody,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeSwitchArmBody, ComptimeLowerError> {
     match body {
         nia_ast::SwitchArmBody::Expr(expr) => {
@@ -2073,7 +2112,7 @@ fn lower_switch_arm_body_with_context(
 
 fn lower_field_init_with_context(
     field: &nia_ast::FieldInit,
-    context: &ComptimeLowerInputs<'_>,
+    context: &dyn ComptimeLowerContext,
 ) -> Result<ComptimeFieldInit, ComptimeLowerError> {
     Ok(ComptimeFieldInit {
         span: field.span,
@@ -2095,6 +2134,25 @@ mod tests {
             span: span(),
             kind: ComptimeExprKind::Integer(value.to_string()),
         }
+    }
+
+    fn ast_ident(name: &str) -> nia_ast::Expr {
+        nia_ast::Expr {
+            span: span(),
+            kind: nia_ast::ExprKind::Ident(name.to_string()),
+        }
+    }
+
+    fn missing_name(_: Span) -> Option<ComptimeNameResolution> {
+        None
+    }
+
+    fn missing_local(_: Span) -> Option<LocalId> {
+        None
+    }
+
+    fn missing_type(_: Span) -> Option<InternedTyId> {
+        None
     }
 
     #[test]
@@ -2174,5 +2232,71 @@ mod tests {
         let err =
             ResolvedComptimeExpr::new(expr).expect_err("unresolved type arg must be rejected");
         assert_eq!(err.message, "failed to resolve comptime type argument");
+    }
+
+    #[test]
+    fn resolved_lowering_requires_name_resolution() {
+        let context =
+            ResolvedComptimeLowerInputs::new(&missing_name, &missing_local, &missing_type);
+        let err = lower_expr_resolved_with_context(&ast_ident("x"), &context)
+            .expect_err("resolved lowering must reject unresolved names");
+        assert_eq!(err.message, "failed to resolve comptime name");
+    }
+
+    #[test]
+    fn resolved_lowering_requires_local_ids() {
+        let block = nia_ast::Block {
+            span: span(),
+            stmts: vec![nia_ast::Stmt {
+                span: span(),
+                kind: nia_ast::StmtKind::Binding(nia_ast::BindingStmt {
+                    name: "x".to_string(),
+                    ty: None,
+                    value: Some(ast_ident("x")),
+                    is_let: true,
+                    is_comptime: true,
+                }),
+            }],
+            tail: None,
+        };
+        let expr = nia_ast::Expr {
+            span: span(),
+            kind: nia_ast::ExprKind::Block(block),
+        };
+        let name_resolution = |_| Some(ComptimeNameResolution::Local(LocalId(0)));
+        let context =
+            ResolvedComptimeLowerInputs::new(&name_resolution, &missing_local, &missing_type);
+        let err = lower_expr_resolved_with_context(&expr, &context)
+            .expect_err("resolved lowering must reject unresolved local bindings");
+        assert_eq!(err.message, "failed to resolve comptime local binding");
+    }
+
+    #[test]
+    fn resolved_lowering_requires_type_ids() {
+        let expr = nia_ast::Expr {
+            span: span(),
+            kind: nia_ast::ExprKind::Cast {
+                expr: Box::new(nia_ast::Expr {
+                    span: span(),
+                    kind: nia_ast::ExprKind::Integer("1".to_string()),
+                }),
+                ty: nia_ast::TypeRef {
+                    span: span(),
+                    text: "i32".to_string(),
+                    kind: nia_ast::TypeKind::Path {
+                        segments: vec![nia_ast::TypePathSegment {
+                            name: "i32".to_string(),
+                            args: Vec::new(),
+                        }],
+                    },
+                },
+            },
+        };
+        let name_resolution = |_| Some(ComptimeNameResolution::Local(LocalId(0)));
+        let local_id = |_| Some(LocalId(0));
+        let context = ResolvedComptimeLowerInputs::new(&name_resolution, &local_id, &missing_type);
+        let err = lower_expr_resolved_with_context(&expr, &context)
+            .expect_err("resolved lowering must reject unresolved types");
+        assert_eq!(err.message, "failed to resolve comptime type");
     }
 }
