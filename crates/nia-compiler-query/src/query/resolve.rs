@@ -30,3 +30,18 @@ impl QueryKey<DriverContext> for LocalResolutionQuery {
         (db.context().providers.local_resolution)(db, self.0)
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SemanticUseTableQuery(pub(super) ModuleId);
+
+impl QueryKey<DriverContext> for SemanticUseTableQuery {
+    type Value = nia_sema_ir::SemanticUseTable;
+
+    fn name() -> &'static str {
+        "semantic_use_table"
+    }
+
+    fn execute(&self, db: &QueryDb<DriverContext>) -> Self::Value {
+        (db.context().providers.semantic_use_table)(db, self.0)
+    }
+}
