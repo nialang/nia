@@ -18,7 +18,7 @@ use nia_comptime_ir::{
     ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
-use nia_sema::{NamedField, check_unique_field_set};
+use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
 use nia_span::Span;
 use std::collections::BTreeMap;
 
@@ -1948,13 +1948,13 @@ fn eval_comptime_function_call(
     args: Vec<ComptimeValue>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
-    if params.len() != args.len() {
+    if let ArityCheck::Mismatch { actual, .. } = check_exact_arity(params.len(), args.len()) {
         return Err(ComptimeError {
             span,
             message: format!(
                 "comptime function argument count mismatch: expected {}, got {}",
                 params.len(),
-                args.len()
+                actual
             ),
         });
     }
@@ -2033,13 +2033,13 @@ fn eval_resolved_comptime_function_call_inner(
     args: Vec<ComptimeValue>,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
-    if params.len() != args.len() {
+    if let ArityCheck::Mismatch { actual, .. } = check_exact_arity(params.len(), args.len()) {
         return Err(ComptimeError {
             span,
             message: format!(
                 "comptime function argument count mismatch: expected {}, got {}",
                 params.len(),
-                args.len()
+                actual
             ),
         });
     }

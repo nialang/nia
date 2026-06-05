@@ -3,6 +3,7 @@ use crate::BodyChecker;
 use nia_ast::Expr;
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
+use nia_sema::{ArityCheck, ArityRequirement, check_call_arity};
 use nia_span::Span;
 
 impl<'a> BodyChecker<'a> {
@@ -32,16 +33,20 @@ impl<'a> BodyChecker<'a> {
         expected: usize,
         is_variadic: bool,
     ) {
-        if (!is_variadic && actual != expected) || (is_variadic && actual < expected) {
-            let expected = if is_variadic {
-                format!("at least {expected}")
-            } else {
-                expected.to_string()
-            };
-            self.diagnostics.push(Diagnostic::error(
-                span,
-                format!("argument count mismatch: expected {expected}, got {actual}"),
-            ));
-        }
+        let ArityCheck::Mismatch {
+            requirement,
+            actual,
+        } = check_call_arity(expected, actual, is_variadic)
+        else {
+            return;
+        };
+        let expected = match requirement {
+            ArityRequirement::Exact(expected) => expected.to_string(),
+            ArityRequirement::AtLeast(expected) => format!("at least {expected}"),
+        };
+        self.diagnostics.push(Diagnostic::error(
+            span,
+            format!("argument count mismatch: expected {expected}, got {actual}"),
+        ));
     }
 }

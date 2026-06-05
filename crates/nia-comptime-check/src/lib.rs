@@ -21,8 +21,8 @@ use nia_ids::{
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_sema::{
-    ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
-    check_required_field_set, check_value_field_set,
+    ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
+    check_exact_arity, check_required_field_set, check_value_field_set,
 };
 use nia_span::Span;
 use nia_target_config::TargetConfig;
@@ -2006,13 +2006,16 @@ impl Analyzer<'_> {
                     .to_string(),
             });
         }
-        if !type_args.is_empty() && type_args.len() != signature.generics.len() {
+        if !type_args.is_empty()
+            && let ArityCheck::Mismatch { actual, .. } =
+                check_exact_arity(signature.generics.len(), type_args.len())
+        {
             return Err(ComptimeError {
                 span,
                 message: format!(
                     "generic argument count mismatch for comptime function: expected {}, got {}",
                     signature.generics.len(),
-                    type_args.len()
+                    actual
                 ),
             });
         }

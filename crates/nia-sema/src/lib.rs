@@ -41,6 +41,59 @@ pub fn check_array_literal_len(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArityRequirement {
+    Exact(usize),
+    AtLeast(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArityCheck {
+    Accepted,
+    Mismatch {
+        requirement: ArityRequirement,
+        actual: usize,
+    },
+}
+
+impl ArityCheck {
+    pub fn is_accepted(self) -> bool {
+        matches!(self, Self::Accepted)
+    }
+}
+
+pub fn check_arity(requirement: ArityRequirement, actual: usize) -> ArityCheck {
+    let accepted = match requirement {
+        ArityRequirement::Exact(expected) => actual == expected,
+        ArityRequirement::AtLeast(expected) => actual >= expected,
+    };
+    if accepted {
+        ArityCheck::Accepted
+    } else {
+        ArityCheck::Mismatch {
+            requirement,
+            actual,
+        }
+    }
+}
+
+pub fn check_exact_arity(expected: usize, actual: usize) -> ArityCheck {
+    check_arity(ArityRequirement::Exact(expected), actual)
+}
+
+pub fn check_call_arity(
+    required_params: usize,
+    actual_args: usize,
+    is_variadic: bool,
+) -> ArityCheck {
+    let requirement = if is_variadic {
+        ArityRequirement::AtLeast(required_params)
+    } else {
+        ArityRequirement::Exact(required_params)
+    };
+    check_arity(requirement, actual_args)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedField<Key> {
     pub span: Span,
@@ -222,6 +275,26 @@ mod tests {
         assert_eq!(
             check_array_literal_len(Some(ArrayLenTy::Infer), None, None),
             ArrayLiteralLenCheck::Unknown
+        );
+    }
+
+    #[test]
+    fn arity_checks_exact_and_variadic_requirements() {
+        assert_eq!(check_exact_arity(2, 2), ArityCheck::Accepted);
+        assert_eq!(
+            check_exact_arity(2, 3),
+            ArityCheck::Mismatch {
+                requirement: ArityRequirement::Exact(2),
+                actual: 3
+            }
+        );
+        assert_eq!(check_call_arity(2, 3, true), ArityCheck::Accepted);
+        assert_eq!(
+            check_call_arity(2, 1, true),
+            ArityCheck::Mismatch {
+                requirement: ArityRequirement::AtLeast(2),
+                actual: 1
+            }
         );
     }
 }
