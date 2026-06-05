@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
 use nia_ast::{Expr, ExprKind};
 use nia_comptime_check::{ComptimeKey, ComptimeValueType};
-use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
+use nia_comptime_engine::{
+    ComptimeCommonEnv, ComptimeError, ComptimeValue, RawComptimeEnv, ResolvedComptimeEnv,
+};
 use nia_comptime_ir::{
     ComptimeAssignTarget, ComptimeBinding, ComptimeExpr, ComptimeNameResolution, ComptimeParam,
     ComptimeTypeArg, ResolvedComptimeAssignTarget, ResolvedComptimeBinding, ResolvedComptimeExpr,
@@ -728,7 +730,36 @@ impl<'a> BodyChecker<'a> {
     }
 }
 
-impl ComptimeEnv for BodyChecker<'_> {
+impl ComptimeCommonEnv for BodyChecker<'_> {
+    fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
+        self.comptime_call_locals
+            .push(crate::ComptimeCallFrame::default());
+        Ok(())
+    }
+
+    fn pop_comptime_scope(&mut self) {
+        self.comptime_call_locals.pop();
+    }
+
+    fn bind_function_context(
+        &mut self,
+        span: Span,
+        module_id: nia_ids::ModuleId,
+        substitutions: Vec<(String, InternedTyId)>,
+    ) -> Result<(), ComptimeError> {
+        let Some(frame) = self.comptime_call_locals.last_mut() else {
+            return Err(ComptimeError {
+                span,
+                message: "failed to bind comptime function type substitutions".to_string(),
+            });
+        };
+        frame.module_id = Some(module_id);
+        frame.type_substitutions.extend(substitutions);
+        Ok(())
+    }
+}
+
+impl RawComptimeEnv for BodyChecker<'_> {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
         if let Some(value) = self.comptime_call_local_name_value(name) {
             return Ok(value);
@@ -805,43 +836,6 @@ impl ComptimeEnv for BodyChecker<'_> {
         }
     }
 
-    fn resolve_resolved_name(
-        &mut self,
-        span: Span,
-        resolution: ComptimeNameResolution,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        match resolution {
-            ComptimeNameResolution::Local(local_id) => {
-                if let Some(value) = self.comptime_call_local_value(local_id) {
-                    return Ok(value);
-                }
-                self.comptime
-                    .values
-                    .get(&nia_comptime_check::ComptimeKey::Local(local_id))
-                    .cloned()
-                    .ok_or_else(|| ComptimeError {
-                        span,
-                        message: "failed to evaluate resolved comptime local".to_string(),
-                    })
-            }
-            ComptimeNameResolution::Global(global_id) => {
-                if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
-                    return self
-                        .global_comptime_value(global_id)
-                        .ok_or_else(|| ComptimeError {
-                            span,
-                            message: "failed to evaluate resolved comptime global".to_string(),
-                        });
-                }
-                Err(ComptimeError {
-                    span,
-                    message: "resolved comptime expression can only use comptime bindings"
-                        .to_string(),
-                })
-            }
-        }
-    }
-
     fn resolve_layout_builtin(
         &mut self,
         span: Span,
@@ -857,29 +851,6 @@ impl ComptimeEnv for BodyChecker<'_> {
                 ),
             });
         };
-        let Some(layout) = self.layout_of(ty_id) else {
-            return Err(ComptimeError {
-                span,
-                message: format!(
-                    "cannot compute layout for comptime builtin `@{}`",
-                    builtin.name()
-                ),
-            });
-        };
-        let value = match builtin {
-            LayoutBuiltin::Size => layout.size,
-            LayoutBuiltin::Align => layout.align,
-        };
-        Ok(ComptimeValue::Int(value as i128))
-    }
-
-    fn resolve_resolved_layout_builtin(
-        &mut self,
-        span: Span,
-        builtin: LayoutBuiltin,
-        type_arg: &ResolvedComptimeTypeArg,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        let ty_id = self.substitute_current_comptime_generics(type_arg.ty);
         let Some(layout) = self.layout_of(ty_id) else {
             return Err(ComptimeError {
                 span,
@@ -942,6 +913,138 @@ impl ComptimeEnv for BodyChecker<'_> {
         )
     }
 
+    fn bind_function_param(
+        &mut self,
+        span: Span,
+        param: &ComptimeParam,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let local_id = param.resolved_local_id();
+        let ty = param.ty.map(|ty| {
+            nia_comptime_check::ComptimeValueType::Runtime(
+                self.substitute_current_comptime_generics(ty),
+            )
+        });
+        self.bind_comptime_call_local_value(span, local_id, &param.name, false, value, ty)
+    }
+
+    fn bind_function_local(
+        &mut self,
+        span: Span,
+        binding: &ComptimeBinding,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let local_id = binding.resolved_local_id();
+        let ty = binding
+            .explicit_type
+            .map(|ty| {
+                nia_comptime_check::ComptimeValueType::Runtime(
+                    self.substitute_current_comptime_generics(ty),
+                )
+            })
+            .or_else(|| self.comptime_expr_type_for_raw_ir(&binding.value));
+        self.bind_comptime_call_local_value(
+            span,
+            local_id,
+            &binding.name,
+            binding.is_mutable,
+            value,
+            ty,
+        )
+    }
+
+    fn bind_pattern_local(
+        &mut self,
+        span: Span,
+        name: &str,
+        local_id: Option<LocalId>,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let local_id = local_id.expect("resolved comptime switch pattern must have a local id");
+        let ty = self
+            .local_types
+            .get(&local_id)
+            .copied()
+            .map(nia_comptime_check::ComptimeValueType::Runtime);
+        self.bind_comptime_call_local_value(span, local_id, name, false, value, ty)
+    }
+
+    fn assign_local(
+        &mut self,
+        span: Span,
+        target: &ComptimeAssignTarget,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        match target {
+            ComptimeAssignTarget::Local { name, .. } => {
+                let local_id = target.resolved_local_id();
+                self.assign_comptime_call_local_value(span, local_id, name, value)
+            }
+        }
+    }
+}
+
+impl ResolvedComptimeEnv for BodyChecker<'_> {
+    fn resolve_resolved_name(
+        &mut self,
+        span: Span,
+        resolution: ComptimeNameResolution,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        match resolution {
+            ComptimeNameResolution::Local(local_id) => {
+                if let Some(value) = self.comptime_call_local_value(local_id) {
+                    return Ok(value);
+                }
+                self.comptime
+                    .values
+                    .get(&nia_comptime_check::ComptimeKey::Local(local_id))
+                    .cloned()
+                    .ok_or_else(|| ComptimeError {
+                        span,
+                        message: "failed to evaluate resolved comptime local".to_string(),
+                    })
+            }
+            ComptimeNameResolution::Global(global_id) => {
+                if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
+                    return self
+                        .global_comptime_value(global_id)
+                        .ok_or_else(|| ComptimeError {
+                            span,
+                            message: "failed to evaluate resolved comptime global".to_string(),
+                        });
+                }
+                Err(ComptimeError {
+                    span,
+                    message: "resolved comptime expression can only use comptime bindings"
+                        .to_string(),
+                })
+            }
+        }
+    }
+
+    fn resolve_resolved_layout_builtin(
+        &mut self,
+        span: Span,
+        builtin: LayoutBuiltin,
+        type_arg: &ResolvedComptimeTypeArg,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let ty_id = self.substitute_current_comptime_generics(type_arg.ty);
+        let Some(layout) = self.layout_of(ty_id) else {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "cannot compute layout for comptime builtin `@{}`",
+                    builtin.name()
+                ),
+            });
+        };
+        let value = match builtin {
+            LayoutBuiltin::Size => layout.size,
+            LayoutBuiltin::Align => layout.align,
+        };
+        Ok(ComptimeValue::Int(value as i128))
+    }
+
     fn call_resolved_function(
         &mut self,
         span: Span,
@@ -988,48 +1091,6 @@ impl ComptimeEnv for BodyChecker<'_> {
         )
     }
 
-    fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
-        self.comptime_call_locals
-            .push(crate::ComptimeCallFrame::default());
-        Ok(())
-    }
-
-    fn pop_comptime_scope(&mut self) {
-        self.comptime_call_locals.pop();
-    }
-
-    fn bind_function_context(
-        &mut self,
-        span: Span,
-        module_id: nia_ids::ModuleId,
-        substitutions: Vec<(String, InternedTyId)>,
-    ) -> Result<(), ComptimeError> {
-        let Some(frame) = self.comptime_call_locals.last_mut() else {
-            return Err(ComptimeError {
-                span,
-                message: "failed to bind comptime function type substitutions".to_string(),
-            });
-        };
-        frame.module_id = Some(module_id);
-        frame.type_substitutions.extend(substitutions);
-        Ok(())
-    }
-
-    fn bind_function_param(
-        &mut self,
-        span: Span,
-        param: &ComptimeParam,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let local_id = param.resolved_local_id();
-        let ty = param.ty.map(|ty| {
-            nia_comptime_check::ComptimeValueType::Runtime(
-                self.substitute_current_comptime_generics(ty),
-            )
-        });
-        self.bind_comptime_call_local_value(span, local_id, &param.name, false, value, ty)
-    }
-
     fn bind_resolved_function_param(
         &mut self,
         span: Span,
@@ -1042,31 +1103,6 @@ impl ComptimeEnv for BodyChecker<'_> {
             )
         });
         self.bind_comptime_call_local_value(span, param.local_id, &param.name, false, value, ty)
-    }
-
-    fn bind_function_local(
-        &mut self,
-        span: Span,
-        binding: &ComptimeBinding,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let local_id = binding.resolved_local_id();
-        let ty = binding
-            .explicit_type
-            .map(|ty| {
-                nia_comptime_check::ComptimeValueType::Runtime(
-                    self.substitute_current_comptime_generics(ty),
-                )
-            })
-            .or_else(|| self.comptime_expr_type_for_raw_ir(&binding.value));
-        self.bind_comptime_call_local_value(
-            span,
-            local_id,
-            &binding.name,
-            binding.is_mutable,
-            value,
-            ty,
-        )
     }
 
     fn bind_resolved_function_local(
@@ -1093,34 +1129,19 @@ impl ComptimeEnv for BodyChecker<'_> {
         )
     }
 
-    fn bind_pattern_local(
+    fn bind_resolved_pattern_local(
         &mut self,
         span: Span,
         name: &str,
-        local_id: Option<LocalId>,
+        local_id: LocalId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let local_id = local_id.expect("resolved comptime switch pattern must have a local id");
         let ty = self
             .local_types
             .get(&local_id)
             .copied()
             .map(nia_comptime_check::ComptimeValueType::Runtime);
         self.bind_comptime_call_local_value(span, local_id, name, false, value, ty)
-    }
-
-    fn assign_local(
-        &mut self,
-        span: Span,
-        target: &ComptimeAssignTarget,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        match target {
-            ComptimeAssignTarget::Local { name, .. } => {
-                let local_id = target.resolved_local_id();
-                self.assign_comptime_call_local_value(span, local_id, name, value)
-            }
-        }
     }
 
     fn assign_resolved_local(

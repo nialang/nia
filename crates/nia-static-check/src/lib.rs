@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, ItemKind, Module, UnaryOp};
 use nia_comptime_check::{ComptimeCheck, ComptimeKey};
-use nia_comptime_engine::{ComptimeEnv, ComptimeError, ComptimeValue};
+use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, RawComptimeEnv};
 use nia_comptime_ir::ComptimeTypeArg;
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -409,7 +409,9 @@ struct StaticComptimeEnv<'a> {
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
 }
 
-impl ComptimeEnv for StaticComptimeEnv<'_> {
+impl ComptimeCommonEnv for StaticComptimeEnv<'_> {}
+
+impl RawComptimeEnv for StaticComptimeEnv<'_> {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
         let _ = name;
         Err(ComptimeError {

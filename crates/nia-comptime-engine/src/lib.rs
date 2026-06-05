@@ -87,16 +87,7 @@ pub struct ComptimeError {
     pub message: String,
 }
 
-pub trait ComptimeEnv {
-    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError>;
-
-    fn resolve_name_resolution(
-        &mut self,
-        span: Span,
-        resolution: ComptimeNameResolution,
-        name: &str,
-    ) -> Result<ComptimeValue, ComptimeError>;
-
+pub trait ComptimeCommonEnv {
     fn resolve_builtin_value(
         &mut self,
         span: Span,
@@ -108,71 +99,6 @@ pub trait ComptimeEnv {
                 "unsupported builtin value in comptime expression: @{}",
                 builtin.name()
             ),
-        })
-    }
-
-    fn resolve_resolved_name(
-        &mut self,
-        span: Span,
-        resolution: ComptimeNameResolution,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        self.resolve_name_resolution(span, resolution, "<resolved comptime name>")
-    }
-
-    fn resolve_layout_builtin(
-        &mut self,
-        span: Span,
-        builtin: LayoutBuiltin,
-        type_arg: &ComptimeTypeArg,
-    ) -> Result<ComptimeValue, ComptimeError>;
-
-    fn resolve_resolved_layout_builtin(
-        &mut self,
-        span: Span,
-        builtin: LayoutBuiltin,
-        type_arg: &ResolvedComptimeTypeArg,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        let raw_type_arg = ComptimeTypeArg {
-            span: type_arg.span,
-            ty_span: type_arg.ty_span,
-            ty: Some(type_arg.ty),
-        };
-        self.resolve_layout_builtin(span, builtin, &raw_type_arg)
-    }
-
-    fn call_function(
-        &mut self,
-        span: Span,
-        callee: &ComptimeExpr,
-        type_args: &[ComptimeTypeArg],
-        arg_exprs: &[ComptimeExpr],
-        args: Vec<ComptimeValue>,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        let _ = callee;
-        let _ = type_args;
-        let _ = arg_exprs;
-        let _ = args;
-        Err(ComptimeError {
-            span,
-            message: "unsupported comptime function call".to_string(),
-        })
-    }
-
-    fn call_resolved_function(
-        &mut self,
-        span: Span,
-        callee: &ResolvedComptimeExpr,
-        type_args: &[ResolvedComptimeTypeArg],
-        arg_exprs: &[ResolvedComptimeExpr],
-        args: Vec<ComptimeValue>,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        let _ = callee;
-        let _ = type_args;
-        let _ = arg_exprs;
-        let _ = args;
-        Err(ComptimeError {
-            span,
-            message: "unsupported resolved comptime function call".to_string(),
         })
     }
 
@@ -204,6 +130,54 @@ pub trait ComptimeEnv {
         self.pop_comptime_scope();
     }
 
+    fn bind_function_context(
+        &mut self,
+        span: Span,
+        module_id: ModuleId,
+        substitutions: Vec<(String, InternedTyId)>,
+    ) -> Result<(), ComptimeError> {
+        let _ = span;
+        let _ = module_id;
+        let _ = substitutions;
+        Ok(())
+    }
+}
+
+pub trait RawComptimeEnv: ComptimeCommonEnv {
+    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError>;
+
+    fn resolve_name_resolution(
+        &mut self,
+        span: Span,
+        resolution: ComptimeNameResolution,
+        name: &str,
+    ) -> Result<ComptimeValue, ComptimeError>;
+
+    fn resolve_layout_builtin(
+        &mut self,
+        span: Span,
+        builtin: LayoutBuiltin,
+        type_arg: &ComptimeTypeArg,
+    ) -> Result<ComptimeValue, ComptimeError>;
+
+    fn call_function(
+        &mut self,
+        span: Span,
+        callee: &ComptimeExpr,
+        type_args: &[ComptimeTypeArg],
+        arg_exprs: &[ComptimeExpr],
+        args: Vec<ComptimeValue>,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = callee;
+        let _ = type_args;
+        let _ = arg_exprs;
+        let _ = args;
+        Err(ComptimeError {
+            span,
+            message: "unsupported comptime function call".to_string(),
+        })
+    }
+
     fn bind_function_param(
         &mut self,
         span: Span,
@@ -216,33 +190,6 @@ pub trait ComptimeEnv {
             span,
             message: "comptime function parameters are not available in this context".to_string(),
         })
-    }
-
-    fn bind_resolved_function_param(
-        &mut self,
-        span: Span,
-        param: &ResolvedComptimeParam,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let raw_param = ComptimeParam {
-            span: param.span,
-            name: param.name.clone(),
-            local_id: Some(param.local_id),
-            ty: param.ty,
-        };
-        self.bind_function_param(span, &raw_param, value)
-    }
-
-    fn bind_function_context(
-        &mut self,
-        span: Span,
-        module_id: ModuleId,
-        substitutions: Vec<(String, InternedTyId)>,
-    ) -> Result<(), ComptimeError> {
-        let _ = span;
-        let _ = module_id;
-        let _ = substitutions;
-        Ok(())
     }
 
     fn bind_function_local(
@@ -259,21 +206,6 @@ pub trait ComptimeEnv {
         })
     }
 
-    fn bind_resolved_function_local(
-        &mut self,
-        span: Span,
-        binding: &ResolvedComptimeBinding,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let _ = binding;
-        let _ = value;
-        Err(ComptimeError {
-            span,
-            message: "resolved comptime function locals are not available in this context"
-                .to_string(),
-        })
-    }
-
     fn assign_local(
         &mut self,
         span: Span,
@@ -285,20 +217,6 @@ pub trait ComptimeEnv {
         Err(ComptimeError {
             span,
             message: "comptime assignment is not available in this context".to_string(),
-        })
-    }
-
-    fn assign_resolved_local(
-        &mut self,
-        span: Span,
-        target: &ResolvedComptimeAssignTarget,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let _ = target;
-        let _ = value;
-        Err(ComptimeError {
-            span,
-            message: "resolved comptime assignment is not available in this context".to_string(),
         })
     }
 
@@ -324,10 +242,106 @@ pub trait ComptimeEnv {
     }
 }
 
+pub trait ResolvedComptimeEnv: ComptimeCommonEnv {
+    fn resolve_resolved_name(
+        &mut self,
+        span: Span,
+        resolution: ComptimeNameResolution,
+    ) -> Result<ComptimeValue, ComptimeError>;
+
+    fn resolve_resolved_layout_builtin(
+        &mut self,
+        span: Span,
+        builtin: LayoutBuiltin,
+        type_arg: &ResolvedComptimeTypeArg,
+    ) -> Result<ComptimeValue, ComptimeError>;
+
+    fn call_resolved_function(
+        &mut self,
+        span: Span,
+        callee: &ResolvedComptimeExpr,
+        type_args: &[ResolvedComptimeTypeArg],
+        arg_exprs: &[ResolvedComptimeExpr],
+        args: Vec<ComptimeValue>,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        let _ = callee;
+        let _ = type_args;
+        let _ = arg_exprs;
+        let _ = args;
+        Err(ComptimeError {
+            span,
+            message: "unsupported resolved comptime function call".to_string(),
+        })
+    }
+
+    fn bind_resolved_function_param(
+        &mut self,
+        span: Span,
+        param: &ResolvedComptimeParam,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = param;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "resolved comptime function parameters are not available in this context"
+                .to_string(),
+        })
+    }
+
+    fn bind_resolved_function_local(
+        &mut self,
+        span: Span,
+        binding: &ResolvedComptimeBinding,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = binding;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "resolved comptime function locals are not available in this context"
+                .to_string(),
+        })
+    }
+
+    fn assign_resolved_local(
+        &mut self,
+        span: Span,
+        target: &ResolvedComptimeAssignTarget,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = target;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "resolved comptime assignment is not available in this context".to_string(),
+        })
+    }
+
+    fn bind_resolved_pattern_local(
+        &mut self,
+        span: Span,
+        name: &str,
+        local_id: nia_ids::LocalId,
+        value: ComptimeValue,
+    ) -> Result<(), ComptimeError> {
+        let _ = name;
+        let _ = local_id;
+        let _ = value;
+        Err(ComptimeError {
+            span,
+            message: "resolved comptime switch pattern locals are not available in this context"
+                .to_string(),
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct EmptyEnv;
 
-impl ComptimeEnv for EmptyEnv {
+impl ComptimeCommonEnv for EmptyEnv {}
+
+impl RawComptimeEnv for EmptyEnv {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
@@ -362,7 +376,7 @@ impl ComptimeEnv for EmptyEnv {
 
 fn eval_comptime_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match eval_comptime_expr_flow(expr, env)? {
         ComptimeEvalFlow::Value(value) => Ok(value),
@@ -387,28 +401,28 @@ fn eval_comptime_expr(
 
 pub fn eval_early_comptime_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_comptime_expr(expr, env)
 }
 
-pub fn eval_resolved_comptime_body_expr(
+pub fn eval_raw_comptime_body_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_comptime_expr(expr, env)
 }
 
 pub fn eval_resolved_comptime_expr(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_resolved_comptime_expr_value(expr, env)
 }
 
 fn eval_resolved_comptime_expr_value(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match eval_resolved_comptime_expr_flow(expr, env)? {
         ComptimeEvalFlow::Value(value) => Ok(value),
@@ -453,7 +467,7 @@ macro_rules! eval_resolved_value_or_return_flow {
 
 fn eval_resolved_comptime_expr_flow(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let value = match &expr.kind {
         ResolvedComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
@@ -702,7 +716,7 @@ fn eval_resolved_comptime_expr_flow(
 
 fn eval_comptime_expr_flow(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let value =
         match &expr.kind {
@@ -961,7 +975,7 @@ fn eval_comptime_if_expr_flow(
     cond: &ComptimeExpr,
     then_branch: &ComptimeBlock,
     else_branch: Option<&ComptimeExpr>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let cond_value =
         match eval_condition_flow(cond, env, "comptime expression must evaluate to bool")? {
@@ -983,7 +997,7 @@ fn eval_comptime_if_expr_flow(
 
 fn eval_comptime_switch_expr_flow(
     switch: &ComptimeSwitch,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let target = eval_value_or_return_flow!(&switch.target, env);
     let Some(matched) = matching_switch_arm(&target, switch, env)? else {
@@ -1000,7 +1014,7 @@ fn eval_resolved_comptime_if_expr_flow(
     cond: &ResolvedComptimeExpr,
     then_branch: &ResolvedComptimeBlock,
     else_branch: Option<&ResolvedComptimeExpr>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let cond_value =
         match eval_resolved_condition_flow(cond, env, "comptime expression must evaluate to bool")?
@@ -1028,7 +1042,7 @@ struct ResolvedComptimeSwitchMatch<'a> {
 
 fn eval_resolved_comptime_switch_expr_flow(
     switch: &ResolvedComptimeSwitch,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let target = eval_resolved_value_or_return_flow!(&switch.target, env);
     let Some(matched) = matching_resolved_switch_arm(&target, switch, env)? else {
@@ -1043,7 +1057,7 @@ fn eval_resolved_comptime_switch_expr_flow(
 fn eval_try_expr_flow(
     span: Span,
     inner: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match eval_comptime_expr_flow(inner, env)? {
         ComptimeEvalFlow::Value(ComptimeValue::Optional(Some(value))) => {
@@ -1076,7 +1090,7 @@ fn eval_try_expr_flow(
 fn eval_resolved_try_expr_flow(
     span: Span,
     inner: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match eval_resolved_comptime_expr_flow(inner, env)? {
         ComptimeEvalFlow::Value(ComptimeValue::Optional(Some(value))) => {
@@ -1109,7 +1123,7 @@ fn eval_resolved_try_expr_flow(
 fn matching_switch_arm<'a>(
     target: &ComptimeValue,
     switch: &'a ComptimeSwitch,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<Option<ComptimeSwitchMatch<'a>>, ComptimeError> {
     let mut default = None;
     for arm in &switch.arms {
@@ -1231,7 +1245,7 @@ fn matching_switch_arm<'a>(
 fn matching_resolved_switch_arm<'a>(
     target: &ComptimeValue,
     switch: &'a ResolvedComptimeSwitch,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<Option<ResolvedComptimeSwitchMatch<'a>>, ComptimeError> {
     let mut default = None;
     for arm in &switch.arms {
@@ -1357,7 +1371,7 @@ fn switch_range_matches(
     end: &ComptimeExpr,
     inclusive: bool,
     span: Span,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     let ComptimeValue::Int(target) = target else {
         return Err(ComptimeError {
@@ -1380,7 +1394,7 @@ fn resolved_switch_range_matches(
     end: &ResolvedComptimeExpr,
     inclusive: bool,
     span: Span,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     let ComptimeValue::Int(target) = target else {
         return Err(ComptimeError {
@@ -1399,7 +1413,7 @@ fn resolved_switch_range_matches(
 
 fn eval_comptime_switch_arm_body(
     body: &ComptimeSwitchArmBody,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match body {
         ComptimeSwitchArmBody::Expr(expr) => eval_function_tail_expr(expr, env),
@@ -1410,7 +1424,7 @@ fn eval_comptime_switch_arm_body(
 
 fn eval_comptime_switch_match_body(
     matched: ComptimeSwitchMatch<'_>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let Some(binding) = matched.binding else {
         return eval_comptime_switch_arm_body(&matched.arm.body, env);
@@ -1424,7 +1438,7 @@ fn eval_comptime_switch_match_body(
 
 fn eval_resolved_comptime_switch_arm_body(
     body: &ResolvedComptimeSwitchArmBody,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match body {
         ResolvedComptimeSwitchArmBody::Expr(expr) => eval_resolved_function_tail_expr(expr, env),
@@ -1435,13 +1449,13 @@ fn eval_resolved_comptime_switch_arm_body(
 
 fn eval_resolved_comptime_switch_match_body(
     matched: ResolvedComptimeSwitchMatch<'_>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let Some(binding) = matched.binding else {
         return eval_resolved_comptime_switch_arm_body(&matched.arm.body, env);
     };
     env.push_comptime_scope(matched.arm.span)?;
-    let bind_result = bind_switch_pattern_value(&binding, env);
+    let bind_result = bind_resolved_switch_pattern_value(&binding, env);
     let result =
         bind_result.and_then(|()| eval_resolved_comptime_switch_arm_body(&matched.arm.body, env));
     env.pop_comptime_scope();
@@ -1450,7 +1464,7 @@ fn eval_resolved_comptime_switch_match_body(
 
 fn bind_switch_pattern_value(
     binding: &ComptimeSwitchBinding,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<(), ComptimeError> {
     env.bind_pattern_local(
         binding.span,
@@ -1460,9 +1474,19 @@ fn bind_switch_pattern_value(
     )
 }
 
+fn bind_resolved_switch_pattern_value(
+    binding: &ComptimeSwitchBinding,
+    env: &mut impl ResolvedComptimeEnv,
+) -> Result<(), ComptimeError> {
+    let local_id = binding
+        .local_id
+        .expect("resolved comptime switch pattern must have a local id");
+    env.bind_resolved_pattern_local(binding.span, &binding.name, local_id, binding.value.clone())
+}
+
 fn eval_array_literal_flow(
     elems: &ComptimeArrayElements,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match elems {
         ComptimeArrayElements::List(elems) => {
@@ -1499,7 +1523,7 @@ fn eval_array_literal_flow(
 
 fn eval_resolved_array_literal_flow(
     elems: &ResolvedComptimeArrayElements,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match elems {
         ResolvedComptimeArrayElements::List(elems) => {
@@ -1538,7 +1562,7 @@ fn eval_array_index_flow(
     span: Span,
     lhs: &ComptimeExpr,
     index: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let values = match eval_value_or_return_flow!(lhs, env) {
         ComptimeValue::Array(values) => values,
@@ -1578,7 +1602,7 @@ fn eval_resolved_array_index_flow(
     span: Span,
     lhs: &ResolvedComptimeExpr,
     index: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let values = match eval_resolved_value_or_return_flow!(lhs, env) {
         ComptimeValue::Array(values) => values,
@@ -1618,7 +1642,7 @@ fn eval_array_slice_flow(
     span: Span,
     lhs: &ComptimeExpr,
     range: &ComptimeSliceRange,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let values = match eval_value_or_return_flow!(lhs, env) {
         ComptimeValue::Array(values) => values,
@@ -1665,7 +1689,7 @@ fn eval_resolved_array_slice_flow(
     span: Span,
     lhs: &ResolvedComptimeExpr,
     range: &ResolvedComptimeSliceRange,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let values = match eval_resolved_value_or_return_flow!(lhs, env) {
         ComptimeValue::Array(values) => values,
@@ -1715,7 +1739,7 @@ enum SliceBoundFlow {
 
 fn eval_slice_bound_flow(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<SliceBoundFlow, ComptimeError> {
     let span = expr.span;
     let value = match eval_comptime_expr_flow(expr, env)? {
@@ -1742,7 +1766,7 @@ fn eval_slice_bound_flow(
 
 fn eval_resolved_slice_bound_flow(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<SliceBoundFlow, ComptimeError> {
     let span = expr.span;
     let value = match eval_resolved_comptime_expr_flow(expr, env)? {
@@ -1769,7 +1793,7 @@ fn eval_resolved_slice_bound_flow(
 
 fn eval_struct_literal_flow(
     fields: &[nia_comptime_ir::ComptimeFieldInit],
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let mut values = BTreeMap::new();
     for field in fields {
@@ -1791,7 +1815,7 @@ fn eval_struct_literal_flow(
 
 fn eval_resolved_struct_literal_flow(
     fields: &[ResolvedComptimeFieldInit],
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let mut values = BTreeMap::new();
     for field in fields {
@@ -1813,7 +1837,7 @@ fn eval_resolved_struct_literal_flow(
 
 fn eval_comptime_int_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<i128, ComptimeError> {
     match eval_comptime_expr(expr, env)? {
         ComptimeValue::Int(value) => Ok(value),
@@ -1826,28 +1850,28 @@ fn eval_comptime_int_expr(
 
 pub fn eval_early_comptime_int_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<i128, ComptimeError> {
     eval_comptime_int_expr(expr, env)
 }
 
-pub fn eval_resolved_comptime_body_int_expr(
+pub fn eval_raw_comptime_body_int_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<i128, ComptimeError> {
     eval_comptime_int_expr(expr, env)
 }
 
 pub fn eval_resolved_comptime_int_expr(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<i128, ComptimeError> {
     eval_resolved_comptime_int_expr_inner(expr, env)
 }
 
 fn eval_resolved_comptime_int_expr_inner(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<i128, ComptimeError> {
     match eval_resolved_comptime_expr_value(expr, env)? {
         ComptimeValue::Int(value) => Ok(value),
@@ -1860,7 +1884,7 @@ fn eval_resolved_comptime_int_expr_inner(
 
 fn eval_comptime_bool_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     match eval_comptime_expr(expr, env)? {
         ComptimeValue::Bool(value) => Ok(value),
@@ -1873,28 +1897,28 @@ fn eval_comptime_bool_expr(
 
 pub fn eval_early_comptime_bool_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     eval_comptime_bool_expr(expr, env)
 }
 
-pub fn eval_resolved_comptime_body_bool_expr(
+pub fn eval_raw_comptime_body_bool_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     eval_comptime_bool_expr(expr, env)
 }
 
 pub fn eval_resolved_comptime_bool_expr(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     eval_resolved_comptime_bool_expr_inner(expr, env)
 }
 
 fn eval_resolved_comptime_bool_expr_inner(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     match eval_resolved_comptime_expr_value(expr, env)? {
         ComptimeValue::Bool(value) => Ok(value),
@@ -1907,28 +1931,28 @@ fn eval_resolved_comptime_bool_expr_inner(
 
 fn eval_comptime_array_len_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     int_to_array_len(expr.span, eval_comptime_int_expr(expr, env)?)
 }
 
 pub fn eval_early_comptime_array_len_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     eval_comptime_array_len_expr(expr, env)
 }
 
-pub fn eval_resolved_comptime_body_array_len_expr(
+pub fn eval_raw_comptime_body_array_len_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     eval_comptime_array_len_expr(expr, env)
 }
 
 pub fn eval_resolved_comptime_array_len_expr(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     int_to_array_len(expr.span, eval_resolved_comptime_int_expr_inner(expr, env)?)
 }
@@ -1940,7 +1964,7 @@ fn eval_comptime_function_call(
     body: &ComptimeBlock,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     if params.len() != args.len() {
         return Err(ComptimeError {
@@ -1986,7 +2010,7 @@ pub fn eval_early_comptime_function_call(
     function: &ComptimeFunction,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_comptime_function_call(
         span,
@@ -2005,7 +2029,7 @@ pub fn eval_resolved_comptime_function_call(
     function: &ResolvedComptimeFunction,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_resolved_comptime_function_call_inner(
         span,
@@ -2025,7 +2049,7 @@ fn eval_resolved_comptime_function_call_inner(
     body: &ResolvedComptimeBlock,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     if params.len() != args.len() {
         return Err(ComptimeError {
@@ -2067,7 +2091,7 @@ fn eval_resolved_comptime_function_call_inner(
 
 fn eval_function_block(
     block: &ComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     if block.stmts.is_empty() {
         return eval_function_block_without_scope(block, env);
@@ -2080,7 +2104,7 @@ fn eval_function_block(
 
 fn eval_resolved_function_block(
     block: &ResolvedComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     if block.stmts.is_empty() {
         return eval_resolved_function_block_without_scope(block, env);
@@ -2093,7 +2117,7 @@ fn eval_resolved_function_block(
 
 fn eval_resolved_function_block_without_scope(
     block: &ResolvedComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for stmt in &block.stmts {
         match eval_resolved_function_stmt(stmt, env)? {
@@ -2114,14 +2138,14 @@ fn eval_resolved_function_block_without_scope(
 
 fn eval_resolved_function_tail_expr(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     eval_resolved_comptime_expr_flow(expr, env)
 }
 
 fn eval_function_block_without_scope(
     block: &ComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for stmt in &block.stmts {
         match eval_function_stmt(stmt, env)? {
@@ -2142,14 +2166,14 @@ fn eval_function_block_without_scope(
 
 fn eval_function_tail_expr(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     eval_comptime_expr_flow(expr, env)
 }
 
 fn eval_function_stmt(
     stmt: &ComptimeStmt,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match &stmt.kind {
         ComptimeStmtKind::Binding(binding) => match eval_comptime_expr_flow(&binding.value, env)? {
@@ -2211,7 +2235,7 @@ fn eval_function_stmt(
 
 fn eval_resolved_function_stmt(
     stmt: &ResolvedComptimeStmt,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match &stmt.kind {
         ResolvedComptimeStmtKind::Binding(binding) => {
@@ -2282,7 +2306,7 @@ fn eval_resolved_function_stmt(
 fn eval_assign_expr_flow(
     span: Span,
     assign: &ComptimeAssign,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let value = match eval_assignment_value_flow(span, assign, env)? {
         ComptimeEvalFlow::Value(value) => value,
@@ -2305,7 +2329,7 @@ fn eval_assign_expr_flow(
 fn eval_resolved_assign_expr_flow(
     span: Span,
     assign: &ResolvedComptimeAssign,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let value = match eval_resolved_assignment_value_flow(span, assign, env)? {
         ComptimeEvalFlow::Value(value) => value,
@@ -2328,7 +2352,7 @@ fn eval_resolved_assign_expr_flow(
 fn eval_assignment_value_flow(
     span: Span,
     assign: &ComptimeAssign,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let rhs = eval_value_or_return_flow!(&assign.rhs, env);
     if matches!(assign.op, ComptimeAssignOp::Assign) {
@@ -2347,7 +2371,7 @@ fn eval_assignment_value_flow(
 fn eval_resolved_assignment_value_flow(
     span: Span,
     assign: &ResolvedComptimeAssign,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let rhs = eval_resolved_value_or_return_flow!(&assign.rhs, env);
     if matches!(assign.op, ComptimeAssignOp::Assign) {
@@ -2366,7 +2390,7 @@ fn eval_resolved_assignment_value_flow(
 fn eval_assign_target_root_value(
     span: Span,
     target: &ComptimeAssignTarget,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match target {
         ComptimeAssignTarget::Local {
@@ -2392,7 +2416,7 @@ fn eval_assign_target_root_value(
 
 fn eval_resolved_assign_target_root_value(
     target: &ResolvedComptimeAssignTarget,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match target {
         ResolvedComptimeAssignTarget::Local { span, local_id, .. } => {
@@ -2404,7 +2428,7 @@ fn eval_resolved_assign_target_root_value(
 fn eval_assign_target_value(
     span: Span,
     target: &ComptimeAssignTarget,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let value = eval_assign_target_root_value(span, target, env)?;
     match target {
@@ -2415,7 +2439,7 @@ fn eval_assign_target_value(
 fn eval_resolved_assign_target_value(
     span: Span,
     target: &ResolvedComptimeAssignTarget,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let value = eval_resolved_assign_target_root_value(target, env)?;
     match target {
@@ -2429,7 +2453,7 @@ fn eval_assign_path_value(
     span: Span,
     mut value: ComptimeValue,
     path: &[ComptimeAssignPathElem],
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     for elem in path {
         value = match elem {
@@ -2476,7 +2500,7 @@ fn eval_resolved_assign_path_value(
     span: Span,
     mut value: ComptimeValue,
     path: &[ResolvedComptimeAssignPathElem],
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     for elem in path {
         value = match elem {
@@ -2523,7 +2547,7 @@ fn assign_target_writeback_value(
     span: Span,
     target: &ComptimeAssignTarget,
     value: ComptimeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match target {
         ComptimeAssignTarget::Local { path, .. } => {
@@ -2540,7 +2564,7 @@ fn resolved_assign_target_writeback_value(
     span: Span,
     target: &ResolvedComptimeAssignTarget,
     value: ComptimeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match target {
         ResolvedComptimeAssignTarget::Local { path, .. } => {
@@ -2558,7 +2582,7 @@ fn write_assign_path_value(
     root: ComptimeValue,
     path: &[ComptimeAssignPathElem],
     value: ComptimeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let Some((head, tail)) = path.split_first() else {
         return Ok(value);
@@ -2612,7 +2636,7 @@ fn write_resolved_assign_path_value(
     root: ComptimeValue,
     path: &[ResolvedComptimeAssignPathElem],
     value: ComptimeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let Some((head, tail)) = path.split_first() else {
         return Ok(value);
@@ -2664,7 +2688,7 @@ fn write_resolved_assign_path_value(
 fn eval_assign_path_index(
     span: Span,
     index: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<usize, ComptimeError> {
     let index_span = index.span;
     let value = match eval_comptime_expr_flow(index, env)? {
@@ -2701,7 +2725,7 @@ fn eval_assign_path_index(
 fn eval_resolved_assign_path_index(
     span: Span,
     index: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<usize, ComptimeError> {
     let index_span = index.span;
     let value = match eval_resolved_comptime_expr_flow(index, env)? {
@@ -2753,7 +2777,7 @@ fn assign_op_binary(op: ComptimeAssignOp) -> Option<ComptimeBinaryOp> {
 
 fn eval_range_expr_flow(
     range: &ComptimeRange,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let start = match eval_optional_range_bound(range.start.as_deref(), env)? {
         ComptimeRangeBoundFlow::Value(value) => value,
@@ -2774,7 +2798,7 @@ fn eval_range_expr_flow(
 
 fn eval_resolved_range_expr_flow(
     range: &ResolvedComptimeRange,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let start = match eval_resolved_optional_range_bound(range.start.as_deref(), env)? {
         ComptimeRangeBoundFlow::Value(value) => value,
@@ -2800,7 +2824,7 @@ enum ComptimeRangeBoundFlow {
 
 fn eval_optional_range_bound(
     expr: Option<&ComptimeExpr>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
     let Some(expr) = expr else {
         return Ok(ComptimeRangeBoundFlow::Value(None));
@@ -2810,7 +2834,7 @@ fn eval_optional_range_bound(
 
 fn eval_resolved_optional_range_bound(
     expr: Option<&ResolvedComptimeExpr>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
     let Some(expr) = expr else {
         return Ok(ComptimeRangeBoundFlow::Value(None));
@@ -2820,7 +2844,7 @@ fn eval_resolved_optional_range_bound(
 
 fn eval_range_bound(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
     match eval_comptime_expr_flow(expr, env)? {
         ComptimeEvalFlow::Value(ComptimeValue::Int(value)) => {
@@ -2849,7 +2873,7 @@ fn eval_range_bound(
 
 fn eval_resolved_range_bound(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
     match eval_resolved_comptime_expr_flow(expr, env)? {
         ComptimeEvalFlow::Value(ComptimeValue::Int(value)) => {
@@ -2879,7 +2903,7 @@ fn eval_resolved_range_bound(
 fn eval_for_in_stmt(
     span: Span,
     for_in: &ComptimeForIn,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let iter = match eval_comptime_expr_flow(&for_in.iter, env)? {
         ComptimeEvalFlow::Value(value) => value,
@@ -2915,7 +2939,7 @@ fn eval_for_in_stmt(
 fn eval_resolved_for_in_stmt(
     span: Span,
     for_in: &ResolvedComptimeForIn,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let iter = match eval_resolved_comptime_expr_flow(&for_in.iter, env)? {
         ComptimeEvalFlow::Value(value) => value,
@@ -2953,7 +2977,7 @@ fn eval_for_in_values(
     binding: &ComptimeForBinding,
     body: &ComptimeBlock,
     values: Vec<ComptimeValue>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for value in values {
         match eval_for_in_iteration(span, binding, body, value, env)? {
@@ -2971,7 +2995,7 @@ fn eval_resolved_for_in_values(
     binding: &ResolvedComptimeForBinding,
     body: &ResolvedComptimeBlock,
     values: Vec<ComptimeValue>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for value in values {
         match eval_resolved_for_in_iteration(span, binding, body, value, env)? {
@@ -2989,7 +3013,7 @@ fn eval_for_in_range(
     binding: &ComptimeForBinding,
     body: &ComptimeBlock,
     range: &ComptimeRangeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let Some(mut current) = range.start else {
         return Err(ComptimeError {
@@ -3030,7 +3054,7 @@ fn eval_resolved_for_in_range(
     binding: &ResolvedComptimeForBinding,
     body: &ResolvedComptimeBlock,
     range: &ComptimeRangeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let Some(mut current) = range.start else {
         return Err(ComptimeError {
@@ -3072,7 +3096,7 @@ fn eval_for_in_iteration(
     binding: &ComptimeForBinding,
     body: &ComptimeBlock,
     value: ComptimeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     env.push_comptime_scope(span)?;
     let bind_result = env.bind_pattern_local(binding.span, &binding.name, binding.local_id, value);
@@ -3086,11 +3110,11 @@ fn eval_resolved_for_in_iteration(
     binding: &ResolvedComptimeForBinding,
     body: &ResolvedComptimeBlock,
     value: ComptimeValue,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     env.push_comptime_scope(span)?;
     let bind_result =
-        env.bind_pattern_local(binding.span, &binding.name, Some(binding.local_id), value);
+        env.bind_resolved_pattern_local(binding.span, &binding.name, binding.local_id, value);
     let result = bind_result.and_then(|()| eval_resolved_function_block(body, env));
     env.pop_comptime_scope();
     result
@@ -3100,7 +3124,7 @@ fn eval_while_stmt(
     span: Span,
     cond: &ComptimeExpr,
     body: &ComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for _ in 0..COMPTIME_LOOP_LIMIT {
         let cond_value =
@@ -3129,7 +3153,7 @@ fn eval_resolved_while_stmt(
     span: Span,
     cond: &ResolvedComptimeExpr,
     body: &ResolvedComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for _ in 0..COMPTIME_LOOP_LIMIT {
         let cond_value = match eval_resolved_condition_flow(
@@ -3159,7 +3183,7 @@ fn eval_resolved_while_stmt(
 fn eval_loop_stmt(
     span: Span,
     body: &ComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for _ in 0..COMPTIME_LOOP_LIMIT {
         match eval_function_block(body, env)? {
@@ -3178,7 +3202,7 @@ fn eval_loop_stmt(
 fn eval_resolved_loop_stmt(
     span: Span,
     body: &ResolvedComptimeBlock,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for _ in 0..COMPTIME_LOOP_LIMIT {
         match eval_resolved_function_block(body, env)? {
@@ -3203,7 +3227,7 @@ fn eval_if_stmt(
     cond: &ComptimeExpr,
     then_branch: &ComptimeBlock,
     else_branch: Option<&ComptimeBlock>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let cond_value =
         match eval_condition_flow(cond, env, "comptime if condition must evaluate to bool")? {
@@ -3223,7 +3247,7 @@ fn eval_resolved_if_stmt(
     cond: &ResolvedComptimeExpr,
     then_branch: &ResolvedComptimeBlock,
     else_branch: Option<&ResolvedComptimeBlock>,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let cond_value = match eval_resolved_condition_flow(
         cond,
@@ -3244,7 +3268,7 @@ fn eval_resolved_if_stmt(
 
 fn eval_condition_flow(
     cond: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
     type_error: &'static str,
 ) -> Result<ComptimeConditionFlow, ComptimeError> {
     match eval_comptime_expr_flow(cond, env)? {
@@ -3274,7 +3298,7 @@ fn eval_condition_flow(
 
 fn eval_resolved_condition_flow(
     cond: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
     type_error: &'static str,
 ) -> Result<ComptimeConditionFlow, ComptimeError> {
     match eval_resolved_comptime_expr_flow(cond, env)? {
@@ -3380,7 +3404,7 @@ fn eval_numeric_binary_value(
 
 fn eval_numeric_operand_flow(
     expr: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<Result<ComptimeValue, ComptimeEvalFlow>, ComptimeError> {
     match eval_comptime_expr_flow(expr, env)? {
         ComptimeEvalFlow::Value(value @ (ComptimeValue::Int(_) | ComptimeValue::Float(_))) => {
@@ -3406,7 +3430,7 @@ fn eval_binary_flow(
     lhs: &ComptimeExpr,
     op: ComptimeBinaryOp,
     rhs: &ComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl RawComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     macro_rules! bool_operand {
         ($expr:expr) => {
@@ -3495,7 +3519,7 @@ fn eval_binary_flow(
 
 fn eval_resolved_numeric_operand_flow(
     expr: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<Result<ComptimeValue, ComptimeEvalFlow>, ComptimeError> {
     match eval_resolved_comptime_expr_flow(expr, env)? {
         ComptimeEvalFlow::Value(value @ (ComptimeValue::Int(_) | ComptimeValue::Float(_))) => {
@@ -3521,7 +3545,7 @@ fn eval_resolved_binary_flow(
     lhs: &ResolvedComptimeExpr,
     op: ComptimeBinaryOp,
     rhs: &ResolvedComptimeExpr,
-    env: &mut impl ComptimeEnv,
+    env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     macro_rules! bool_operand {
         ($expr:expr) => {
@@ -4093,7 +4117,7 @@ fn main() bool {
                 resolution: Some(ComptimeNameResolution::Local(nia_ids::LocalId(0))),
             },
         };
-        let err = eval_resolved_comptime_body_expr(&expr, &mut EmptyEnv)
+        let err = eval_raw_comptime_body_expr(&expr, &mut EmptyEnv)
             .expect_err("resolved names must be handled explicitly");
         assert_eq!(
             err.message,
@@ -4105,30 +4129,9 @@ fn main() bool {
     fn resolved_function_calls_use_resolved_callee_identity() {
         struct ResolvedCallEnv;
 
-        impl ComptimeEnv for ResolvedCallEnv {
-            fn resolve_ident(
-                &mut self,
-                span: Span,
-                name: &str,
-            ) -> Result<ComptimeValue, ComptimeError> {
-                Err(ComptimeError {
-                    span,
-                    message: format!("unexpected raw identifier lookup `{name}`"),
-                })
-            }
+        impl ComptimeCommonEnv for ResolvedCallEnv {}
 
-            fn resolve_name_resolution(
-                &mut self,
-                span: Span,
-                _resolution: ComptimeNameResolution,
-                name: &str,
-            ) -> Result<ComptimeValue, ComptimeError> {
-                Err(ComptimeError {
-                    span,
-                    message: format!("unexpected raw name lookup `{name}`"),
-                })
-            }
-
+        impl ResolvedComptimeEnv for ResolvedCallEnv {
             fn resolve_resolved_name(
                 &mut self,
                 span: Span,
@@ -4140,11 +4143,11 @@ fn main() bool {
                 })
             }
 
-            fn resolve_layout_builtin(
+            fn resolve_resolved_layout_builtin(
                 &mut self,
                 span: Span,
                 _builtin: LayoutBuiltin,
-                _type_arg: &ComptimeTypeArg,
+                _type_arg: &ResolvedComptimeTypeArg,
             ) -> Result<ComptimeValue, ComptimeError> {
                 Err(ComptimeError {
                     span,
@@ -4212,7 +4215,7 @@ fn main() bool {
                 },
             })),
         };
-        let err = eval_resolved_comptime_body_expr(&expr, &mut EmptyEnv)
+        let err = eval_raw_comptime_body_expr(&expr, &mut EmptyEnv)
             .expect_err("assignment targets must carry resolved local ids");
         assert_eq!(
             err.message,
@@ -4223,7 +4226,7 @@ fn main() bool {
     #[test]
     fn pattern_bindings_require_resolved_locals() {
         let mut env = EmptyEnv;
-        let err = ComptimeEnv::bind_pattern_local(
+        let err = RawComptimeEnv::bind_pattern_local(
             &mut env,
             Span::new(0, 1),
             "payload",
@@ -4346,18 +4349,7 @@ fn main() bool {
 
     struct BuiltinEnv;
 
-    impl ComptimeEnv for BuiltinEnv {
-        fn resolve_ident(
-            &mut self,
-            span: Span,
-            name: &str,
-        ) -> Result<ComptimeValue, ComptimeError> {
-            Err(ComptimeError {
-                span,
-                message: format!("unknown comptime value `{name}`"),
-            })
-        }
-
+    impl ComptimeCommonEnv for BuiltinEnv {
         fn resolve_builtin_value(
             &mut self,
             span: Span,
@@ -4371,6 +4363,19 @@ fn main() bool {
             let mut builtin = BTreeMap::new();
             builtin.insert("target".to_string(), ComptimeValue::Struct(target));
             Ok(ComptimeValue::Struct(builtin))
+        }
+    }
+
+    impl RawComptimeEnv for BuiltinEnv {
+        fn resolve_ident(
+            &mut self,
+            span: Span,
+            name: &str,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            Err(ComptimeError {
+                span,
+                message: format!("unknown comptime value `{name}`"),
+            })
         }
 
         fn resolve_name_resolution(
@@ -4403,7 +4408,18 @@ fn main() bool {
         scopes: Vec<BTreeMap<String, ComptimeValue>>,
     }
 
-    impl ComptimeEnv for SwitchPatternEnv {
+    impl ComptimeCommonEnv for SwitchPatternEnv {
+        fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
+            self.scopes.push(BTreeMap::new());
+            Ok(())
+        }
+
+        fn pop_comptime_scope(&mut self) {
+            self.scopes.pop();
+        }
+    }
+
+    impl RawComptimeEnv for SwitchPatternEnv {
         fn resolve_ident(
             &mut self,
             span: Span,
@@ -4438,15 +4454,6 @@ fn main() bool {
                 span,
                 message: "layout builtins are not available in this test".to_string(),
             })
-        }
-
-        fn push_comptime_scope(&mut self, _span: Span) -> Result<(), ComptimeError> {
-            self.scopes.push(BTreeMap::new());
-            Ok(())
-        }
-
-        fn pop_comptime_scope(&mut self) {
-            self.scopes.pop();
         }
 
         fn bind_pattern_local(

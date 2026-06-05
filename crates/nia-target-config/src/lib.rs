@@ -104,7 +104,32 @@ struct TargetComptimeFrame {
     mutable_names: HashSet<String>,
 }
 
-impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
+impl nia_comptime_engine::ComptimeCommonEnv for TargetComptimeEnv<'_> {
+    fn resolve_builtin_value(
+        &mut self,
+        span: Span,
+        builtin: nia_ids::ValueBuiltin,
+    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        let _ = span;
+        match builtin {
+            nia_ids::ValueBuiltin::Builtin => Ok(builtin_comptime_value(self.config)),
+        }
+    }
+
+    fn push_comptime_scope(
+        &mut self,
+        _span: Span,
+    ) -> Result<(), nia_comptime_engine::ComptimeError> {
+        self.call_locals.push(TargetComptimeFrame::default());
+        Ok(())
+    }
+
+    fn pop_comptime_scope(&mut self) {
+        self.call_locals.pop();
+    }
+}
+
+impl nia_comptime_engine::RawComptimeEnv for TargetComptimeEnv<'_> {
     fn resolve_ident(
         &mut self,
         span: Span,
@@ -122,17 +147,6 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
             span,
             message: format!("unknown target comptime value `{name}`"),
         })
-    }
-
-    fn resolve_builtin_value(
-        &mut self,
-        span: Span,
-        builtin: nia_ids::ValueBuiltin,
-    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        let _ = span;
-        match builtin {
-            nia_ids::ValueBuiltin::Builtin => Ok(builtin_comptime_value(self.config)),
-        }
     }
 
     fn resolve_name_resolution(
@@ -197,18 +211,6 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
             args,
             self,
         )
-    }
-
-    fn push_comptime_scope(
-        &mut self,
-        _span: Span,
-    ) -> Result<(), nia_comptime_engine::ComptimeError> {
-        self.call_locals.push(TargetComptimeFrame::default());
-        Ok(())
-    }
-
-    fn pop_comptime_scope(&mut self) {
-        self.call_locals.pop();
     }
 
     fn bind_function_param(
