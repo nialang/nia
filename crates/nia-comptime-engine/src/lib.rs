@@ -2299,7 +2299,7 @@ fn main() bool {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let expr = nia_comptime_ir::lower_expr(expr).unwrap();
+        let expr = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_comptime_bool_expr(&expr, &mut BuiltinEnv).unwrap();
         assert!(value);
     }
@@ -2318,7 +2318,7 @@ fn main() bool {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let ComptimeExprKind::Binary { lhs, .. } = &lowered.kind else {
             panic!("expected lowered binary expression");
         };
@@ -2345,7 +2345,8 @@ fn main() bool {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let err = nia_comptime_ir::lower_expr(expr).expect_err("unknown builtin should not lower");
+        let err =
+            nia_comptime_ir::lower_expr_early(expr).expect_err("unknown builtin should not lower");
         assert_eq!(
             err.message,
             "unsupported builtin value in comptime expression: @unknown"
@@ -2430,7 +2431,7 @@ fn main() usize {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
         assert_eq!(value, 8);
     }
@@ -2452,7 +2453,7 @@ fn main() usize {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
         assert_eq!(value, 8);
     }
@@ -2474,7 +2475,7 @@ fn main() usize {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
         assert_eq!(value, 5);
     }
@@ -2493,7 +2494,7 @@ fn main() usize {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
         assert_eq!(value, 4);
     }
@@ -2512,7 +2513,7 @@ fn main() bool {
             panic!("expected function");
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
-        let lowered = nia_comptime_ir::lower_expr(expr).unwrap();
+        let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
         let value = eval_comptime_bool_expr(&lowered, &mut EmptyEnv).unwrap();
         assert!(value);
     }
