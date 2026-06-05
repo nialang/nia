@@ -1097,17 +1097,18 @@ pub fn eval_resolved_comptime_array_len_expr(
 fn eval_comptime_function_call(
     span: Span,
     function_module_id: ModuleId,
-    function: &ComptimeFunction,
+    params: &[ComptimeParam],
+    body: &ComptimeBlock,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
-    if function.params.len() != args.len() {
+    if params.len() != args.len() {
         return Err(ComptimeError {
             span,
             message: format!(
                 "comptime function argument count mismatch: expected {}, got {}",
-                function.params.len(),
+                params.len(),
                 args.len()
             ),
         });
@@ -1117,22 +1118,22 @@ fn eval_comptime_function_call(
         env.pop_comptime_scope();
         return Err(err);
     }
-    for (param, value) in function.params.iter().zip(args) {
+    for (param, value) in params.iter().zip(args) {
         if let Err(err) = env.bind_function_param(param.span, param, value) {
             env.pop_comptime_scope();
             return Err(err);
         }
     }
-    let result = eval_function_block(&function.body, env).and_then(|flow| match flow {
+    let result = eval_function_block(body, env).and_then(|flow| match flow {
         ComptimeEvalFlow::Value(value)
         | ComptimeEvalFlow::Return(value)
         | ComptimeEvalFlow::Propagate(value) => Ok(value),
         ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
-            span: function.body.span,
+            span: body.span,
             message: "comptime loop control flow escaped its loop".to_string(),
         }),
         ComptimeEvalFlow::Void => Err(ComptimeError {
-            span: function.body.span,
+            span: body.span,
             message: "comptime function must return a value".to_string(),
         }),
     });
@@ -1151,7 +1152,8 @@ pub fn eval_early_comptime_function_call(
     eval_comptime_function_call(
         span,
         function_module_id,
-        function,
+        &function.params,
+        &function.body,
         type_substitutions,
         args,
         env,
@@ -1169,7 +1171,8 @@ pub fn eval_resolved_comptime_function_call(
     eval_comptime_function_call(
         span,
         function_module_id,
-        function.as_function(),
+        function.params(),
+        function.body(),
         type_substitutions,
         args,
         env,
