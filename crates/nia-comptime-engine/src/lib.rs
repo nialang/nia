@@ -4,18 +4,18 @@ use nia_comptime_ir::{
     ComptimeUnaryOp, EarlyComptimeArrayElements, EarlyComptimeAssign, EarlyComptimeAssignPathElem,
     EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeBlock, EarlyComptimeExpr,
     EarlyComptimeExprKind, EarlyComptimeForBinding, EarlyComptimeForIn, EarlyComptimeFunction,
-    EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange, EarlyComptimeStmt,
-    EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm, EarlyComptimeSwitchArmBody,
-    EarlyComptimeSwitchPattern, EarlyComptimeTypeArg, ResolvedComptimeArrayElements,
-    ResolvedComptimeArrayElementsKind, ResolvedComptimeAssign, ResolvedComptimeAssignPathElem,
-    ResolvedComptimeAssignPathElemKind, ResolvedComptimeAssignTarget,
-    ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding, ResolvedComptimeBlock,
-    ResolvedComptimeExpr, ResolvedComptimeExprKind, ResolvedComptimeFieldInit,
-    ResolvedComptimeForBinding, ResolvedComptimeForIn, ResolvedComptimeFunction,
-    ResolvedComptimeParam, ResolvedComptimeRange, ResolvedComptimeSliceRange, ResolvedComptimeStmt,
-    ResolvedComptimeStmtKind, ResolvedComptimeSwitch, ResolvedComptimeSwitchArm,
-    ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchArmBodyKind,
-    ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
+    EarlyComptimeName, EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange,
+    EarlyComptimeStmt, EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm,
+    EarlyComptimeSwitchArmBody, EarlyComptimeSwitchPattern, EarlyComptimeTypeArg,
+    ResolvedComptimeArrayElements, ResolvedComptimeArrayElementsKind, ResolvedComptimeAssign,
+    ResolvedComptimeAssignPathElem, ResolvedComptimeAssignPathElemKind,
+    ResolvedComptimeAssignTarget, ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding,
+    ResolvedComptimeBlock, ResolvedComptimeExpr, ResolvedComptimeExprKind,
+    ResolvedComptimeFieldInit, ResolvedComptimeForBinding, ResolvedComptimeForIn,
+    ResolvedComptimeFunction, ResolvedComptimeParam, ResolvedComptimeRange,
+    ResolvedComptimeSliceRange, ResolvedComptimeStmt, ResolvedComptimeStmtKind,
+    ResolvedComptimeSwitch, ResolvedComptimeSwitchArm, ResolvedComptimeSwitchArmBody,
+    ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
@@ -147,13 +147,10 @@ pub trait ComptimeCommonEnv {
 }
 
 pub trait EarlyComptimeEnv: ComptimeCommonEnv {
-    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError>;
-
-    fn resolve_name_resolution(
+    fn resolve_name(
         &mut self,
         span: Span,
-        resolution: ComptimeNameResolution,
-        name: &str,
+        name: &EarlyComptimeName,
     ) -> Result<ComptimeValue, ComptimeError>;
 
     fn resolve_layout_builtin(
@@ -345,23 +342,23 @@ pub struct EmptyEnv;
 impl ComptimeCommonEnv for EmptyEnv {}
 
 impl EarlyComptimeEnv for EmptyEnv {
-    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
-        Err(ComptimeError {
-            span,
-            message: format!("unknown comptime value `{name}`"),
-        })
-    }
-
-    fn resolve_name_resolution(
+    fn resolve_name(
         &mut self,
         span: Span,
-        _resolution: ComptimeNameResolution,
-        name: &str,
+        name: &EarlyComptimeName,
     ) -> Result<ComptimeValue, ComptimeError> {
-        Err(ComptimeError {
-            span,
-            message: format!("resolved comptime value `{name}` is not available in this context"),
-        })
+        match name {
+            EarlyComptimeName::Unresolved(display) => Err(ComptimeError {
+                span,
+                message: format!("unknown comptime value `{display}`"),
+            }),
+            EarlyComptimeName::Resolved { display, .. } => Err(ComptimeError {
+                span,
+                message: format!(
+                    "resolved comptime value `{display}` is not available in this context"
+                ),
+            }),
+        }
     }
 
     fn resolve_layout_builtin(
@@ -761,11 +758,7 @@ fn eval_comptime_expr_flow(
                 message: format!("invalid byte char literal `{text}` in comptime expression"),
             })?,
         EarlyComptimeExprKind::Ident(name) | EarlyComptimeExprKind::Qualified(name) => {
-            if let Some(resolution) = name.resolution() {
-                env.resolve_name_resolution(expr.span, resolution, name.display())?
-            } else {
-                env.resolve_ident(expr.span, name.display())?
-            }
+            env.resolve_name(expr.span, name)?
         }
         EarlyComptimeExprKind::Field { lhs, name } => match eval_value_or_return_flow!(lhs, env) {
             ComptimeValue::Struct(fields) => {
@@ -2382,10 +2375,12 @@ fn eval_assign_target_root_value(
                     message: format!("failed to resolve comptime assignment target `{name}`"),
                 });
             };
-            env.resolve_name_resolution(
+            env.resolve_name(
                 *target_span,
-                ComptimeNameResolution::Local(*local_id),
-                name,
+                &EarlyComptimeName::resolved(
+                    name.clone(),
+                    ComptimeNameResolution::Local(*local_id),
+                ),
             )
         }
     }
@@ -4342,27 +4337,23 @@ fn main() bool {
     }
 
     impl EarlyComptimeEnv for BuiltinEnv {
-        fn resolve_ident(
+        fn resolve_name(
             &mut self,
             span: Span,
-            name: &str,
+            name: &EarlyComptimeName,
         ) -> Result<ComptimeValue, ComptimeError> {
-            Err(ComptimeError {
-                span,
-                message: format!("unknown comptime value `{name}`"),
-            })
-        }
-
-        fn resolve_name_resolution(
-            &mut self,
-            span: Span,
-            _resolution: ComptimeNameResolution,
-            name: &str,
-        ) -> Result<ComptimeValue, ComptimeError> {
-            Err(ComptimeError {
-                span,
-                message: format!("resolved comptime value `{name}` is not available in this test"),
-            })
+            match name {
+                EarlyComptimeName::Unresolved(display) => Err(ComptimeError {
+                    span,
+                    message: format!("unknown comptime value `{display}`"),
+                }),
+                EarlyComptimeName::Resolved { display, .. } => Err(ComptimeError {
+                    span,
+                    message: format!(
+                        "resolved comptime value `{display}` is not available in this test"
+                    ),
+                }),
+            }
         }
 
         fn resolve_layout_builtin(
@@ -4395,11 +4386,20 @@ fn main() bool {
     }
 
     impl EarlyComptimeEnv for SwitchPatternEnv {
-        fn resolve_ident(
+        fn resolve_name(
             &mut self,
             span: Span,
-            name: &str,
+            name: &EarlyComptimeName,
         ) -> Result<ComptimeValue, ComptimeError> {
+            let EarlyComptimeName::Unresolved(name) = name else {
+                return Err(ComptimeError {
+                    span,
+                    message: format!(
+                        "resolved comptime value `{}` is not available in this test",
+                        name.display()
+                    ),
+                });
+            };
             self.scopes
                 .iter()
                 .rev()
@@ -4408,15 +4408,6 @@ fn main() bool {
                     span,
                     message: format!("unknown comptime value `{name}`"),
                 })
-        }
-
-        fn resolve_name_resolution(
-            &mut self,
-            span: Span,
-            _resolution: ComptimeNameResolution,
-            name: &str,
-        ) -> Result<ComptimeValue, ComptimeError> {
-            self.resolve_ident(span, name)
         }
 
         fn resolve_layout_builtin(

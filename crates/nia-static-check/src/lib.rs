@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, ItemKind, Module, UnaryOp};
 use nia_comptime_check::{ComptimeCheck, ComptimeKey};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, EarlyComptimeEnv};
+use nia_comptime_ir::EarlyComptimeName;
 use nia_comptime_ir::EarlyComptimeTypeArg;
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -412,41 +413,42 @@ struct StaticComptimeEnv<'a> {
 impl ComptimeCommonEnv for StaticComptimeEnv<'_> {}
 
 impl EarlyComptimeEnv for StaticComptimeEnv<'_> {
-    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
-        let _ = name;
-        Err(ComptimeError {
-            span,
-            message: "static constant expression requires resolved comptime values".to_string(),
-        })
-    }
-
-    fn resolve_name_resolution(
+    fn resolve_name(
         &mut self,
         span: Span,
-        resolution: nia_comptime_ir::ComptimeNameResolution,
-        name: &str,
+        name: &EarlyComptimeName,
     ) -> Result<ComptimeValue, ComptimeError> {
+        let EarlyComptimeName::Resolved {
+            display,
+            resolution,
+        } = name
+        else {
+            return Err(ComptimeError {
+                span,
+                message: "static constant expression requires resolved comptime values".to_string(),
+            });
+        };
         let key = match resolution {
             nia_comptime_ir::ComptimeNameResolution::Local(local_id) => {
-                ComptimeKey::Local(local_id)
+                ComptimeKey::Local(*local_id)
             }
             nia_comptime_ir::ComptimeNameResolution::Global(global_id) => {
-                if self.global_def_kind(global_id) != Some(DefKind::Comptime) {
+                if self.global_def_kind(*global_id) != Some(DefKind::Comptime) {
                     return Err(ComptimeError {
                         span,
                         message: format!(
-                            "static constant expression can only use comptime bindings: `{name}`"
+                            "static constant expression can only use comptime bindings: `{display}`"
                         ),
                     });
                 }
-                ComptimeKey::Global(global_id)
+                ComptimeKey::Global(*global_id)
             }
         };
         self.value_for_key(key)
             .cloned()
             .ok_or_else(|| ComptimeError {
                 span,
-                message: format!("failed to evaluate comptime value `{name}`"),
+                message: format!("failed to evaluate comptime value `{display}`"),
             })
     }
 

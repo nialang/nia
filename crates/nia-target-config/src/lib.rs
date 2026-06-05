@@ -130,11 +130,20 @@ impl nia_comptime_engine::ComptimeCommonEnv for TargetComptimeEnv<'_> {
 }
 
 impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
-    fn resolve_ident(
+    fn resolve_name(
         &mut self,
         span: Span,
-        name: &str,
+        name: &EarlyComptimeName,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        let EarlyComptimeName::Unresolved(name) = name else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: format!(
+                    "resolved comptime value `{}` is not available in target conditions",
+                    name.display()
+                ),
+            });
+        };
         if let Some(value) = self
             .call_locals
             .iter()
@@ -146,20 +155,6 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
         Err(nia_comptime_engine::ComptimeError {
             span,
             message: format!("unknown target comptime value `{name}`"),
-        })
-    }
-
-    fn resolve_name_resolution(
-        &mut self,
-        span: Span,
-        _resolution: nia_comptime_ir::ComptimeNameResolution,
-        name: &str,
-    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        Err(nia_comptime_engine::ComptimeError {
-            span,
-            message: format!(
-                "resolved comptime value `{name}` is not available in target conditions"
-            ),
         })
     }
 
