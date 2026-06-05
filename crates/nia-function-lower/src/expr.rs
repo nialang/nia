@@ -840,10 +840,10 @@ impl FunctionLowerer {
                 FunctionCallee::BuiltinOperator(FunctionBuiltinOperator {
                     trait_id: operator.trait_id,
                     op: match operator.op {
-                        nia_body_ir::BuiltinOperatorOp::Unary(op) => {
+                        nia_sema_ir::BuiltinOperatorOp::Unary(op) => {
                             FunctionBuiltinOperatorOp::Unary(op)
                         }
-                        nia_body_ir::BuiltinOperatorOp::Binary(op) => {
+                        nia_sema_ir::BuiltinOperatorOp::Binary(op) => {
                             FunctionBuiltinOperatorOp::Binary(op)
                         }
                     },

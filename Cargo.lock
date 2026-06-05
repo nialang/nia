@@ -369,6 +369,7 @@ dependencies = [
  "nia-body-ir",
  "nia-function-ir",
  "nia-ids",
+ "nia-sema-ir",
  "nia-span",
  "nia-ty",
 ]

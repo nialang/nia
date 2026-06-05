@@ -2,8 +2,8 @@
 use super::support::{LoweringContext, SwitchPatternConditionContext, SwitchStmtArmContext};
 use super::*;
 use nia_ast::BinaryOp;
-use nia_body_ir::BuiltinOperatorOp;
 use nia_ids::TyInternerIndex;
+use nia_sema_ir::BuiltinOperatorOp;
 
 impl FunctionLowerer {
     pub(super) fn lower_body_into(
