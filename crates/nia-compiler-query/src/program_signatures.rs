@@ -591,7 +591,17 @@ fn validate_trait_impl(
             trait_id,
             extend,
         });
-        if !trait_method_signature_matches(&required_signature, actual) {
+        let actual_signature = normalize_impl_method_signature(ImplMethodSignatureNormalize {
+            target_interner: &mut comparison_interner,
+            module,
+            source_interner: &module.lowering.interner,
+            signature: actual,
+            trait_args: &trait_args,
+            self_ty: target_ty,
+            trait_id,
+            extend,
+        });
+        if !trait_method_signature_matches(&required_signature, &actual_signature) {
             diagnostics.push(Diagnostic::error(
                 method.function.span,
                 format!(
@@ -1215,6 +1225,43 @@ fn import_trait_method_signature(import: TraitMethodImport<'_>) -> FunctionSigna
     signature
 }
 
+fn normalize_impl_method_signature(import: ImplMethodSignatureNormalize<'_>) -> FunctionSignature {
+    let substitutions = HashMap::new();
+    let context = Some(ProjectionImplContext {
+        trait_id: import.trait_id,
+        trait_args: import.trait_args,
+        self_ty: import.self_ty,
+        extend: import.extend,
+    });
+    let mut signature = import.signature.clone();
+    signature.params = signature
+        .params
+        .iter()
+        .map(|param| ParamSignature {
+            name: param.name.clone(),
+            receiver: param.receiver,
+            ty: substitute_imported_type(
+                import.target_interner,
+                import.module,
+                import.source_interner,
+                param.ty,
+                &substitutions,
+                context,
+            ),
+            span: param.span,
+        })
+        .collect();
+    signature.return_type = substitute_imported_type(
+        import.target_interner,
+        import.module,
+        import.source_interner,
+        signature.return_type,
+        &substitutions,
+        context,
+    );
+    signature
+}
+
 struct TraitMethodImport<'a> {
     target_interner: &'a mut TyInterner,
     module: &'a ExtensionModuleInput<'a>,
@@ -1224,6 +1271,17 @@ struct TraitMethodImport<'a> {
     // checked against an impl in the current module/interner. These fields keep
     // the substitution environment and projection-impl context in one place.
     trait_generics: &'a [String],
+    trait_args: &'a [nia_ids::InternedTyId],
+    self_ty: nia_ids::InternedTyId,
+    trait_id: GlobalDefId,
+    extend: &'a nia_ast::ExtendItem,
+}
+
+struct ImplMethodSignatureNormalize<'a> {
+    target_interner: &'a mut TyInterner,
+    module: &'a ExtensionModuleInput<'a>,
+    source_interner: &'a TyInterner,
+    signature: &'a FunctionSignature,
     trait_args: &'a [nia_ids::InternedTyId],
     self_ty: nia_ids::InternedTyId,
     trait_id: GlobalDefId,

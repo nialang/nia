@@ -34,6 +34,7 @@ pub struct IntrinsicImpl {
 pub struct UserImpl {
     pub goal: TraitGoal,
     pub impl_index: usize,
+    pub substitutions: HashMap<String, InternedTyId>,
 }
 
 pub struct TraitSolver<'a, F>
@@ -420,11 +421,9 @@ where
                     .associated_types
                     .iter()
                     .find(|associated_type| associated_type.name == name)?;
-                Some(import_type_into(
-                    self.interner,
-                    &impl_signature.interner,
-                    associated_type.ty,
-                ))
+                let ty =
+                    import_type_into(self.interner, &impl_signature.interner, associated_type.ty);
+                Some(self.substitute_ty(ty, &user_impl.substitutions))
             }
             TraitResolution::Intrinsic(intrinsic) => self.resolve_intrinsic_associated_type(
                 intrinsic.goal.self_ty,
@@ -914,6 +913,7 @@ where
                 matches.push(UserImpl {
                     goal: goal.clone(),
                     impl_index,
+                    substitutions,
                 });
             }
         }

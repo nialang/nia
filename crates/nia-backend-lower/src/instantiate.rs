@@ -260,6 +260,7 @@ impl<'a> ModuleLowerer<'a> {
     ) -> FunctionBody {
         let previous_candidates = self.instance_extension_trait_method_candidates.take();
         let previous_interner = self.instance_extension_interner.take();
+        let previous_function = self.current_instantiated_function.replace(function);
         if instantiation_module_id != self.input.module_id
             && let Some((extensions, interner)) =
                 self.input.program_extensions.get(&instantiation_module_id)
@@ -307,6 +308,7 @@ impl<'a> ModuleLowerer<'a> {
         let body = self.optimize_function_body(function, true, type_arg_count, body);
         self.instance_extension_trait_method_candidates = previous_candidates;
         self.instance_extension_interner = previous_interner;
+        self.current_instantiated_function = previous_function;
         body
     }
 
@@ -415,7 +417,11 @@ impl<'a> ModuleLowerer<'a> {
         ty: InternedTyId,
         substitutions: TypeSubstitutionId,
     ) -> InternedTyId {
-        let key = TypeInstantiationKey { ty, substitutions };
+        let key = TypeInstantiationKey {
+            ty,
+            substitutions,
+            current_function: self.current_instantiated_function,
+        };
         if let Some(instantiated) = self.type_instantiations.get(&key) {
             return *instantiated;
         }
@@ -538,16 +544,31 @@ impl<'a> ModuleLowerer<'a> {
                     .copied()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
                     .collect::<Vec<_>>();
-                let instantiated = self
-                    .resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
-                    .unwrap_or_else(|| {
-                        self.interner.intern(TyKind::Projection {
+                let resolved = self
+                    .resolve_associated_type_projection_from_current_impl(
+                        self_ty,
+                        trait_id,
+                        &trait_args,
+                        &name,
+                        substitutions,
+                    )
+                    .or_else(|| {
+                        self.resolve_associated_type_projection(
                             self_ty,
                             trait_id,
-                            trait_args,
-                            name,
-                        })
-                    });
+                            &trait_args,
+                            &name,
+                        )
+                    })
+                    .map(|resolved| self.instantiate_ty_with_id(resolved, substitutions));
+                let instantiated = resolved.unwrap_or_else(|| {
+                    self.interner.intern(TyKind::Projection {
+                        self_ty,
+                        trait_id,
+                        trait_args,
+                        name,
+                    })
+                });
                 self.cache_type_instantiation(key, instantiated)
             }
             Some(TyKind::Error | TyKind::ComptimeOnly) | Some(TyKind::Primitive(_)) | None => {
@@ -613,6 +634,80 @@ impl<'a> ModuleLowerer<'a> {
         };
         let mut solver = context.solver(&mut self.interner, &[]);
         solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
+    }
+
+    fn resolve_associated_type_projection_from_current_impl(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: nia_ty::TraitId,
+        trait_args: &[InternedTyId],
+        name: &str,
+        substitutions: TypeSubstitutionId,
+    ) -> Option<InternedTyId> {
+        let current = self.current_instantiated_function?;
+        if current.module_id != self.input.module_id {
+            return None;
+        }
+        let def = self.input.defs.defs.get(current.def_id)?;
+        if def.kind != nia_defs::DefKind::Method {
+            return None;
+        }
+        let target_ty = self.extension_targets_by_method.get(&current).copied()?;
+        let target_ty = self.instantiate_ty_with_id(target_ty, substitutions);
+        if !self.types_match(target_ty, self_ty) {
+            return None;
+        }
+
+        let mut matched = None;
+        for impl_signature in self.input.trait_impls {
+            if impl_signature.trait_id != trait_id
+                || impl_signature.trait_args.len() != trait_args.len()
+            {
+                continue;
+            }
+
+            let impl_target = nia_ty::import_type_into(
+                &mut self.interner,
+                &impl_signature.interner,
+                impl_signature.target_ty,
+            );
+            let impl_target = self.instantiate_ty_with_id(impl_target, substitutions);
+            if !self.types_match(impl_target, self_ty) {
+                continue;
+            }
+
+            let mut trait_args_match = true;
+            for (actual, required) in impl_signature
+                .trait_args
+                .iter()
+                .copied()
+                .zip(trait_args.iter().copied())
+            {
+                let actual =
+                    nia_ty::import_type_into(&mut self.interner, &impl_signature.interner, actual);
+                let actual = self.instantiate_ty_with_id(actual, substitutions);
+                if !self.types_match(actual, required) {
+                    trait_args_match = false;
+                    break;
+                }
+            }
+            if !trait_args_match {
+                continue;
+            }
+
+            if let Some(associated_type) = impl_signature
+                .associated_types
+                .iter()
+                .find(|associated_type| associated_type.name == name)
+            {
+                matched = Some((impl_signature.interner.clone(), associated_type.ty));
+                break;
+            }
+        }
+
+        let (source_interner, ty) = matched?;
+        let ty = nia_ty::import_type_into(&mut self.interner, &source_interner, ty);
+        Some(self.instantiate_ty_with_id(ty, substitutions))
     }
 
     fn extension_ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {

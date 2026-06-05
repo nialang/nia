@@ -181,6 +181,7 @@ pub(crate) struct ModuleLowerer<'a> {
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     )>,
     instance_extension_interner: Option<&'a nia_ty::TyInterner>,
+    current_instantiated_function: Option<GlobalDefId>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
@@ -222,6 +223,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
 pub(crate) struct TypeInstantiationKey {
     ty: InternedTyId,
     substitutions: TypeSubstitutionId,
+    current_function: Option<GlobalDefId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -253,6 +255,7 @@ impl<'a> ModuleLowerer<'a> {
             ),
             instance_extension_trait_method_candidates: None,
             instance_extension_interner: None,
+            current_instantiated_function: None,
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
             ),

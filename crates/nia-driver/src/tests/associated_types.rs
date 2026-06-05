@@ -73,6 +73,62 @@ fn main() i32 {
 }
 
 #[test]
+fn associated_type_shorthand_normalizes_nested_generic_wrapper_calls() {
+    let root = temp_dir("associated_type_shorthand_normalizes_nested_generic_wrapper_calls");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Reader {
+    type Error;
+
+    fn read(& self) Error!usize;
+}
+
+enum IoError: i32 {
+    Bad = 1,
+    _
+}
+
+struct Source {}
+
+extend Source : Reader {
+    type Error = IoError;
+
+    fn read(& self) Error!usize {
+        !1
+    }
+}
+
+struct Limit[R] {
+    reader: & R,
+}
+
+extend[R] Limit[R] : Reader
+where R: Reader
+{
+    type Error = [R as Reader]::Error;
+
+    fn read(& self) Error!usize {
+        self.reader.read()
+    }
+}
+
+fn main() i32 {
+    var source: Source = {};
+    var limit: Limit[Source] = { reader: &source };
+    switch limit.read() {
+        !n => n as i32,
+        error! => 1,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn trait_impls_require_associated_type_definitions() {
     let root = temp_dir("trait_impls_require_associated_type_definitions");
     write(

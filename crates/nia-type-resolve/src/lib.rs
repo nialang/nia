@@ -31,6 +31,7 @@ pub enum TypeNameResolution {
     Def(DefId),
     External(GlobalDefId),
     GenericParam,
+    AssociatedType,
     Error,
 }
 
@@ -177,6 +178,7 @@ fn resolve_module_types_from_items(
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
+        associated_type_stack: Vec::new(),
         suppress_unknown_type_errors: false,
     };
     for item in items {
@@ -200,6 +202,7 @@ struct TypeResolver<'a> {
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
     self_type_stack: Vec<Span>,
+    associated_type_stack: Vec<Vec<String>>,
     suppress_unknown_type_errors: bool,
 }
 
@@ -220,13 +223,40 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
             }
             ItemKind::Trait(item_trait) => {
                 self.with_generics(&item_trait.generics, |resolver| {
-                    resolver.with_self_type(item.span, |resolver| walk_item(resolver, item));
+                    let associated_types = item_trait
+                        .associated_types
+                        .iter()
+                        .map(|associated_type| associated_type.name.clone())
+                        .collect::<Vec<_>>();
+                    resolver.with_self_type(item.span, |resolver| {
+                        resolver.with_associated_types(associated_types, |resolver| {
+                            walk_item(resolver, item)
+                        });
+                    });
                 });
             }
             ItemKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |resolver| {
-                    resolver
-                        .with_self_type(extend.target.span, |resolver| walk_item(resolver, item));
+                    let associated_types = extend
+                        .associated_types
+                        .iter()
+                        .map(|associated_type| associated_type.name.clone())
+                        .collect::<Vec<_>>();
+                    resolver.with_self_type(extend.target.span, |resolver| {
+                        resolver.visit_type(&extend.target);
+                        if let Some(trait_ref) = &extend.trait_ref {
+                            resolver.visit_type(trait_ref);
+                        }
+                        resolver.visit_where_clause(&extend.where_clause);
+                        for associated_type in &extend.associated_types {
+                            resolver.visit_type(&associated_type.ty);
+                        }
+                        resolver.with_associated_types(associated_types, |resolver| {
+                            for method in &extend.methods {
+                                resolver.visit_function(&method.function);
+                            }
+                        });
+                    });
                 });
             }
             ItemKind::TypeAlias(alias) => {
@@ -342,19 +372,31 @@ impl TypeResolver<'_> {
             }
             ItemTreeNodeKind::Trait(item_trait) => {
                 self.with_generics(&item_trait.generics, |resolver| {
+                    let associated_types = item_trait
+                        .associated_types
+                        .iter()
+                        .map(|associated_type| associated_type.name.clone())
+                        .collect::<Vec<_>>();
                     resolver.with_self_type(item.span, |resolver| {
-                        for supertrait in &item_trait.supertraits {
-                            resolver.visit_type(supertrait);
-                        }
-                        resolver.visit_where_clause(&item_trait.where_clause);
-                        for method in &item_trait.methods {
-                            resolver.visit_function(&method.function);
-                        }
+                        resolver.with_associated_types(associated_types, |resolver| {
+                            for supertrait in &item_trait.supertraits {
+                                resolver.visit_type(supertrait);
+                            }
+                            resolver.visit_where_clause(&item_trait.where_clause);
+                            for method in &item_trait.methods {
+                                resolver.visit_function(&method.function);
+                            }
+                        });
                     });
                 });
             }
             ItemTreeNodeKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |resolver| {
+                    let associated_types = extend
+                        .associated_types
+                        .iter()
+                        .map(|associated_type| associated_type.name.clone())
+                        .collect::<Vec<_>>();
                     resolver.with_self_type(extend.target.span, |resolver| {
                         resolver.visit_type(&extend.target);
                         if let Some(trait_ref) = &extend.trait_ref {
@@ -364,9 +406,11 @@ impl TypeResolver<'_> {
                         for associated_type in &extend.associated_types {
                             resolver.visit_type(&associated_type.ty);
                         }
-                        for method in &extend.methods {
-                            resolver.visit_function(&method.function);
-                        }
+                        resolver.with_associated_types(associated_types, |resolver| {
+                            for method in &extend.methods {
+                                resolver.visit_function(&method.function);
+                            }
+                        });
                     });
                 });
             }
@@ -638,6 +682,9 @@ impl<'a> TypeResolver<'a> {
         if self.is_generic_param(&segment.name) {
             return TypeNameResolution::GenericParam;
         }
+        if self.is_associated_type(&segment.name) {
+            return TypeNameResolution::AssociatedType;
+        }
         if let Some(def_id) = self.defs.module_scope.types.get(&segment.name) {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return TypeNameResolution::Error;
@@ -693,11 +740,24 @@ impl<'a> TypeResolver<'a> {
         self.self_type_stack.pop();
     }
 
+    fn with_associated_types(&mut self, associated_types: Vec<String>, f: impl FnOnce(&mut Self)) {
+        self.associated_type_stack.push(associated_types);
+        f(self);
+        self.associated_type_stack.pop();
+    }
+
     fn is_generic_param(&self, name: &str) -> bool {
         self.generic_stack
             .iter()
             .rev()
             .any(|generics| generics.iter().any(|generic| generic == name))
+    }
+
+    fn is_associated_type(&self, name: &str) -> bool {
+        self.associated_type_stack
+            .iter()
+            .rev()
+            .any(|associated_types| associated_types.iter().any(|associated| associated == name))
     }
 
     fn defs_for_module(&self, module_id: ModuleId) -> Option<&DefCollection> {
@@ -790,6 +850,33 @@ fn make(value: i32) Box[i32] {
                 .node_type_names
                 .values()
                 .any(|resolution| matches!(resolution, TypeNameResolution::Def(_)))
+        );
+    }
+
+    #[test]
+    fn resolves_trait_associated_type_shorthand_in_trait_scope() {
+        let (module, errors) = parse_module(
+            r#"
+trait Writer {
+    type Error;
+
+    fn write(& self) Error!void;
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        assert!(
+            resolved
+                .node_type_names
+                .values()
+                .any(|resolution| { matches!(resolution, TypeNameResolution::AssociatedType) })
         );
     }
 

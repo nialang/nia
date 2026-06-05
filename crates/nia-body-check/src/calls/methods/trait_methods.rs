@@ -64,12 +64,10 @@ impl<'a> BodyChecker<'a> {
                 ),
             );
         } else if let Some(expected) = call.expected {
-            self.infer_generics_from_type(
-                candidate.signature.return_type,
-                expected,
-                &mut substitutions,
-                call.span,
-            );
+            let return_type =
+                self.substitute_generics(candidate.signature.return_type, &substitutions);
+            let expected = self.normalize_projection(expected);
+            self.infer_generics_from_type(return_type, expected, &mut substitutions, call.span);
         }
         let params: Vec<InternedTyId> = candidate
             .signature

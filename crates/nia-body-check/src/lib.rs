@@ -458,6 +458,7 @@ struct ReceiverBase {
 
 impl<'a> BodyChecker<'a> {
     fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
+        let ty = self.normalize_projection(ty);
         self.node_expr_types.insert(expr.node_key.clone(), ty);
     }
 
