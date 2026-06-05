@@ -1207,15 +1207,17 @@ fn eval_assign_target_root_value(
             local_id,
             ..
         } => {
-            if let Some(local_id) = local_id {
-                env.resolve_name_resolution(
-                    *target_span,
-                    ComptimeNameResolution::Local(*local_id),
-                    name,
-                )
-            } else {
-                env.resolve_ident(span, name)
-            }
+            let Some(local_id) = local_id else {
+                return Err(ComptimeError {
+                    span,
+                    message: format!("failed to resolve comptime assignment target `{name}`"),
+                });
+            };
+            env.resolve_name_resolution(
+                *target_span,
+                ComptimeNameResolution::Local(*local_id),
+                name,
+            )
         }
     }
 }
@@ -2359,6 +2361,32 @@ fn main() bool {
         assert_eq!(
             err.message,
             "resolved comptime value `x` is not available in this context"
+        );
+    }
+
+    #[test]
+    fn assignment_targets_require_resolved_locals() {
+        let expr = ComptimeExpr {
+            span: Span::new(0, 1),
+            kind: ComptimeExprKind::Assign(Box::new(ComptimeAssign {
+                lhs: ComptimeAssignTarget::Local {
+                    span: Span::new(0, 1),
+                    name: "x".to_string(),
+                    local_id: None,
+                    path: Vec::new(),
+                },
+                op: ComptimeAssignOp::Add,
+                rhs: ComptimeExpr {
+                    span: Span::new(4, 5),
+                    kind: ComptimeExprKind::Integer("1".to_string()),
+                },
+            })),
+        };
+        let err = eval_comptime_expr(&expr, &mut EmptyEnv)
+            .expect_err("assignment targets must carry resolved local ids");
+        assert_eq!(
+            err.message,
+            "failed to resolve comptime assignment target `x`"
         );
     }
 
