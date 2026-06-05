@@ -35,42 +35,314 @@ pub struct ResolvedComptimeEnumVariant {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeExpr {
-    expr: ComptimeExpr,
+    pub span: Span,
+    pub kind: ResolvedComptimeExprKind,
 }
 
 impl ResolvedComptimeExpr {
     fn new(expr: ComptimeExpr) -> Result<Self, ComptimeLowerError> {
-        validate_resolved_expr(&expr)?;
-        Ok(Self { expr })
+        resolve_comptime_expr(expr)
     }
 
-    pub fn as_expr(&self) -> &ComptimeExpr {
-        &self.expr
+    pub fn name_resolution(&self) -> Option<ComptimeNameResolution> {
+        match self.kind {
+            ResolvedComptimeExprKind::Name(resolution) => Some(resolution),
+            _ => None,
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeFunction {
-    function: ComptimeFunction,
+    span: Span,
+    params: Vec<ResolvedComptimeParam>,
+    body: ResolvedComptimeBlock,
 }
 
 impl ResolvedComptimeFunction {
     fn new(function: ComptimeFunction) -> Result<Self, ComptimeLowerError> {
-        validate_resolved_function(&function)?;
-        Ok(Self { function })
+        resolve_comptime_function(function)
     }
 
     pub fn span(&self) -> Span {
-        self.function.span
+        self.span
     }
 
-    pub fn params(&self) -> &[ComptimeParam] {
-        &self.function.params
+    pub fn params(&self) -> &[ResolvedComptimeParam] {
+        &self.params
     }
 
-    pub fn body(&self) -> &ComptimeBlock {
-        &self.function.body
+    pub fn body(&self) -> &ResolvedComptimeBlock {
+        &self.body
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeParam {
+    pub span: Span,
+    pub name: String,
+    pub local_id: LocalId,
+    pub ty: Option<InternedTyId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeBlock {
+    pub span: Span,
+    pub stmts: Vec<ResolvedComptimeStmt>,
+    pub tail: Option<Box<ResolvedComptimeExpr>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeStmt {
+    pub span: Span,
+    pub kind: ResolvedComptimeStmtKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeStmtKind {
+    Binding(ResolvedComptimeBinding),
+    Expr(ResolvedComptimeExpr),
+    Return(Option<ResolvedComptimeExpr>),
+    Break,
+    Continue,
+    If {
+        cond: ResolvedComptimeExpr,
+        then_branch: ResolvedComptimeBlock,
+        else_branch: Option<ResolvedComptimeBlock>,
+    },
+    ForIn(ResolvedComptimeForIn),
+    While {
+        cond: ResolvedComptimeExpr,
+        body: ResolvedComptimeBlock,
+    },
+    Loop {
+        body: ResolvedComptimeBlock,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeBinding {
+    pub span: Span,
+    pub name: String,
+    pub local_id: LocalId,
+    pub explicit_type: Option<InternedTyId>,
+    pub is_mutable: bool,
+    pub value: ResolvedComptimeExpr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeAssign {
+    pub lhs: ResolvedComptimeAssignTarget,
+    pub op: ComptimeAssignOp,
+    pub rhs: ResolvedComptimeExpr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeAssignTarget {
+    Local {
+        span: Span,
+        name: String,
+        local_id: LocalId,
+        path: Vec<ResolvedComptimeAssignPathElem>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeAssignPathElem {
+    Field {
+        span: Span,
+        name: String,
+    },
+    Index {
+        span: Span,
+        index: ResolvedComptimeExpr,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeForIn {
+    pub binding: ResolvedComptimeForBinding,
+    pub iter: ResolvedComptimeExpr,
+    pub body: ResolvedComptimeBlock,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeForBinding {
+    pub span: Span,
+    pub name: String,
+    pub local_id: LocalId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeSwitch {
+    pub span: Span,
+    pub target: ResolvedComptimeExpr,
+    pub arms: Vec<ResolvedComptimeSwitchArm>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeSwitchArm {
+    pub span: Span,
+    pub patterns: Vec<ResolvedComptimeSwitchPattern>,
+    pub body: ResolvedComptimeSwitchArmBody,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeSwitchPattern {
+    Default,
+    OptionalSome {
+        name: String,
+        local_id: LocalId,
+        span: Span,
+    },
+    OptionalNull {
+        span: Span,
+    },
+    ErrorOk {
+        name: String,
+        local_id: LocalId,
+        span: Span,
+    },
+    ErrorErr {
+        name: String,
+        local_id: LocalId,
+        span: Span,
+    },
+    Expr(ResolvedComptimeExpr),
+    Range {
+        start: ResolvedComptimeExpr,
+        end: ResolvedComptimeExpr,
+        inclusive: bool,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeSwitchArmBody {
+    Expr(ResolvedComptimeExpr),
+    Stmt(ResolvedComptimeStmt),
+    Block(ResolvedComptimeBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeExprKind {
+    Integer(String),
+    Char(String),
+    ByteChar(String),
+    Float(String),
+    String(ComptimeStringLiteral),
+    ByteString(ComptimeStringLiteral),
+    CString(ComptimeStringLiteral),
+    Bool(bool),
+    Null,
+    Name(ComptimeNameResolution),
+    Field {
+        lhs: Box<ResolvedComptimeExpr>,
+        name: String,
+    },
+    Len {
+        lhs: Box<ResolvedComptimeExpr>,
+    },
+    RangeIter {
+        lhs: Box<ResolvedComptimeExpr>,
+    },
+    Index {
+        lhs: Box<ResolvedComptimeExpr>,
+        index: Box<ResolvedComptimeExpr>,
+    },
+    Slice {
+        lhs: Box<ResolvedComptimeExpr>,
+        range: ResolvedComptimeSliceRange,
+    },
+    ArrayLiteral {
+        ty: Option<InternedTyId>,
+        elems: ResolvedComptimeArrayElements,
+    },
+    StructLiteral {
+        ty: Option<InternedTyId>,
+        fields: Vec<ResolvedComptimeFieldInit>,
+    },
+    BuiltinValue(ValueBuiltin),
+    LayoutBuiltin {
+        builtin: LayoutBuiltin,
+        type_arg: ResolvedComptimeTypeArg,
+    },
+    Call {
+        callee: Box<ResolvedComptimeExpr>,
+        type_args: Vec<ResolvedComptimeTypeArg>,
+        args: Vec<ResolvedComptimeExpr>,
+    },
+    Unary {
+        op: ComptimeUnaryOp,
+        expr: Box<ResolvedComptimeExpr>,
+    },
+    OptionalSome {
+        expr: Box<ResolvedComptimeExpr>,
+    },
+    ErrorOk {
+        expr: Box<ResolvedComptimeExpr>,
+    },
+    ErrorErr {
+        expr: Box<ResolvedComptimeExpr>,
+    },
+    Try {
+        expr: Box<ResolvedComptimeExpr>,
+    },
+    Binary {
+        lhs: Box<ResolvedComptimeExpr>,
+        op: ComptimeBinaryOp,
+        rhs: Box<ResolvedComptimeExpr>,
+    },
+    Assign(Box<ResolvedComptimeAssign>),
+    Range(ResolvedComptimeRange),
+    If {
+        cond: Box<ResolvedComptimeExpr>,
+        then_branch: ResolvedComptimeBlock,
+        else_branch: Option<Box<ResolvedComptimeExpr>>,
+    },
+    Switch(Box<ResolvedComptimeSwitch>),
+    Cast {
+        expr: Box<ResolvedComptimeExpr>,
+        ty: InternedTyId,
+    },
+    Block(ResolvedComptimeBlock),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeRange {
+    pub start: Option<Box<ResolvedComptimeExpr>>,
+    pub end: Option<Box<ResolvedComptimeExpr>>,
+    pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeSliceRange {
+    pub start: Option<Box<ResolvedComptimeExpr>>,
+    pub end: Option<Box<ResolvedComptimeExpr>>,
+    pub inclusive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeArrayElements {
+    List(Vec<ResolvedComptimeExpr>),
+    Repeat {
+        value: Box<ResolvedComptimeExpr>,
+        count: Box<ResolvedComptimeExpr>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeFieldInit {
+    pub span: Span,
+    pub name: String,
+    pub value: ResolvedComptimeExpr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeTypeArg {
+    pub span: Span,
+    pub ty_span: Span,
+    pub ty: InternedTyId,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1044,267 +1316,467 @@ fn lower_type_id(
     Ok(ty)
 }
 
-fn validate_resolved_function(function: &ComptimeFunction) -> Result<(), ComptimeLowerError> {
-    for param in &function.params {
-        if param.local_id.is_none() {
-            return Err(unresolved_error(
-                param.span,
-                "comptime function parameter local",
-            ));
-        }
-    }
-    validate_resolved_block(&function.body)
+fn resolve_comptime_function(
+    function: ComptimeFunction,
+) -> Result<ResolvedComptimeFunction, ComptimeLowerError> {
+    let params = function
+        .params
+        .into_iter()
+        .map(resolve_comptime_param)
+        .collect::<Result<Vec<_>, _>>()?;
+    let body = resolve_comptime_block(function.body)?;
+    Ok(ResolvedComptimeFunction {
+        span: function.span,
+        params,
+        body,
+    })
 }
 
-fn validate_resolved_block(block: &ComptimeBlock) -> Result<(), ComptimeLowerError> {
-    for stmt in &block.stmts {
-        validate_resolved_stmt(stmt)?;
-    }
-    if let Some(tail) = &block.tail {
-        validate_resolved_expr(tail)?;
-    }
-    Ok(())
+fn resolve_comptime_param(
+    param: ComptimeParam,
+) -> Result<ResolvedComptimeParam, ComptimeLowerError> {
+    let local_id = param
+        .local_id
+        .ok_or_else(|| unresolved_error(param.span, "comptime function parameter local"))?;
+    Ok(ResolvedComptimeParam {
+        span: param.span,
+        name: param.name,
+        local_id,
+        ty: param.ty,
+    })
 }
 
-fn validate_resolved_stmt(stmt: &ComptimeStmt) -> Result<(), ComptimeLowerError> {
-    match &stmt.kind {
+fn resolve_comptime_block(
+    block: ComptimeBlock,
+) -> Result<ResolvedComptimeBlock, ComptimeLowerError> {
+    let stmts = block
+        .stmts
+        .into_iter()
+        .map(resolve_comptime_stmt)
+        .collect::<Result<Vec<_>, _>>()?;
+    let tail = block
+        .tail
+        .map(|tail| resolve_comptime_expr(*tail).map(Box::new))
+        .transpose()?;
+    Ok(ResolvedComptimeBlock {
+        span: block.span,
+        stmts,
+        tail,
+    })
+}
+
+fn resolve_comptime_stmt(stmt: ComptimeStmt) -> Result<ResolvedComptimeStmt, ComptimeLowerError> {
+    let kind = match stmt.kind {
         ComptimeStmtKind::Binding(binding) => {
-            if binding.local_id.is_none() {
-                return Err(unresolved_error(binding.span, "comptime local binding"));
-            }
-            validate_resolved_expr(&binding.value)
+            ResolvedComptimeStmtKind::Binding(resolve_comptime_binding(binding)?)
         }
-        ComptimeStmtKind::Expr(expr) => validate_resolved_expr(expr),
+        ComptimeStmtKind::Expr(expr) => {
+            ResolvedComptimeStmtKind::Expr(resolve_comptime_expr(expr)?)
+        }
         ComptimeStmtKind::Return(expr) => {
-            if let Some(expr) = expr {
-                validate_resolved_expr(expr)?;
-            }
-            Ok(())
+            ResolvedComptimeStmtKind::Return(expr.map(resolve_comptime_expr).transpose()?)
         }
-        ComptimeStmtKind::Break | ComptimeStmtKind::Continue => Ok(()),
+        ComptimeStmtKind::Break => ResolvedComptimeStmtKind::Break,
+        ComptimeStmtKind::Continue => ResolvedComptimeStmtKind::Continue,
         ComptimeStmtKind::If {
             cond,
             then_branch,
             else_branch,
-        } => {
-            validate_resolved_expr(cond)?;
-            validate_resolved_block(then_branch)?;
-            if let Some(else_branch) = else_branch {
-                validate_resolved_block(else_branch)?;
-            }
-            Ok(())
-        }
+        } => ResolvedComptimeStmtKind::If {
+            cond: resolve_comptime_expr(cond)?,
+            then_branch: resolve_comptime_block(then_branch)?,
+            else_branch: else_branch.map(resolve_comptime_block).transpose()?,
+        },
         ComptimeStmtKind::ForIn(for_in) => {
-            if for_in.binding.local_id.is_none() {
-                return Err(unresolved_error(
-                    for_in.binding.span,
-                    "comptime for binding",
-                ));
-            }
-            validate_resolved_expr(&for_in.iter)?;
-            validate_resolved_block(&for_in.body)
+            ResolvedComptimeStmtKind::ForIn(resolve_comptime_for_in(for_in)?)
         }
-        ComptimeStmtKind::While { cond, body } => {
-            validate_resolved_expr(cond)?;
-            validate_resolved_block(body)
-        }
-        ComptimeStmtKind::Loop { body } => validate_resolved_block(body),
-    }
+        ComptimeStmtKind::While { cond, body } => ResolvedComptimeStmtKind::While {
+            cond: resolve_comptime_expr(cond)?,
+            body: resolve_comptime_block(body)?,
+        },
+        ComptimeStmtKind::Loop { body } => ResolvedComptimeStmtKind::Loop {
+            body: resolve_comptime_block(body)?,
+        },
+    };
+    Ok(ResolvedComptimeStmt {
+        span: stmt.span,
+        kind,
+    })
 }
 
-fn validate_resolved_expr(expr: &ComptimeExpr) -> Result<(), ComptimeLowerError> {
-    match &expr.kind {
-        ComptimeExprKind::Integer(_)
-        | ComptimeExprKind::Char(_)
-        | ComptimeExprKind::ByteChar(_)
-        | ComptimeExprKind::Float(_)
-        | ComptimeExprKind::String(_)
-        | ComptimeExprKind::ByteString(_)
-        | ComptimeExprKind::CString(_)
-        | ComptimeExprKind::Bool(_)
-        | ComptimeExprKind::Null
-        | ComptimeExprKind::BuiltinValue(_) => Ok(()),
+fn resolve_comptime_binding(
+    binding: ComptimeBinding,
+) -> Result<ResolvedComptimeBinding, ComptimeLowerError> {
+    let local_id = binding
+        .local_id
+        .ok_or_else(|| unresolved_error(binding.span, "comptime local binding"))?;
+    Ok(ResolvedComptimeBinding {
+        span: binding.span,
+        name: binding.name,
+        local_id,
+        explicit_type: binding.explicit_type,
+        is_mutable: binding.is_mutable,
+        value: resolve_comptime_expr(binding.value)?,
+    })
+}
+
+fn resolve_comptime_for_in(
+    for_in: ComptimeForIn,
+) -> Result<ResolvedComptimeForIn, ComptimeLowerError> {
+    let local_id = for_in
+        .binding
+        .local_id
+        .ok_or_else(|| unresolved_error(for_in.binding.span, "comptime for binding"))?;
+    Ok(ResolvedComptimeForIn {
+        binding: ResolvedComptimeForBinding {
+            span: for_in.binding.span,
+            name: for_in.binding.name,
+            local_id,
+        },
+        iter: resolve_comptime_expr(for_in.iter)?,
+        body: resolve_comptime_block(for_in.body)?,
+    })
+}
+
+fn resolve_comptime_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {
+    let span = expr.span;
+    let kind = match expr.kind {
+        ComptimeExprKind::Integer(value) => ResolvedComptimeExprKind::Integer(value),
+        ComptimeExprKind::Char(value) => ResolvedComptimeExprKind::Char(value),
+        ComptimeExprKind::ByteChar(value) => ResolvedComptimeExprKind::ByteChar(value),
+        ComptimeExprKind::Float(value) => ResolvedComptimeExprKind::Float(value),
+        ComptimeExprKind::String(value) => ResolvedComptimeExprKind::String(value),
+        ComptimeExprKind::ByteString(value) => ResolvedComptimeExprKind::ByteString(value),
+        ComptimeExprKind::CString(value) => ResolvedComptimeExprKind::CString(value),
+        ComptimeExprKind::Bool(value) => ResolvedComptimeExprKind::Bool(value),
+        ComptimeExprKind::Null => ResolvedComptimeExprKind::Null,
         ComptimeExprKind::Ident { resolution, .. }
-        | ComptimeExprKind::Qualified { resolution, .. } => resolution
-            .is_some()
-            .then_some(())
-            .ok_or_else(|| unresolved_error(expr.span, "comptime name")),
-        ComptimeExprKind::Field { lhs, .. }
-        | ComptimeExprKind::Len { lhs }
-        | ComptimeExprKind::RangeIter { lhs } => validate_resolved_expr(lhs),
-        ComptimeExprKind::Index { lhs, index } => {
-            validate_resolved_expr(lhs)?;
-            validate_resolved_expr(index)
-        }
-        ComptimeExprKind::Slice { lhs, range } => {
-            validate_resolved_expr(lhs)?;
-            validate_resolved_slice_range(range)
-        }
-        ComptimeExprKind::ArrayLiteral { elems, .. } => validate_resolved_array_elements(elems),
-        ComptimeExprKind::StructLiteral { fields, .. } => {
-            for field in fields {
-                validate_resolved_expr(&field.value)?;
+        | ComptimeExprKind::Qualified { resolution, .. } => ResolvedComptimeExprKind::Name(
+            resolution.ok_or_else(|| unresolved_error(span, "comptime name"))?,
+        ),
+        ComptimeExprKind::Field { lhs, name } => ResolvedComptimeExprKind::Field {
+            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            name,
+        },
+        ComptimeExprKind::Len { lhs } => ResolvedComptimeExprKind::Len {
+            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+        },
+        ComptimeExprKind::RangeIter { lhs } => ResolvedComptimeExprKind::RangeIter {
+            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+        },
+        ComptimeExprKind::Index { lhs, index } => ResolvedComptimeExprKind::Index {
+            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            index: Box::new(resolve_comptime_expr(*index)?),
+        },
+        ComptimeExprKind::Slice { lhs, range } => ResolvedComptimeExprKind::Slice {
+            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            range: resolve_comptime_slice_range(range)?,
+        },
+        ComptimeExprKind::ArrayLiteral { ty, elems } => ResolvedComptimeExprKind::ArrayLiteral {
+            ty,
+            elems: resolve_comptime_array_elements(elems)?,
+        },
+        ComptimeExprKind::StructLiteral { ty, fields } => ResolvedComptimeExprKind::StructLiteral {
+            ty,
+            fields: fields
+                .into_iter()
+                .map(resolve_comptime_field_init)
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        ComptimeExprKind::BuiltinValue(builtin) => ResolvedComptimeExprKind::BuiltinValue(builtin),
+        ComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
+            ResolvedComptimeExprKind::LayoutBuiltin {
+                builtin,
+                type_arg: resolve_comptime_type_arg(type_arg)?,
             }
-            Ok(())
         }
-        ComptimeExprKind::LayoutBuiltin { type_arg, .. } => validate_resolved_type_arg(type_arg),
         ComptimeExprKind::Call {
             callee,
             type_args,
             args,
-        } => {
-            validate_resolved_expr(callee)?;
-            for type_arg in type_args {
-                validate_resolved_type_arg(type_arg)?;
-            }
-            for arg in args {
-                validate_resolved_expr(arg)?;
-            }
-            Ok(())
-        }
-        ComptimeExprKind::Unary { expr, .. }
-        | ComptimeExprKind::OptionalSome { expr }
-        | ComptimeExprKind::ErrorOk { expr }
-        | ComptimeExprKind::ErrorErr { expr }
-        | ComptimeExprKind::Try { expr } => validate_resolved_expr(expr),
-        ComptimeExprKind::Binary { lhs, rhs, .. } => {
-            validate_resolved_expr(lhs)?;
-            validate_resolved_expr(rhs)
-        }
+        } => ResolvedComptimeExprKind::Call {
+            callee: Box::new(resolve_comptime_expr(*callee)?),
+            type_args: type_args
+                .into_iter()
+                .map(resolve_comptime_type_arg)
+                .collect::<Result<Vec<_>, _>>()?,
+            args: args
+                .into_iter()
+                .map(resolve_comptime_expr)
+                .collect::<Result<Vec<_>, _>>()?,
+        },
+        ComptimeExprKind::Unary { op, expr } => ResolvedComptimeExprKind::Unary {
+            op,
+            expr: Box::new(resolve_comptime_expr(*expr)?),
+        },
+        ComptimeExprKind::OptionalSome { expr } => ResolvedComptimeExprKind::OptionalSome {
+            expr: Box::new(resolve_comptime_expr(*expr)?),
+        },
+        ComptimeExprKind::ErrorOk { expr } => ResolvedComptimeExprKind::ErrorOk {
+            expr: Box::new(resolve_comptime_expr(*expr)?),
+        },
+        ComptimeExprKind::ErrorErr { expr } => ResolvedComptimeExprKind::ErrorErr {
+            expr: Box::new(resolve_comptime_expr(*expr)?),
+        },
+        ComptimeExprKind::Try { expr } => ResolvedComptimeExprKind::Try {
+            expr: Box::new(resolve_comptime_expr(*expr)?),
+        },
+        ComptimeExprKind::Binary { lhs, op, rhs } => ResolvedComptimeExprKind::Binary {
+            lhs: Box::new(resolve_comptime_expr(*lhs)?),
+            op,
+            rhs: Box::new(resolve_comptime_expr(*rhs)?),
+        },
         ComptimeExprKind::Assign(assign) => {
-            validate_resolved_assign_target(&assign.lhs)?;
-            validate_resolved_expr(&assign.rhs)
+            ResolvedComptimeExprKind::Assign(Box::new(resolve_comptime_assign(*assign)?))
         }
-        ComptimeExprKind::Range(range) => validate_resolved_range(range),
+        ComptimeExprKind::Range(range) => {
+            ResolvedComptimeExprKind::Range(resolve_comptime_range(range)?)
+        }
         ComptimeExprKind::If {
             cond,
             then_branch,
             else_branch,
-        } => {
-            validate_resolved_expr(cond)?;
-            validate_resolved_block(then_branch)?;
-            if let Some(else_branch) = else_branch {
-                validate_resolved_expr(else_branch)?;
-            }
-            Ok(())
+        } => ResolvedComptimeExprKind::If {
+            cond: Box::new(resolve_comptime_expr(*cond)?),
+            then_branch: resolve_comptime_block(then_branch)?,
+            else_branch: else_branch
+                .map(|else_branch| resolve_comptime_expr(*else_branch).map(Box::new))
+                .transpose()?,
+        },
+        ComptimeExprKind::Switch(switch) => {
+            ResolvedComptimeExprKind::Switch(Box::new(resolve_comptime_switch(*switch)?))
         }
-        ComptimeExprKind::Switch(switch) => validate_resolved_switch(switch),
-        ComptimeExprKind::Cast { expr, ty } => {
-            validate_resolved_expr(expr)?;
-            ty.is_some()
-                .then_some(())
-                .ok_or_else(|| unresolved_error(expr.span, "comptime cast type"))
+        ComptimeExprKind::Cast { expr, ty } => ResolvedComptimeExprKind::Cast {
+            expr: Box::new(resolve_comptime_expr(*expr)?),
+            ty: ty.ok_or_else(|| unresolved_error(span, "comptime cast type"))?,
+        },
+        ComptimeExprKind::Block(block) => {
+            ResolvedComptimeExprKind::Block(resolve_comptime_block(block)?)
         }
-        ComptimeExprKind::Block(block) => validate_resolved_block(block),
-    }
+    };
+    Ok(ResolvedComptimeExpr { span, kind })
 }
 
-fn validate_resolved_assign_target(
-    target: &ComptimeAssignTarget,
-) -> Result<(), ComptimeLowerError> {
+fn resolve_comptime_assign(
+    assign: ComptimeAssign,
+) -> Result<ResolvedComptimeAssign, ComptimeLowerError> {
+    Ok(ResolvedComptimeAssign {
+        lhs: resolve_comptime_assign_target(assign.lhs)?,
+        op: assign.op,
+        rhs: resolve_comptime_expr(assign.rhs)?,
+    })
+}
+
+fn resolve_comptime_assign_target(
+    target: ComptimeAssignTarget,
+) -> Result<ResolvedComptimeAssignTarget, ComptimeLowerError> {
     match target {
         ComptimeAssignTarget::Local {
             span,
+            name,
             local_id,
             path,
-            ..
         } => {
-            if local_id.is_none() {
-                return Err(unresolved_error(*span, "comptime assignment target"));
-            }
-            for elem in path {
-                if let ComptimeAssignPathElem::Index { index, .. } = elem {
-                    validate_resolved_expr(index)?;
-                }
-            }
-            Ok(())
+            let local_id =
+                local_id.ok_or_else(|| unresolved_error(span, "comptime assignment target"))?;
+            Ok(ResolvedComptimeAssignTarget::Local {
+                span,
+                name,
+                local_id,
+                path: path
+                    .into_iter()
+                    .map(resolve_comptime_assign_path_elem)
+                    .collect::<Result<Vec<_>, _>>()?,
+            })
         }
     }
 }
 
-fn validate_resolved_switch(switch: &ComptimeSwitch) -> Result<(), ComptimeLowerError> {
-    validate_resolved_expr(&switch.target)?;
-    for arm in &switch.arms {
-        for pattern in &arm.patterns {
-            validate_resolved_switch_pattern(pattern)?;
+fn resolve_comptime_assign_path_elem(
+    elem: ComptimeAssignPathElem,
+) -> Result<ResolvedComptimeAssignPathElem, ComptimeLowerError> {
+    match elem {
+        ComptimeAssignPathElem::Field { span, name } => {
+            Ok(ResolvedComptimeAssignPathElem::Field { span, name })
         }
-        validate_resolved_switch_arm_body(&arm.body)?;
+        ComptimeAssignPathElem::Index { span, index } => {
+            Ok(ResolvedComptimeAssignPathElem::Index {
+                span,
+                index: resolve_comptime_expr(index)?,
+            })
+        }
     }
-    Ok(())
 }
 
-fn validate_resolved_switch_pattern(
-    pattern: &ComptimeSwitchPattern,
-) -> Result<(), ComptimeLowerError> {
+fn resolve_comptime_switch(
+    switch: ComptimeSwitch,
+) -> Result<ResolvedComptimeSwitch, ComptimeLowerError> {
+    Ok(ResolvedComptimeSwitch {
+        span: switch.span,
+        target: resolve_comptime_expr(switch.target)?,
+        arms: switch
+            .arms
+            .into_iter()
+            .map(resolve_comptime_switch_arm)
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+fn resolve_comptime_switch_arm(
+    arm: ComptimeSwitchArm,
+) -> Result<ResolvedComptimeSwitchArm, ComptimeLowerError> {
+    Ok(ResolvedComptimeSwitchArm {
+        span: arm.span,
+        patterns: arm
+            .patterns
+            .into_iter()
+            .map(resolve_comptime_switch_pattern)
+            .collect::<Result<Vec<_>, _>>()?,
+        body: resolve_comptime_switch_arm_body(arm.body)?,
+    })
+}
+
+fn resolve_comptime_switch_pattern(
+    pattern: ComptimeSwitchPattern,
+) -> Result<ResolvedComptimeSwitchPattern, ComptimeLowerError> {
     match pattern {
-        ComptimeSwitchPattern::Default | ComptimeSwitchPattern::OptionalNull { .. } => Ok(()),
-        ComptimeSwitchPattern::OptionalSome { local_id, span, .. }
-        | ComptimeSwitchPattern::ErrorOk { local_id, span, .. }
-        | ComptimeSwitchPattern::ErrorErr { local_id, span, .. } => local_id
-            .is_some()
-            .then_some(())
-            .ok_or_else(|| unresolved_error(*span, "comptime switch pattern local")),
-        ComptimeSwitchPattern::Expr(expr) => validate_resolved_expr(expr),
-        ComptimeSwitchPattern::Range { start, end, .. } => {
-            validate_resolved_expr(start)?;
-            validate_resolved_expr(end)
+        ComptimeSwitchPattern::Default => Ok(ResolvedComptimeSwitchPattern::Default),
+        ComptimeSwitchPattern::OptionalSome {
+            name,
+            local_id,
+            span,
+        } => Ok(ResolvedComptimeSwitchPattern::OptionalSome {
+            name,
+            local_id: local_id
+                .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+            span,
+        }),
+        ComptimeSwitchPattern::OptionalNull { span } => {
+            Ok(ResolvedComptimeSwitchPattern::OptionalNull { span })
         }
+        ComptimeSwitchPattern::ErrorOk {
+            name,
+            local_id,
+            span,
+        } => Ok(ResolvedComptimeSwitchPattern::ErrorOk {
+            name,
+            local_id: local_id
+                .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+            span,
+        }),
+        ComptimeSwitchPattern::ErrorErr {
+            name,
+            local_id,
+            span,
+        } => Ok(ResolvedComptimeSwitchPattern::ErrorErr {
+            name,
+            local_id: local_id
+                .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+            span,
+        }),
+        ComptimeSwitchPattern::Expr(expr) => {
+            resolve_comptime_expr(expr).map(ResolvedComptimeSwitchPattern::Expr)
+        }
+        ComptimeSwitchPattern::Range {
+            start,
+            end,
+            inclusive,
+            span,
+        } => Ok(ResolvedComptimeSwitchPattern::Range {
+            start: resolve_comptime_expr(start)?,
+            end: resolve_comptime_expr(end)?,
+            inclusive,
+            span,
+        }),
     }
 }
 
-fn validate_resolved_switch_arm_body(
-    body: &ComptimeSwitchArmBody,
-) -> Result<(), ComptimeLowerError> {
+fn resolve_comptime_switch_arm_body(
+    body: ComptimeSwitchArmBody,
+) -> Result<ResolvedComptimeSwitchArmBody, ComptimeLowerError> {
     match body {
-        ComptimeSwitchArmBody::Expr(expr) => validate_resolved_expr(expr),
-        ComptimeSwitchArmBody::Stmt(stmt) => validate_resolved_stmt(stmt),
-        ComptimeSwitchArmBody::Block(block) => validate_resolved_block(block),
+        ComptimeSwitchArmBody::Expr(expr) => {
+            resolve_comptime_expr(expr).map(ResolvedComptimeSwitchArmBody::Expr)
+        }
+        ComptimeSwitchArmBody::Stmt(stmt) => {
+            resolve_comptime_stmt(stmt).map(ResolvedComptimeSwitchArmBody::Stmt)
+        }
+        ComptimeSwitchArmBody::Block(block) => {
+            resolve_comptime_block(block).map(ResolvedComptimeSwitchArmBody::Block)
+        }
     }
 }
 
-fn validate_resolved_array_elements(
-    elems: &ComptimeArrayElements,
-) -> Result<(), ComptimeLowerError> {
+fn resolve_comptime_array_elements(
+    elems: ComptimeArrayElements,
+) -> Result<ResolvedComptimeArrayElements, ComptimeLowerError> {
     match elems {
-        ComptimeArrayElements::List(elems) => {
-            for elem in elems {
-                validate_resolved_expr(elem)?;
-            }
-            Ok(())
-        }
+        ComptimeArrayElements::List(elems) => elems
+            .into_iter()
+            .map(resolve_comptime_expr)
+            .collect::<Result<Vec<_>, _>>()
+            .map(ResolvedComptimeArrayElements::List),
         ComptimeArrayElements::Repeat { value, count } => {
-            validate_resolved_expr(value)?;
-            validate_resolved_expr(count)
+            Ok(ResolvedComptimeArrayElements::Repeat {
+                value: Box::new(resolve_comptime_expr(*value)?),
+                count: Box::new(resolve_comptime_expr(*count)?),
+            })
         }
     }
 }
 
-fn validate_resolved_range(range: &ComptimeRange) -> Result<(), ComptimeLowerError> {
-    if let Some(start) = &range.start {
-        validate_resolved_expr(start)?;
-    }
-    if let Some(end) = &range.end {
-        validate_resolved_expr(end)?;
-    }
-    Ok(())
+fn resolve_comptime_range(
+    range: ComptimeRange,
+) -> Result<ResolvedComptimeRange, ComptimeLowerError> {
+    Ok(ResolvedComptimeRange {
+        start: range
+            .start
+            .map(|start| resolve_comptime_expr(*start).map(Box::new))
+            .transpose()?,
+        end: range
+            .end
+            .map(|end| resolve_comptime_expr(*end).map(Box::new))
+            .transpose()?,
+        inclusive: range.inclusive,
+    })
 }
 
-fn validate_resolved_slice_range(range: &ComptimeSliceRange) -> Result<(), ComptimeLowerError> {
-    if let Some(start) = &range.start {
-        validate_resolved_expr(start)?;
-    }
-    if let Some(end) = &range.end {
-        validate_resolved_expr(end)?;
-    }
-    Ok(())
+fn resolve_comptime_slice_range(
+    range: ComptimeSliceRange,
+) -> Result<ResolvedComptimeSliceRange, ComptimeLowerError> {
+    Ok(ResolvedComptimeSliceRange {
+        start: range
+            .start
+            .map(|start| resolve_comptime_expr(*start).map(Box::new))
+            .transpose()?,
+        end: range
+            .end
+            .map(|end| resolve_comptime_expr(*end).map(Box::new))
+            .transpose()?,
+        inclusive: range.inclusive,
+    })
 }
 
-fn validate_resolved_type_arg(type_arg: &ComptimeTypeArg) -> Result<(), ComptimeLowerError> {
-    type_arg
-        .ty
-        .is_some()
-        .then_some(())
-        .ok_or_else(|| unresolved_error(type_arg.ty_span, "comptime type argument"))
+fn resolve_comptime_field_init(
+    field: ComptimeFieldInit,
+) -> Result<ResolvedComptimeFieldInit, ComptimeLowerError> {
+    Ok(ResolvedComptimeFieldInit {
+        span: field.span,
+        name: field.name,
+        value: resolve_comptime_expr(field.value)?,
+    })
+}
+
+fn resolve_comptime_type_arg(
+    type_arg: ComptimeTypeArg,
+) -> Result<ResolvedComptimeTypeArg, ComptimeLowerError> {
+    Ok(ResolvedComptimeTypeArg {
+        span: type_arg.span,
+        ty_span: type_arg.ty_span,
+        ty: type_arg
+            .ty
+            .ok_or_else(|| unresolved_error(type_arg.ty_span, "comptime type argument"))?,
+    })
 }
 
 fn unresolved_error(span: Span, what: &str) -> ComptimeLowerError {
