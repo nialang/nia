@@ -376,12 +376,15 @@ pub struct ComptimeTypeArg {
 }
 
 impl ComptimeTypeArg {
-    fn from_type_ref(ty: &nia_ast::TypeRef, context: &ComptimeLowerContext<'_>) -> Self {
-        Self {
+    fn from_type_ref(
+        ty: &nia_ast::TypeRef,
+        context: &ComptimeLowerContext<'_>,
+    ) -> Result<Self, ComptimeLowerError> {
+        Ok(Self {
             span: ty.span,
             ty_span: ty.span,
-            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
-        }
+            ty: lower_type_id(context, ty.span)?,
+        })
     }
 }
 
@@ -395,11 +398,21 @@ pub fn lower_expr(expr: &nia_ast::Expr) -> Result<ComptimeExpr, ComptimeLowerErr
     lower_expr_with_context(expr, &ComptimeLowerContext::default())
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub struct ComptimeLowerContext<'a> {
     pub name_resolution: Option<&'a dyn Fn(Span) -> Option<ComptimeNameResolution>>,
     pub local_id: Option<&'a dyn Fn(Span) -> Option<LocalId>>,
     pub type_id: Option<&'a dyn Fn(Span) -> Option<InternedTyId>>,
+    pub require_resolved_semantics: bool,
+}
+
+impl<'a> ComptimeLowerContext<'a> {
+    fn with_required_semantics(self) -> Self {
+        Self {
+            require_resolved_semantics: true,
+            ..self
+        }
+    }
 }
 
 pub fn lower_expr_with_context(
@@ -424,11 +437,11 @@ pub fn lower_expr_with_context(
         nia_ast::ExprKind::Null => ComptimeExprKind::Null,
         nia_ast::ExprKind::Ident(name) => ComptimeExprKind::Ident {
             name: name.clone(),
-            resolution: resolve_name(context, expr.span),
+            resolution: resolve_name(context, expr.span)?,
         },
         nia_ast::ExprKind::Qualified { name, .. } => ComptimeExprKind::Qualified {
             name: name.clone(),
-            resolution: resolve_name(context, expr.span),
+            resolution: resolve_name(context, expr.span)?,
         },
         nia_ast::ExprKind::Field { lhs, name } => ComptimeExprKind::Field {
             lhs: Box::new(lower_expr_with_context(lhs, context)?),
@@ -468,7 +481,7 @@ pub fn lower_expr_with_context(
             elems: lower_array_elements_with_context(elems, context)?,
         },
         nia_ast::ExprKind::TypedArrayLiteral { ty, elems } => ComptimeExprKind::ArrayLiteral {
-            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
+            ty: lower_type_id(context, ty.span)?,
             elems: lower_array_elements_with_context(elems, context)?,
         },
         nia_ast::ExprKind::StructLiteral { fields } => ComptimeExprKind::StructLiteral {
@@ -479,7 +492,7 @@ pub fn lower_expr_with_context(
                 .collect::<Result<Vec<_>, _>>()?,
         },
         nia_ast::ExprKind::TypedStructLiteral { ty, fields } => ComptimeExprKind::StructLiteral {
-            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
+            ty: lower_type_id(context, ty.span)?,
             fields: fields
                 .iter()
                 .map(|field| lower_field_init_with_context(field, context))
@@ -495,7 +508,7 @@ pub fn lower_expr_with_context(
                 };
                 ComptimeExprKind::LayoutBuiltin {
                     builtin,
-                    type_arg: ComptimeTypeArg::from_type_ref(type_arg, context),
+                    type_arg: ComptimeTypeArg::from_type_ref(type_arg, context)?,
                 }
             } else {
                 ComptimeExprKind::BuiltinValue { name: name.clone() }
@@ -554,7 +567,7 @@ pub fn lower_expr_with_context(
         )),
         nia_ast::ExprKind::Cast { expr, ty } => ComptimeExprKind::Cast {
             expr: Box::new(lower_expr_with_context(expr, context)?),
-            ty: context.type_id.and_then(|type_id| type_id(ty.span)),
+            ty: lower_type_id(context, ty.span)?,
         },
         nia_ast::ExprKind::Block(block) => {
             ComptimeExprKind::Block(lower_block_with_context(block, context)?)
@@ -570,6 +583,13 @@ pub fn lower_expr_with_context(
         span: expr.span,
         kind,
     })
+}
+
+pub fn lower_expr_resolved_with_context(
+    expr: &nia_ast::Expr,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeExpr, ComptimeLowerError> {
+    lower_expr_with_context(expr, &context.with_required_semantics())
 }
 
 fn lower_string_literal(literal: &nia_ast::StringLiteral) -> ComptimeStringLiteral {
@@ -733,7 +753,7 @@ fn lower_type_args_with_context(
             Ok(ComptimeTypeArg {
                 span: arg.span,
                 ty_span: ty.span,
-                ty: context.type_id.and_then(|type_id| type_id(ty.span)),
+                ty: lower_type_id(context, ty.span)?,
             })
         })
         .collect()
@@ -759,11 +779,9 @@ fn lower_assign_target_base_with_context(
     path: &mut Vec<ComptimeAssignPathElem>,
 ) -> Result<(Span, String, Option<LocalId>), ComptimeLowerError> {
     match &expr.kind {
-        nia_ast::ExprKind::Ident(name) => Ok((
-            expr.span,
-            name.clone(),
-            context.local_id.and_then(|local_id| local_id(expr.span)),
-        )),
+        nia_ast::ExprKind::Ident(name) => {
+            Ok((expr.span, name.clone(), lower_local_id(context, expr.span)?))
+        }
         nia_ast::ExprKind::Field { lhs, name } => {
             let base = lower_assign_target_base_with_context(lhs, context, path)?;
             path.push(ComptimeAssignPathElem::Field {
@@ -833,8 +851,46 @@ fn lower_array_elements_with_context(
     }
 }
 
-fn resolve_name(context: &ComptimeLowerContext<'_>, span: Span) -> Option<ComptimeNameResolution> {
-    context.name_resolution.and_then(|resolve| resolve(span))
+fn resolve_name(
+    context: &ComptimeLowerContext<'_>,
+    span: Span,
+) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
+    let resolution = context.name_resolution.and_then(|resolve| resolve(span));
+    if context.require_resolved_semantics && resolution.is_none() {
+        return Err(ComptimeLowerError {
+            span,
+            message: "failed to resolve comptime name".to_string(),
+        });
+    }
+    Ok(resolution)
+}
+
+fn lower_local_id(
+    context: &ComptimeLowerContext<'_>,
+    span: Span,
+) -> Result<Option<LocalId>, ComptimeLowerError> {
+    let local_id = context.local_id.and_then(|local_id| local_id(span));
+    if context.require_resolved_semantics && local_id.is_none() {
+        return Err(ComptimeLowerError {
+            span,
+            message: "failed to resolve comptime local binding".to_string(),
+        });
+    }
+    Ok(local_id)
+}
+
+fn lower_type_id(
+    context: &ComptimeLowerContext<'_>,
+    span: Span,
+) -> Result<Option<InternedTyId>, ComptimeLowerError> {
+    let ty = context.type_id.and_then(|type_id| type_id(span));
+    if context.require_resolved_semantics && ty.is_none() {
+        return Err(ComptimeLowerError {
+            span,
+            message: "failed to resolve comptime type".to_string(),
+        });
+    }
+    Ok(ty)
 }
 
 pub fn lower_function(
@@ -853,6 +909,7 @@ pub fn lower_function_with_locals(
         name_resolution: None,
         local_id: Some(local_id_for_span),
         type_id: None,
+        require_resolved_semantics: false,
     };
     lower_function_with_context(function_span, function, &context)
 }
@@ -887,11 +944,13 @@ pub fn lower_function_with_context(
             Ok(ComptimeParam {
                 span: param.span,
                 name: name.clone(),
-                local_id: context.local_id.and_then(|local_id| local_id(param.span)),
+                local_id: lower_local_id(context, param.span)?,
                 ty: param
                     .ty
                     .as_ref()
-                    .and_then(|ty| context.type_id.and_then(|type_id| type_id(ty.span))),
+                    .map(|ty| lower_type_id(context, ty.span))
+                    .transpose()?
+                    .flatten(),
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -900,6 +959,14 @@ pub fn lower_function_with_context(
         params,
         body: lower_block_with_context(body, context)?,
     })
+}
+
+pub fn lower_function_resolved_with_context(
+    function_span: Span,
+    function: &nia_ast::FunctionItem,
+    context: &ComptimeLowerContext<'_>,
+) -> Result<ComptimeFunction, ComptimeLowerError> {
+    lower_function_with_context(function_span, function, &context.with_required_semantics())
 }
 
 fn lower_block_with_context(
@@ -937,11 +1004,13 @@ fn lower_stmt_with_context(
             ComptimeStmtKind::Binding(ComptimeBinding {
                 span: stmt.span,
                 name: binding.name.clone(),
-                local_id: context.local_id.and_then(|local_id| local_id(stmt.span)),
+                local_id: lower_local_id(context, stmt.span)?,
                 explicit_type: binding
                     .ty
                     .as_ref()
-                    .and_then(|ty| context.type_id.and_then(|type_id| type_id(ty.span))),
+                    .map(|ty| lower_type_id(context, ty.span))
+                    .transpose()?
+                    .flatten(),
                 is_mutable: !binding.is_let,
                 value: lower_expr_with_context(value, context)?,
             })
@@ -959,9 +1028,7 @@ fn lower_stmt_with_context(
             binding: ComptimeForBinding {
                 span: for_in.binding.span,
                 name: for_in.binding.name.clone(),
-                local_id: context
-                    .local_id
-                    .and_then(|local_id| local_id(for_in.binding.span)),
+                local_id: lower_local_id(context, for_in.binding.span)?,
             },
             iter: lower_expr_with_context(&for_in.iter, context)?,
             body: lower_block_with_context(&for_in.body, context)?,
@@ -1071,7 +1138,7 @@ fn lower_switch_pattern_with_context(
         nia_ast::SwitchPattern::OptionalSome { name, span } => {
             Ok(ComptimeSwitchPattern::OptionalSome {
                 name: name.clone(),
-                local_id: context.local_id.and_then(|local_id| local_id(*span)),
+                local_id: lower_local_id(context, *span)?,
                 span: *span,
             })
         }
@@ -1080,12 +1147,12 @@ fn lower_switch_pattern_with_context(
         }
         nia_ast::SwitchPattern::ErrorOk { name, span } => Ok(ComptimeSwitchPattern::ErrorOk {
             name: name.clone(),
-            local_id: context.local_id.and_then(|local_id| local_id(*span)),
+            local_id: lower_local_id(context, *span)?,
             span: *span,
         }),
         nia_ast::SwitchPattern::ErrorErr { name, span } => Ok(ComptimeSwitchPattern::ErrorErr {
             name: name.clone(),
-            local_id: context.local_id.and_then(|local_id| local_id(*span)),
+            local_id: lower_local_id(context, *span)?,
             span: *span,
         }),
         nia_ast::SwitchPattern::Expr(expr) => {

@@ -274,6 +274,7 @@ impl StaticChecker<'_> {
             name_resolution: Some(&|span| self.comptime_name_resolution(span)),
             local_id: None,
             type_id: None,
+            require_resolved_semantics: false,
         };
         let mut env = StaticComptimeEnv {
             defs: self.defs,
@@ -304,6 +305,7 @@ impl StaticChecker<'_> {
             name_resolution: Some(&|span| self.comptime_name_resolution(span)),
             local_id: None,
             type_id: None,
+            require_resolved_semantics: false,
         };
         let mut env = StaticComptimeEnv {
             defs: self.defs,

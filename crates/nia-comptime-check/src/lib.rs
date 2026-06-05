@@ -406,8 +406,13 @@ impl ComptimeModuleLowerer<'_> {
             name_resolution: Some(&name_resolution),
             local_id: Some(&local_id),
             type_id: Some(&type_id),
+            require_resolved_semantics: true,
         };
-        match nia_comptime_ir::lower_function_with_context(function_span, function, &context) {
+        match nia_comptime_ir::lower_function_resolved_with_context(
+            function_span,
+            function,
+            &context,
+        ) {
             Ok(function) => {
                 self.module
                     .functions
@@ -430,8 +435,9 @@ impl ComptimeModuleLowerer<'_> {
             name_resolution: Some(&name_resolution),
             local_id: Some(&local_id),
             type_id: Some(&type_id),
+            require_resolved_semantics: true,
         };
-        match nia_comptime_ir::lower_expr_with_context(expr, &context) {
+        match nia_comptime_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
             Err(err) => {
                 self.diagnostics
@@ -1604,13 +1610,7 @@ impl Analyzer<'_> {
         match pattern {
             ComptimeSwitchPattern::OptionalSome { local_id, .. }
             | ComptimeSwitchPattern::ErrorOk { local_id, .. }
-            | ComptimeSwitchPattern::ErrorErr { local_id, .. } => local_id.or_else(|| {
-                self.input
-                    .locals
-                    .local_defs
-                    .get(&pattern_span(pattern))
-                    .copied()
-            }),
+            | ComptimeSwitchPattern::ErrorErr { local_id, .. } => *local_id,
             ComptimeSwitchPattern::Default
             | ComptimeSwitchPattern::OptionalNull { .. }
             | ComptimeSwitchPattern::Expr(_)
@@ -3219,13 +3219,7 @@ impl Analyzer<'_> {
                 | ComptimeSwitchPattern::Expr(_)
                 | ComptimeSwitchPattern::Range { .. } => continue,
             };
-            let local_id = local_id.or_else(|| {
-                self.input
-                    .locals
-                    .local_defs
-                    .get(&pattern_span(pattern))
-                    .copied()
-            })?;
+            let local_id = (*local_id)?;
             self.bind_comptime_local_type(local_id, name, ComptimeValueType::Runtime(ty));
         }
         Some(())
@@ -3348,9 +3342,7 @@ impl Analyzer<'_> {
                     .map(|ty| self.substitute_ty_generics(ty))
                     .map(ComptimeValueType::Runtime)
                     .or_else(|| self.comptime_expr_type(&binding.value, None))?;
-                let local_id = binding
-                    .local_id
-                    .or_else(|| self.input.locals.local_defs.get(&stmt.span).copied())?;
+                let local_id = binding.local_id?;
                 self.bind_comptime_local_type(local_id, &binding.name, ty);
                 Some(())
             }
@@ -3420,13 +3412,7 @@ impl Analyzer<'_> {
         let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
         self.push_typed_comptime_scope();
         let result = (|| {
-            let local_id = for_in.binding.local_id.or_else(|| {
-                self.input
-                    .locals
-                    .local_defs
-                    .get(&for_in.binding.span)
-                    .copied()
-            })?;
+            let local_id = for_in.binding.local_id?;
             self.bind_comptime_local_type(local_id, &for_in.binding.name, binding_ty);
             for stmt in &for_in.body.stmts {
                 self.check_comptime_stmt(stmt)?;
@@ -4304,18 +4290,6 @@ fn substitute_ty_generics_in_interner(
     }
 }
 
-fn pattern_span(pattern: &ComptimeSwitchPattern) -> Span {
-    match pattern {
-        ComptimeSwitchPattern::Default => Span::new(0, 0),
-        ComptimeSwitchPattern::OptionalSome { span, .. }
-        | ComptimeSwitchPattern::OptionalNull { span }
-        | ComptimeSwitchPattern::ErrorOk { span, .. }
-        | ComptimeSwitchPattern::ErrorErr { span, .. }
-        | ComptimeSwitchPattern::Range { span, .. } => *span,
-        ComptimeSwitchPattern::Expr(expr) => expr.span,
-    }
-}
-
 impl ComptimeEnv for Analyzer<'_> {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
         if let Some(value) = self.call_local_name_value(name) {
@@ -4570,10 +4544,7 @@ impl ComptimeEnv for Analyzer<'_> {
         param: &ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = param
-            .local_id
-            .or_else(|| self.input.locals.local_defs.get(&param.span).copied())
-        else {
+        let Some(local_id) = param.local_id else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime function parameter".to_string(),
@@ -4608,10 +4579,7 @@ impl ComptimeEnv for Analyzer<'_> {
         binding: &ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = binding
-            .local_id
-            .or_else(|| self.input.locals.local_defs.get(&span).copied())
-        else {
+        let Some(local_id) = binding.local_id else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime function local".to_string(),
@@ -4631,8 +4599,7 @@ impl ComptimeEnv for Analyzer<'_> {
         local_id: Option<LocalId>,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = local_id.or_else(|| self.input.locals.local_defs.get(&span).copied())
-        else {
+        let Some(local_id) = local_id else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime switch pattern local".to_string(),
@@ -4651,27 +4618,14 @@ impl ComptimeEnv for Analyzer<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         match target {
-            ComptimeAssignTarget::Local {
-                span: target_span,
-                name,
-                local_id,
-                ..
-            } => {
-                let Some(local_id) = local_id.or_else(|| {
-                    self.input.locals.uses.get(target_span).and_then(|use_| {
-                        if let nia_local_resolve::LocalUse::Local(local_id) = use_ {
-                            Some(*local_id)
-                        } else {
-                            None
-                        }
-                    })
-                }) else {
+            ComptimeAssignTarget::Local { name, local_id, .. } => {
+                let Some(local_id) = local_id else {
                     return Err(ComptimeError {
                         span,
                         message: format!("failed to resolve comptime assignment target `{name}`"),
                     });
                 };
-                self.assign_local_value(span, local_id, name, value)
+                self.assign_local_value(span, *local_id, name, value)
             }
         }
     }
@@ -5221,5 +5175,47 @@ comptime fn width() usize {
         };
 
         assert_eq!(analyzer.comptime_function(&callee), None);
+    }
+
+    #[test]
+    fn semantic_comptime_lowering_requires_resolved_function_locals() {
+        let (module, errors) = parse_module(
+            r#"
+comptime fn add_one(x: usize) usize {
+    let y = x + 1;
+    y
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let type_names = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
+        let values = resolve_module_values(&module, &defs);
+        let mut locals = resolve_module_locals(&module, &defs, &values);
+        let removed = locals.local_defs.iter().find_map(|(span, local_id)| {
+            let local = locals.locals.get(*local_id)?;
+            (local.name == "y").then_some(*span)
+        });
+        let removed = removed.expect("local y span");
+        locals.local_defs.remove(&removed);
+
+        let comptime_module = lower_module_comptime(ComptimeModuleInput {
+            module: &module,
+            defs: &defs,
+            values: &values,
+            locals: &locals,
+            type_uses: &lowered.type_uses,
+            const_exprs: &lowered.const_exprs,
+        });
+
+        assert!(
+            comptime_module.diagnostics.iter().any(|diagnostic| {
+                diagnostic.span == removed
+                    && diagnostic.message == "failed to resolve comptime local binding"
+            }),
+            "{:?}",
+            comptime_module.diagnostics
+        );
     }
 }
