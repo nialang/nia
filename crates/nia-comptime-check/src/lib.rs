@@ -1577,7 +1577,7 @@ impl Analyzer<'_> {
                 if let Some(ty) = self.find_resolved_switch_pattern_local_type(switch, local_id) {
                     return Some(ty);
                 }
-                switch.arms.iter().find_map(|arm| match &arm.body {
+                switch.arms().iter().find_map(|arm| match arm.body() {
                     ResolvedComptimeSwitchArmBody::Expr(expr) => {
                         self.find_local_binding_type_in_resolved_expr(expr, local_id)
                     }
@@ -2322,9 +2322,9 @@ impl Analyzer<'_> {
         switch: &ResolvedComptimeSwitch,
         local_id: LocalId,
     ) -> Option<InternedTyId> {
-        let target_ty = self.resolved_comptime_arg_runtime_type(&switch.target, None)?;
-        for arm in &switch.arms {
-            for pattern in &arm.patterns {
+        let target_ty = self.resolved_comptime_arg_runtime_type(switch.target(), None)?;
+        for arm in switch.arms() {
+            for pattern in arm.patterns() {
                 if resolved_switch_pattern_local_id(pattern) == Some(local_id) {
                     return self.resolved_switch_pattern_binding_type(pattern, target_ty);
                 }
@@ -2531,15 +2531,15 @@ impl Analyzer<'_> {
         expected_len: Option<u64>,
         range: &nia_comptime_ir::ResolvedComptimeSliceRange,
     ) -> Option<u64> {
-        let start = match range.start.as_deref() {
+        let start = match range.start() {
             Some(start) => self.probe_resolved_comptime_array_len_expr(start)?,
             None => 0,
         };
-        let mut end = match range.end.as_deref() {
+        let mut end = match range.end() {
             Some(end) => self.probe_resolved_comptime_array_len_expr(end)?,
             None => source_len.or_else(|| expected_len.and_then(|len| start.checked_add(len)))?,
         };
-        if range.inclusive {
+        if range.is_inclusive() {
             end = end.checked_add(1)?;
         }
         if start > end {
@@ -2994,11 +2994,11 @@ impl Analyzer<'_> {
         switch: &ResolvedComptimeSwitch,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
-        let target_ty = self.resolved_comptime_arg_runtime_type(&switch.target, None);
+        let target_ty = self.resolved_comptime_arg_runtime_type(switch.target(), None);
         let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
         let mut result_ty = expected.map(ComptimeValueType::Runtime);
         let mut saw_value_arm = false;
-        for arm in &switch.arms {
+        for arm in switch.arms() {
             let arm_ty = result_ty
                 .clone()
                 .and_then(|expected| {
@@ -3035,14 +3035,14 @@ impl Analyzer<'_> {
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeArmType> {
         let target_ty = target_ty?;
-        self.check_resolved_comptime_switch_patterns(&arm.patterns, target_ty)?;
+        self.check_resolved_comptime_switch_patterns(arm.patterns(), target_ty)?;
         if !self.resolved_comptime_switch_arm_binds_pattern_locals(arm) {
-            return self.resolved_comptime_switch_arm_body_type(&arm.body, expected);
+            return self.resolved_comptime_switch_arm_body_type(arm.body(), expected);
         }
         self.push_typed_comptime_scope();
         let result = (|| {
-            self.bind_typed_resolved_comptime_switch_patterns(&arm.patterns, target_ty)?;
-            self.resolved_comptime_switch_arm_body_type(&arm.body, expected)
+            self.bind_typed_resolved_comptime_switch_patterns(arm.patterns(), target_ty)?;
+            self.resolved_comptime_switch_arm_body_type(arm.body(), expected)
         })();
         self.pop_typed_comptime_scope();
         result
@@ -3052,7 +3052,7 @@ impl Analyzer<'_> {
         &self,
         arm: &nia_comptime_ir::ResolvedComptimeSwitchArm,
     ) -> bool {
-        arm.patterns.iter().any(|pattern| {
+        arm.patterns().iter().any(|pattern| {
             matches!(
                 pattern,
                 ResolvedComptimeSwitchPattern::OptionalSome { .. }
@@ -3430,7 +3430,11 @@ impl Analyzer<'_> {
         range: &nia_comptime_ir::ResolvedComptimeRange,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
-        let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
+        let kind = match (
+            range.start().is_some(),
+            range.end().is_some(),
+            range.is_inclusive(),
+        ) {
             (true, true, false) => RangeTyKind::Exclusive,
             (true, true, true) => RangeTyKind::Inclusive,
             (true, false, false) => RangeTyKind::From,
@@ -3446,11 +3450,11 @@ impl Analyzer<'_> {
             }) if expected_kind == kind => bound,
             _ => None,
         });
-        let start_ty = match range.start.as_deref() {
+        let start_ty = match range.start() {
             Some(start) => Some(self.resolved_comptime_arg_runtime_type(start, expected_bound)?),
             None => None,
         };
-        let end_ty = match range.end.as_deref() {
+        let end_ty = match range.end() {
             Some(end) => {
                 Some(self.resolved_comptime_arg_runtime_type(end, expected_bound.or(start_ty))?)
             }

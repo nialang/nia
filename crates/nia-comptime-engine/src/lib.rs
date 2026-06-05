@@ -1043,10 +1043,10 @@ fn eval_resolved_comptime_switch_expr_flow(
     switch: &ResolvedComptimeSwitch,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let target = eval_resolved_value_or_return_flow!(&switch.target, env);
+    let target = eval_resolved_value_or_return_flow!(switch.target(), env);
     let Some(matched) = matching_resolved_switch_arm(&target, switch, env)? else {
         return Err(ComptimeError {
-            span: switch.span,
+            span: switch.span(),
             message: "comptime switch expression did not match any arm".to_string(),
         });
     };
@@ -1247,8 +1247,8 @@ fn matching_resolved_switch_arm<'a>(
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<Option<ResolvedComptimeSwitchMatch<'a>>, ComptimeError> {
     let mut default = None;
-    for arm in &switch.arms {
-        for pattern in &arm.patterns {
+    for arm in switch.arms() {
+        for pattern in arm.patterns() {
             match pattern {
                 ResolvedComptimeSwitchPattern::Default => {
                     default = Some(arm);
@@ -1451,12 +1451,12 @@ fn eval_resolved_comptime_switch_match_body(
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let Some(binding) = matched.binding else {
-        return eval_resolved_comptime_switch_arm_body(&matched.arm.body, env);
+        return eval_resolved_comptime_switch_arm_body(matched.arm.body(), env);
     };
-    env.push_comptime_scope(matched.arm.span)?;
+    env.push_comptime_scope(matched.arm.span())?;
     let bind_result = bind_resolved_switch_pattern_value(&binding, env);
     let result =
-        bind_result.and_then(|()| eval_resolved_comptime_switch_arm_body(&matched.arm.body, env));
+        bind_result.and_then(|()| eval_resolved_comptime_switch_arm_body(matched.arm.body(), env));
     env.pop_comptime_scope();
     result
 }
@@ -1700,21 +1700,21 @@ fn eval_resolved_array_slice_flow(
         }
     };
     let len = values.len();
-    let start = match &range.start {
+    let start = match range.start() {
         Some(start) => match eval_resolved_slice_bound_flow(start, env)? {
             SliceBoundFlow::Value(value) => value,
             SliceBoundFlow::Flow(flow) => return Ok(flow),
         },
         None => 0,
     };
-    let mut end = match &range.end {
+    let mut end = match range.end() {
         Some(end) => match eval_resolved_slice_bound_flow(end, env)? {
             SliceBoundFlow::Value(value) => value,
             SliceBoundFlow::Flow(flow) => return Ok(flow),
         },
         None => len,
     };
-    if range.inclusive {
+    if range.is_inclusive() {
         end = end.checked_add(1).ok_or_else(|| ComptimeError {
             span,
             message: "comptime slice inclusive end is too large".to_string(),
@@ -2324,8 +2324,8 @@ fn eval_resolved_assign_expr_flow(
             });
         }
     };
-    let value = resolved_assign_target_writeback_value(span, &assign.lhs, value, env)?;
-    env.assign_resolved_local(span, &assign.lhs, value)?;
+    let value = resolved_assign_target_writeback_value(span, assign.lhs(), value, env)?;
+    env.assign_resolved_local(span, assign.lhs(), value)?;
     Ok(ComptimeEvalFlow::Void)
 }
 
@@ -2353,12 +2353,12 @@ fn eval_resolved_assignment_value_flow(
     assign: &ResolvedComptimeAssign,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let rhs = eval_resolved_value_or_return_flow!(&assign.rhs, env);
-    if matches!(assign.op, ComptimeAssignOp::Assign) {
+    let rhs = eval_resolved_value_or_return_flow!(assign.rhs(), env);
+    if matches!(assign.op(), ComptimeAssignOp::Assign) {
         return Ok(ComptimeEvalFlow::Value(rhs));
     }
-    let lhs = eval_resolved_assign_target_value(span, &assign.lhs, env)?;
-    let op = assign_op_binary(assign.op).ok_or_else(|| ComptimeError {
+    let lhs = eval_resolved_assign_target_value(span, assign.lhs(), env)?;
+    let op = assign_op_binary(assign.op()).ok_or_else(|| ComptimeError {
         span,
         message: "unsupported comptime assignment operator".to_string(),
     })?;
@@ -2782,11 +2782,11 @@ fn eval_resolved_range_expr_flow(
     range: &ResolvedComptimeRange,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let start = match eval_resolved_optional_range_bound(range.start.as_deref(), env)? {
+    let start = match eval_resolved_optional_range_bound(range.start(), env)? {
         ComptimeRangeBoundFlow::Value(value) => value,
         ComptimeRangeBoundFlow::Flow(flow) => return Ok(flow),
     };
-    let end = match eval_resolved_optional_range_bound(range.end.as_deref(), env)? {
+    let end = match eval_resolved_optional_range_bound(range.end(), env)? {
         ComptimeRangeBoundFlow::Value(value) => value,
         ComptimeRangeBoundFlow::Flow(flow) => return Ok(flow),
     };
@@ -2794,7 +2794,7 @@ fn eval_resolved_range_expr_flow(
         ComptimeRangeValue {
             start,
             end,
-            inclusive: range.inclusive,
+            inclusive: range.is_inclusive(),
         },
     )))
 }
