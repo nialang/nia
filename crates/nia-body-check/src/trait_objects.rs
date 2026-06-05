@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::Expr;
-use nia_body_ir::{TraitObjectCoercion, TraitObjectUpcast};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
+use nia_sema_ir::{TraitObjectCoercion, TraitObjectUpcast};
 use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};

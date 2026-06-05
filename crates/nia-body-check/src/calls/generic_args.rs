@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::BracketArg;
-use nia_body_ir::GenericInstantiation;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
+use nia_sema_ir::GenericInstantiation;
 use nia_span::Span;
 use nia_ty::TyKind;
 
