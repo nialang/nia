@@ -87,7 +87,7 @@ pub fn eval_config_bool(
             return None;
         }
     };
-    nia_comptime_engine::eval_comptime_bool_expr(&expr, &mut env)
+    nia_comptime_engine::eval_early_comptime_bool_expr(&expr, &mut env)
         .map_err(|err| diagnostics.push(Diagnostic::error(err.span, err.message)))
         .ok()
 }
@@ -749,7 +749,7 @@ impl Pruner<'_> {
                 return None;
             }
         };
-        nia_comptime_engine::eval_comptime_bool_expr(&expr, &mut env)
+        nia_comptime_engine::eval_early_comptime_bool_expr(&expr, &mut env)
             .map_err(|err| {
                 self.diagnostics
                     .push(Diagnostic::error(err.span, err.message))
