@@ -7,14 +7,15 @@ use nia_comptime_ir::{
     EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange, EarlyComptimeStmt,
     EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm, EarlyComptimeSwitchArmBody,
     EarlyComptimeSwitchPattern, EarlyComptimeTypeArg, ResolvedComptimeArrayElements,
-    ResolvedComptimeAssign, ResolvedComptimeAssignPathElem, ResolvedComptimeAssignPathElemKind,
-    ResolvedComptimeAssignTarget, ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding,
-    ResolvedComptimeBlock, ResolvedComptimeExpr, ResolvedComptimeExprKind,
-    ResolvedComptimeFieldInit, ResolvedComptimeForBinding, ResolvedComptimeForIn,
-    ResolvedComptimeFunction, ResolvedComptimeParam, ResolvedComptimeRange,
-    ResolvedComptimeSliceRange, ResolvedComptimeStmt, ResolvedComptimeStmtKind,
-    ResolvedComptimeSwitch, ResolvedComptimeSwitchArm, ResolvedComptimeSwitchArmBody,
-    ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPattern, ResolvedComptimeTypeArg,
+    ResolvedComptimeArrayElementsKind, ResolvedComptimeAssign, ResolvedComptimeAssignPathElem,
+    ResolvedComptimeAssignPathElemKind, ResolvedComptimeAssignTarget,
+    ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding, ResolvedComptimeBlock,
+    ResolvedComptimeExpr, ResolvedComptimeExprKind, ResolvedComptimeFieldInit,
+    ResolvedComptimeForBinding, ResolvedComptimeForIn, ResolvedComptimeFunction,
+    ResolvedComptimeParam, ResolvedComptimeRange, ResolvedComptimeSliceRange, ResolvedComptimeStmt,
+    ResolvedComptimeStmtKind, ResolvedComptimeSwitch, ResolvedComptimeSwitchArm,
+    ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchArmBodyKind,
+    ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
@@ -1250,17 +1251,17 @@ fn matching_resolved_switch_arm<'a>(
     let mut default = None;
     for arm in switch.arms() {
         for pattern in arm.patterns() {
-            match pattern {
-                ResolvedComptimeSwitchPattern::Default => {
+            match pattern.kind() {
+                ResolvedComptimeSwitchPatternKind::Default => {
                     default = Some(arm);
                 }
-                ResolvedComptimeSwitchPattern::Expr(pattern) => {
+                ResolvedComptimeSwitchPatternKind::Expr(pattern) => {
                     let pattern = eval_resolved_comptime_expr_value(pattern, env)?;
                     if values_equal(target, &pattern).unwrap_or(false) {
                         return Ok(Some(ResolvedComptimeSwitchMatch { arm, binding: None }));
                     }
                 }
-                ResolvedComptimeSwitchPattern::Range {
+                ResolvedComptimeSwitchPatternKind::Range {
                     start,
                     end,
                     inclusive,
@@ -1270,7 +1271,7 @@ fn matching_resolved_switch_arm<'a>(
                         return Ok(Some(ResolvedComptimeSwitchMatch { arm, binding: None }));
                     }
                 }
-                ResolvedComptimeSwitchPattern::OptionalSome {
+                ResolvedComptimeSwitchPatternKind::OptionalSome {
                     name,
                     local_id,
                     span,
@@ -1295,7 +1296,7 @@ fn matching_resolved_switch_arm<'a>(
                         });
                     }
                 },
-                ResolvedComptimeSwitchPattern::OptionalNull { span } => match target {
+                ResolvedComptimeSwitchPatternKind::OptionalNull { span } => match target {
                     ComptimeValue::Optional(None) => {
                         return Ok(Some(ResolvedComptimeSwitchMatch { arm, binding: None }));
                     }
@@ -1308,7 +1309,7 @@ fn matching_resolved_switch_arm<'a>(
                         });
                     }
                 },
-                ResolvedComptimeSwitchPattern::ErrorOk {
+                ResolvedComptimeSwitchPatternKind::ErrorOk {
                     name,
                     local_id,
                     span,
@@ -1334,7 +1335,7 @@ fn matching_resolved_switch_arm<'a>(
                         });
                     }
                 },
-                ResolvedComptimeSwitchPattern::ErrorErr {
+                ResolvedComptimeSwitchPatternKind::ErrorErr {
                     name,
                     local_id,
                     span,
@@ -1527,15 +1528,15 @@ fn eval_resolved_array_literal_flow(
     elems: &ResolvedComptimeArrayElements,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    match elems {
-        ResolvedComptimeArrayElements::List(elems) => {
+    match elems.kind() {
+        ResolvedComptimeArrayElementsKind::List(elems) => {
             let mut values = Vec::with_capacity(elems.len());
             for elem in elems {
                 values.push(eval_resolved_value_or_return_flow!(elem, env));
             }
             Ok(ComptimeEvalFlow::Value(ComptimeValue::Array(values)))
         }
-        ResolvedComptimeArrayElements::Repeat { value, count } => {
+        ResolvedComptimeArrayElementsKind::Repeat { value, count } => {
             let value = eval_resolved_value_or_return_flow!(value, env);
             let count_span = count.span();
             let count_value = match eval_resolved_value_or_return_flow!(count, env) {

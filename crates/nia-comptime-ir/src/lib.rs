@@ -583,7 +583,82 @@ impl ResolvedComptimeSwitchArm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedComptimeSwitchPattern {
+pub struct ResolvedComptimeSwitchPattern {
+    kind: ResolvedComptimeSwitchPatternKind,
+}
+
+impl ResolvedComptimeSwitchPattern {
+    pub fn default() -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::Default,
+        }
+    }
+
+    pub fn optional_some(name: String, local_id: LocalId, span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::OptionalSome {
+                name,
+                local_id,
+                span,
+            },
+        }
+    }
+
+    pub fn optional_null(span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::OptionalNull { span },
+        }
+    }
+
+    pub fn error_ok(name: String, local_id: LocalId, span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::ErrorOk {
+                name,
+                local_id,
+                span,
+            },
+        }
+    }
+
+    pub fn error_err(name: String, local_id: LocalId, span: Span) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::ErrorErr {
+                name,
+                local_id,
+                span,
+            },
+        }
+    }
+
+    pub fn expr(expr: ResolvedComptimeExpr) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::Expr(expr),
+        }
+    }
+
+    pub fn range(
+        start: ResolvedComptimeExpr,
+        end: ResolvedComptimeExpr,
+        inclusive: bool,
+        span: Span,
+    ) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchPatternKind::Range {
+                start,
+                end,
+                inclusive,
+                span,
+            },
+        }
+    }
+
+    pub fn kind(&self) -> &ResolvedComptimeSwitchPatternKind {
+        &self.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeSwitchPatternKind {
     Default,
     OptionalSome {
         name: String,
@@ -799,7 +874,33 @@ impl ResolvedComptimeSliceRange {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedComptimeArrayElements {
+pub struct ResolvedComptimeArrayElements {
+    kind: ResolvedComptimeArrayElementsKind,
+}
+
+impl ResolvedComptimeArrayElements {
+    pub fn list(elems: Vec<ResolvedComptimeExpr>) -> Self {
+        Self {
+            kind: ResolvedComptimeArrayElementsKind::List(elems),
+        }
+    }
+
+    pub fn repeat(value: ResolvedComptimeExpr, count: ResolvedComptimeExpr) -> Self {
+        Self {
+            kind: ResolvedComptimeArrayElementsKind::Repeat {
+                value: Box::new(value),
+                count: Box::new(count),
+            },
+        }
+    }
+
+    pub fn kind(&self) -> &ResolvedComptimeArrayElementsKind {
+        &self.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeArrayElementsKind {
     List(Vec<ResolvedComptimeExpr>),
     Repeat {
         value: Box<ResolvedComptimeExpr>,
@@ -2125,54 +2226,51 @@ fn resolve_comptime_switch_pattern(
     pattern: EarlyComptimeSwitchPattern,
 ) -> Result<ResolvedComptimeSwitchPattern, ComptimeLowerError> {
     match pattern {
-        EarlyComptimeSwitchPattern::Default => Ok(ResolvedComptimeSwitchPattern::Default),
+        EarlyComptimeSwitchPattern::Default => Ok(ResolvedComptimeSwitchPattern::default()),
         EarlyComptimeSwitchPattern::OptionalSome {
             name,
             local_id,
             span,
-        } => Ok(ResolvedComptimeSwitchPattern::OptionalSome {
+        } => Ok(ResolvedComptimeSwitchPattern::optional_some(
             name,
-            local_id: local_id
-                .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+            local_id.ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
-        }),
+        )),
         EarlyComptimeSwitchPattern::OptionalNull { span } => {
-            Ok(ResolvedComptimeSwitchPattern::OptionalNull { span })
+            Ok(ResolvedComptimeSwitchPattern::optional_null(span))
         }
         EarlyComptimeSwitchPattern::ErrorOk {
             name,
             local_id,
             span,
-        } => Ok(ResolvedComptimeSwitchPattern::ErrorOk {
+        } => Ok(ResolvedComptimeSwitchPattern::error_ok(
             name,
-            local_id: local_id
-                .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+            local_id.ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
-        }),
+        )),
         EarlyComptimeSwitchPattern::ErrorErr {
             name,
             local_id,
             span,
-        } => Ok(ResolvedComptimeSwitchPattern::ErrorErr {
+        } => Ok(ResolvedComptimeSwitchPattern::error_err(
             name,
-            local_id: local_id
-                .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
+            local_id.ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
-        }),
+        )),
         EarlyComptimeSwitchPattern::Expr(expr) => {
-            resolve_expr(expr).map(ResolvedComptimeSwitchPattern::Expr)
+            resolve_expr(expr).map(ResolvedComptimeSwitchPattern::expr)
         }
         EarlyComptimeSwitchPattern::Range {
             start,
             end,
             inclusive,
             span,
-        } => Ok(ResolvedComptimeSwitchPattern::Range {
-            start: resolve_expr(start)?,
-            end: resolve_expr(end)?,
+        } => Ok(ResolvedComptimeSwitchPattern::range(
+            resolve_expr(start)?,
+            resolve_expr(end)?,
             inclusive,
             span,
-        }),
+        )),
     }
 }
 
@@ -2200,13 +2298,10 @@ fn resolve_comptime_array_elements(
             .into_iter()
             .map(resolve_expr)
             .collect::<Result<Vec<_>, _>>()
-            .map(ResolvedComptimeArrayElements::List),
-        EarlyComptimeArrayElements::Repeat { value, count } => {
-            Ok(ResolvedComptimeArrayElements::Repeat {
-                value: Box::new(resolve_expr(*value)?),
-                count: Box::new(resolve_expr(*count)?),
-            })
-        }
+            .map(ResolvedComptimeArrayElements::list),
+        EarlyComptimeArrayElements::Repeat { value, count } => Ok(
+            ResolvedComptimeArrayElements::repeat(resolve_expr(*value)?, resolve_expr(*count)?),
+        ),
     }
 }
 
