@@ -24,6 +24,7 @@ use nia_sema::{
     ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
     check_exact_arity, check_required_field_set, check_value_field_set,
 };
+use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
@@ -412,15 +413,8 @@ impl ComptimeModuleLowerer<'_> {
             return;
         };
         let function_locals = self.function_locals(function);
-        let name_resolution =
-            |span| self.name_resolution_with_allowed_locals(span, &function_locals);
-        let local_id = |span| self.input.locals.local_defs.get(&span).copied();
-        let type_id = |span| self.input.type_uses.get(&span).copied();
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(
-            &name_resolution,
-            &local_id,
-            &type_id,
-        );
+        let semantic_uses = self.semantic_uses_with_allowed_locals(&function_locals);
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
         match nia_comptime_ir::lower_function_resolved_with_context(
             function_span,
             function,
@@ -439,15 +433,8 @@ impl ComptimeModuleLowerer<'_> {
     fn lower_expr(&mut self, expr: &Expr) -> Option<ResolvedComptimeExpr> {
         let mut allowed_locals = HashSet::new();
         self.collect_expr_locals(expr, &mut allowed_locals);
-        let name_resolution =
-            |span| self.name_resolution_with_allowed_locals(span, &allowed_locals);
-        let local_id = |span| self.input.locals.local_defs.get(&span).copied();
-        let type_id = |span| self.input.type_uses.get(&span).copied();
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(
-            &name_resolution,
-            &local_id,
-            &type_id,
-        );
+        let semantic_uses = self.semantic_uses_with_allowed_locals(&allowed_locals);
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
         match nia_comptime_ir::lower_expr_resolved_with_context(expr, &context) {
             Ok(expr) => Some(expr),
             Err(err) => {
@@ -458,23 +445,49 @@ impl ComptimeModuleLowerer<'_> {
         }
     }
 
-    fn name_resolution_with_allowed_locals(
+    fn semantic_uses_with_allowed_locals(
         &self,
-        span: Span,
         allowed_locals: &HashSet<LocalId>,
-    ) -> Option<ComptimeNameResolution> {
-        if let Some(local_id) = self.local_use(span)
-            && allowed_locals.contains(&local_id)
+    ) -> SemanticUseTable {
+        let mut value_uses = self
+            .input
+            .locals
+            .uses
+            .iter()
+            .filter_map(|(span, local_use)| match local_use {
+                LocalUse::Local(local_id)
+                    if allowed_locals.contains(local_id)
+                        || self
+                            .input
+                            .locals
+                            .locals
+                            .get(*local_id)
+                            .is_some_and(|local| local.kind == LocalKind::ComptimeBinding) =>
+                {
+                    Some((*span, SemanticValueUse::Local(*local_id)))
+                }
+                _ => None,
+            })
+            .collect::<HashMap<_, _>>();
+        for span in self
+            .input
+            .values
+            .qualified_values
+            .keys()
+            .chain(self.input.values.names.keys())
         {
-            return Some(ComptimeNameResolution::Local(local_id));
+            if value_uses.contains_key(span) {
+                continue;
+            }
+            if let Some(global_id) = self.global_value_use(*span) {
+                value_uses.insert(*span, SemanticValueUse::Global(global_id));
+            }
         }
-        if let Some(local_id) = self.local_comptime_use(span) {
-            return Some(ComptimeNameResolution::Local(local_id));
+        SemanticUseTable {
+            value_uses,
+            local_defs: self.input.locals.local_defs.clone(),
+            type_uses: self.input.type_uses.clone(),
         }
-        if let Some(global_id) = self.global_value_use(span) {
-            return Some(ComptimeNameResolution::Global(global_id));
-        }
-        None
     }
 
     fn function_locals(&self, function: &nia_ast::FunctionItem) -> HashSet<LocalId> {
@@ -674,21 +687,6 @@ impl ComptimeModuleLowerer<'_> {
             }
             nia_ast::SwitchPattern::Default | nia_ast::SwitchPattern::OptionalNull { .. } => {}
         }
-    }
-
-    fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
-        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&span) else {
-            return None;
-        };
-        let local = self.input.locals.locals.get(*local_id)?;
-        (local.kind == LocalKind::ComptimeBinding).then_some(*local_id)
-    }
-
-    fn local_use(&self, span: Span) -> Option<LocalId> {
-        let Some(LocalUse::Local(local_id)) = self.input.locals.uses.get(&span) else {
-            return None;
-        };
-        Some(*local_id)
     }
 
     fn global_value_use(&self, span: Span) -> Option<GlobalDefId> {

@@ -16,6 +16,7 @@ use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
+use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
@@ -940,44 +941,63 @@ impl<'a> BodyChecker<'a> {
         &self,
         expr: &Expr,
     ) -> Result<nia_comptime_ir::ResolvedComptimeExpr, nia_comptime_ir::ComptimeLowerError> {
-        let name_resolution = |span| self.comptime_name_resolution(span);
-        let local_id = |span| self.locals.local_defs.get(&span).copied();
-        let type_id = |span| self.type_uses.get(&span).copied();
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(
-            &name_resolution,
-            &local_id,
-            &type_id,
-        );
+        let semantic_uses = self.comptime_semantic_uses();
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
         nia_comptime_ir::lower_expr_resolved_with_context(expr, &context)
     }
 
-    fn comptime_name_resolution(
-        &self,
-        span: Span,
-    ) -> Option<nia_comptime_ir::ComptimeNameResolution> {
-        if let Some(local_id) = self.local_comptime_use(span) {
-            return Some(nia_comptime_ir::ComptimeNameResolution::Local(local_id));
-        }
-        if let Some(local_id) = self.local_use(span)
-            && self
-                .comptime_call_locals
-                .iter()
-                .rev()
-                .any(|frame| frame.locals.contains_key(&local_id))
+    fn comptime_semantic_uses(&self) -> SemanticUseTable {
+        let mut value_uses = self
+            .locals
+            .uses
+            .iter()
+            .filter_map(|(span, local_use)| {
+                let nia_local_resolve::LocalUse::Local(local_id) = local_use else {
+                    return None;
+                };
+                if self
+                    .comptime_call_locals
+                    .iter()
+                    .rev()
+                    .any(|frame| frame.locals.contains_key(local_id))
+                    || self.local_comptime_use(*span).is_some()
+                {
+                    Some((*span, SemanticValueUse::Local(*local_id)))
+                } else {
+                    None
+                }
+            })
+            .collect::<HashMap<_, _>>();
+        for span in self
+            .values
+            .qualified_values
+            .keys()
+            .chain(self.values.names.keys())
         {
-            return Some(nia_comptime_ir::ComptimeNameResolution::Local(local_id));
+            if value_uses.contains_key(span) {
+                continue;
+            }
+            if let Some(global_id) = self.global_comptime_value_use(*span) {
+                value_uses.insert(*span, SemanticValueUse::Global(global_id));
+            }
         }
+        SemanticUseTable {
+            value_uses,
+            local_defs: self.locals.local_defs.clone(),
+            type_uses: self.type_uses.clone(),
+        }
+    }
+
+    fn global_comptime_value_use(&self, span: Span) -> Option<GlobalDefId> {
         if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
-            return Some(nia_comptime_ir::ComptimeNameResolution::Global(global_id));
+            return Some(global_id);
         }
         let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
             self.values.names.get(&span)
         else {
             return None;
         };
-        Some(nia_comptime_ir::ComptimeNameResolution::Global(
-            self.global_def_id(*def_id),
-        ))
+        Some(self.global_def_id(*def_id))
     }
 
     fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {
@@ -1098,13 +1118,6 @@ impl<'a> BodyChecker<'a> {
         };
         let local = self.locals.locals.get(*local_id)?;
         (local.kind == nia_local_resolve::LocalKind::ComptimeBinding).then_some(*local_id)
-    }
-
-    fn local_use(&self, span: Span) -> Option<LocalId> {
-        let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.locals.uses.get(&span) else {
-            return None;
-        };
-        Some(*local_id)
     }
 
     fn comptime_call_local_value(&self, local_id: LocalId) -> Option<ComptimeValue> {

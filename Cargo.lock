@@ -272,6 +272,7 @@ dependencies = [
  "nia-local-resolve",
  "nia-parser",
  "nia-sema",
+ "nia-sema-ir",
  "nia-span",
  "nia-target-config",
  "nia-ty",
@@ -300,6 +301,7 @@ version = "0.3.2"
 dependencies = [
  "nia-ast",
  "nia-ids",
+ "nia-sema-ir",
  "nia-span",
 ]
 
@@ -596,6 +598,7 @@ dependencies = [
  "nia-item-signatures",
  "nia-local-resolve",
  "nia-parser",
+ "nia-sema-ir",
  "nia-span",
  "nia-target-config",
  "nia-type-lower",
