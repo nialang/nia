@@ -810,7 +810,15 @@ impl ComptimeEnv for BodyChecker<'_> {
         builtin: LayoutBuiltin,
         type_arg: &ComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
-        let ty_id = self.comptime_type_arg(type_arg);
+        let Some(ty_id) = self.comptime_type_arg(type_arg) else {
+            return Err(ComptimeError {
+                span,
+                message: format!(
+                    "cannot resolve type argument for comptime builtin `@{}`",
+                    builtin.name()
+                ),
+            });
+        };
         let Some(layout) = self.layout_of(ty_id) else {
             return Err(ComptimeError {
                 span,
@@ -1151,16 +1159,9 @@ impl<'a> BodyChecker<'a> {
         nia_comptime_check::infer_comptime_expr_type(input, expr, expected)
     }
 
-    fn comptime_type_arg_for_span(&mut self, span: Span) -> InternedTyId {
-        let ty = self.ty_for_span(span);
-        self.substitute_current_comptime_generics(ty)
-    }
-
-    fn comptime_type_arg(&mut self, arg: &ComptimeTypeArg) -> InternedTyId {
-        let ty = arg
-            .ty
-            .unwrap_or_else(|| self.comptime_type_arg_for_span(arg.ty_span));
-        self.substitute_current_comptime_generics(ty)
+    fn comptime_type_arg(&mut self, arg: &ComptimeTypeArg) -> Option<InternedTyId> {
+        let ty = arg.ty?;
+        Some(self.substitute_current_comptime_generics(ty))
     }
 
     fn substitute_current_comptime_generics(&mut self, ty: InternedTyId) -> InternedTyId {

@@ -1813,27 +1813,6 @@ impl Analyzer<'_> {
             .unwrap_or(self.input.defs.module_id)
     }
 
-    fn type_lowering_for_module(
-        &self,
-        module_id: ModuleId,
-    ) -> Option<&nia_type_lower::TypeLowering> {
-        if module_id == self.input.defs.module_id {
-            return None;
-        }
-        self.input.program.type_lowerings?.get(&module_id)
-    }
-
-    fn type_uses_for_module(
-        &self,
-        module_id: ModuleId,
-    ) -> Option<&HashMap<Span, nia_ids::InternedTyId>> {
-        if module_id == self.input.defs.module_id {
-            Some(self.input.type_uses)
-        } else {
-            Some(&self.type_lowering_for_module(module_id)?.type_uses)
-        }
-    }
-
     fn interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
         self.working_interners.get(&module_id)
     }
@@ -1882,13 +1861,6 @@ impl Analyzer<'_> {
         } else {
             Some(&self.type_normalization_for_module(module_id)?.normalized)
         }
-    }
-
-    fn ty_for_span(&mut self, span: Span) -> Option<nia_ids::InternedTyId> {
-        let module_id = self.current_execution_module_id();
-        let ty = self.type_uses_for_module(module_id)?.get(&span).copied()?;
-        self.ensure_working_interner(module_id)?;
-        Some(self.substitute_ty_generics(ty))
     }
 
     fn resolve_layout_builtin_for_ty(
@@ -4379,8 +4351,7 @@ impl ComptimeEnv for Analyzer<'_> {
                 self.ensure_working_interner(module_id)?;
                 self.import_ty_into_module_or_none(ty, module_id)
             })
-            .map(|ty| self.substitute_ty_generics(ty))
-            .or_else(|| self.ty_for_span(type_arg.ty_span));
+            .map(|ty| self.substitute_ty_generics(ty));
         let Some(ty_id) = ty_id else {
             return Err(ComptimeError {
                 span,
@@ -4990,7 +4961,7 @@ mod tests {
         ComptimeProgramContext, ComptimeValueType, TypedComptimeQueryInput, check_module_comptime,
         lower_module_comptime,
     };
-    use nia_comptime_ir::{ComptimeExpr, ComptimeExprKind};
+    use nia_comptime_ir::{ComptimeExpr, ComptimeExprKind, ComptimeTypeArg};
     use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
     use nia_item_signatures::{ItemSignatures, collect_item_signatures};
     use nia_local_resolve::{LocalResolution, resolve_module_locals};
@@ -5216,6 +5187,46 @@ comptime fn add_one(x: usize) usize {
             }),
             "{:?}",
             comptime_module.diagnostics
+        );
+    }
+
+    #[test]
+    fn layout_builtin_requires_resolved_type_arg() {
+        let fixture = check_source("");
+        let normalized = HashMap::new();
+        let target = nia_target_config::TargetConfig::host();
+        let mut analyzer = super::Analyzer::for_typed_query(TypedComptimeQueryInput {
+            module: &fixture.comptime_module.module,
+            defs: &fixture.defs,
+            values: &fixture.values,
+            locals: &fixture.locals,
+            signatures: &fixture.signatures,
+            interner: &fixture.lowered.interner,
+            type_uses: &fixture.lowered.type_uses,
+            normalized: &normalized,
+            target: &target,
+            program: ComptimeProgramContext::empty(),
+            typed_values: &fixture.checked.typed_values,
+            array_lengths: &fixture.checked.array_lengths,
+            frames: &[],
+        });
+        let expr = ComptimeExpr {
+            span: Span::new(0, 1),
+            kind: ComptimeExprKind::LayoutBuiltin {
+                builtin: nia_ids::LayoutBuiltin::Size,
+                type_arg: ComptimeTypeArg {
+                    span: Span::new(0, 1),
+                    ty_span: Span::new(0, 1),
+                    ty: None,
+                },
+            },
+        };
+
+        let err = nia_comptime_engine::eval_comptime_expr(&expr, &mut analyzer)
+            .expect_err("layout builtin should require a resolved type arg");
+        assert_eq!(
+            err.message,
+            "cannot resolve type argument for comptime builtin `@size`"
         );
     }
 }
