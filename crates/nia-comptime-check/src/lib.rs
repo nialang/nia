@@ -851,7 +851,7 @@ impl Analyzer<'_> {
         }
         let const_exprs = self.input.module.const_exprs.clone();
         for (id, expr) in const_exprs {
-            if let Some(value) = self.eval_array_len_expr(&expr) {
+            if let Some(value) = self.eval_resolved_array_len_expr(&expr) {
                 self.array_lengths.insert(id, value);
             }
         }
@@ -894,7 +894,7 @@ impl Analyzer<'_> {
         let mut next_value = 0i128;
         for variant in &item_enum.variants {
             let value = if let Some(expr) = variant.value.as_ref() {
-                match nia_comptime_engine::eval_comptime_int_expr(expr.as_expr(), self) {
+                match nia_comptime_engine::eval_resolved_comptime_int_expr(expr, self) {
                     Ok(value) => value,
                     Err(err) => {
                         self.push_engine_error(err);
@@ -942,8 +942,8 @@ impl Analyzer<'_> {
         integer_range(*primitive)
     }
 
-    fn eval_array_len_expr(&mut self, expr: &ComptimeExpr) -> Option<u64> {
-        match nia_comptime_engine::eval_comptime_array_len_expr(expr, self) {
+    fn eval_resolved_array_len_expr(&mut self, expr: &ResolvedComptimeExpr) -> Option<u64> {
+        match nia_comptime_engine::eval_resolved_comptime_array_len_expr(expr, self) {
             Ok(value) => Some(value),
             Err(err) => {
                 self.push_engine_error(err);
@@ -964,7 +964,7 @@ impl Analyzer<'_> {
         let module_id = self.key_module_id(key);
         let result = self.initializer_for_key(key).cloned().and_then(|expr| {
             self.with_execution_module(module_id, |this| {
-                match nia_comptime_engine::eval_comptime_expr(&expr, this) {
+                match nia_comptime_engine::eval_resolved_comptime_expr(&expr, this) {
                     Ok(value) => Some(value),
                     Err(err) => {
                         this.push_engine_error(err);
@@ -1647,20 +1647,16 @@ impl Analyzer<'_> {
             .push(Diagnostic::error(err.span, err.message));
     }
 
-    fn initializer_for_key(&self, key: ComptimeKey) -> Option<&ComptimeExpr> {
+    fn initializer_for_key(&self, key: ComptimeKey) -> Option<&ResolvedComptimeExpr> {
         match key {
             ComptimeKey::Global(global_id) => self.global_initializer(global_id),
             ComptimeKey::Local(local_id) => self.local_initializer(local_id),
         }
     }
 
-    fn global_initializer(&self, global_id: GlobalDefId) -> Option<&ComptimeExpr> {
+    fn global_initializer(&self, global_id: GlobalDefId) -> Option<&ResolvedComptimeExpr> {
         if global_id.module_id == self.input.defs.module_id {
-            self.input
-                .module
-                .global_initializers
-                .get(&global_id)
-                .map(ResolvedComptimeExpr::as_expr)
+            self.input.module.global_initializers.get(&global_id)
         } else {
             self.input
                 .program
@@ -1668,7 +1664,6 @@ impl Analyzer<'_> {
                 .get(&global_id.module_id)?
                 .global_initializers
                 .get(&global_id)
-                .map(ResolvedComptimeExpr::as_expr)
         }
     }
 
@@ -1680,12 +1675,12 @@ impl Analyzer<'_> {
         }
     }
 
-    fn local_initializer(&self, local_id: LocalId) -> Option<&ComptimeExpr> {
+    fn local_initializer(&self, local_id: LocalId) -> Option<&ResolvedComptimeExpr> {
         self.input
             .module
             .local_initializers
             .get(&local_id)
-            .map(|initializer| initializer.value.as_expr())
+            .map(|initializer| &initializer.value)
     }
 
     fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
@@ -2620,8 +2615,9 @@ impl Analyzer<'_> {
                 .get(&id)?
                 .clone()
         };
-        let value =
-            self.with_execution_module(id.module_id, |this| this.eval_array_len_expr(&expr))?;
+        let value = self.with_execution_module(id.module_id, |this| {
+            this.eval_resolved_array_len_expr(&expr)
+        })?;
         self.array_lengths.insert(id, value);
         Some(value)
     }

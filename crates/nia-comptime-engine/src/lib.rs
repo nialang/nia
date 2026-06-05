@@ -5,7 +5,8 @@ use nia_comptime_ir::{
     ComptimeExprKind, ComptimeForBinding, ComptimeForIn, ComptimeFunction, ComptimeNameResolution,
     ComptimeParam, ComptimeRange, ComptimeSliceRange, ComptimeStmt, ComptimeStmtKind,
     ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
-    ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp, ResolvedComptimeFunction,
+    ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp, ResolvedComptimeExpr,
+    ResolvedComptimeFunction,
 };
 use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
@@ -292,6 +293,13 @@ pub fn eval_comptime_expr(
             message: "comptime expression requires a value".to_string(),
         }),
     }
+}
+
+pub fn eval_resolved_comptime_expr(
+    expr: &ResolvedComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    eval_comptime_expr(expr.as_expr(), env)
 }
 
 fn eval_comptime_expr_flow(
@@ -989,6 +997,13 @@ pub fn eval_comptime_int_expr(
     }
 }
 
+pub fn eval_resolved_comptime_int_expr(
+    expr: &ResolvedComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<i128, ComptimeError> {
+    eval_comptime_int_expr(expr.as_expr(), env)
+}
+
 pub fn eval_comptime_bool_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -1002,11 +1017,25 @@ pub fn eval_comptime_bool_expr(
     }
 }
 
+pub fn eval_resolved_comptime_bool_expr(
+    expr: &ResolvedComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<bool, ComptimeError> {
+    eval_comptime_bool_expr(expr.as_expr(), env)
+}
+
 pub fn eval_comptime_array_len_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     int_to_array_len(expr.span, eval_comptime_int_expr(expr, env)?)
+}
+
+pub fn eval_resolved_comptime_array_len_expr(
+    expr: &ResolvedComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<u64, ComptimeError> {
+    eval_comptime_array_len_expr(expr.as_expr(), env)
 }
 
 pub fn eval_comptime_function_call(
