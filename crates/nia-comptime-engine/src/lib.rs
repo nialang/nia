@@ -270,7 +270,7 @@ impl ComptimeEnv for EmptyEnv {
     }
 }
 
-pub fn eval_comptime_expr(
+fn eval_comptime_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -296,6 +296,13 @@ pub fn eval_comptime_expr(
 }
 
 pub fn eval_early_comptime_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    eval_comptime_expr(expr, env)
+}
+
+pub fn eval_resolved_comptime_body_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -991,7 +998,7 @@ fn eval_struct_literal_flow(
     Ok(ComptimeEvalFlow::Value(ComptimeValue::Struct(values)))
 }
 
-pub fn eval_comptime_int_expr(
+fn eval_comptime_int_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<i128, ComptimeError> {
@@ -1011,6 +1018,13 @@ pub fn eval_early_comptime_int_expr(
     eval_comptime_int_expr(expr, env)
 }
 
+pub fn eval_resolved_comptime_body_int_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<i128, ComptimeError> {
+    eval_comptime_int_expr(expr, env)
+}
+
 pub fn eval_resolved_comptime_int_expr(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -1018,7 +1032,7 @@ pub fn eval_resolved_comptime_int_expr(
     eval_comptime_int_expr(expr.as_expr(), env)
 }
 
-pub fn eval_comptime_bool_expr(
+fn eval_comptime_bool_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<bool, ComptimeError> {
@@ -1038,6 +1052,13 @@ pub fn eval_early_comptime_bool_expr(
     eval_comptime_bool_expr(expr, env)
 }
 
+pub fn eval_resolved_comptime_body_bool_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<bool, ComptimeError> {
+    eval_comptime_bool_expr(expr, env)
+}
+
 pub fn eval_resolved_comptime_bool_expr(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -1045,7 +1066,7 @@ pub fn eval_resolved_comptime_bool_expr(
     eval_comptime_bool_expr(expr.as_expr(), env)
 }
 
-pub fn eval_comptime_array_len_expr(
+fn eval_comptime_array_len_expr(
     expr: &ComptimeExpr,
     env: &mut impl ComptimeEnv,
 ) -> Result<u64, ComptimeError> {
@@ -1059,6 +1080,13 @@ pub fn eval_early_comptime_array_len_expr(
     eval_comptime_array_len_expr(expr, env)
 }
 
+pub fn eval_resolved_comptime_body_array_len_expr(
+    expr: &ComptimeExpr,
+    env: &mut impl ComptimeEnv,
+) -> Result<u64, ComptimeError> {
+    eval_comptime_array_len_expr(expr, env)
+}
+
 pub fn eval_resolved_comptime_array_len_expr(
     expr: &ResolvedComptimeExpr,
     env: &mut impl ComptimeEnv,
@@ -1066,7 +1094,7 @@ pub fn eval_resolved_comptime_array_len_expr(
     eval_comptime_array_len_expr(expr.as_expr(), env)
 }
 
-pub fn eval_comptime_function_call(
+fn eval_comptime_function_call(
     span: Span,
     function_module_id: ModuleId,
     function: &ComptimeFunction,
@@ -1110,6 +1138,24 @@ pub fn eval_comptime_function_call(
     });
     env.pop_comptime_scope();
     result
+}
+
+pub fn eval_early_comptime_function_call(
+    span: Span,
+    function_module_id: ModuleId,
+    function: &ComptimeFunction,
+    type_substitutions: Vec<(String, InternedTyId)>,
+    args: Vec<ComptimeValue>,
+    env: &mut impl ComptimeEnv,
+) -> Result<ComptimeValue, ComptimeError> {
+    eval_comptime_function_call(
+        span,
+        function_module_id,
+        function,
+        type_substitutions,
+        args,
+        env,
+    )
 }
 
 pub fn eval_resolved_comptime_function_call(
@@ -2375,7 +2421,7 @@ fn main() bool {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let expr = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value = eval_comptime_bool_expr(&expr, &mut BuiltinEnv).unwrap();
+        let value = eval_early_comptime_bool_expr(&expr, &mut BuiltinEnv).unwrap();
         assert!(value);
     }
 
@@ -2402,7 +2448,7 @@ fn main() bool {
         };
         assert_eq!(name, "os");
 
-        let value = eval_comptime_bool_expr(&lowered, &mut BuiltinEnv).unwrap();
+        let value = eval_early_comptime_bool_expr(&lowered, &mut BuiltinEnv).unwrap();
         assert!(value);
     }
 
@@ -2437,7 +2483,7 @@ fn main() bool {
                 resolution: Some(ComptimeNameResolution::Local(nia_ids::LocalId(0))),
             },
         };
-        let err = eval_comptime_expr(&expr, &mut EmptyEnv)
+        let err = eval_resolved_comptime_body_expr(&expr, &mut EmptyEnv)
             .expect_err("resolved names must be handled explicitly");
         assert_eq!(
             err.message,
@@ -2463,7 +2509,7 @@ fn main() bool {
                 },
             })),
         };
-        let err = eval_comptime_expr(&expr, &mut EmptyEnv)
+        let err = eval_resolved_comptime_body_expr(&expr, &mut EmptyEnv)
             .expect_err("assignment targets must carry resolved local ids");
         assert_eq!(
             err.message,
@@ -2507,7 +2553,7 @@ fn main() usize {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value = eval_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
+        let value = eval_early_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
         assert_eq!(value, 8);
     }
 
@@ -2529,7 +2575,8 @@ fn main() usize {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value = eval_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
+        let value =
+            eval_early_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
         assert_eq!(value, 8);
     }
 
@@ -2551,7 +2598,8 @@ fn main() usize {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value = eval_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
+        let value =
+            eval_early_comptime_int_expr(&lowered, &mut SwitchPatternEnv::default()).unwrap();
         assert_eq!(value, 5);
     }
 
@@ -2570,7 +2618,7 @@ fn main() usize {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value = eval_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
+        let value = eval_early_comptime_int_expr(&lowered, &mut EmptyEnv).unwrap();
         assert_eq!(value, 4);
     }
 
@@ -2589,7 +2637,7 @@ fn main() bool {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let value = eval_comptime_bool_expr(&lowered, &mut EmptyEnv).unwrap();
+        let value = eval_early_comptime_bool_expr(&lowered, &mut EmptyEnv).unwrap();
         assert!(value);
     }
 

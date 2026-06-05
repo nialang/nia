@@ -2179,11 +2179,11 @@ impl Analyzer<'_> {
     }
 
     fn probe_comptime_int_expr(&mut self, expr: &ComptimeExpr) -> Option<i128> {
-        nia_comptime_engine::eval_comptime_int_expr(expr, self).ok()
+        nia_comptime_engine::eval_resolved_comptime_body_int_expr(expr, self).ok()
     }
 
     fn probe_comptime_array_len_expr(&mut self, expr: &ComptimeExpr) -> Option<u64> {
-        nia_comptime_engine::eval_comptime_array_len_expr(expr, self).ok()
+        nia_comptime_engine::eval_resolved_comptime_body_array_len_expr(expr, self).ok()
     }
 
     fn probe_type_generic_inference(
@@ -5182,7 +5182,7 @@ comptime fn add_one(x: usize) usize {
             },
         };
 
-        let err = nia_comptime_engine::eval_comptime_expr(&expr, &mut analyzer)
+        let err = nia_comptime_engine::eval_resolved_comptime_body_expr(&expr, &mut analyzer)
             .expect_err("layout builtin should require a resolved type arg");
         assert_eq!(
             err.message,
