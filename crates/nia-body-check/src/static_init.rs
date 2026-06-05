@@ -161,7 +161,7 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
     ) -> Result<i128, nia_comptime_engine::ComptimeError> {
         let expr = self.eval_static_comptime_expr(expr)?;
-        nia_comptime_engine::eval_comptime_int_expr(&expr, self)
+        nia_comptime_engine::eval_resolved_comptime_int_expr(&expr, self)
     }
 
     fn eval_static_comptime_array_len_expr(
@@ -169,13 +169,13 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
     ) -> Result<u64, nia_comptime_engine::ComptimeError> {
         let expr = self.eval_static_comptime_expr(expr)?;
-        nia_comptime_engine::eval_comptime_array_len_expr(&expr, self)
+        nia_comptime_engine::eval_resolved_comptime_array_len_expr(&expr, self)
     }
 
     fn eval_static_comptime_expr(
         &mut self,
         expr: &Expr,
-    ) -> Result<nia_comptime_ir::ComptimeExpr, nia_comptime_engine::ComptimeError> {
+    ) -> Result<nia_comptime_ir::ResolvedComptimeExpr, nia_comptime_engine::ComptimeError> {
         self.with_comptime_context(|this| {
             this.lower_comptime_expr(expr)
                 .map_err(|err| nia_comptime_engine::ComptimeError {
