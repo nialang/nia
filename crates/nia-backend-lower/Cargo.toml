@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 nia-ast.workspace = true
 nia-backend-ir.workspace = true
-nia-body-check.workspace = true
+nia-body-ir.workspace = true
 nia-comptime-check.workspace = true
 nia-comptime-engine.workspace = true
 nia-function-ir.workspace = true
@@ -22,6 +22,7 @@ nia-mangle.workspace = true
 nia-monomorphize.workspace = true
 nia-node-id.workspace = true
 nia-opt.workspace = true
+nia-sema-ir.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
 nia-trait-solve.workspace = true
@@ -32,6 +33,7 @@ nia-value-resolve.workspace = true
 
 [dev-dependencies]
 nia-abi-check.workspace = true
+nia-body-check.workspace = true
 nia-flow-check.workspace = true
 nia-function-lower.workspace = true
 nia-parser.workspace = true
