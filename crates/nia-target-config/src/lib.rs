@@ -135,6 +135,20 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
         }
     }
 
+    fn resolve_name_resolution(
+        &mut self,
+        span: Span,
+        _resolution: nia_comptime_ir::ComptimeNameResolution,
+        name: &str,
+    ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
+        Err(nia_comptime_engine::ComptimeError {
+            span,
+            message: format!(
+                "resolved comptime value `{name}` is not available in target conditions"
+            ),
+        })
+    }
+
     fn resolve_layout_builtin(
         &mut self,
         span: Span,

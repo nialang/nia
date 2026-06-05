@@ -88,10 +88,7 @@ pub trait ComptimeEnv {
         span: Span,
         resolution: ComptimeNameResolution,
         name: &str,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        let _ = resolution;
-        self.resolve_ident(span, name)
-    }
+    ) -> Result<ComptimeValue, ComptimeError>;
 
     fn resolve_builtin_value(
         &mut self,
@@ -239,6 +236,18 @@ impl ComptimeEnv for EmptyEnv {
         Err(ComptimeError {
             span,
             message: format!("unknown comptime value `{name}`"),
+        })
+    }
+
+    fn resolve_name_resolution(
+        &mut self,
+        span: Span,
+        _resolution: ComptimeNameResolution,
+        name: &str,
+    ) -> Result<ComptimeValue, ComptimeError> {
+        Err(ComptimeError {
+            span,
+            message: format!("resolved comptime value `{name}` is not available in this context"),
         })
     }
 
@@ -2337,6 +2346,23 @@ fn main() bool {
     }
 
     #[test]
+    fn resolved_names_do_not_fall_back_to_ident_lookup() {
+        let expr = ComptimeExpr {
+            span: Span::new(0, 1),
+            kind: ComptimeExprKind::Ident {
+                name: "x".to_string(),
+                resolution: Some(ComptimeNameResolution::Local(nia_ids::LocalId(0))),
+            },
+        };
+        let err = eval_comptime_expr(&expr, &mut EmptyEnv)
+            .expect_err("resolved names must be handled explicitly");
+        assert_eq!(
+            err.message,
+            "resolved comptime value `x` is not available in this context"
+        );
+    }
+
+    #[test]
     fn evaluates_lowered_switch_with_string_patterns() {
         let (module, errors) = nia_parser::parse_module(
             r#"
@@ -2470,6 +2496,18 @@ fn main() bool {
             Ok(ComptimeValue::Struct(builtin))
         }
 
+        fn resolve_name_resolution(
+            &mut self,
+            span: Span,
+            _resolution: ComptimeNameResolution,
+            name: &str,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            Err(ComptimeError {
+                span,
+                message: format!("resolved comptime value `{name}` is not available in this test"),
+            })
+        }
+
         fn resolve_layout_builtin(
             &mut self,
             span: Span,
@@ -2502,6 +2540,15 @@ fn main() bool {
                     span,
                     message: format!("unknown comptime value `{name}`"),
                 })
+        }
+
+        fn resolve_name_resolution(
+            &mut self,
+            span: Span,
+            _resolution: ComptimeNameResolution,
+            name: &str,
+        ) -> Result<ComptimeValue, ComptimeError> {
+            self.resolve_ident(span, name)
         }
 
         fn resolve_layout_builtin(
