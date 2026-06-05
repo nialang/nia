@@ -1012,6 +1012,7 @@ impl<'a> BodyChecker<'a> {
             .with_local_id(&local_id)
             .with_type_id(&type_id);
         nia_comptime_ir::lower_expr_resolved_with_context(expr, &context)
+            .map(nia_comptime_ir::ResolvedComptimeExpr::into_inner)
     }
 
     fn comptime_name_resolution(
@@ -1299,12 +1300,17 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
     ) -> Option<&nia_comptime_ir::ComptimeFunction> {
         if def_id.module_id == self.defs.module_id {
-            return self.comptime_module.functions.get(&def_id);
+            return self
+                .comptime_module
+                .functions
+                .get(&def_id)
+                .map(nia_comptime_ir::ResolvedComptimeFunction::as_function);
         }
         self.program_comptime_modules
             .get(&def_id.module_id)?
             .functions
             .get(&def_id)
+            .map(nia_comptime_ir::ResolvedComptimeFunction::as_function)
     }
 }
 

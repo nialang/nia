@@ -5,10 +5,11 @@ use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeEnv, ComptimeError};
 use nia_comptime_ir::{
     ComptimeArrayElements, ComptimeAssignTarget, ComptimeBinaryOp, ComptimeBinding, ComptimeBlock,
-    ComptimeEnum, ComptimeEnumVariant, ComptimeExpr, ComptimeExprKind, ComptimeFieldInit,
-    ComptimeLocalInitializer, ComptimeModule, ComptimeNameResolution, ComptimeParam, ComptimeRange,
-    ComptimeSliceRange, ComptimeStmtKind, ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm,
-    ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp,
+    ComptimeExpr, ComptimeExprKind, ComptimeFieldInit, ComptimeNameResolution, ComptimeParam,
+    ComptimeRange, ComptimeSliceRange, ComptimeStmtKind, ComptimeStringLiteral, ComptimeSwitch,
+    ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg,
+    ComptimeUnaryOp, ResolvedComptimeEnum, ResolvedComptimeEnumVariant, ResolvedComptimeExpr,
+    ResolvedComptimeLocalInitializer, ResolvedComptimeModule,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -164,7 +165,7 @@ pub use nia_comptime_engine::ComptimeValue;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComptimeInput<'a> {
-    pub module: &'a ComptimeModule,
+    pub module: &'a ResolvedComptimeModule,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
@@ -178,7 +179,7 @@ pub struct ComptimeInput<'a> {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ComptimeModuleLowering {
-    pub module: ComptimeModule,
+    pub module: ResolvedComptimeModule,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -194,7 +195,7 @@ pub struct ComptimeModuleInput<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComptimeProgramContext<'a> {
-    pub modules: Option<&'a HashMap<ModuleId, ComptimeModule>>,
+    pub modules: Option<&'a HashMap<ModuleId, ResolvedComptimeModule>>,
     pub defs: Option<&'a HashMap<ModuleId, DefCollection>>,
     pub type_lowerings: Option<&'a HashMap<ModuleId, nia_type_lower::TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
@@ -216,7 +217,7 @@ impl<'a> ComptimeProgramContext<'a> {
 pub fn lower_module_comptime(input: ComptimeModuleInput<'_>) -> ComptimeModuleLowering {
     let mut lowerer = ComptimeModuleLowerer {
         input,
-        module: ComptimeModule::default(),
+        module: ResolvedComptimeModule::default(),
         diagnostics: Vec::new(),
     };
     lowerer.lower_module();
@@ -236,7 +237,7 @@ pub struct TypedComptimeFrame {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TypedComptimeQueryInput<'a> {
-    pub module: &'a ComptimeModule,
+    pub module: &'a ResolvedComptimeModule,
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
@@ -308,7 +309,7 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
 
 struct ComptimeModuleLowerer<'a> {
     input: ComptimeModuleInput<'a>,
-    module: ComptimeModule,
+    module: ResolvedComptimeModule,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -340,7 +341,7 @@ impl ComptimeModuleLowerer<'_> {
             {
                 self.module.local_initializers.insert(
                     local_id,
-                    ComptimeLocalInitializer {
+                    ResolvedComptimeLocalInitializer {
                         explicit_type,
                         value,
                     },
@@ -367,14 +368,14 @@ impl ComptimeModuleLowerer<'_> {
                     .value
                     .as_ref()
                     .and_then(|expr| self.lower_expr(expr));
-                Some(ComptimeEnumVariant {
+                Some(ResolvedComptimeEnumVariant {
                     def_id: self.global_def_id(variant_id),
                     span: variant.span,
                     value,
                 })
             })
             .collect();
-        self.module.enums.push(ComptimeEnum {
+        self.module.enums.push(ResolvedComptimeEnum {
             def_id: self.global_def_id(enum_id),
             span: item_span,
             variants,
@@ -424,7 +425,7 @@ impl ComptimeModuleLowerer<'_> {
         }
     }
 
-    fn lower_expr(&mut self, expr: &Expr) -> Option<ComptimeExpr> {
+    fn lower_expr(&mut self, expr: &Expr) -> Option<ResolvedComptimeExpr> {
         let mut allowed_locals = HashSet::new();
         self.collect_expr_locals(expr, &mut allowed_locals);
         let name_resolution =
@@ -888,12 +889,12 @@ impl Analyzer<'_> {
         }
     }
 
-    fn eval_enum(&mut self, item_enum: &ComptimeEnum) {
+    fn eval_enum(&mut self, item_enum: &ResolvedComptimeEnum) {
         let range = self.enum_backing_range(item_enum.def_id.def_id);
         let mut next_value = 0i128;
         for variant in &item_enum.variants {
             let value = if let Some(expr) = variant.value.as_ref() {
-                match nia_comptime_engine::eval_comptime_int_expr(expr, self) {
+                match nia_comptime_engine::eval_comptime_int_expr(expr.as_expr(), self) {
                     Ok(value) => value,
                     Err(err) => {
                         self.push_engine_error(err);
@@ -1655,7 +1656,11 @@ impl Analyzer<'_> {
 
     fn global_initializer(&self, global_id: GlobalDefId) -> Option<&ComptimeExpr> {
         if global_id.module_id == self.input.defs.module_id {
-            self.input.module.global_initializers.get(&global_id)
+            self.input
+                .module
+                .global_initializers
+                .get(&global_id)
+                .map(ResolvedComptimeExpr::as_expr)
         } else {
             self.input
                 .program
@@ -1663,6 +1668,7 @@ impl Analyzer<'_> {
                 .get(&global_id.module_id)?
                 .global_initializers
                 .get(&global_id)
+                .map(ResolvedComptimeExpr::as_expr)
         }
     }
 
@@ -1679,7 +1685,7 @@ impl Analyzer<'_> {
             .module
             .local_initializers
             .get(&local_id)
-            .map(|initializer| &initializer.value)
+            .map(|initializer| initializer.value.as_expr())
     }
 
     fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
@@ -1763,7 +1769,11 @@ impl Analyzer<'_> {
         def_id: GlobalDefId,
     ) -> Option<&nia_comptime_ir::ComptimeFunction> {
         if def_id.module_id == self.input.defs.module_id {
-            self.input.module.functions.get(&def_id)
+            self.input
+                .module
+                .functions
+                .get(&def_id)
+                .map(nia_comptime_ir::ResolvedComptimeFunction::as_function)
         } else {
             self.input
                 .program
@@ -1771,6 +1781,7 @@ impl Analyzer<'_> {
                 .get(&def_id.module_id)?
                 .functions
                 .get(&def_id)
+                .map(nia_comptime_ir::ResolvedComptimeFunction::as_function)
         }
     }
 

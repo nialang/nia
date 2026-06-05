@@ -32,7 +32,7 @@ pub(super) struct CompilerQueryProviders {
     pub(super) local_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> LocalResolution,
     pub(super) comptime_module: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeModuleLowering,
     pub(super) program_comptime_modules:
-        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ComptimeModule>,
+        fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ResolvedComptimeModule>,
     pub(super) comptime: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeCheck,
     pub(super) program_comptime: fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ComptimeCheck>,
     pub(super) layouts: fn(&QueryDb<DriverContext>, ModuleId) -> nia_layout::Layouts,
@@ -438,7 +438,7 @@ pub(super) fn provide_comptime_module(
 
 pub(super) fn provide_program_comptime_modules(
     db: &QueryDb<DriverContext>,
-) -> HashMap<ModuleId, ComptimeModule> {
+) -> HashMap<ModuleId, ResolvedComptimeModule> {
     let ids = db.query(ParseOkModuleIdsQuery);
     let modules = db.query_many(ids.iter().copied().map(ComptimeModuleQuery));
     ids.into_iter()

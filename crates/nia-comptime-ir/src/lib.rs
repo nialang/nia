@@ -5,32 +5,86 @@ use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, Local
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct ComptimeModule {
-    pub enums: Vec<ComptimeEnum>,
-    pub global_initializers: HashMap<GlobalDefId, ComptimeExpr>,
-    pub local_initializers: HashMap<LocalId, ComptimeLocalInitializer>,
-    pub functions: HashMap<GlobalDefId, ComptimeFunction>,
-    pub const_exprs: HashMap<GlobalConstExprId, ComptimeExpr>,
+pub struct ResolvedComptimeModule {
+    pub enums: Vec<ResolvedComptimeEnum>,
+    pub global_initializers: HashMap<GlobalDefId, ResolvedComptimeExpr>,
+    pub local_initializers: HashMap<LocalId, ResolvedComptimeLocalInitializer>,
+    pub functions: HashMap<GlobalDefId, ResolvedComptimeFunction>,
+    pub const_exprs: HashMap<GlobalConstExprId, ResolvedComptimeExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeLocalInitializer {
+pub struct ResolvedComptimeLocalInitializer {
     pub explicit_type: Option<InternedTyId>,
-    pub value: ComptimeExpr,
+    pub value: ResolvedComptimeExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeEnum {
+pub struct ResolvedComptimeEnum {
     pub def_id: GlobalDefId,
     pub span: Span,
-    pub variants: Vec<ComptimeEnumVariant>,
+    pub variants: Vec<ResolvedComptimeEnumVariant>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeEnumVariant {
+pub struct ResolvedComptimeEnumVariant {
     pub def_id: GlobalDefId,
     pub span: Span,
-    pub value: Option<ComptimeExpr>,
+    pub value: Option<ResolvedComptimeExpr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeExpr {
+    expr: ComptimeExpr,
+}
+
+impl ResolvedComptimeExpr {
+    fn new(expr: ComptimeExpr) -> Self {
+        Self { expr }
+    }
+
+    pub fn as_expr(&self) -> &ComptimeExpr {
+        &self.expr
+    }
+
+    pub fn into_inner(self) -> ComptimeExpr {
+        self.expr
+    }
+}
+
+impl std::ops::Deref for ResolvedComptimeExpr {
+    type Target = ComptimeExpr;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_expr()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedComptimeFunction {
+    function: ComptimeFunction,
+}
+
+impl ResolvedComptimeFunction {
+    fn new(function: ComptimeFunction) -> Self {
+        Self { function }
+    }
+
+    pub fn as_function(&self) -> &ComptimeFunction {
+        &self.function
+    }
+
+    pub fn into_inner(self) -> ComptimeFunction {
+        self.function
+    }
+}
+
+impl std::ops::Deref for ResolvedComptimeFunction {
+    type Target = ComptimeFunction;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_function()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -627,8 +681,9 @@ fn lower_expr_internal(
 pub fn lower_expr_resolved_with_context(
     expr: &nia_ast::Expr,
     context: &ComptimeLowerInputs<'_>,
-) -> Result<ComptimeExpr, ComptimeLowerError> {
+) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {
     lower_expr_internal(expr, &context.with_mode(ComptimeLowerMode::Resolved))
+        .map(ResolvedComptimeExpr::new)
 }
 
 fn lower_string_literal(literal: &nia_ast::StringLiteral) -> ComptimeStringLiteral {
@@ -990,12 +1045,13 @@ pub fn lower_function_resolved_with_context(
     function_span: Span,
     function: &nia_ast::FunctionItem,
     context: &ComptimeLowerInputs<'_>,
-) -> Result<ComptimeFunction, ComptimeLowerError> {
+) -> Result<ResolvedComptimeFunction, ComptimeLowerError> {
     lower_function_internal(
         function_span,
         function,
         &context.with_mode(ComptimeLowerMode::Resolved),
     )
+    .map(ResolvedComptimeFunction::new)
 }
 
 fn lower_block_with_context(
