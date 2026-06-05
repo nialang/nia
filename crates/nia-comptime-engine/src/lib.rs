@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_comptime_ir::{
-    ComptimeArrayElements, ComptimeAssign, ComptimeAssignOp, ComptimeAssignPathElem,
-    ComptimeAssignTarget, ComptimeBinaryOp, ComptimeBinding, ComptimeBlock, ComptimeExpr,
-    ComptimeExprKind, ComptimeForBinding, ComptimeForIn, ComptimeFunction, ComptimeNameResolution,
-    ComptimeParam, ComptimeRange, ComptimeSliceRange, ComptimeStmt, ComptimeStmtKind,
-    ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
-    ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp, ResolvedComptimeArrayElements,
+    ComptimeAssignOp, ComptimeBinaryOp, ComptimeNameResolution, ComptimeStringLiteral,
+    ComptimeUnaryOp, EarlyComptimeArrayElements, EarlyComptimeAssign, EarlyComptimeAssignPathElem,
+    EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeBlock, EarlyComptimeExpr,
+    EarlyComptimeExprKind, EarlyComptimeForBinding, EarlyComptimeForIn, EarlyComptimeFunction,
+    EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange, EarlyComptimeStmt,
+    EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm, EarlyComptimeSwitchArmBody,
+    EarlyComptimeSwitchPattern, EarlyComptimeTypeArg, ResolvedComptimeArrayElements,
     ResolvedComptimeAssign, ResolvedComptimeAssignPathElem, ResolvedComptimeAssignTarget,
     ResolvedComptimeBinding, ResolvedComptimeBlock, ResolvedComptimeExpr, ResolvedComptimeExprKind,
     ResolvedComptimeFieldInit, ResolvedComptimeForBinding, ResolvedComptimeForIn,
@@ -70,7 +71,7 @@ macro_rules! eval_value_or_return_flow {
 }
 
 struct ComptimeSwitchMatch<'a> {
-    arm: &'a ComptimeSwitchArm,
+    arm: &'a EarlyComptimeSwitchArm,
     binding: Option<ComptimeSwitchBinding>,
 }
 
@@ -157,15 +158,15 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
         &mut self,
         span: Span,
         builtin: LayoutBuiltin,
-        type_arg: &ComptimeTypeArg,
+        type_arg: &EarlyComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError>;
 
     fn call_function(
         &mut self,
         span: Span,
-        callee: &ComptimeExpr,
-        type_args: &[ComptimeTypeArg],
-        arg_exprs: &[ComptimeExpr],
+        callee: &EarlyComptimeExpr,
+        type_args: &[EarlyComptimeTypeArg],
+        arg_exprs: &[EarlyComptimeExpr],
         args: Vec<ComptimeValue>,
     ) -> Result<ComptimeValue, ComptimeError> {
         let _ = callee;
@@ -181,7 +182,7 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &ComptimeParam,
+        param: &EarlyComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let _ = param;
@@ -195,7 +196,7 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
     fn bind_function_local(
         &mut self,
         span: Span,
-        binding: &ComptimeBinding,
+        binding: &EarlyComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let _ = binding;
@@ -209,7 +210,7 @@ pub trait EarlyComptimeEnv: ComptimeCommonEnv {
     fn assign_local(
         &mut self,
         span: Span,
-        target: &ComptimeAssignTarget,
+        target: &EarlyComptimeAssignTarget,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let _ = target;
@@ -365,7 +366,7 @@ impl EarlyComptimeEnv for EmptyEnv {
         &mut self,
         span: Span,
         _builtin: LayoutBuiltin,
-        _type_arg: &ComptimeTypeArg,
+        _type_arg: &EarlyComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
@@ -375,7 +376,7 @@ impl EarlyComptimeEnv for EmptyEnv {
 }
 
 fn eval_comptime_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match eval_comptime_expr_flow(expr, env)? {
@@ -400,7 +401,7 @@ fn eval_comptime_expr(
 }
 
 pub fn eval_early_comptime_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_comptime_expr(expr, env)
@@ -709,163 +710,164 @@ fn eval_resolved_comptime_expr_flow(
 }
 
 fn eval_comptime_expr_flow(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let value =
-        match &expr.kind {
-            ComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
-            ComptimeExprKind::Null => ComptimeValue::Optional(None),
-            ComptimeExprKind::String(literal) => eval_string_literal(literal)
-                .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
-                .ok_or_else(|| ComptimeError {
-                    span: expr.span,
-                    message: "unsupported string literal in comptime expression".to_string(),
-                })?,
-            ComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
-                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-                .ok_or_else(|| ComptimeError {
-                    span: expr.span,
-                    message: "unsupported byte string literal in comptime expression".to_string(),
-                })?,
-            ComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
-                .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
-                .ok_or_else(|| ComptimeError {
-                    span: expr.span,
-                    message: "unsupported C string literal in comptime expression".to_string(),
-                })?,
-            ComptimeExprKind::Integer(text) => eval_int_literal(text)
-                .map(ComptimeValue::Int)
-                .map_err(|message| ComptimeError {
-                    span: expr.span,
-                    message,
-                })?,
-            ComptimeExprKind::Float(text) => eval_float_literal(text)
-                .map(ComptimeValue::Float)
-                .map_err(|message| ComptimeError {
-                    span: expr.span,
-                    message,
-                })?,
-            ComptimeExprKind::Char(text) => decode_char_literal(text)
-                .map(|value| ComptimeValue::Int(value as i128))
-                .ok_or_else(|| ComptimeError {
-                    span: expr.span,
-                    message: format!("invalid char literal `{text}` in comptime expression"),
-                })?,
-            ComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
-                .map(|value| ComptimeValue::Int(value as i128))
-                .ok_or_else(|| ComptimeError {
-                    span: expr.span,
-                    message: format!("invalid byte char literal `{text}` in comptime expression"),
-                })?,
-            ComptimeExprKind::Ident { .. } | ComptimeExprKind::Qualified { .. } => {
-                let (name, resolution) = match &expr.kind {
-                    ComptimeExprKind::Ident { name, resolution }
-                    | ComptimeExprKind::Qualified { name, resolution } => {
-                        (name.as_str(), *resolution)
-                    }
-                    _ => unreachable!("comptime name expression must have name shape"),
-                };
-                if let Some(resolution) = resolution {
-                    env.resolve_name_resolution(expr.span, resolution, name)?
-                } else {
-                    env.resolve_ident(expr.span, name)?
+    let value = match &expr.kind {
+        EarlyComptimeExprKind::Bool(value) => ComptimeValue::Bool(*value),
+        EarlyComptimeExprKind::Null => ComptimeValue::Optional(None),
+        EarlyComptimeExprKind::String(literal) => eval_string_literal(literal)
+            .map(|value| ComptimeValue::Array(string_to_char_array(&value)))
+            .ok_or_else(|| ComptimeError {
+                span: expr.span,
+                message: "unsupported string literal in comptime expression".to_string(),
+            })?,
+        EarlyComptimeExprKind::ByteString(literal) => eval_byte_string_literal(literal)
+            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+            .ok_or_else(|| ComptimeError {
+                span: expr.span,
+                message: "unsupported byte string literal in comptime expression".to_string(),
+            })?,
+        EarlyComptimeExprKind::CString(literal) => eval_c_string_literal(literal)
+            .map(|value| ComptimeValue::Array(bytes_to_array(&value)))
+            .ok_or_else(|| ComptimeError {
+                span: expr.span,
+                message: "unsupported C string literal in comptime expression".to_string(),
+            })?,
+        EarlyComptimeExprKind::Integer(text) => eval_int_literal(text)
+            .map(ComptimeValue::Int)
+            .map_err(|message| ComptimeError {
+                span: expr.span,
+                message,
+            })?,
+        EarlyComptimeExprKind::Float(text) => eval_float_literal(text)
+            .map(ComptimeValue::Float)
+            .map_err(|message| ComptimeError {
+                span: expr.span,
+                message,
+            })?,
+        EarlyComptimeExprKind::Char(text) => decode_char_literal(text)
+            .map(|value| ComptimeValue::Int(value as i128))
+            .ok_or_else(|| ComptimeError {
+                span: expr.span,
+                message: format!("invalid char literal `{text}` in comptime expression"),
+            })?,
+        EarlyComptimeExprKind::ByteChar(text) => decode_byte_char_literal(text)
+            .map(|value| ComptimeValue::Int(value as i128))
+            .ok_or_else(|| ComptimeError {
+                span: expr.span,
+                message: format!("invalid byte char literal `{text}` in comptime expression"),
+            })?,
+        EarlyComptimeExprKind::Ident { .. } | EarlyComptimeExprKind::Qualified { .. } => {
+            let (name, resolution) = match &expr.kind {
+                EarlyComptimeExprKind::Ident { name, resolution }
+                | EarlyComptimeExprKind::Qualified { name, resolution } => {
+                    (name.as_str(), *resolution)
                 }
+                _ => unreachable!("comptime name expression must have name shape"),
+            };
+            if let Some(resolution) = resolution {
+                env.resolve_name_resolution(expr.span, resolution, name)?
+            } else {
+                env.resolve_ident(expr.span, name)?
             }
-            ComptimeExprKind::Field { lhs, name } => match eval_value_or_return_flow!(lhs, env) {
-                ComptimeValue::Struct(fields) => {
-                    fields.get(name).cloned().ok_or_else(|| ComptimeError {
-                        span: expr.span,
-                        message: format!("unknown comptime field `{name}`"),
-                    })?
-                }
-                _ => {
+        }
+        EarlyComptimeExprKind::Field { lhs, name } => match eval_value_or_return_flow!(lhs, env) {
+            ComptimeValue::Struct(fields) => {
+                fields.get(name).cloned().ok_or_else(|| ComptimeError {
+                    span: expr.span,
+                    message: format!("unknown comptime field `{name}`"),
+                })?
+            }
+            _ => {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime field access requires a struct value".to_string(),
+                });
+            }
+        },
+        EarlyComptimeExprKind::Len { lhs } => match eval_value_or_return_flow!(lhs, env) {
+            ComptimeValue::Array(values) => {
+                ComptimeValue::Int(i128::try_from(values.len()).map_err(|_| ComptimeError {
+                    span: expr.span,
+                    message: "comptime array length is too large".to_string(),
+                })?)
+            }
+            _ => {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime len requires an array value".to_string(),
+                });
+            }
+        },
+        EarlyComptimeExprKind::RangeIter { lhs } => match eval_value_or_return_flow!(lhs, env) {
+            range @ ComptimeValue::Range(_) => range,
+            _ => {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime range.iter requires a range value".to_string(),
+                });
+            }
+        },
+        EarlyComptimeExprKind::Index { lhs, index } => {
+            return eval_array_index_flow(expr.span, lhs, index, env);
+        }
+        EarlyComptimeExprKind::Slice { lhs, range } => {
+            return eval_array_slice_flow(expr.span, lhs, range, env);
+        }
+        EarlyComptimeExprKind::ArrayLiteral { elems, .. } => {
+            return eval_array_literal_flow(elems, env);
+        }
+        EarlyComptimeExprKind::StructLiteral { fields, .. } => {
+            return eval_struct_literal_flow(fields, env);
+        }
+        EarlyComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
+            env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
+        }
+        EarlyComptimeExprKind::BuiltinValue(builtin) => {
+            env.resolve_builtin_value(expr.span, *builtin)?
+        }
+        EarlyComptimeExprKind::Call {
+            callee,
+            type_args,
+            args,
+        } => {
+            if let EarlyComptimeExprKind::BuiltinValue(builtin) = &callee.kind {
+                if !args.is_empty() {
                     return Err(ComptimeError {
                         span: expr.span,
-                        message: "comptime field access requires a struct value".to_string(),
+                        message: format!(
+                            "unsupported builtin call in comptime expression: @{}",
+                            builtin.name()
+                        ),
                     });
                 }
-            },
-            ComptimeExprKind::Len { lhs } => match eval_value_or_return_flow!(lhs, env) {
-                ComptimeValue::Array(values) => {
-                    ComptimeValue::Int(i128::try_from(values.len()).map_err(|_| ComptimeError {
-                        span: expr.span,
-                        message: "comptime array length is too large".to_string(),
-                    })?)
-                }
-                _ => {
-                    return Err(ComptimeError {
-                        span: expr.span,
-                        message: "comptime len requires an array value".to_string(),
-                    });
-                }
-            },
-            ComptimeExprKind::RangeIter { lhs } => match eval_value_or_return_flow!(lhs, env) {
-                range @ ComptimeValue::Range(_) => range,
-                _ => {
-                    return Err(ComptimeError {
-                        span: expr.span,
-                        message: "comptime range.iter requires a range value".to_string(),
-                    });
-                }
-            },
-            ComptimeExprKind::Index { lhs, index } => {
-                return eval_array_index_flow(expr.span, lhs, index, env);
-            }
-            ComptimeExprKind::Slice { lhs, range } => {
-                return eval_array_slice_flow(expr.span, lhs, range, env);
-            }
-            ComptimeExprKind::ArrayLiteral { elems, .. } => {
-                return eval_array_literal_flow(elems, env);
-            }
-            ComptimeExprKind::StructLiteral { fields, .. } => {
-                return eval_struct_literal_flow(fields, env);
-            }
-            ComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
-                env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
-            }
-            ComptimeExprKind::BuiltinValue(builtin) => {
                 env.resolve_builtin_value(expr.span, *builtin)?
-            }
-            ComptimeExprKind::Call {
-                callee,
-                type_args,
-                args,
-            } => {
-                if let ComptimeExprKind::BuiltinValue(builtin) = &callee.kind {
-                    if !args.is_empty() {
-                        return Err(ComptimeError {
-                            span: expr.span,
-                            message: format!(
-                                "unsupported builtin call in comptime expression: @{}",
-                                builtin.name()
-                            ),
-                        });
-                    }
-                    env.resolve_builtin_value(expr.span, *builtin)?
-                } else if let ComptimeExprKind::LayoutBuiltin { builtin, type_arg } = &callee.kind {
-                    if !args.is_empty() {
-                        return Err(ComptimeError {
-                            span: expr.span,
-                            message: format!(
-                                "unsupported builtin call in comptime expression: @{}",
-                                builtin.name()
-                            ),
-                        });
-                    }
-                    env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
-                } else {
-                    let mut values = Vec::with_capacity(args.len());
-                    for arg in args {
-                        values.push(eval_value_or_return_flow!(arg, env));
-                    }
-                    env.call_function(expr.span, callee, type_args, args, values)?
+            } else if let EarlyComptimeExprKind::LayoutBuiltin { builtin, type_arg } = &callee.kind
+            {
+                if !args.is_empty() {
+                    return Err(ComptimeError {
+                        span: expr.span,
+                        message: format!(
+                            "unsupported builtin call in comptime expression: @{}",
+                            builtin.name()
+                        ),
+                    });
                 }
+                env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
+            } else {
+                let mut values = Vec::with_capacity(args.len());
+                for arg in args {
+                    values.push(eval_value_or_return_flow!(arg, env));
+                }
+                env.call_function(expr.span, callee, type_args, args, values)?
             }
-            ComptimeExprKind::Unary {
-                op: ComptimeUnaryOp::Neg,
-                expr: inner,
-            } => match eval_value_or_return_flow!(inner, env) {
+        }
+        EarlyComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::Neg,
+            expr: inner,
+        } => {
+            match eval_value_or_return_flow!(inner, env) {
                 ComptimeValue::Int(value) => value
                     .checked_neg()
                     .map(ComptimeValue::Int)
@@ -880,95 +882,98 @@ fn eval_comptime_expr_flow(
                         message: "comptime negation requires a numeric value".to_string(),
                     });
                 }
-            },
-            ComptimeExprKind::Unary {
-                op: ComptimeUnaryOp::Not,
-                expr: inner,
-            } => match eval_value_or_return_flow!(inner, env) {
-                ComptimeValue::Bool(value) => ComptimeValue::Bool(!value),
-                _ => {
-                    return Err(ComptimeError {
-                        span: expr.span,
-                        message: "comptime `not` requires a bool".to_string(),
-                    });
-                }
-            },
-            ComptimeExprKind::Unary {
-                op: ComptimeUnaryOp::BitNot,
-                expr: inner,
-            } => match eval_value_or_return_flow!(inner, env) {
-                ComptimeValue::Int(value) => ComptimeValue::Int(!value),
-                _ => {
-                    return Err(ComptimeError {
-                        span: expr.span,
-                        message: "comptime bitwise not requires an integer".to_string(),
-                    });
-                }
-            },
-            ComptimeExprKind::Unary { op, .. } => {
+            }
+        }
+        EarlyComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::Not,
+            expr: inner,
+        } => match eval_value_or_return_flow!(inner, env) {
+            ComptimeValue::Bool(value) => ComptimeValue::Bool(!value),
+            _ => {
                 return Err(ComptimeError {
                     span: expr.span,
-                    message: format!("unsupported unary operator in comptime expression: {op:?}"),
+                    message: "comptime `not` requires a bool".to_string(),
                 });
             }
-            ComptimeExprKind::OptionalSome { expr: inner } => {
-                ComptimeValue::Optional(Some(Box::new(eval_value_or_return_flow!(inner, env))))
+        },
+        EarlyComptimeExprKind::Unary {
+            op: ComptimeUnaryOp::BitNot,
+            expr: inner,
+        } => match eval_value_or_return_flow!(inner, env) {
+            ComptimeValue::Int(value) => ComptimeValue::Int(!value),
+            _ => {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "comptime bitwise not requires an integer".to_string(),
+                });
             }
-            ComptimeExprKind::ErrorOk { expr: inner } => {
-                ComptimeValue::ErrorUnion(Ok(Box::new(eval_value_or_return_flow!(inner, env))))
-            }
-            ComptimeExprKind::ErrorErr { expr: inner } => {
-                ComptimeValue::ErrorUnion(Err(Box::new(eval_value_or_return_flow!(inner, env))))
-            }
-            ComptimeExprKind::Try { expr: inner } => {
-                return eval_try_expr_flow(expr.span, inner, env);
-            }
-            ComptimeExprKind::Binary { lhs, op, rhs } => {
-                return eval_binary_flow(expr.span, lhs, *op, rhs, env);
-            }
-            ComptimeExprKind::Assign(assign) => {
-                return eval_assign_expr_flow(expr.span, assign, env);
-            }
-            ComptimeExprKind::Range(range) => {
-                return eval_range_expr_flow(range, env);
-            }
-            ComptimeExprKind::If {
+        },
+        EarlyComptimeExprKind::Unary { op, .. } => {
+            return Err(ComptimeError {
+                span: expr.span,
+                message: format!("unsupported unary operator in comptime expression: {op:?}"),
+            });
+        }
+        EarlyComptimeExprKind::OptionalSome { expr: inner } => {
+            ComptimeValue::Optional(Some(Box::new(eval_value_or_return_flow!(inner, env))))
+        }
+        EarlyComptimeExprKind::ErrorOk { expr: inner } => {
+            ComptimeValue::ErrorUnion(Ok(Box::new(eval_value_or_return_flow!(inner, env))))
+        }
+        EarlyComptimeExprKind::ErrorErr { expr: inner } => {
+            ComptimeValue::ErrorUnion(Err(Box::new(eval_value_or_return_flow!(inner, env))))
+        }
+        EarlyComptimeExprKind::Try { expr: inner } => {
+            return eval_try_expr_flow(expr.span, inner, env);
+        }
+        EarlyComptimeExprKind::Binary { lhs, op, rhs } => {
+            return eval_binary_flow(expr.span, lhs, *op, rhs, env);
+        }
+        EarlyComptimeExprKind::Assign(assign) => {
+            return eval_assign_expr_flow(expr.span, assign, env);
+        }
+        EarlyComptimeExprKind::Range(range) => {
+            return eval_range_expr_flow(range, env);
+        }
+        EarlyComptimeExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            return eval_comptime_if_expr_flow(
+                expr.span,
                 cond,
                 then_branch,
-                else_branch,
-            } => {
-                return eval_comptime_if_expr_flow(
-                    expr.span,
-                    cond,
-                    then_branch,
-                    else_branch.as_deref(),
-                    env,
-                );
-            }
-            ComptimeExprKind::Switch(switch) => return eval_comptime_switch_expr_flow(switch, env),
-            ComptimeExprKind::Cast {
-                expr: inner,
-                ty: Some(ty),
-            } => {
-                let value = eval_value_or_return_flow!(inner, env);
-                env.cast_value(expr.span, value, *ty)?
-            }
-            ComptimeExprKind::Cast {
-                expr: inner,
-                ty: None,
-            } => eval_value_or_return_flow!(inner, env),
-            ComptimeExprKind::Block(block) => {
-                return eval_function_block(block, env);
-            }
-        };
+                else_branch.as_deref(),
+                env,
+            );
+        }
+        EarlyComptimeExprKind::Switch(switch) => {
+            return eval_comptime_switch_expr_flow(switch, env);
+        }
+        EarlyComptimeExprKind::Cast {
+            expr: inner,
+            ty: Some(ty),
+        } => {
+            let value = eval_value_or_return_flow!(inner, env);
+            env.cast_value(expr.span, value, *ty)?
+        }
+        EarlyComptimeExprKind::Cast {
+            expr: inner,
+            ty: None,
+        } => eval_value_or_return_flow!(inner, env),
+        EarlyComptimeExprKind::Block(block) => {
+            return eval_function_block(block, env);
+        }
+    };
     Ok(ComptimeEvalFlow::Value(value))
 }
 
 fn eval_comptime_if_expr_flow(
     span: Span,
-    cond: &ComptimeExpr,
-    then_branch: &ComptimeBlock,
-    else_branch: Option<&ComptimeExpr>,
+    cond: &EarlyComptimeExpr,
+    then_branch: &EarlyComptimeBlock,
+    else_branch: Option<&EarlyComptimeExpr>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let cond_value =
@@ -990,7 +995,7 @@ fn eval_comptime_if_expr_flow(
 }
 
 fn eval_comptime_switch_expr_flow(
-    switch: &ComptimeSwitch,
+    switch: &EarlyComptimeSwitch,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let target = eval_value_or_return_flow!(&switch.target, env);
@@ -1050,7 +1055,7 @@ fn eval_resolved_comptime_switch_expr_flow(
 
 fn eval_try_expr_flow(
     span: Span,
-    inner: &ComptimeExpr,
+    inner: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match eval_comptime_expr_flow(inner, env)? {
@@ -1116,23 +1121,23 @@ fn eval_resolved_try_expr_flow(
 
 fn matching_switch_arm<'a>(
     target: &ComptimeValue,
-    switch: &'a ComptimeSwitch,
+    switch: &'a EarlyComptimeSwitch,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<Option<ComptimeSwitchMatch<'a>>, ComptimeError> {
     let mut default = None;
     for arm in &switch.arms {
         for pattern in &arm.patterns {
             match pattern {
-                ComptimeSwitchPattern::Default => {
+                EarlyComptimeSwitchPattern::Default => {
                     default = Some(arm);
                 }
-                ComptimeSwitchPattern::Expr(pattern) => {
+                EarlyComptimeSwitchPattern::Expr(pattern) => {
                     let pattern = eval_comptime_expr(pattern, env)?;
                     if values_equal(target, &pattern).unwrap_or(false) {
                         return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
                     }
                 }
-                ComptimeSwitchPattern::Range {
+                EarlyComptimeSwitchPattern::Range {
                     start,
                     end,
                     inclusive,
@@ -1142,7 +1147,7 @@ fn matching_switch_arm<'a>(
                         return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
                     }
                 }
-                ComptimeSwitchPattern::OptionalSome {
+                EarlyComptimeSwitchPattern::OptionalSome {
                     name,
                     local_id,
                     span,
@@ -1167,7 +1172,7 @@ fn matching_switch_arm<'a>(
                         });
                     }
                 },
-                ComptimeSwitchPattern::OptionalNull { span } => match target {
+                EarlyComptimeSwitchPattern::OptionalNull { span } => match target {
                     ComptimeValue::Optional(None) => {
                         return Ok(Some(ComptimeSwitchMatch { arm, binding: None }));
                     }
@@ -1180,7 +1185,7 @@ fn matching_switch_arm<'a>(
                         });
                     }
                 },
-                ComptimeSwitchPattern::ErrorOk {
+                EarlyComptimeSwitchPattern::ErrorOk {
                     name,
                     local_id,
                     span,
@@ -1205,7 +1210,7 @@ fn matching_switch_arm<'a>(
                         });
                     }
                 },
-                ComptimeSwitchPattern::ErrorErr {
+                EarlyComptimeSwitchPattern::ErrorErr {
                     name,
                     local_id,
                     span,
@@ -1361,8 +1366,8 @@ fn matching_resolved_switch_arm<'a>(
 
 fn switch_range_matches(
     target: &ComptimeValue,
-    start: &ComptimeExpr,
-    end: &ComptimeExpr,
+    start: &EarlyComptimeExpr,
+    end: &EarlyComptimeExpr,
     inclusive: bool,
     span: Span,
     env: &mut impl EarlyComptimeEnv,
@@ -1406,13 +1411,13 @@ fn resolved_switch_range_matches(
 }
 
 fn eval_comptime_switch_arm_body(
-    body: &ComptimeSwitchArmBody,
+    body: &EarlyComptimeSwitchArmBody,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match body {
-        ComptimeSwitchArmBody::Expr(expr) => eval_function_tail_expr(expr, env),
-        ComptimeSwitchArmBody::Stmt(stmt) => eval_function_stmt(stmt, env),
-        ComptimeSwitchArmBody::Block(block) => eval_function_block(block, env),
+        EarlyComptimeSwitchArmBody::Expr(expr) => eval_function_tail_expr(expr, env),
+        EarlyComptimeSwitchArmBody::Stmt(stmt) => eval_function_stmt(stmt, env),
+        EarlyComptimeSwitchArmBody::Block(block) => eval_function_block(block, env),
     }
 }
 
@@ -1479,18 +1484,18 @@ fn bind_resolved_switch_pattern_value(
 }
 
 fn eval_array_literal_flow(
-    elems: &ComptimeArrayElements,
+    elems: &EarlyComptimeArrayElements,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match elems {
-        ComptimeArrayElements::List(elems) => {
+        EarlyComptimeArrayElements::List(elems) => {
             let mut values = Vec::with_capacity(elems.len());
             for elem in elems {
                 values.push(eval_value_or_return_flow!(elem, env));
             }
             Ok(ComptimeEvalFlow::Value(ComptimeValue::Array(values)))
         }
-        ComptimeArrayElements::Repeat { value, count } => {
+        EarlyComptimeArrayElements::Repeat { value, count } => {
             let value = eval_value_or_return_flow!(value, env);
             let count_span = count.span;
             let count_value = match eval_value_or_return_flow!(count, env) {
@@ -1554,8 +1559,8 @@ fn eval_resolved_array_literal_flow(
 
 fn eval_array_index_flow(
     span: Span,
-    lhs: &ComptimeExpr,
-    index: &ComptimeExpr,
+    lhs: &EarlyComptimeExpr,
+    index: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let values = match eval_value_or_return_flow!(lhs, env) {
@@ -1634,8 +1639,8 @@ fn eval_resolved_array_index_flow(
 
 fn eval_array_slice_flow(
     span: Span,
-    lhs: &ComptimeExpr,
-    range: &ComptimeSliceRange,
+    lhs: &EarlyComptimeExpr,
+    range: &EarlyComptimeSliceRange,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let values = match eval_value_or_return_flow!(lhs, env) {
@@ -1732,7 +1737,7 @@ enum SliceBoundFlow {
 }
 
 fn eval_slice_bound_flow(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<SliceBoundFlow, ComptimeError> {
     let span = expr.span;
@@ -1786,7 +1791,7 @@ fn eval_resolved_slice_bound_flow(
 }
 
 fn eval_struct_literal_flow(
-    fields: &[nia_comptime_ir::ComptimeFieldInit],
+    fields: &[nia_comptime_ir::EarlyComptimeFieldInit],
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let mut values = BTreeMap::new();
@@ -1830,7 +1835,7 @@ fn eval_resolved_struct_literal_flow(
 }
 
 fn eval_comptime_int_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<i128, ComptimeError> {
     match eval_comptime_expr(expr, env)? {
@@ -1843,7 +1848,7 @@ fn eval_comptime_int_expr(
 }
 
 pub fn eval_early_comptime_int_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<i128, ComptimeError> {
     eval_comptime_int_expr(expr, env)
@@ -1870,7 +1875,7 @@ fn eval_resolved_comptime_int_expr_inner(
 }
 
 fn eval_comptime_bool_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     match eval_comptime_expr(expr, env)? {
@@ -1883,7 +1888,7 @@ fn eval_comptime_bool_expr(
 }
 
 pub fn eval_early_comptime_bool_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<bool, ComptimeError> {
     eval_comptime_bool_expr(expr, env)
@@ -1910,14 +1915,14 @@ fn eval_resolved_comptime_bool_expr_inner(
 }
 
 fn eval_comptime_array_len_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     int_to_array_len(expr.span, eval_comptime_int_expr(expr, env)?)
 }
 
 pub fn eval_early_comptime_array_len_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<u64, ComptimeError> {
     eval_comptime_array_len_expr(expr, env)
@@ -1936,8 +1941,8 @@ pub fn eval_resolved_comptime_array_len_expr(
 fn eval_comptime_function_call(
     span: Span,
     function_module_id: ModuleId,
-    params: &[ComptimeParam],
-    body: &ComptimeBlock,
+    params: &[EarlyComptimeParam],
+    body: &EarlyComptimeBlock,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
     env: &mut impl EarlyComptimeEnv,
@@ -1983,7 +1988,7 @@ fn eval_comptime_function_call(
 pub fn eval_early_comptime_function_call(
     span: Span,
     function_module_id: ModuleId,
-    function: &ComptimeFunction,
+    function: &EarlyComptimeFunction,
     type_substitutions: Vec<(String, InternedTyId)>,
     args: Vec<ComptimeValue>,
     env: &mut impl EarlyComptimeEnv,
@@ -2066,7 +2071,7 @@ fn eval_resolved_comptime_function_call_inner(
 }
 
 fn eval_function_block(
-    block: &ComptimeBlock,
+    block: &EarlyComptimeBlock,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     if block.stmts.is_empty() {
@@ -2120,7 +2125,7 @@ fn eval_resolved_function_tail_expr(
 }
 
 fn eval_function_block_without_scope(
-    block: &ComptimeBlock,
+    block: &EarlyComptimeBlock,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for stmt in &block.stmts {
@@ -2141,41 +2146,43 @@ fn eval_function_block_without_scope(
 }
 
 fn eval_function_tail_expr(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     eval_comptime_expr_flow(expr, env)
 }
 
 fn eval_function_stmt(
-    stmt: &ComptimeStmt,
+    stmt: &EarlyComptimeStmt,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     match &stmt.kind {
-        ComptimeStmtKind::Binding(binding) => match eval_comptime_expr_flow(&binding.value, env)? {
-            ComptimeEvalFlow::Value(value) => {
-                env.bind_function_local(stmt.span, binding, value)?;
-                Ok(ComptimeEvalFlow::Void)
+        EarlyComptimeStmtKind::Binding(binding) => {
+            match eval_comptime_expr_flow(&binding.value, env)? {
+                ComptimeEvalFlow::Value(value) => {
+                    env.bind_function_local(stmt.span, binding, value)?;
+                    Ok(ComptimeEvalFlow::Void)
+                }
+                ComptimeEvalFlow::Return(value) => Ok(ComptimeEvalFlow::Return(value)),
+                ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Propagate(value)),
+                ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
+                    span: stmt.span,
+                    message: "comptime binding value cannot contain loop control flow".to_string(),
+                }),
+                ComptimeEvalFlow::Void => Err(ComptimeError {
+                    span: stmt.span,
+                    message: "comptime function binding requires a value".to_string(),
+                }),
             }
-            ComptimeEvalFlow::Return(value) => Ok(ComptimeEvalFlow::Return(value)),
-            ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Propagate(value)),
-            ComptimeEvalFlow::Break | ComptimeEvalFlow::Continue => Err(ComptimeError {
-                span: stmt.span,
-                message: "comptime binding value cannot contain loop control flow".to_string(),
-            }),
-            ComptimeEvalFlow::Void => Err(ComptimeError {
-                span: stmt.span,
-                message: "comptime function binding requires a value".to_string(),
-            }),
-        },
-        ComptimeStmtKind::Expr(expr) => match eval_comptime_expr_flow(expr, env)? {
+        }
+        EarlyComptimeStmtKind::Expr(expr) => match eval_comptime_expr_flow(expr, env)? {
             ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void => Ok(ComptimeEvalFlow::Void),
             ComptimeEvalFlow::Return(value) => Ok(ComptimeEvalFlow::Return(value)),
             ComptimeEvalFlow::Propagate(value) => Ok(ComptimeEvalFlow::Propagate(value)),
             ComptimeEvalFlow::Break => Ok(ComptimeEvalFlow::Break),
             ComptimeEvalFlow::Continue => Ok(ComptimeEvalFlow::Continue),
         },
-        ComptimeStmtKind::Return(value) => {
+        EarlyComptimeStmtKind::Return(value) => {
             let Some(value) = value else {
                 return Err(ComptimeError {
                     span: stmt.span,
@@ -2196,16 +2203,16 @@ fn eval_function_stmt(
                 }),
             }
         }
-        ComptimeStmtKind::Break => Ok(ComptimeEvalFlow::Break),
-        ComptimeStmtKind::Continue => Ok(ComptimeEvalFlow::Continue),
-        ComptimeStmtKind::If {
+        EarlyComptimeStmtKind::Break => Ok(ComptimeEvalFlow::Break),
+        EarlyComptimeStmtKind::Continue => Ok(ComptimeEvalFlow::Continue),
+        EarlyComptimeStmtKind::If {
             cond,
             then_branch,
             else_branch,
         } => eval_if_stmt(cond, then_branch, else_branch.as_ref(), env),
-        ComptimeStmtKind::ForIn(for_in) => eval_for_in_stmt(stmt.span, for_in, env),
-        ComptimeStmtKind::While { cond, body } => eval_while_stmt(stmt.span, cond, body, env),
-        ComptimeStmtKind::Loop { body } => eval_loop_stmt(stmt.span, body, env),
+        EarlyComptimeStmtKind::ForIn(for_in) => eval_for_in_stmt(stmt.span, for_in, env),
+        EarlyComptimeStmtKind::While { cond, body } => eval_while_stmt(stmt.span, cond, body, env),
+        EarlyComptimeStmtKind::Loop { body } => eval_loop_stmt(stmt.span, body, env),
     }
 }
 
@@ -2281,7 +2288,7 @@ fn eval_resolved_function_stmt(
 
 fn eval_assign_expr_flow(
     span: Span,
-    assign: &ComptimeAssign,
+    assign: &EarlyComptimeAssign,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let value = match eval_assignment_value_flow(span, assign, env)? {
@@ -2327,7 +2334,7 @@ fn eval_resolved_assign_expr_flow(
 
 fn eval_assignment_value_flow(
     span: Span,
-    assign: &ComptimeAssign,
+    assign: &EarlyComptimeAssign,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let rhs = eval_value_or_return_flow!(&assign.rhs, env);
@@ -2365,11 +2372,11 @@ fn eval_resolved_assignment_value_flow(
 
 fn eval_assign_target_root_value(
     span: Span,
-    target: &ComptimeAssignTarget,
+    target: &EarlyComptimeAssignTarget,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match target {
-        ComptimeAssignTarget::Local {
+        EarlyComptimeAssignTarget::Local {
             span: target_span,
             name,
             local_id,
@@ -2403,12 +2410,14 @@ fn eval_resolved_assign_target_root_value(
 
 fn eval_assign_target_value(
     span: Span,
-    target: &ComptimeAssignTarget,
+    target: &EarlyComptimeAssignTarget,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     let value = eval_assign_target_root_value(span, target, env)?;
     match target {
-        ComptimeAssignTarget::Local { path, .. } => eval_assign_path_value(span, value, path, env),
+        EarlyComptimeAssignTarget::Local { path, .. } => {
+            eval_assign_path_value(span, value, path, env)
+        }
     }
 }
 
@@ -2428,12 +2437,12 @@ fn eval_resolved_assign_target_value(
 fn eval_assign_path_value(
     span: Span,
     mut value: ComptimeValue,
-    path: &[ComptimeAssignPathElem],
+    path: &[EarlyComptimeAssignPathElem],
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     for elem in path {
         value = match elem {
-            ComptimeAssignPathElem::Field { span, name } => match value {
+            EarlyComptimeAssignPathElem::Field { span, name } => match value {
                 ComptimeValue::Struct(fields) => {
                     fields.get(name).cloned().ok_or_else(|| ComptimeError {
                         span: *span,
@@ -2447,7 +2456,7 @@ fn eval_assign_path_value(
                     });
                 }
             },
-            ComptimeAssignPathElem::Index {
+            EarlyComptimeAssignPathElem::Index {
                 span: elem_span,
                 index,
             } => match value {
@@ -2521,12 +2530,12 @@ fn eval_resolved_assign_path_value(
 
 fn assign_target_writeback_value(
     span: Span,
-    target: &ComptimeAssignTarget,
+    target: &EarlyComptimeAssignTarget,
     value: ComptimeValue,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
     match target {
-        ComptimeAssignTarget::Local { path, .. } => {
+        EarlyComptimeAssignTarget::Local { path, .. } => {
             if path.is_empty() {
                 return Ok(value);
             }
@@ -2556,7 +2565,7 @@ fn resolved_assign_target_writeback_value(
 fn write_assign_path_value(
     span: Span,
     root: ComptimeValue,
-    path: &[ComptimeAssignPathElem],
+    path: &[EarlyComptimeAssignPathElem],
     value: ComptimeValue,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeValue, ComptimeError> {
@@ -2564,7 +2573,7 @@ fn write_assign_path_value(
         return Ok(value);
     };
     match head {
-        ComptimeAssignPathElem::Field {
+        EarlyComptimeAssignPathElem::Field {
             span: field_span,
             name,
         } => {
@@ -2582,7 +2591,7 @@ fn write_assign_path_value(
             fields.insert(name.clone(), updated);
             Ok(ComptimeValue::Struct(fields))
         }
-        ComptimeAssignPathElem::Index {
+        EarlyComptimeAssignPathElem::Index {
             span: index_span,
             index,
         } => {
@@ -2663,7 +2672,7 @@ fn write_resolved_assign_path_value(
 
 fn eval_assign_path_index(
     span: Span,
-    index: &ComptimeExpr,
+    index: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<usize, ComptimeError> {
     let index_span = index.span;
@@ -2752,7 +2761,7 @@ fn assign_op_binary(op: ComptimeAssignOp) -> Option<ComptimeBinaryOp> {
 }
 
 fn eval_range_expr_flow(
-    range: &ComptimeRange,
+    range: &EarlyComptimeRange,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let start = match eval_optional_range_bound(range.start.as_deref(), env)? {
@@ -2799,7 +2808,7 @@ enum ComptimeRangeBoundFlow {
 }
 
 fn eval_optional_range_bound(
-    expr: Option<&ComptimeExpr>,
+    expr: Option<&EarlyComptimeExpr>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
     let Some(expr) = expr else {
@@ -2819,7 +2828,7 @@ fn eval_resolved_optional_range_bound(
 }
 
 fn eval_range_bound(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeRangeBoundFlow, ComptimeError> {
     match eval_comptime_expr_flow(expr, env)? {
@@ -2878,7 +2887,7 @@ fn eval_resolved_range_bound(
 
 fn eval_for_in_stmt(
     span: Span,
-    for_in: &ComptimeForIn,
+    for_in: &EarlyComptimeForIn,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let iter = match eval_comptime_expr_flow(&for_in.iter, env)? {
@@ -2950,8 +2959,8 @@ fn eval_resolved_for_in_stmt(
 
 fn eval_for_in_values(
     span: Span,
-    binding: &ComptimeForBinding,
-    body: &ComptimeBlock,
+    binding: &EarlyComptimeForBinding,
+    body: &EarlyComptimeBlock,
     values: Vec<ComptimeValue>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
@@ -2986,8 +2995,8 @@ fn eval_resolved_for_in_values(
 
 fn eval_for_in_range(
     span: Span,
-    binding: &ComptimeForBinding,
-    body: &ComptimeBlock,
+    binding: &EarlyComptimeForBinding,
+    body: &EarlyComptimeBlock,
     range: &ComptimeRangeValue,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
@@ -3069,8 +3078,8 @@ fn eval_resolved_for_in_range(
 
 fn eval_for_in_iteration(
     span: Span,
-    binding: &ComptimeForBinding,
-    body: &ComptimeBlock,
+    binding: &EarlyComptimeForBinding,
+    body: &EarlyComptimeBlock,
     value: ComptimeValue,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
@@ -3098,8 +3107,8 @@ fn eval_resolved_for_in_iteration(
 
 fn eval_while_stmt(
     span: Span,
-    cond: &ComptimeExpr,
-    body: &ComptimeBlock,
+    cond: &EarlyComptimeExpr,
+    body: &EarlyComptimeBlock,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for _ in 0..COMPTIME_LOOP_LIMIT {
@@ -3158,7 +3167,7 @@ fn eval_resolved_while_stmt(
 
 fn eval_loop_stmt(
     span: Span,
-    body: &ComptimeBlock,
+    body: &EarlyComptimeBlock,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     for _ in 0..COMPTIME_LOOP_LIMIT {
@@ -3200,9 +3209,9 @@ enum ComptimeConditionFlow {
 }
 
 fn eval_if_stmt(
-    cond: &ComptimeExpr,
-    then_branch: &ComptimeBlock,
-    else_branch: Option<&ComptimeBlock>,
+    cond: &EarlyComptimeExpr,
+    then_branch: &EarlyComptimeBlock,
+    else_branch: Option<&EarlyComptimeBlock>,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     let cond_value =
@@ -3243,7 +3252,7 @@ fn eval_resolved_if_stmt(
 }
 
 fn eval_condition_flow(
-    cond: &ComptimeExpr,
+    cond: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
     type_error: &'static str,
 ) -> Result<ComptimeConditionFlow, ComptimeError> {
@@ -3379,7 +3388,7 @@ fn eval_numeric_binary_value(
 }
 
 fn eval_numeric_operand_flow(
-    expr: &ComptimeExpr,
+    expr: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<Result<ComptimeValue, ComptimeEvalFlow>, ComptimeError> {
     match eval_comptime_expr_flow(expr, env)? {
@@ -3403,9 +3412,9 @@ fn eval_numeric_operand_flow(
 
 fn eval_binary_flow(
     span: Span,
-    lhs: &ComptimeExpr,
+    lhs: &EarlyComptimeExpr,
     op: ComptimeBinaryOp,
-    rhs: &ComptimeExpr,
+    rhs: &EarlyComptimeExpr,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
     macro_rules! bool_operand {
@@ -4050,10 +4059,10 @@ fn main() bool {
         };
         let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
         let lowered = nia_comptime_ir::lower_expr_early(expr).unwrap();
-        let ComptimeExprKind::Binary { lhs, .. } = &lowered.kind else {
+        let EarlyComptimeExprKind::Binary { lhs, .. } = &lowered.kind else {
             panic!("expected lowered binary expression");
         };
-        let ComptimeExprKind::Field { name, .. } = &lhs.kind else {
+        let EarlyComptimeExprKind::Field { name, .. } = &lhs.kind else {
             panic!("expected lowered field expression");
         };
         assert_eq!(name, "os");
@@ -4086,9 +4095,9 @@ fn main() bool {
 
     #[test]
     fn resolved_names_do_not_fall_back_to_ident_lookup() {
-        let expr = ComptimeExpr {
+        let expr = EarlyComptimeExpr {
             span: Span::new(0, 1),
-            kind: ComptimeExprKind::Ident {
+            kind: EarlyComptimeExprKind::Ident {
                 name: "x".to_string(),
                 resolution: Some(ComptimeNameResolution::Local(nia_ids::LocalId(0))),
             },
@@ -4171,19 +4180,19 @@ fn main() bool {
 
     #[test]
     fn assignment_targets_require_resolved_locals() {
-        let expr = ComptimeExpr {
+        let expr = EarlyComptimeExpr {
             span: Span::new(0, 1),
-            kind: ComptimeExprKind::Assign(Box::new(ComptimeAssign {
-                lhs: ComptimeAssignTarget::Local {
+            kind: EarlyComptimeExprKind::Assign(Box::new(EarlyComptimeAssign {
+                lhs: EarlyComptimeAssignTarget::Local {
                     span: Span::new(0, 1),
                     name: "x".to_string(),
                     local_id: None,
                     path: Vec::new(),
                 },
                 op: ComptimeAssignOp::Add,
-                rhs: ComptimeExpr {
+                rhs: EarlyComptimeExpr {
                     span: Span::new(4, 5),
-                    kind: ComptimeExprKind::Integer("1".to_string()),
+                    kind: EarlyComptimeExprKind::Integer("1".to_string()),
                 },
             })),
         };
@@ -4366,7 +4375,7 @@ fn main() bool {
             &mut self,
             span: Span,
             _builtin: LayoutBuiltin,
-            _type_arg: &ComptimeTypeArg,
+            _type_arg: &EarlyComptimeTypeArg,
         ) -> Result<ComptimeValue, ComptimeError> {
             Err(ComptimeError {
                 span,
@@ -4420,7 +4429,7 @@ fn main() bool {
             &mut self,
             span: Span,
             _builtin: LayoutBuiltin,
-            _type_arg: &ComptimeTypeArg,
+            _type_arg: &EarlyComptimeTypeArg,
         ) -> Result<ComptimeValue, ComptimeError> {
             Err(ComptimeError {
                 span,

@@ -4,8 +4,8 @@ use nia_ast::{
     Module, SliceRange, Stmt, StmtKind, SwitchArmBody, SwitchPattern,
 };
 use nia_comptime_ir::{
-    ComptimeAssignTarget, ComptimeBinding, ComptimeExpr, ComptimeExprKind, ComptimeParam,
-    ComptimeTypeArg,
+    EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeExpr, EarlyComptimeExprKind,
+    EarlyComptimeParam, EarlyComptimeTypeArg,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_tree::ActiveModuleItemTree;
@@ -94,7 +94,7 @@ pub fn eval_config_bool(
 
 struct TargetComptimeEnv<'a> {
     config: &'a TargetConfig,
-    functions: &'a HashMap<String, nia_comptime_ir::ComptimeFunction>,
+    functions: &'a HashMap<String, nia_comptime_ir::EarlyComptimeFunction>,
     call_locals: Vec<TargetComptimeFrame>,
 }
 
@@ -167,7 +167,7 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
         &mut self,
         span: Span,
         _builtin: nia_ids::LayoutBuiltin,
-        _type_arg: &ComptimeTypeArg,
+        _type_arg: &EarlyComptimeTypeArg,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
         Err(nia_comptime_engine::ComptimeError {
             span,
@@ -178,9 +178,9 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
     fn call_function(
         &mut self,
         span: Span,
-        callee: &ComptimeExpr,
-        type_args: &[ComptimeTypeArg],
-        arg_exprs: &[ComptimeExpr],
+        callee: &EarlyComptimeExpr,
+        type_args: &[EarlyComptimeTypeArg],
+        arg_exprs: &[EarlyComptimeExpr],
         args: Vec<nia_comptime_engine::ComptimeValue>,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
         if !type_args.is_empty() {
@@ -191,7 +191,7 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
             });
         }
         let _ = arg_exprs;
-        let ComptimeExprKind::Ident { name, .. } = &callee.kind else {
+        let EarlyComptimeExprKind::Ident { name, .. } = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
                 message: "target condition can only call same-module `comptime fn`".to_string(),
@@ -216,7 +216,7 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
     fn bind_function_param(
         &mut self,
         span: Span,
-        param: &ComptimeParam,
+        param: &EarlyComptimeParam,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         self.bind_named_value(span, &param.name, false, value)
@@ -225,7 +225,7 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
     fn bind_function_local(
         &mut self,
         span: Span,
-        binding: &ComptimeBinding,
+        binding: &EarlyComptimeBinding,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         self.bind_named_value(span, &binding.name, binding.is_mutable, value)
@@ -244,11 +244,13 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
     fn assign_local(
         &mut self,
         span: Span,
-        target: &ComptimeAssignTarget,
+        target: &EarlyComptimeAssignTarget,
         value: nia_comptime_engine::ComptimeValue,
     ) -> Result<(), nia_comptime_engine::ComptimeError> {
         match target {
-            ComptimeAssignTarget::Local { name, .. } => self.assign_named_value(span, name, value),
+            EarlyComptimeAssignTarget::Local { name, .. } => {
+                self.assign_named_value(span, name, value)
+            }
         }
     }
 }
@@ -340,7 +342,7 @@ pub fn target_comptime_value(config: &TargetConfig) -> nia_comptime_engine::Comp
 
 struct Pruner<'a> {
     config: &'a TargetConfig,
-    functions: HashMap<String, nia_comptime_ir::ComptimeFunction>,
+    functions: HashMap<String, nia_comptime_ir::EarlyComptimeFunction>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -776,7 +778,7 @@ impl ComptimeBranchResolver for Pruner<'_> {
 }
 
 struct EarlyComptimeFunctions {
-    functions: HashMap<String, nia_comptime_ir::ComptimeFunction>,
+    functions: HashMap<String, nia_comptime_ir::EarlyComptimeFunction>,
     diagnostics: Vec<Diagnostic>,
 }
 
