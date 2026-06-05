@@ -387,7 +387,34 @@ impl ResolvedComptimeAssign {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedComptimeAssignTarget {
+pub struct ResolvedComptimeAssignTarget {
+    kind: ResolvedComptimeAssignTargetKind,
+}
+
+impl ResolvedComptimeAssignTarget {
+    pub fn local(
+        span: Span,
+        name: String,
+        local_id: LocalId,
+        path: Vec<ResolvedComptimeAssignPathElem>,
+    ) -> Self {
+        Self {
+            kind: ResolvedComptimeAssignTargetKind::Local {
+                span,
+                name,
+                local_id,
+                path,
+            },
+        }
+    }
+
+    pub fn kind(&self) -> &ResolvedComptimeAssignTargetKind {
+        &self.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeAssignTargetKind {
     Local {
         span: Span,
         name: String,
@@ -397,7 +424,30 @@ pub enum ResolvedComptimeAssignTarget {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedComptimeAssignPathElem {
+pub struct ResolvedComptimeAssignPathElem {
+    kind: ResolvedComptimeAssignPathElemKind,
+}
+
+impl ResolvedComptimeAssignPathElem {
+    pub fn field(span: Span, name: String) -> Self {
+        Self {
+            kind: ResolvedComptimeAssignPathElemKind::Field { span, name },
+        }
+    }
+
+    pub fn index(span: Span, index: ResolvedComptimeExpr) -> Self {
+        Self {
+            kind: ResolvedComptimeAssignPathElemKind::Index { span, index },
+        }
+    }
+
+    pub fn kind(&self) -> &ResolvedComptimeAssignPathElemKind {
+        &self.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeAssignPathElemKind {
     Field {
         span: Span,
         name: String,
@@ -563,7 +613,36 @@ pub enum ResolvedComptimeSwitchPattern {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ResolvedComptimeSwitchArmBody {
+pub struct ResolvedComptimeSwitchArmBody {
+    kind: ResolvedComptimeSwitchArmBodyKind,
+}
+
+impl ResolvedComptimeSwitchArmBody {
+    pub fn expr(expr: ResolvedComptimeExpr) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchArmBodyKind::Expr(expr),
+        }
+    }
+
+    pub fn stmt(stmt: ResolvedComptimeStmt) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchArmBodyKind::Stmt(stmt),
+        }
+    }
+
+    pub fn block(block: ResolvedComptimeBlock) -> Self {
+        Self {
+            kind: ResolvedComptimeSwitchArmBodyKind::Block(block),
+        }
+    }
+
+    pub fn kind(&self) -> &ResolvedComptimeSwitchArmBodyKind {
+        &self.kind
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedComptimeSwitchArmBodyKind {
     Expr(ResolvedComptimeExpr),
     Stmt(ResolvedComptimeStmt),
     Block(ResolvedComptimeBlock),
@@ -1990,15 +2069,14 @@ fn resolve_comptime_assign_target(
         } => {
             let local_id =
                 local_id.ok_or_else(|| unresolved_error(span, "comptime assignment target"))?;
-            Ok(ResolvedComptimeAssignTarget::Local {
+            Ok(ResolvedComptimeAssignTarget::local(
                 span,
                 name,
                 local_id,
-                path: path
-                    .into_iter()
+                path.into_iter()
                     .map(resolve_comptime_assign_path_elem)
                     .collect::<Result<Vec<_>, _>>()?,
-            })
+            ))
         }
     }
 }
@@ -2008,14 +2086,11 @@ fn resolve_comptime_assign_path_elem(
 ) -> Result<ResolvedComptimeAssignPathElem, ComptimeLowerError> {
     match elem {
         EarlyComptimeAssignPathElem::Field { span, name } => {
-            Ok(ResolvedComptimeAssignPathElem::Field { span, name })
+            Ok(ResolvedComptimeAssignPathElem::field(span, name))
         }
-        EarlyComptimeAssignPathElem::Index { span, index } => {
-            Ok(ResolvedComptimeAssignPathElem::Index {
-                span,
-                index: resolve_expr(index)?,
-            })
-        }
+        EarlyComptimeAssignPathElem::Index { span, index } => Ok(
+            ResolvedComptimeAssignPathElem::index(span, resolve_expr(index)?),
+        ),
     }
 }
 
@@ -2106,13 +2181,13 @@ fn resolve_comptime_switch_arm_body(
 ) -> Result<ResolvedComptimeSwitchArmBody, ComptimeLowerError> {
     match body {
         EarlyComptimeSwitchArmBody::Expr(expr) => {
-            resolve_expr(expr).map(ResolvedComptimeSwitchArmBody::Expr)
+            resolve_expr(expr).map(ResolvedComptimeSwitchArmBody::expr)
         }
         EarlyComptimeSwitchArmBody::Stmt(stmt) => {
-            resolve_comptime_stmt(stmt).map(ResolvedComptimeSwitchArmBody::Stmt)
+            resolve_comptime_stmt(stmt).map(ResolvedComptimeSwitchArmBody::stmt)
         }
         EarlyComptimeSwitchArmBody::Block(block) => {
-            resolve_comptime_block(block).map(ResolvedComptimeSwitchArmBody::Block)
+            resolve_comptime_block(block).map(ResolvedComptimeSwitchArmBody::block)
         }
     }
 }
