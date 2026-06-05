@@ -219,8 +219,13 @@ pub trait ComptimeEnv {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let _ = name;
-        let _ = local_id;
         let _ = value;
+        if local_id.is_none() {
+            return Err(ComptimeError {
+                span,
+                message: format!("failed to resolve comptime pattern local `{name}`"),
+            });
+        }
         Err(ComptimeError {
             span,
             message: "comptime switch pattern locals are not available in this context".to_string(),
@@ -2387,6 +2392,23 @@ fn main() bool {
         assert_eq!(
             err.message,
             "failed to resolve comptime assignment target `x`"
+        );
+    }
+
+    #[test]
+    fn pattern_bindings_require_resolved_locals() {
+        let mut env = EmptyEnv;
+        let err = ComptimeEnv::bind_pattern_local(
+            &mut env,
+            Span::new(0, 1),
+            "payload",
+            None,
+            ComptimeValue::Int(1),
+        )
+        .expect_err("pattern bindings must carry resolved local ids");
+        assert_eq!(
+            err.message,
+            "failed to resolve comptime pattern local `payload`"
         );
     }
 
