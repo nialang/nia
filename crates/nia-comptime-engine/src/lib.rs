@@ -7,7 +7,7 @@ use nia_comptime_ir::{
     ComptimeStringLiteral, ComptimeSwitch, ComptimeSwitchArm, ComptimeSwitchArmBody,
     ComptimeSwitchPattern, ComptimeTypeArg, ComptimeUnaryOp,
 };
-use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId};
+use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_span::Span;
 use std::collections::BTreeMap;
 
@@ -96,11 +96,14 @@ pub trait ComptimeEnv {
     fn resolve_builtin_value(
         &mut self,
         span: Span,
-        name: &str,
+        builtin: ValueBuiltin,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
-            message: format!("unsupported builtin value in comptime expression: @{name}"),
+            message: format!(
+                "unsupported builtin value in comptime expression: @{}",
+                builtin.name()
+            ),
         })
     }
 
@@ -387,24 +390,25 @@ fn eval_comptime_expr_flow(
             ComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
                 env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
             }
-            ComptimeExprKind::BuiltinValue { name } => {
-                env.resolve_builtin_value(expr.span, name)?
+            ComptimeExprKind::BuiltinValue(builtin) => {
+                env.resolve_builtin_value(expr.span, *builtin)?
             }
             ComptimeExprKind::Call {
                 callee,
                 type_args,
                 args,
             } => {
-                if let ComptimeExprKind::BuiltinValue { name } = &callee.kind {
+                if let ComptimeExprKind::BuiltinValue(builtin) = &callee.kind {
                     if !args.is_empty() {
                         return Err(ComptimeError {
                             span: expr.span,
                             message: format!(
-                                "unsupported builtin call in comptime expression: @{name}"
+                                "unsupported builtin call in comptime expression: @{}",
+                                builtin.name()
                             ),
                         });
                     }
-                    env.resolve_builtin_value(expr.span, name)?
+                    env.resolve_builtin_value(expr.span, *builtin)?
                 } else if let ComptimeExprKind::LayoutBuiltin { builtin, type_arg } = &callee.kind {
                     if !args.is_empty() {
                         return Err(ComptimeError {
@@ -2312,6 +2316,27 @@ fn main() bool {
     }
 
     #[test]
+    fn unknown_builtin_value_is_rejected_during_lowering() {
+        let (module, errors) = nia_parser::parse_module(
+            r#"
+fn main() bool {
+    @unknown
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let nia_ast::ItemKind::Function(function) = &module.items[0].kind else {
+            panic!("expected function");
+        };
+        let expr = function.body.as_ref().unwrap().tail.as_deref().unwrap();
+        let err = nia_comptime_ir::lower_expr(expr).expect_err("unknown builtin should not lower");
+        assert_eq!(
+            err.message,
+            "unsupported builtin value in comptime expression: @unknown"
+        );
+    }
+
+    #[test]
     fn evaluates_lowered_switch_with_string_patterns() {
         let (module, errors) = nia_parser::parse_module(
             r#"
@@ -2433,14 +2458,10 @@ fn main() bool {
         fn resolve_builtin_value(
             &mut self,
             span: Span,
-            name: &str,
+            builtin_value: ValueBuiltin,
         ) -> Result<ComptimeValue, ComptimeError> {
-            if name != "builtin" {
-                return Err(ComptimeError {
-                    span,
-                    message: format!("unsupported builtin @{name}"),
-                });
-            }
+            let _ = span;
+            let ValueBuiltin::Builtin = builtin_value;
             let mut target = BTreeMap::new();
             target.insert("os".to_string(), ComptimeValue::String("linux".to_string()));
             target.insert("pointer_width".to_string(), ComptimeValue::Int(64));

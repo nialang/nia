@@ -12,7 +12,9 @@ use nia_comptime_ir::{
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId};
+use nia_ids::{
+    GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
+};
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
 use nia_span::Span;
@@ -2379,11 +2381,12 @@ impl Analyzer<'_> {
                 else_branch,
             } => self.comptime_if_expr_type(cond, then_branch, else_branch.as_deref(), expected),
             ComptimeExprKind::Switch(switch) => self.comptime_switch_expr_type(switch, expected),
-            ComptimeExprKind::BuiltinValue { name } if name == "builtin" => {
+            ComptimeExprKind::BuiltinValue(ValueBuiltin::Builtin) => {
                 Some(self.builtin_comptime_type())
             }
             ComptimeExprKind::Call { callee, args, .. }
-                if args.is_empty() && self.is_builtin_value_callee(callee, "builtin") =>
+                if args.is_empty()
+                    && self.is_builtin_value_callee(callee, ValueBuiltin::Builtin) =>
             {
                 Some(self.builtin_comptime_type())
             }
@@ -3801,10 +3804,10 @@ impl Analyzer<'_> {
             .map(|interner| interner.intern(TyKind::ErrorUnion { error, value }))
     }
 
-    fn is_builtin_value_callee(&self, callee: &ComptimeExpr, expected: &str) -> bool {
+    fn is_builtin_value_callee(&self, callee: &ComptimeExpr, expected: ValueBuiltin) -> bool {
         matches!(
             &callee.kind,
-            ComptimeExprKind::BuiltinValue { name } if name == expected
+            ComptimeExprKind::BuiltinValue(builtin) if *builtin == expected
         )
     }
 
@@ -4327,15 +4330,14 @@ impl ComptimeEnv for Analyzer<'_> {
     fn resolve_builtin_value(
         &mut self,
         span: Span,
-        name: &str,
+        builtin: ValueBuiltin,
     ) -> Result<ComptimeValue, ComptimeError> {
-        if name == "builtin" {
-            return Ok(nia_target_config::builtin_comptime_value(self.input.target));
+        let _ = span;
+        match builtin {
+            ValueBuiltin::Builtin => {
+                Ok(nia_target_config::builtin_comptime_value(self.input.target))
+            }
         }
-        Err(ComptimeError {
-            span,
-            message: format!("unsupported builtin value in comptime expression: @{name}"),
-        })
     }
 
     fn resolve_layout_builtin(
