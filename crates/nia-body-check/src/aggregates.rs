@@ -906,10 +906,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         param: &ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = param
-            .local_id
-            .or_else(|| self.locals.local_defs.get(&param.span).copied())
-        else {
+        let Some(local_id) = param.local_id else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime function parameter".to_string(),
@@ -929,10 +926,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         binding: &ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = binding
-            .local_id
-            .or_else(|| self.locals.local_defs.get(&span).copied())
-        else {
+        let Some(local_id) = binding.local_id else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime function local".to_string(),
@@ -963,7 +957,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         local_id: Option<LocalId>,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = local_id.or_else(|| self.locals.local_defs.get(&span).copied()) else {
+        let Some(local_id) = local_id else {
             return Err(ComptimeError {
                 span,
                 message: "failed to bind comptime switch pattern local".to_string(),
@@ -984,27 +978,14 @@ impl ComptimeEnv for BodyChecker<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         match target {
-            ComptimeAssignTarget::Local {
-                span: target_span,
-                name,
-                local_id,
-                ..
-            } => {
-                let Some(local_id) = local_id.or_else(|| {
-                    self.locals.uses.get(target_span).and_then(|use_| {
-                        if let nia_local_resolve::LocalUse::Local(local_id) = use_ {
-                            Some(*local_id)
-                        } else {
-                            None
-                        }
-                    })
-                }) else {
+            ComptimeAssignTarget::Local { name, local_id, .. } => {
+                let Some(local_id) = local_id else {
                     return Err(ComptimeError {
                         span,
                         message: format!("failed to resolve comptime assignment target `{name}`"),
                     });
                 };
-                self.assign_comptime_call_local_value(span, local_id, name, value)
+                self.assign_comptime_call_local_value(span, *local_id, name, value)
             }
         }
     }
@@ -1022,8 +1003,9 @@ impl<'a> BodyChecker<'a> {
             name_resolution: Some(&name_resolution),
             local_id: Some(&local_id),
             type_id: Some(&type_id),
+            require_resolved_semantics: true,
         };
-        nia_comptime_ir::lower_expr_with_context(expr, &context)
+        nia_comptime_ir::lower_expr_resolved_with_context(expr, &context)
     }
 
     fn comptime_name_resolution(
