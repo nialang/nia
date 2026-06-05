@@ -13,7 +13,9 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
-use nia_sema::{NamedField, check_required_field_set};
+use nia_sema::{
+    ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
+};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
@@ -156,8 +158,12 @@ impl<'a> BodyChecker<'a> {
                             self.record_array_repeat_count(count.span, actual);
                         }
                         match self.array_len_value(span, &expected) {
-                            Ok(expected) => {
-                                if expected != actual {
+                            Ok(expected_value) => match check_array_literal_len(
+                                Some(expected.clone()),
+                                Some(expected_value),
+                                Some(actual),
+                            ) {
+                                ArrayLiteralLenCheck::Mismatch { expected, actual } => {
                                     self.diagnostics.push(Diagnostic::error(
                                         span,
                                         format!(
@@ -165,7 +171,9 @@ impl<'a> BodyChecker<'a> {
                                         ),
                                     ));
                                 }
-                            }
+                                ArrayLiteralLenCheck::Accepted(_)
+                                | ArrayLiteralLenCheck::Unknown => {}
+                            },
                             Err(err) => self.diagnostics.push(Diagnostic::error(
                                 span,
                                 format!("array length is not a valid constant: {err}"),

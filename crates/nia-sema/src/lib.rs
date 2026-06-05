@@ -3,6 +3,43 @@ use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use nia_span::Span;
+use nia_ty::ArrayLenTy;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ArrayLiteralLenCheck {
+    Accepted(ArrayLenTy),
+    Mismatch { expected: u64, actual: u64 },
+    Unknown,
+}
+
+pub fn check_array_literal_len(
+    expected: Option<ArrayLenTy>,
+    expected_value: Option<u64>,
+    actual: Option<u64>,
+) -> ArrayLiteralLenCheck {
+    match (expected, expected_value, actual) {
+        (Some(ArrayLenTy::Infer), _, None) | (None, _, None) => ArrayLiteralLenCheck::Unknown,
+        (Some(expected), _, None) => ArrayLiteralLenCheck::Accepted(expected),
+        (Some(ArrayLenTy::Infer), _, Some(actual)) | (None, _, Some(actual)) => {
+            ArrayLiteralLenCheck::Accepted(ArrayLenTy::ConstValue(actual))
+        }
+        (Some(expected @ ArrayLenTy::ConstValue(expected_value)), _, Some(actual))
+            if expected_value == actual =>
+        {
+            ArrayLiteralLenCheck::Accepted(expected)
+        }
+        (Some(ArrayLenTy::ConstValue(expected)), _, Some(actual)) => {
+            ArrayLiteralLenCheck::Mismatch { expected, actual }
+        }
+        (Some(_), Some(expected_value), Some(actual)) if expected_value != actual => {
+            ArrayLiteralLenCheck::Mismatch {
+                expected: expected_value,
+                actual,
+            }
+        }
+        (Some(expected), _, Some(_)) => ArrayLiteralLenCheck::Accepted(expected),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedField<Key> {
@@ -167,5 +204,24 @@ mod tests {
             vec![NamedField::new(Span::new(4, 5), "z")]
         );
         assert_eq!(checked.missing_fields, vec!["y"]);
+    }
+
+    #[test]
+    fn array_literal_len_infers_checks_and_reports_mismatch() {
+        assert_eq!(
+            check_array_literal_len(None, None, Some(3)),
+            ArrayLiteralLenCheck::Accepted(ArrayLenTy::ConstValue(3))
+        );
+        assert_eq!(
+            check_array_literal_len(Some(ArrayLenTy::ConstValue(2)), None, Some(3)),
+            ArrayLiteralLenCheck::Mismatch {
+                expected: 2,
+                actual: 3
+            }
+        );
+        assert_eq!(
+            check_array_literal_len(Some(ArrayLenTy::Infer), None, None),
+            ArrayLiteralLenCheck::Unknown
+        );
     }
 }
