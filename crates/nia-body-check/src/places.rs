@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use crate::BodyChecker;
 use nia_ast::{Expr, ExprKind, IndexArg, SliceRange, UnaryOp};
-use nia_body_ir::BracketSuffixResolution;
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::{LocalKind, LocalUse};
+use nia_sema_ir::BracketSuffixResolution;
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;

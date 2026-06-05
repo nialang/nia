@@ -274,7 +274,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::BracketSuffix { callee, args } => {
                 if matches!(
                     self.bracket_suffix_resolution(expr.span),
-                    Some(nia_body_ir::BracketSuffixResolution::Index)
+                    Some(nia_sema_ir::BracketSuffixResolution::Index)
                 ) {
                     let base = self.lower_static_place_inner(callee, elems);
                     if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {

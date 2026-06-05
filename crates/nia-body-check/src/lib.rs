@@ -18,7 +18,7 @@ pub use nia_ty::import_type_into;
 use nia_ast::{
     BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, SliceRange, Stmt, StmtKind,
 };
-use nia_body_ir::{BodyFacts, BodyIr};
+use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
 use nia_comptime_ir::ResolvedComptimeModule;
 use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
@@ -35,7 +35,7 @@ use nia_local_resolve::LocalResolution;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
-    ComptimeIfSelection, FunctionReference, GenericInstantiation, ResolvedCall,
+    ComptimeIfSelection, FunctionReference, GenericInstantiation, ResolvedCall, SemanticFacts,
     TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::SourceVersion;
@@ -49,7 +49,7 @@ use nia_value_resolve::ValueResolution;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BodyCheck {
     pub ir: BodyIr,
-    pub facts: BodyFacts,
+    pub facts: SemanticFacts,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -320,7 +320,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             function_bodies: checker.function_bodies,
             global_inits: checker.global_inits,
         },
-        facts: BodyFacts {
+        facts: SemanticFacts {
             expr_types: checker.expr_types,
             bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
             array_to_slice_coercions: checker.array_to_slice_coercions,
