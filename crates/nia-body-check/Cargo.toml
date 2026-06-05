@@ -19,6 +19,7 @@ nia-layout.workspace = true
 nia-local-resolve.workspace = true
 nia-node-id.workspace = true
 nia-sema.workspace = true
+nia-sema-ir.workspace = true
 nia-source.workspace = true
 nia-span.workspace = true
 nia-static-ir.workspace = true
