@@ -1746,13 +1746,15 @@ impl Analyzer<'_> {
     }
 
     fn comptime_function(&self, callee: &ComptimeExpr) -> Option<GlobalDefId> {
-        if let Some(Some(ComptimeNameResolution::Global(global_id))) =
-            callee.try_resolved_name_resolution()
-            && self.def_kind_of(global_id) == Some(DefKind::Function)
-        {
-            return Some(global_id);
-        }
-        None
+        let resolution = match &callee.kind {
+            ComptimeExprKind::Ident { resolution, .. }
+            | ComptimeExprKind::Qualified { resolution, .. } => *resolution,
+            _ => None,
+        };
+        let Some(ComptimeNameResolution::Global(global_id)) = resolution else {
+            return None;
+        };
+        (self.def_kind_of(global_id) == Some(DefKind::Function)).then_some(global_id)
     }
 
     fn resolved_comptime_function(&self, callee: &ResolvedComptimeExpr) -> Option<GlobalDefId> {
@@ -2151,7 +2153,12 @@ impl Analyzer<'_> {
             }
         } else {
             for (generic, arg) in signature.generics.iter().zip(type_args) {
-                let ty = arg.resolved_ty();
+                let Some(ty) = arg.ty else {
+                    return Err(ComptimeError {
+                        span: arg.span,
+                        message: "cannot resolve comptime generic type argument".to_string(),
+                    });
+                };
                 let imported = self.import_ty_into_module(arg.span, ty, signature_module_id)?;
                 substitutions.insert(generic.clone(), imported);
             }
@@ -2295,18 +2302,29 @@ impl Analyzer<'_> {
         expr: &ComptimeExpr,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
-        if let Some(resolution) = expr.resolved_name_resolution() {
+        if let Some((name, resolution)) = match &expr.kind {
+            ComptimeExprKind::Ident {
+                name,
+                resolution: Some(resolution),
+            }
+            | ComptimeExprKind::Qualified {
+                name,
+                resolution: Some(resolution),
+            } => Some((name.as_str(), *resolution)),
+            ComptimeExprKind::Ident {
+                resolution: None, ..
+            }
+            | ComptimeExprKind::Qualified {
+                resolution: None, ..
+            } => return None,
+            _ => None,
+        } {
             return self
                 .comptime_name_resolution_type(resolution)
                 .or_else(|| match resolution {
-                    ComptimeNameResolution::Local(local_id) => match &expr.kind {
-                        ComptimeExprKind::Ident { name, .. }
-                        | ComptimeExprKind::Qualified { name, .. } => {
-                            self.call_local_name_type(name)
-                        }
-                        _ => None,
-                    }
-                    .or_else(|| self.call_local_type(local_id)),
+                    ComptimeNameResolution::Local(local_id) => self
+                        .call_local_name_type(name)
+                        .or_else(|| self.call_local_type(local_id)),
                     ComptimeNameResolution::Global(_) => None,
                 });
         }
@@ -3810,23 +3828,23 @@ impl Analyzer<'_> {
     ) -> Option<()> {
         for pattern in patterns {
             let (name, local_id, ty) = match pattern {
-                ComptimeSwitchPattern::OptionalSome { name, .. } => {
+                ComptimeSwitchPattern::OptionalSome { name, local_id, .. } => {
                     let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, pattern.resolved_local_id()?, elem)
+                    (name, (*local_id)?, elem)
                 }
-                ComptimeSwitchPattern::ErrorOk { name, .. } => {
+                ComptimeSwitchPattern::ErrorOk { name, local_id, .. } => {
                     let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, pattern.resolved_local_id()?, value)
+                    (name, (*local_id)?, value)
                 }
-                ComptimeSwitchPattern::ErrorErr { name, .. } => {
+                ComptimeSwitchPattern::ErrorErr { name, local_id, .. } => {
                     let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, pattern.resolved_local_id()?, error)
+                    (name, (*local_id)?, error)
                 }
                 ComptimeSwitchPattern::Default
                 | ComptimeSwitchPattern::OptionalNull { .. }
@@ -4141,7 +4159,7 @@ impl Analyzer<'_> {
                     .map(|ty| self.substitute_ty_generics(ty))
                     .map(ComptimeValueType::Runtime)
                     .or_else(|| self.comptime_expr_type(&binding.value, None))?;
-                let local_id = binding.resolved_local_id();
+                let local_id = binding.local_id?;
                 self.bind_comptime_local_type(local_id, &binding.name, ty);
                 Some(())
             }
@@ -4288,7 +4306,7 @@ impl Analyzer<'_> {
         let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
         self.push_typed_comptime_scope();
         let result = (|| {
-            let local_id = for_in.binding.resolved_local_id();
+            let local_id = for_in.binding.local_id?;
             self.bind_comptime_local_type(local_id, &for_in.binding.name, binding_ty);
             for stmt in &for_in.body.stmts {
                 self.check_comptime_stmt(stmt)?;
@@ -5576,7 +5594,7 @@ impl RawComptimeEnv for Analyzer<'_> {
     ) -> Result<ComptimeValue, ComptimeError> {
         let module_id = self.current_execution_module_id();
         let ty_id = {
-            let Some(ty) = type_arg.try_resolved_ty() else {
+            let Some(ty) = type_arg.ty else {
                 return Err(ComptimeError {
                     span,
                     message: format!(
@@ -5671,7 +5689,12 @@ impl RawComptimeEnv for Analyzer<'_> {
         param: &ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let local_id = param.resolved_local_id();
+        let Some(local_id) = param.local_id else {
+            return Err(ComptimeError {
+                span,
+                message: format!("failed to resolve comptime parameter `{}`", param.name),
+            });
+        };
         let ty = param
             .ty
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
@@ -5684,7 +5707,12 @@ impl RawComptimeEnv for Analyzer<'_> {
         binding: &ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let local_id = binding.resolved_local_id();
+        let Some(local_id) = binding.local_id else {
+            return Err(ComptimeError {
+                span,
+                message: format!("failed to resolve comptime binding `{}`", binding.name),
+            });
+        };
         let ty = binding
             .explicit_type
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)))
@@ -5713,8 +5741,13 @@ impl RawComptimeEnv for Analyzer<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         match target {
-            ComptimeAssignTarget::Local { name, .. } => {
-                let local_id = target.resolved_local_id();
+            ComptimeAssignTarget::Local { name, local_id, .. } => {
+                let Some(local_id) = *local_id else {
+                    return Err(ComptimeError {
+                        span,
+                        message: format!("failed to resolve comptime assignment target `{name}`"),
+                    });
+                };
                 self.assign_local_value(span, local_id, name, value)
             }
         }

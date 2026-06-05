@@ -360,13 +360,6 @@ pub struct ComptimeParam {
     pub ty: Option<InternedTyId>,
 }
 
-impl ComptimeParam {
-    pub fn resolved_local_id(&self) -> LocalId {
-        self.local_id
-            .expect("resolved comptime parameter must have a local id")
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeBlock {
     pub span: Span,
@@ -412,13 +405,6 @@ pub struct ComptimeBinding {
     pub value: ComptimeExpr,
 }
 
-impl ComptimeBinding {
-    pub fn resolved_local_id(&self) -> LocalId {
-        self.local_id
-            .expect("resolved comptime binding must have a local id")
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeAssign {
     pub lhs: ComptimeAssignTarget,
@@ -434,16 +420,6 @@ pub enum ComptimeAssignTarget {
         local_id: Option<LocalId>,
         path: Vec<ComptimeAssignPathElem>,
     },
-}
-
-impl ComptimeAssignTarget {
-    pub fn resolved_local_id(&self) -> LocalId {
-        match self {
-            ComptimeAssignTarget::Local { local_id, .. } => {
-                local_id.expect("resolved comptime assignment target must have a local id")
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -464,13 +440,6 @@ pub struct ComptimeForBinding {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
-}
-
-impl ComptimeForBinding {
-    pub fn resolved_local_id(&self) -> LocalId {
-        self.local_id
-            .expect("resolved comptime for binding must have a local id")
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -515,22 +484,6 @@ pub enum ComptimeSwitchPattern {
         inclusive: bool,
         span: Span,
     },
-}
-
-impl ComptimeSwitchPattern {
-    pub fn resolved_local_id(&self) -> Option<LocalId> {
-        match self {
-            ComptimeSwitchPattern::OptionalSome { local_id, .. }
-            | ComptimeSwitchPattern::ErrorOk { local_id, .. }
-            | ComptimeSwitchPattern::ErrorErr { local_id, .. } => {
-                Some(local_id.expect("resolved comptime switch pattern must have a local id"))
-            }
-            ComptimeSwitchPattern::Default
-            | ComptimeSwitchPattern::OptionalNull { .. }
-            | ComptimeSwitchPattern::Expr(_)
-            | ComptimeSwitchPattern::Range { .. } => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -637,21 +590,6 @@ pub enum ComptimeExprKind {
     Block(ComptimeBlock),
 }
 
-impl ComptimeExpr {
-    pub fn try_resolved_name_resolution(&self) -> Option<Option<ComptimeNameResolution>> {
-        match &self.kind {
-            ComptimeExprKind::Ident { resolution, .. }
-            | ComptimeExprKind::Qualified { resolution, .. } => Some(*resolution),
-            _ => None,
-        }
-    }
-
-    pub fn resolved_name_resolution(&self) -> Option<ComptimeNameResolution> {
-        self.try_resolved_name_resolution()
-            .map(|resolution| resolution.expect("resolved comptime name must have name resolution"))
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComptimeStringLiteral {
     pub parts: Vec<String>,
@@ -748,15 +686,6 @@ pub struct ComptimeTypeArg {
 }
 
 impl ComptimeTypeArg {
-    pub fn try_resolved_ty(&self) -> Option<InternedTyId> {
-        self.ty
-    }
-
-    pub fn resolved_ty(&self) -> InternedTyId {
-        self.try_resolved_ty()
-            .expect("resolved comptime type argument must have a type id")
-    }
-
     fn from_type_ref(
         ty: &nia_ast::TypeRef,
         context: &dyn ComptimeLowerContext,
