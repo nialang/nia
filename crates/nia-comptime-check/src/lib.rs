@@ -20,7 +20,10 @@ use nia_ids::{
 };
 use nia_item_signatures::{FunctionSignature, ItemSignatures};
 use nia_local_resolve::{LocalKind, LocalResolution, LocalUse};
-use nia_sema::{FieldSetCheck, NamedField, check_required_field_set, check_value_field_set};
+use nia_sema::{
+    ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
+    check_required_field_set, check_value_field_set,
+};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
@@ -2497,9 +2500,7 @@ impl Analyzer<'_> {
             expected.and_then(|expected| self.expected_array_parts(expected))
             && elem.runtime() == Some(expected_elem)
         {
-            let actual = Some(actual_len);
-            let len =
-                self.comptime_array_literal_len(Some((expected_len, expected_elem)), actual)?;
+            let len = self.comptime_array_literal_len(Some(expected_len), Some(actual_len))?;
             return self
                 .comptime_runtime_type(
                     expected_elem,
@@ -2634,7 +2635,8 @@ impl Analyzer<'_> {
                 (elem_ty, actual_len)
             }
         };
-        let len = self.comptime_array_literal_len(expected_parts, actual_len)?;
+        let len =
+            self.comptime_array_literal_len(expected_parts.map(|(len, _)| len), actual_len)?;
         self.comptime_runtime_type(
             elem_ty,
             |elem| TyKind::Array { len, elem },
@@ -2782,16 +2784,12 @@ impl Analyzer<'_> {
 
     fn comptime_array_literal_len(
         &self,
-        expected: Option<(ArrayLenTy, InternedTyId)>,
+        expected: Option<ArrayLenTy>,
         actual: Option<u64>,
     ) -> Option<ArrayLenTy> {
-        match (expected.map(|(len, _)| len), actual) {
-            (Some(ArrayLenTy::ConstValue(expected)), Some(actual)) if expected != actual => None,
-            (Some(ArrayLenTy::Infer), Some(actual)) | (None, Some(actual)) => {
-                Some(ArrayLenTy::ConstValue(actual))
-            }
-            (Some(len), _) => Some(len),
-            (None, None) => None,
+        match check_array_literal_len(expected, None, actual) {
+            ArrayLiteralLenCheck::Accepted(len) => Some(len),
+            ArrayLiteralLenCheck::Mismatch { .. } | ArrayLiteralLenCheck::Unknown => None,
         }
     }
 
