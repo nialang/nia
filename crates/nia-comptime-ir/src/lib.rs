@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::HashMap;
 
-use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
+use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ValueBuiltin};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -232,9 +232,7 @@ pub enum ComptimeExprKind {
         ty: Option<InternedTyId>,
         fields: Vec<ComptimeFieldInit>,
     },
-    BuiltinValue {
-        name: String,
-    },
+    BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
         builtin: LayoutBuiltin,
         type_arg: ComptimeTypeArg,
@@ -511,7 +509,15 @@ pub fn lower_expr_with_context(
                     type_arg: ComptimeTypeArg::from_type_ref(type_arg, context)?,
                 }
             } else {
-                ComptimeExprKind::BuiltinValue { name: name.clone() }
+                let Some(builtin) = ValueBuiltin::from_name(name) else {
+                    return Err(ComptimeLowerError {
+                        span: expr.span,
+                        message: format!(
+                            "unsupported builtin value in comptime expression: @{name}"
+                        ),
+                    });
+                };
+                ComptimeExprKind::BuiltinValue(builtin)
             }
         }
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,

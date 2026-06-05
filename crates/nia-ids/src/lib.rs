@@ -84,6 +84,26 @@ pub enum BuiltinTrait {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ValueBuiltin {
+    Builtin,
+}
+
+impl ValueBuiltin {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "builtin" => Some(Self::Builtin),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Builtin => "builtin",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LayoutBuiltin {
     Size,
     Align,

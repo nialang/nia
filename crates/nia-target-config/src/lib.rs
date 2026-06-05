@@ -127,15 +127,12 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
     fn resolve_builtin_value(
         &mut self,
         span: Span,
-        name: &str,
+        builtin: nia_ids::ValueBuiltin,
     ) -> Result<nia_comptime_engine::ComptimeValue, nia_comptime_engine::ComptimeError> {
-        if name != "builtin" {
-            return Err(nia_comptime_engine::ComptimeError {
-                span,
-                message: format!("unsupported builtin value in target condition: @{name}"),
-            });
+        let _ = span;
+        match builtin {
+            nia_ids::ValueBuiltin::Builtin => Ok(builtin_comptime_value(self.config)),
         }
-        Ok(builtin_comptime_value(self.config))
     }
 
     fn resolve_layout_builtin(
