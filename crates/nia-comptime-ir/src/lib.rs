@@ -40,7 +40,7 @@ pub struct ResolvedComptimeExpr {
 }
 
 impl ResolvedComptimeExpr {
-    fn new(expr: ComptimeExpr) -> Result<Self, ComptimeLowerError> {
+    fn new(expr: EarlyComptimeExpr) -> Result<Self, ComptimeLowerError> {
         resolve_expr(expr)
     }
 
@@ -111,7 +111,7 @@ pub struct ResolvedComptimeFunction {
 }
 
 impl ResolvedComptimeFunction {
-    fn new(function: ComptimeFunction) -> Result<Self, ComptimeLowerError> {
+    fn new(function: EarlyComptimeFunction) -> Result<Self, ComptimeLowerError> {
         resolve_function(function)
     }
 
@@ -397,14 +397,14 @@ pub struct ResolvedComptimeTypeArg {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeFunction {
+pub struct EarlyComptimeFunction {
     pub span: Span,
-    pub params: Vec<ComptimeParam>,
-    pub body: ComptimeBlock,
+    pub params: Vec<EarlyComptimeParam>,
+    pub body: EarlyComptimeBlock,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeParam {
+pub struct EarlyComptimeParam {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
@@ -412,103 +412,109 @@ pub struct ComptimeParam {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeBlock {
+pub struct EarlyComptimeBlock {
     pub span: Span,
-    pub stmts: Vec<ComptimeStmt>,
-    pub tail: Option<Box<ComptimeExpr>>,
+    pub stmts: Vec<EarlyComptimeStmt>,
+    pub tail: Option<Box<EarlyComptimeExpr>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeStmt {
+pub struct EarlyComptimeStmt {
     pub span: Span,
-    pub kind: ComptimeStmtKind,
+    pub kind: EarlyComptimeStmtKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeStmtKind {
-    Binding(ComptimeBinding),
-    Expr(ComptimeExpr),
-    Return(Option<ComptimeExpr>),
+pub enum EarlyComptimeStmtKind {
+    Binding(EarlyComptimeBinding),
+    Expr(EarlyComptimeExpr),
+    Return(Option<EarlyComptimeExpr>),
     Break,
     Continue,
     If {
-        cond: ComptimeExpr,
-        then_branch: ComptimeBlock,
-        else_branch: Option<ComptimeBlock>,
+        cond: EarlyComptimeExpr,
+        then_branch: EarlyComptimeBlock,
+        else_branch: Option<EarlyComptimeBlock>,
     },
-    ForIn(ComptimeForIn),
+    ForIn(EarlyComptimeForIn),
     While {
-        cond: ComptimeExpr,
-        body: ComptimeBlock,
+        cond: EarlyComptimeExpr,
+        body: EarlyComptimeBlock,
     },
     Loop {
-        body: ComptimeBlock,
+        body: EarlyComptimeBlock,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeBinding {
+pub struct EarlyComptimeBinding {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
     pub explicit_type: Option<InternedTyId>,
     pub is_mutable: bool,
-    pub value: ComptimeExpr,
+    pub value: EarlyComptimeExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeAssign {
-    pub lhs: ComptimeAssignTarget,
+pub struct EarlyComptimeAssign {
+    pub lhs: EarlyComptimeAssignTarget,
     pub op: ComptimeAssignOp,
-    pub rhs: ComptimeExpr,
+    pub rhs: EarlyComptimeExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeAssignTarget {
+pub enum EarlyComptimeAssignTarget {
     Local {
         span: Span,
         name: String,
         local_id: Option<LocalId>,
-        path: Vec<ComptimeAssignPathElem>,
+        path: Vec<EarlyComptimeAssignPathElem>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeAssignPathElem {
-    Field { span: Span, name: String },
-    Index { span: Span, index: ComptimeExpr },
+pub enum EarlyComptimeAssignPathElem {
+    Field {
+        span: Span,
+        name: String,
+    },
+    Index {
+        span: Span,
+        index: EarlyComptimeExpr,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeForIn {
-    pub binding: ComptimeForBinding,
-    pub iter: ComptimeExpr,
-    pub body: ComptimeBlock,
+pub struct EarlyComptimeForIn {
+    pub binding: EarlyComptimeForBinding,
+    pub iter: EarlyComptimeExpr,
+    pub body: EarlyComptimeBlock,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeForBinding {
+pub struct EarlyComptimeForBinding {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeSwitch {
+pub struct EarlyComptimeSwitch {
     pub span: Span,
-    pub target: ComptimeExpr,
-    pub arms: Vec<ComptimeSwitchArm>,
+    pub target: EarlyComptimeExpr,
+    pub arms: Vec<EarlyComptimeSwitchArm>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeSwitchArm {
+pub struct EarlyComptimeSwitchArm {
     pub span: Span,
-    pub patterns: Vec<ComptimeSwitchPattern>,
-    pub body: ComptimeSwitchArmBody,
+    pub patterns: Vec<EarlyComptimeSwitchPattern>,
+    pub body: EarlyComptimeSwitchArmBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeSwitchPattern {
+pub enum EarlyComptimeSwitchPattern {
     Default,
     OptionalSome {
         name: String,
@@ -528,40 +534,40 @@ pub enum ComptimeSwitchPattern {
         local_id: Option<LocalId>,
         span: Span,
     },
-    Expr(ComptimeExpr),
+    Expr(EarlyComptimeExpr),
     Range {
-        start: ComptimeExpr,
-        end: ComptimeExpr,
+        start: EarlyComptimeExpr,
+        end: EarlyComptimeExpr,
         inclusive: bool,
         span: Span,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeSwitchArmBody {
-    Expr(ComptimeExpr),
-    Stmt(ComptimeStmt),
-    Block(ComptimeBlock),
+pub enum EarlyComptimeSwitchArmBody {
+    Expr(EarlyComptimeExpr),
+    Stmt(EarlyComptimeStmt),
+    Block(EarlyComptimeBlock),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeExpr {
+pub struct EarlyComptimeExpr {
     pub span: Span,
-    pub kind: ComptimeExprKind,
+    pub kind: EarlyComptimeExprKind,
 }
 
-impl ComptimeExpr {
+impl EarlyComptimeExpr {
     pub fn span(&self) -> Span {
         self.span
     }
 
-    pub fn kind(&self) -> &ComptimeExprKind {
+    pub fn kind(&self) -> &EarlyComptimeExprKind {
         &self.kind
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeExprKind {
+pub enum EarlyComptimeExprKind {
     Integer(String),
     Char(String),
     ByteChar(String),
@@ -580,75 +586,75 @@ pub enum ComptimeExprKind {
         resolution: Option<ComptimeNameResolution>,
     },
     Field {
-        lhs: Box<ComptimeExpr>,
+        lhs: Box<EarlyComptimeExpr>,
         name: String,
     },
     Len {
-        lhs: Box<ComptimeExpr>,
+        lhs: Box<EarlyComptimeExpr>,
     },
     RangeIter {
-        lhs: Box<ComptimeExpr>,
+        lhs: Box<EarlyComptimeExpr>,
     },
     Index {
-        lhs: Box<ComptimeExpr>,
-        index: Box<ComptimeExpr>,
+        lhs: Box<EarlyComptimeExpr>,
+        index: Box<EarlyComptimeExpr>,
     },
     Slice {
-        lhs: Box<ComptimeExpr>,
-        range: ComptimeSliceRange,
+        lhs: Box<EarlyComptimeExpr>,
+        range: EarlyComptimeSliceRange,
     },
     ArrayLiteral {
         ty: Option<InternedTyId>,
-        elems: ComptimeArrayElements,
+        elems: EarlyComptimeArrayElements,
     },
     StructLiteral {
         ty: Option<InternedTyId>,
-        fields: Vec<ComptimeFieldInit>,
+        fields: Vec<EarlyComptimeFieldInit>,
     },
     BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
         builtin: LayoutBuiltin,
-        type_arg: ComptimeTypeArg,
+        type_arg: EarlyComptimeTypeArg,
     },
     Call {
-        callee: Box<ComptimeExpr>,
-        type_args: Vec<ComptimeTypeArg>,
-        args: Vec<ComptimeExpr>,
+        callee: Box<EarlyComptimeExpr>,
+        type_args: Vec<EarlyComptimeTypeArg>,
+        args: Vec<EarlyComptimeExpr>,
     },
     Unary {
         op: ComptimeUnaryOp,
-        expr: Box<ComptimeExpr>,
+        expr: Box<EarlyComptimeExpr>,
     },
     OptionalSome {
-        expr: Box<ComptimeExpr>,
+        expr: Box<EarlyComptimeExpr>,
     },
     ErrorOk {
-        expr: Box<ComptimeExpr>,
+        expr: Box<EarlyComptimeExpr>,
     },
     ErrorErr {
-        expr: Box<ComptimeExpr>,
+        expr: Box<EarlyComptimeExpr>,
     },
     Try {
-        expr: Box<ComptimeExpr>,
+        expr: Box<EarlyComptimeExpr>,
     },
     Binary {
-        lhs: Box<ComptimeExpr>,
+        lhs: Box<EarlyComptimeExpr>,
         op: ComptimeBinaryOp,
-        rhs: Box<ComptimeExpr>,
+        rhs: Box<EarlyComptimeExpr>,
     },
-    Assign(Box<ComptimeAssign>),
-    Range(ComptimeRange),
+    Assign(Box<EarlyComptimeAssign>),
+    Range(EarlyComptimeRange),
     If {
-        cond: Box<ComptimeExpr>,
-        then_branch: ComptimeBlock,
-        else_branch: Option<Box<ComptimeExpr>>,
+        cond: Box<EarlyComptimeExpr>,
+        then_branch: EarlyComptimeBlock,
+        else_branch: Option<Box<EarlyComptimeExpr>>,
     },
-    Switch(Box<ComptimeSwitch>),
+    Switch(Box<EarlyComptimeSwitch>),
     Cast {
-        expr: Box<ComptimeExpr>,
+        expr: Box<EarlyComptimeExpr>,
         ty: Option<InternedTyId>,
     },
-    Block(ComptimeBlock),
+    Block(EarlyComptimeBlock),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -704,25 +710,25 @@ pub enum ComptimeAssignOp {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeRange {
-    pub start: Option<Box<ComptimeExpr>>,
-    pub end: Option<Box<ComptimeExpr>>,
+pub struct EarlyComptimeRange {
+    pub start: Option<Box<EarlyComptimeExpr>>,
+    pub end: Option<Box<EarlyComptimeExpr>>,
     pub inclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeSliceRange {
-    pub start: Option<Box<ComptimeExpr>>,
-    pub end: Option<Box<ComptimeExpr>>,
+pub struct EarlyComptimeSliceRange {
+    pub start: Option<Box<EarlyComptimeExpr>>,
+    pub end: Option<Box<EarlyComptimeExpr>>,
     pub inclusive: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ComptimeArrayElements {
-    List(Vec<ComptimeExpr>),
+pub enum EarlyComptimeArrayElements {
+    List(Vec<EarlyComptimeExpr>),
     Repeat {
-        value: Box<ComptimeExpr>,
-        count: Box<ComptimeExpr>,
+        value: Box<EarlyComptimeExpr>,
+        count: Box<EarlyComptimeExpr>,
     },
 }
 
@@ -733,20 +739,20 @@ pub enum ComptimeNameResolution {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeFieldInit {
+pub struct EarlyComptimeFieldInit {
     pub span: Span,
     pub name: String,
-    pub value: ComptimeExpr,
+    pub value: EarlyComptimeExpr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ComptimeTypeArg {
+pub struct EarlyComptimeTypeArg {
     pub span: Span,
     pub ty_span: Span,
     pub ty: Option<InternedTyId>,
 }
 
-impl ComptimeTypeArg {
+impl EarlyComptimeTypeArg {
     fn from_type_ref(
         ty: &nia_ast::TypeRef,
         context: &dyn ComptimeLowerContext,
@@ -765,14 +771,14 @@ pub struct ComptimeLowerError {
     pub message: String,
 }
 
-pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<ComptimeExpr, ComptimeLowerError> {
+pub fn lower_expr_early(expr: &nia_ast::Expr) -> Result<EarlyComptimeExpr, ComptimeLowerError> {
     lower_expr_internal(expr, &EarlyComptimeLowerInputs::default())
 }
 
 pub fn lower_expr_early_with_context(
     expr: &nia_ast::Expr,
     context: &EarlyComptimeLowerInputs<'_>,
-) -> Result<ComptimeExpr, ComptimeLowerError> {
+) -> Result<EarlyComptimeExpr, ComptimeLowerError> {
     lower_expr_internal(expr, context)
 }
 
@@ -882,32 +888,32 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
 fn lower_expr_internal(
     expr: &nia_ast::Expr,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeExpr, ComptimeLowerError> {
+) -> Result<EarlyComptimeExpr, ComptimeLowerError> {
     let kind = match &expr.kind {
-        nia_ast::ExprKind::Integer(text) => ComptimeExprKind::Integer(text.clone()),
-        nia_ast::ExprKind::Char(text) => ComptimeExprKind::Char(text.clone()),
-        nia_ast::ExprKind::ByteChar(text) => ComptimeExprKind::ByteChar(text.clone()),
-        nia_ast::ExprKind::Float(text) => ComptimeExprKind::Float(text.clone()),
+        nia_ast::ExprKind::Integer(text) => EarlyComptimeExprKind::Integer(text.clone()),
+        nia_ast::ExprKind::Char(text) => EarlyComptimeExprKind::Char(text.clone()),
+        nia_ast::ExprKind::ByteChar(text) => EarlyComptimeExprKind::ByteChar(text.clone()),
+        nia_ast::ExprKind::Float(text) => EarlyComptimeExprKind::Float(text.clone()),
         nia_ast::ExprKind::String(literal) => {
-            ComptimeExprKind::String(lower_string_literal(literal))
+            EarlyComptimeExprKind::String(lower_string_literal(literal))
         }
         nia_ast::ExprKind::ByteString(literal) => {
-            ComptimeExprKind::ByteString(lower_string_literal(literal))
+            EarlyComptimeExprKind::ByteString(lower_string_literal(literal))
         }
         nia_ast::ExprKind::CString(literal) => {
-            ComptimeExprKind::CString(lower_string_literal(literal))
+            EarlyComptimeExprKind::CString(lower_string_literal(literal))
         }
-        nia_ast::ExprKind::Bool(value) => ComptimeExprKind::Bool(*value),
-        nia_ast::ExprKind::Null => ComptimeExprKind::Null,
-        nia_ast::ExprKind::Ident(name) => ComptimeExprKind::Ident {
+        nia_ast::ExprKind::Bool(value) => EarlyComptimeExprKind::Bool(*value),
+        nia_ast::ExprKind::Null => EarlyComptimeExprKind::Null,
+        nia_ast::ExprKind::Ident(name) => EarlyComptimeExprKind::Ident {
             name: name.clone(),
             resolution: resolve_name(context, expr.span)?,
         },
-        nia_ast::ExprKind::Qualified { name, .. } => ComptimeExprKind::Qualified {
+        nia_ast::ExprKind::Qualified { name, .. } => EarlyComptimeExprKind::Qualified {
             name: name.clone(),
             resolution: resolve_name(context, expr.span)?,
         },
-        nia_ast::ExprKind::Field { lhs, name } => ComptimeExprKind::Field {
+        nia_ast::ExprKind::Field { lhs, name } => EarlyComptimeExprKind::Field {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
             name: name.clone(),
         },
@@ -925,43 +931,45 @@ fn lower_expr_internal(
                     message: "comptime bracket suffix requires an expression index".to_string(),
                 });
             };
-            ComptimeExprKind::Index {
+            EarlyComptimeExprKind::Index {
                 lhs: Box::new(lower_expr_internal(callee, context)?),
                 index: Box::new(lower_expr_internal(index, context)?),
             }
         }
         nia_ast::ExprKind::Index { lhs, index } => match index {
-            nia_ast::IndexArg::Expr(index) => ComptimeExprKind::Index {
+            nia_ast::IndexArg::Expr(index) => EarlyComptimeExprKind::Index {
                 lhs: Box::new(lower_expr_internal(lhs, context)?),
                 index: Box::new(lower_expr_internal(index, context)?),
             },
-            nia_ast::IndexArg::Range(range) => ComptimeExprKind::Slice {
+            nia_ast::IndexArg::Range(range) => EarlyComptimeExprKind::Slice {
                 lhs: Box::new(lower_expr_internal(lhs, context)?),
                 range: lower_slice_range_with_context(range, context)?,
             },
         },
-        nia_ast::ExprKind::ArrayLiteral { elems } => ComptimeExprKind::ArrayLiteral {
+        nia_ast::ExprKind::ArrayLiteral { elems } => EarlyComptimeExprKind::ArrayLiteral {
             ty: None,
             elems: lower_array_elements_with_context(elems, context)?,
         },
-        nia_ast::ExprKind::TypedArrayLiteral { ty, elems } => ComptimeExprKind::ArrayLiteral {
+        nia_ast::ExprKind::TypedArrayLiteral { ty, elems } => EarlyComptimeExprKind::ArrayLiteral {
             ty: lower_type_id(context, ty.span)?,
             elems: lower_array_elements_with_context(elems, context)?,
         },
-        nia_ast::ExprKind::StructLiteral { fields } => ComptimeExprKind::StructLiteral {
+        nia_ast::ExprKind::StructLiteral { fields } => EarlyComptimeExprKind::StructLiteral {
             ty: None,
             fields: fields
                 .iter()
                 .map(|field| lower_field_init_with_context(field, context))
                 .collect::<Result<Vec<_>, _>>()?,
         },
-        nia_ast::ExprKind::TypedStructLiteral { ty, fields } => ComptimeExprKind::StructLiteral {
-            ty: lower_type_id(context, ty.span)?,
-            fields: fields
-                .iter()
-                .map(|field| lower_field_init_with_context(field, context))
-                .collect::<Result<Vec<_>, _>>()?,
-        },
+        nia_ast::ExprKind::TypedStructLiteral { ty, fields } => {
+            EarlyComptimeExprKind::StructLiteral {
+                ty: lower_type_id(context, ty.span)?,
+                fields: fields
+                    .iter()
+                    .map(|field| lower_field_init_with_context(field, context))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
         nia_ast::ExprKind::Builtin { name, type_arg } => {
             if let Some(type_arg) = type_arg {
                 let Some(builtin) = LayoutBuiltin::from_name(name) else {
@@ -970,9 +978,9 @@ fn lower_expr_internal(
                         message: format!("unsupported builtin in comptime expression: @{name}"),
                     });
                 };
-                ComptimeExprKind::LayoutBuiltin {
+                EarlyComptimeExprKind::LayoutBuiltin {
                     builtin,
-                    type_arg: ComptimeTypeArg::from_type_ref(type_arg, context)?,
+                    type_arg: EarlyComptimeTypeArg::from_type_ref(type_arg, context)?,
                 }
             } else {
                 let Some(builtin) = ValueBuiltin::from_name(name) else {
@@ -983,46 +991,46 @@ fn lower_expr_internal(
                         ),
                     });
                 };
-                ComptimeExprKind::BuiltinValue(builtin)
+                EarlyComptimeExprKind::BuiltinValue(builtin)
             }
         }
         nia_ast::ExprKind::Call { callee, args } => lower_call_with_context(callee, args, context)?,
-        nia_ast::ExprKind::Unary { op, expr } => ComptimeExprKind::Unary {
+        nia_ast::ExprKind::Unary { op, expr } => EarlyComptimeExprKind::Unary {
             op: lower_unary_op(*op),
             expr: Box::new(lower_expr_internal(expr, context)?),
         },
-        nia_ast::ExprKind::OptionalSome { expr } => ComptimeExprKind::OptionalSome {
+        nia_ast::ExprKind::OptionalSome { expr } => EarlyComptimeExprKind::OptionalSome {
             expr: Box::new(lower_expr_internal(expr, context)?),
         },
-        nia_ast::ExprKind::ErrorOk { expr } => ComptimeExprKind::ErrorOk {
+        nia_ast::ExprKind::ErrorOk { expr } => EarlyComptimeExprKind::ErrorOk {
             expr: Box::new(lower_expr_internal(expr, context)?),
         },
-        nia_ast::ExprKind::ErrorErr { expr } => ComptimeExprKind::ErrorErr {
+        nia_ast::ExprKind::ErrorErr { expr } => EarlyComptimeExprKind::ErrorErr {
             expr: Box::new(lower_expr_internal(expr, context)?),
         },
-        nia_ast::ExprKind::Try { expr } => ComptimeExprKind::Try {
+        nia_ast::ExprKind::Try { expr } => EarlyComptimeExprKind::Try {
             expr: Box::new(lower_expr_internal(expr, context)?),
         },
-        nia_ast::ExprKind::Binary { lhs, op, rhs } => ComptimeExprKind::Binary {
+        nia_ast::ExprKind::Binary { lhs, op, rhs } => EarlyComptimeExprKind::Binary {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
             op: lower_binary_op(*op),
             rhs: Box::new(lower_expr_internal(rhs, context)?),
         },
         nia_ast::ExprKind::Assign { lhs, op, rhs } => {
-            ComptimeExprKind::Assign(Box::new(ComptimeAssign {
+            EarlyComptimeExprKind::Assign(Box::new(EarlyComptimeAssign {
                 lhs: lower_assign_target_with_context(lhs, context)?,
                 op: lower_assign_op(*op),
                 rhs: lower_expr_internal(rhs, context)?,
             }))
         }
         nia_ast::ExprKind::Range(range) => {
-            ComptimeExprKind::Range(lower_comptime_range_with_context(range, context)?)
+            EarlyComptimeExprKind::Range(lower_comptime_range_with_context(range, context)?)
         }
         nia_ast::ExprKind::If {
             cond,
             then_branch,
             else_branch,
-        } => ComptimeExprKind::If {
+        } => EarlyComptimeExprKind::If {
             cond: Box::new(lower_expr_internal(cond, context)?),
             then_branch: lower_block_with_context(then_branch, context)?,
             else_branch: else_branch
@@ -1034,15 +1042,15 @@ fn lower_expr_internal(
         nia_ast::ExprKind::ComptimeIf(comptime_if) => {
             lower_comptime_if_with_context(comptime_if, context)?
         }
-        nia_ast::ExprKind::Switch(switch) => ComptimeExprKind::Switch(Box::new(
+        nia_ast::ExprKind::Switch(switch) => EarlyComptimeExprKind::Switch(Box::new(
             lower_switch_with_context(expr.span, switch, context)?,
         )),
-        nia_ast::ExprKind::Cast { expr, ty } => ComptimeExprKind::Cast {
+        nia_ast::ExprKind::Cast { expr, ty } => EarlyComptimeExprKind::Cast {
             expr: Box::new(lower_expr_internal(expr, context)?),
             ty: lower_type_id(context, ty.span)?,
         },
         nia_ast::ExprKind::Block(block) => {
-            ComptimeExprKind::Block(lower_block_with_context(block, context)?)
+            EarlyComptimeExprKind::Block(lower_block_with_context(block, context)?)
         }
         _ => {
             return Err(ComptimeLowerError {
@@ -1051,7 +1059,7 @@ fn lower_expr_internal(
             });
         }
     };
-    Ok(ComptimeExpr {
+    Ok(EarlyComptimeExpr {
         span: expr.span,
         kind,
     })
@@ -1125,12 +1133,12 @@ fn lower_call_with_context(
     callee: &nia_ast::Expr,
     args: &[nia_ast::Expr],
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeExprKind, ComptimeLowerError> {
+) -> Result<EarlyComptimeExprKind, ComptimeLowerError> {
     if args.is_empty()
         && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
         && name == "len"
     {
-        return Ok(ComptimeExprKind::Len {
+        return Ok(EarlyComptimeExprKind::Len {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
         });
     }
@@ -1138,7 +1146,7 @@ fn lower_call_with_context(
         && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
         && name == "iter"
     {
-        return Ok(ComptimeExprKind::RangeIter {
+        return Ok(EarlyComptimeExprKind::RangeIter {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
         });
     }
@@ -1152,7 +1160,7 @@ fn lower_call_with_context(
         ),
         _ => (callee, Vec::new()),
     };
-    Ok(ComptimeExprKind::Call {
+    Ok(EarlyComptimeExprKind::Call {
         callee: Box::new(lower_expr_internal(callee, context)?),
         type_args,
         args: args
@@ -1165,8 +1173,8 @@ fn lower_call_with_context(
 fn lower_comptime_range_with_context(
     range: &nia_ast::SliceRange,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeRange, ComptimeLowerError> {
-    Ok(ComptimeRange {
+) -> Result<EarlyComptimeRange, ComptimeLowerError> {
+    Ok(EarlyComptimeRange {
         start: range
             .start
             .as_deref()
@@ -1186,9 +1194,9 @@ fn lower_comptime_range_with_context(
 fn lower_slice_range_with_context(
     range: &nia_ast::SliceRange,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeSliceRange, ComptimeLowerError> {
+) -> Result<EarlyComptimeSliceRange, ComptimeLowerError> {
     let range = lower_comptime_range_with_context(range, context)?;
-    Ok(ComptimeSliceRange {
+    Ok(EarlyComptimeSliceRange {
         start: range.start,
         end: range.end,
         inclusive: range.inclusive,
@@ -1198,8 +1206,8 @@ fn lower_slice_range_with_context(
 fn lower_comptime_if_with_context(
     comptime_if: &nia_ast::ComptimeIfExpr,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeExprKind, ComptimeLowerError> {
-    Ok(ComptimeExprKind::If {
+) -> Result<EarlyComptimeExprKind, ComptimeLowerError> {
+    Ok(EarlyComptimeExprKind::If {
         cond: Box::new(lower_expr_internal(&comptime_if.cond, context)?),
         then_branch: lower_block_with_context(&comptime_if.then_branch, context)?,
         else_branch: comptime_if
@@ -1214,7 +1222,7 @@ fn lower_comptime_if_with_context(
 fn lower_type_args_with_context(
     args: &[nia_ast::BracketArg],
     context: &dyn ComptimeLowerContext,
-) -> Result<Vec<ComptimeTypeArg>, ComptimeLowerError> {
+) -> Result<Vec<EarlyComptimeTypeArg>, ComptimeLowerError> {
     args.iter()
         .map(|arg| {
             let Some(ty) = &arg.ty else {
@@ -1223,7 +1231,7 @@ fn lower_type_args_with_context(
                     message: "comptime generic function arguments must be types".to_string(),
                 });
             };
-            Ok(ComptimeTypeArg {
+            Ok(EarlyComptimeTypeArg {
                 span: arg.span,
                 ty_span: ty.span,
                 ty: lower_type_id(context, ty.span)?,
@@ -1235,10 +1243,10 @@ fn lower_type_args_with_context(
 fn lower_assign_target_with_context(
     expr: &nia_ast::Expr,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeAssignTarget, ComptimeLowerError> {
+) -> Result<EarlyComptimeAssignTarget, ComptimeLowerError> {
     let mut path = Vec::new();
     let (span, name, local_id) = lower_assign_target_base_with_context(expr, context, &mut path)?;
-    Ok(ComptimeAssignTarget::Local {
+    Ok(EarlyComptimeAssignTarget::Local {
         span,
         name,
         local_id,
@@ -1249,7 +1257,7 @@ fn lower_assign_target_with_context(
 fn lower_assign_target_base_with_context(
     expr: &nia_ast::Expr,
     context: &dyn ComptimeLowerContext,
-    path: &mut Vec<ComptimeAssignPathElem>,
+    path: &mut Vec<EarlyComptimeAssignPathElem>,
 ) -> Result<(Span, String, Option<LocalId>), ComptimeLowerError> {
     match &expr.kind {
         nia_ast::ExprKind::Ident(name) => {
@@ -1257,7 +1265,7 @@ fn lower_assign_target_base_with_context(
         }
         nia_ast::ExprKind::Field { lhs, name } => {
             let base = lower_assign_target_base_with_context(lhs, context, path)?;
-            path.push(ComptimeAssignPathElem::Field {
+            path.push(EarlyComptimeAssignPathElem::Field {
                 span: expr.span,
                 name: name.clone(),
             });
@@ -1271,7 +1279,7 @@ fn lower_assign_target_base_with_context(
                     message: "comptime assignment target does not support slicing".to_string(),
                 });
             };
-            path.push(ComptimeAssignPathElem::Index {
+            path.push(EarlyComptimeAssignPathElem::Index {
                 span: expr.span,
                 index: lower_expr_internal(index, context)?,
             });
@@ -1293,7 +1301,7 @@ fn lower_assign_target_base_with_context(
                             .to_string(),
                 });
             };
-            path.push(ComptimeAssignPathElem::Index {
+            path.push(EarlyComptimeAssignPathElem::Index {
                 span: expr.span,
                 index: lower_expr_internal(index, context)?,
             });
@@ -1309,15 +1317,15 @@ fn lower_assign_target_base_with_context(
 fn lower_array_elements_with_context(
     elems: &nia_ast::ArrayElements,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeArrayElements, ComptimeLowerError> {
+) -> Result<EarlyComptimeArrayElements, ComptimeLowerError> {
     match elems {
-        nia_ast::ArrayElements::List(elems) => Ok(ComptimeArrayElements::List(
+        nia_ast::ArrayElements::List(elems) => Ok(EarlyComptimeArrayElements::List(
             elems
                 .iter()
                 .map(|elem| lower_expr_internal(elem, context))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
-        nia_ast::ArrayElements::Repeat { value, count } => Ok(ComptimeArrayElements::Repeat {
+        nia_ast::ArrayElements::Repeat { value, count } => Ok(EarlyComptimeArrayElements::Repeat {
             value: Box::new(lower_expr_internal(value, context)?),
             count: Box::new(lower_expr_internal(count, context)?),
         }),
@@ -1346,7 +1354,7 @@ fn lower_type_id(
 }
 
 pub fn resolve_function(
-    function: ComptimeFunction,
+    function: EarlyComptimeFunction,
 ) -> Result<ResolvedComptimeFunction, ComptimeLowerError> {
     let params = function
         .params
@@ -1362,7 +1370,7 @@ pub fn resolve_function(
 }
 
 fn resolve_comptime_param(
-    param: ComptimeParam,
+    param: EarlyComptimeParam,
 ) -> Result<ResolvedComptimeParam, ComptimeLowerError> {
     let local_id = param
         .local_id
@@ -1376,7 +1384,7 @@ fn resolve_comptime_param(
 }
 
 fn resolve_comptime_block(
-    block: ComptimeBlock,
+    block: EarlyComptimeBlock,
 ) -> Result<ResolvedComptimeBlock, ComptimeLowerError> {
     let stmts = block
         .stmts
@@ -1394,18 +1402,20 @@ fn resolve_comptime_block(
     })
 }
 
-fn resolve_comptime_stmt(stmt: ComptimeStmt) -> Result<ResolvedComptimeStmt, ComptimeLowerError> {
+fn resolve_comptime_stmt(
+    stmt: EarlyComptimeStmt,
+) -> Result<ResolvedComptimeStmt, ComptimeLowerError> {
     let kind = match stmt.kind {
-        ComptimeStmtKind::Binding(binding) => {
+        EarlyComptimeStmtKind::Binding(binding) => {
             ResolvedComptimeStmtKind::Binding(resolve_comptime_binding(binding)?)
         }
-        ComptimeStmtKind::Expr(expr) => ResolvedComptimeStmtKind::Expr(resolve_expr(expr)?),
-        ComptimeStmtKind::Return(expr) => {
+        EarlyComptimeStmtKind::Expr(expr) => ResolvedComptimeStmtKind::Expr(resolve_expr(expr)?),
+        EarlyComptimeStmtKind::Return(expr) => {
             ResolvedComptimeStmtKind::Return(expr.map(resolve_expr).transpose()?)
         }
-        ComptimeStmtKind::Break => ResolvedComptimeStmtKind::Break,
-        ComptimeStmtKind::Continue => ResolvedComptimeStmtKind::Continue,
-        ComptimeStmtKind::If {
+        EarlyComptimeStmtKind::Break => ResolvedComptimeStmtKind::Break,
+        EarlyComptimeStmtKind::Continue => ResolvedComptimeStmtKind::Continue,
+        EarlyComptimeStmtKind::If {
             cond,
             then_branch,
             else_branch,
@@ -1414,14 +1424,14 @@ fn resolve_comptime_stmt(stmt: ComptimeStmt) -> Result<ResolvedComptimeStmt, Com
             then_branch: resolve_comptime_block(then_branch)?,
             else_branch: else_branch.map(resolve_comptime_block).transpose()?,
         },
-        ComptimeStmtKind::ForIn(for_in) => {
+        EarlyComptimeStmtKind::ForIn(for_in) => {
             ResolvedComptimeStmtKind::ForIn(resolve_comptime_for_in(for_in)?)
         }
-        ComptimeStmtKind::While { cond, body } => ResolvedComptimeStmtKind::While {
+        EarlyComptimeStmtKind::While { cond, body } => ResolvedComptimeStmtKind::While {
             cond: resolve_expr(cond)?,
             body: resolve_comptime_block(body)?,
         },
-        ComptimeStmtKind::Loop { body } => ResolvedComptimeStmtKind::Loop {
+        EarlyComptimeStmtKind::Loop { body } => ResolvedComptimeStmtKind::Loop {
             body: resolve_comptime_block(body)?,
         },
     };
@@ -1432,7 +1442,7 @@ fn resolve_comptime_stmt(stmt: ComptimeStmt) -> Result<ResolvedComptimeStmt, Com
 }
 
 fn resolve_comptime_binding(
-    binding: ComptimeBinding,
+    binding: EarlyComptimeBinding,
 ) -> Result<ResolvedComptimeBinding, ComptimeLowerError> {
     let local_id = binding
         .local_id
@@ -1448,7 +1458,7 @@ fn resolve_comptime_binding(
 }
 
 fn resolve_comptime_for_in(
-    for_in: ComptimeForIn,
+    for_in: EarlyComptimeForIn,
 ) -> Result<ResolvedComptimeForIn, ComptimeLowerError> {
     let local_id = for_in
         .binding
@@ -1465,59 +1475,65 @@ fn resolve_comptime_for_in(
     })
 }
 
-pub fn resolve_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {
+pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {
     let span = expr.span;
     let kind = match expr.kind {
-        ComptimeExprKind::Integer(value) => ResolvedComptimeExprKind::Integer(value),
-        ComptimeExprKind::Char(value) => ResolvedComptimeExprKind::Char(value),
-        ComptimeExprKind::ByteChar(value) => ResolvedComptimeExprKind::ByteChar(value),
-        ComptimeExprKind::Float(value) => ResolvedComptimeExprKind::Float(value),
-        ComptimeExprKind::String(value) => ResolvedComptimeExprKind::String(value),
-        ComptimeExprKind::ByteString(value) => ResolvedComptimeExprKind::ByteString(value),
-        ComptimeExprKind::CString(value) => ResolvedComptimeExprKind::CString(value),
-        ComptimeExprKind::Bool(value) => ResolvedComptimeExprKind::Bool(value),
-        ComptimeExprKind::Null => ResolvedComptimeExprKind::Null,
-        ComptimeExprKind::Ident { resolution, .. }
-        | ComptimeExprKind::Qualified { resolution, .. } => ResolvedComptimeExprKind::Name(
+        EarlyComptimeExprKind::Integer(value) => ResolvedComptimeExprKind::Integer(value),
+        EarlyComptimeExprKind::Char(value) => ResolvedComptimeExprKind::Char(value),
+        EarlyComptimeExprKind::ByteChar(value) => ResolvedComptimeExprKind::ByteChar(value),
+        EarlyComptimeExprKind::Float(value) => ResolvedComptimeExprKind::Float(value),
+        EarlyComptimeExprKind::String(value) => ResolvedComptimeExprKind::String(value),
+        EarlyComptimeExprKind::ByteString(value) => ResolvedComptimeExprKind::ByteString(value),
+        EarlyComptimeExprKind::CString(value) => ResolvedComptimeExprKind::CString(value),
+        EarlyComptimeExprKind::Bool(value) => ResolvedComptimeExprKind::Bool(value),
+        EarlyComptimeExprKind::Null => ResolvedComptimeExprKind::Null,
+        EarlyComptimeExprKind::Ident { resolution, .. }
+        | EarlyComptimeExprKind::Qualified { resolution, .. } => ResolvedComptimeExprKind::Name(
             resolution.ok_or_else(|| unresolved_error(span, "comptime name"))?,
         ),
-        ComptimeExprKind::Field { lhs, name } => ResolvedComptimeExprKind::Field {
+        EarlyComptimeExprKind::Field { lhs, name } => ResolvedComptimeExprKind::Field {
             lhs: Box::new(resolve_expr(*lhs)?),
             name,
         },
-        ComptimeExprKind::Len { lhs } => ResolvedComptimeExprKind::Len {
+        EarlyComptimeExprKind::Len { lhs } => ResolvedComptimeExprKind::Len {
             lhs: Box::new(resolve_expr(*lhs)?),
         },
-        ComptimeExprKind::RangeIter { lhs } => ResolvedComptimeExprKind::RangeIter {
+        EarlyComptimeExprKind::RangeIter { lhs } => ResolvedComptimeExprKind::RangeIter {
             lhs: Box::new(resolve_expr(*lhs)?),
         },
-        ComptimeExprKind::Index { lhs, index } => ResolvedComptimeExprKind::Index {
+        EarlyComptimeExprKind::Index { lhs, index } => ResolvedComptimeExprKind::Index {
             lhs: Box::new(resolve_expr(*lhs)?),
             index: Box::new(resolve_expr(*index)?),
         },
-        ComptimeExprKind::Slice { lhs, range } => ResolvedComptimeExprKind::Slice {
+        EarlyComptimeExprKind::Slice { lhs, range } => ResolvedComptimeExprKind::Slice {
             lhs: Box::new(resolve_expr(*lhs)?),
             range: resolve_comptime_slice_range(range)?,
         },
-        ComptimeExprKind::ArrayLiteral { ty, elems } => ResolvedComptimeExprKind::ArrayLiteral {
-            ty,
-            elems: resolve_comptime_array_elements(elems)?,
-        },
-        ComptimeExprKind::StructLiteral { ty, fields } => ResolvedComptimeExprKind::StructLiteral {
-            ty,
-            fields: fields
-                .into_iter()
-                .map(resolve_comptime_field_init)
-                .collect::<Result<Vec<_>, _>>()?,
-        },
-        ComptimeExprKind::BuiltinValue(builtin) => ResolvedComptimeExprKind::BuiltinValue(builtin),
-        ComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
+        EarlyComptimeExprKind::ArrayLiteral { ty, elems } => {
+            ResolvedComptimeExprKind::ArrayLiteral {
+                ty,
+                elems: resolve_comptime_array_elements(elems)?,
+            }
+        }
+        EarlyComptimeExprKind::StructLiteral { ty, fields } => {
+            ResolvedComptimeExprKind::StructLiteral {
+                ty,
+                fields: fields
+                    .into_iter()
+                    .map(resolve_comptime_field_init)
+                    .collect::<Result<Vec<_>, _>>()?,
+            }
+        }
+        EarlyComptimeExprKind::BuiltinValue(builtin) => {
+            ResolvedComptimeExprKind::BuiltinValue(builtin)
+        }
+        EarlyComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
             ResolvedComptimeExprKind::LayoutBuiltin {
                 builtin,
                 type_arg: resolve_type_arg(type_arg)?,
             }
         }
-        ComptimeExprKind::Call {
+        EarlyComptimeExprKind::Call {
             callee,
             type_args,
             args,
@@ -1532,34 +1548,34 @@ pub fn resolve_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, Comptime
                 .map(resolve_expr)
                 .collect::<Result<Vec<_>, _>>()?,
         },
-        ComptimeExprKind::Unary { op, expr } => ResolvedComptimeExprKind::Unary {
+        EarlyComptimeExprKind::Unary { op, expr } => ResolvedComptimeExprKind::Unary {
             op,
             expr: Box::new(resolve_expr(*expr)?),
         },
-        ComptimeExprKind::OptionalSome { expr } => ResolvedComptimeExprKind::OptionalSome {
+        EarlyComptimeExprKind::OptionalSome { expr } => ResolvedComptimeExprKind::OptionalSome {
             expr: Box::new(resolve_expr(*expr)?),
         },
-        ComptimeExprKind::ErrorOk { expr } => ResolvedComptimeExprKind::ErrorOk {
+        EarlyComptimeExprKind::ErrorOk { expr } => ResolvedComptimeExprKind::ErrorOk {
             expr: Box::new(resolve_expr(*expr)?),
         },
-        ComptimeExprKind::ErrorErr { expr } => ResolvedComptimeExprKind::ErrorErr {
+        EarlyComptimeExprKind::ErrorErr { expr } => ResolvedComptimeExprKind::ErrorErr {
             expr: Box::new(resolve_expr(*expr)?),
         },
-        ComptimeExprKind::Try { expr } => ResolvedComptimeExprKind::Try {
+        EarlyComptimeExprKind::Try { expr } => ResolvedComptimeExprKind::Try {
             expr: Box::new(resolve_expr(*expr)?),
         },
-        ComptimeExprKind::Binary { lhs, op, rhs } => ResolvedComptimeExprKind::Binary {
+        EarlyComptimeExprKind::Binary { lhs, op, rhs } => ResolvedComptimeExprKind::Binary {
             lhs: Box::new(resolve_expr(*lhs)?),
             op,
             rhs: Box::new(resolve_expr(*rhs)?),
         },
-        ComptimeExprKind::Assign(assign) => {
+        EarlyComptimeExprKind::Assign(assign) => {
             ResolvedComptimeExprKind::Assign(Box::new(resolve_comptime_assign(*assign)?))
         }
-        ComptimeExprKind::Range(range) => {
+        EarlyComptimeExprKind::Range(range) => {
             ResolvedComptimeExprKind::Range(resolve_comptime_range(range)?)
         }
-        ComptimeExprKind::If {
+        EarlyComptimeExprKind::If {
             cond,
             then_branch,
             else_branch,
@@ -1570,14 +1586,14 @@ pub fn resolve_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, Comptime
                 .map(|else_branch| resolve_expr(*else_branch).map(Box::new))
                 .transpose()?,
         },
-        ComptimeExprKind::Switch(switch) => {
+        EarlyComptimeExprKind::Switch(switch) => {
             ResolvedComptimeExprKind::Switch(Box::new(resolve_comptime_switch(*switch)?))
         }
-        ComptimeExprKind::Cast { expr, ty } => ResolvedComptimeExprKind::Cast {
+        EarlyComptimeExprKind::Cast { expr, ty } => ResolvedComptimeExprKind::Cast {
             expr: Box::new(resolve_expr(*expr)?),
             ty: ty.ok_or_else(|| unresolved_error(span, "comptime cast type"))?,
         },
-        ComptimeExprKind::Block(block) => {
+        EarlyComptimeExprKind::Block(block) => {
             ResolvedComptimeExprKind::Block(resolve_comptime_block(block)?)
         }
     };
@@ -1585,7 +1601,7 @@ pub fn resolve_expr(expr: ComptimeExpr) -> Result<ResolvedComptimeExpr, Comptime
 }
 
 fn resolve_comptime_assign(
-    assign: ComptimeAssign,
+    assign: EarlyComptimeAssign,
 ) -> Result<ResolvedComptimeAssign, ComptimeLowerError> {
     Ok(ResolvedComptimeAssign {
         lhs: resolve_comptime_assign_target(assign.lhs)?,
@@ -1595,10 +1611,10 @@ fn resolve_comptime_assign(
 }
 
 fn resolve_comptime_assign_target(
-    target: ComptimeAssignTarget,
+    target: EarlyComptimeAssignTarget,
 ) -> Result<ResolvedComptimeAssignTarget, ComptimeLowerError> {
     match target {
-        ComptimeAssignTarget::Local {
+        EarlyComptimeAssignTarget::Local {
             span,
             name,
             local_id,
@@ -1620,13 +1636,13 @@ fn resolve_comptime_assign_target(
 }
 
 fn resolve_comptime_assign_path_elem(
-    elem: ComptimeAssignPathElem,
+    elem: EarlyComptimeAssignPathElem,
 ) -> Result<ResolvedComptimeAssignPathElem, ComptimeLowerError> {
     match elem {
-        ComptimeAssignPathElem::Field { span, name } => {
+        EarlyComptimeAssignPathElem::Field { span, name } => {
             Ok(ResolvedComptimeAssignPathElem::Field { span, name })
         }
-        ComptimeAssignPathElem::Index { span, index } => {
+        EarlyComptimeAssignPathElem::Index { span, index } => {
             Ok(ResolvedComptimeAssignPathElem::Index {
                 span,
                 index: resolve_expr(index)?,
@@ -1636,7 +1652,7 @@ fn resolve_comptime_assign_path_elem(
 }
 
 fn resolve_comptime_switch(
-    switch: ComptimeSwitch,
+    switch: EarlyComptimeSwitch,
 ) -> Result<ResolvedComptimeSwitch, ComptimeLowerError> {
     Ok(ResolvedComptimeSwitch {
         span: switch.span,
@@ -1650,7 +1666,7 @@ fn resolve_comptime_switch(
 }
 
 fn resolve_comptime_switch_arm(
-    arm: ComptimeSwitchArm,
+    arm: EarlyComptimeSwitchArm,
 ) -> Result<ResolvedComptimeSwitchArm, ComptimeLowerError> {
     Ok(ResolvedComptimeSwitchArm {
         span: arm.span,
@@ -1664,11 +1680,11 @@ fn resolve_comptime_switch_arm(
 }
 
 fn resolve_comptime_switch_pattern(
-    pattern: ComptimeSwitchPattern,
+    pattern: EarlyComptimeSwitchPattern,
 ) -> Result<ResolvedComptimeSwitchPattern, ComptimeLowerError> {
     match pattern {
-        ComptimeSwitchPattern::Default => Ok(ResolvedComptimeSwitchPattern::Default),
-        ComptimeSwitchPattern::OptionalSome {
+        EarlyComptimeSwitchPattern::Default => Ok(ResolvedComptimeSwitchPattern::Default),
+        EarlyComptimeSwitchPattern::OptionalSome {
             name,
             local_id,
             span,
@@ -1678,10 +1694,10 @@ fn resolve_comptime_switch_pattern(
                 .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
         }),
-        ComptimeSwitchPattern::OptionalNull { span } => {
+        EarlyComptimeSwitchPattern::OptionalNull { span } => {
             Ok(ResolvedComptimeSwitchPattern::OptionalNull { span })
         }
-        ComptimeSwitchPattern::ErrorOk {
+        EarlyComptimeSwitchPattern::ErrorOk {
             name,
             local_id,
             span,
@@ -1691,7 +1707,7 @@ fn resolve_comptime_switch_pattern(
                 .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
         }),
-        ComptimeSwitchPattern::ErrorErr {
+        EarlyComptimeSwitchPattern::ErrorErr {
             name,
             local_id,
             span,
@@ -1701,10 +1717,10 @@ fn resolve_comptime_switch_pattern(
                 .ok_or_else(|| unresolved_error(span, "comptime switch pattern local"))?,
             span,
         }),
-        ComptimeSwitchPattern::Expr(expr) => {
+        EarlyComptimeSwitchPattern::Expr(expr) => {
             resolve_expr(expr).map(ResolvedComptimeSwitchPattern::Expr)
         }
-        ComptimeSwitchPattern::Range {
+        EarlyComptimeSwitchPattern::Range {
             start,
             end,
             inclusive,
@@ -1719,31 +1735,31 @@ fn resolve_comptime_switch_pattern(
 }
 
 fn resolve_comptime_switch_arm_body(
-    body: ComptimeSwitchArmBody,
+    body: EarlyComptimeSwitchArmBody,
 ) -> Result<ResolvedComptimeSwitchArmBody, ComptimeLowerError> {
     match body {
-        ComptimeSwitchArmBody::Expr(expr) => {
+        EarlyComptimeSwitchArmBody::Expr(expr) => {
             resolve_expr(expr).map(ResolvedComptimeSwitchArmBody::Expr)
         }
-        ComptimeSwitchArmBody::Stmt(stmt) => {
+        EarlyComptimeSwitchArmBody::Stmt(stmt) => {
             resolve_comptime_stmt(stmt).map(ResolvedComptimeSwitchArmBody::Stmt)
         }
-        ComptimeSwitchArmBody::Block(block) => {
+        EarlyComptimeSwitchArmBody::Block(block) => {
             resolve_comptime_block(block).map(ResolvedComptimeSwitchArmBody::Block)
         }
     }
 }
 
 fn resolve_comptime_array_elements(
-    elems: ComptimeArrayElements,
+    elems: EarlyComptimeArrayElements,
 ) -> Result<ResolvedComptimeArrayElements, ComptimeLowerError> {
     match elems {
-        ComptimeArrayElements::List(elems) => elems
+        EarlyComptimeArrayElements::List(elems) => elems
             .into_iter()
             .map(resolve_expr)
             .collect::<Result<Vec<_>, _>>()
             .map(ResolvedComptimeArrayElements::List),
-        ComptimeArrayElements::Repeat { value, count } => {
+        EarlyComptimeArrayElements::Repeat { value, count } => {
             Ok(ResolvedComptimeArrayElements::Repeat {
                 value: Box::new(resolve_expr(*value)?),
                 count: Box::new(resolve_expr(*count)?),
@@ -1753,7 +1769,7 @@ fn resolve_comptime_array_elements(
 }
 
 fn resolve_comptime_range(
-    range: ComptimeRange,
+    range: EarlyComptimeRange,
 ) -> Result<ResolvedComptimeRange, ComptimeLowerError> {
     Ok(ResolvedComptimeRange {
         start: range
@@ -1769,7 +1785,7 @@ fn resolve_comptime_range(
 }
 
 fn resolve_comptime_slice_range(
-    range: ComptimeSliceRange,
+    range: EarlyComptimeSliceRange,
 ) -> Result<ResolvedComptimeSliceRange, ComptimeLowerError> {
     Ok(ResolvedComptimeSliceRange {
         start: range
@@ -1785,7 +1801,7 @@ fn resolve_comptime_slice_range(
 }
 
 fn resolve_comptime_field_init(
-    field: ComptimeFieldInit,
+    field: EarlyComptimeFieldInit,
 ) -> Result<ResolvedComptimeFieldInit, ComptimeLowerError> {
     Ok(ResolvedComptimeFieldInit {
         span: field.span,
@@ -1795,7 +1811,7 @@ fn resolve_comptime_field_init(
 }
 
 pub fn resolve_type_arg(
-    type_arg: ComptimeTypeArg,
+    type_arg: EarlyComptimeTypeArg,
 ) -> Result<ResolvedComptimeTypeArg, ComptimeLowerError> {
     Ok(ResolvedComptimeTypeArg {
         span: type_arg.span,
@@ -1816,7 +1832,7 @@ fn unresolved_error(span: Span, what: &str) -> ComptimeLowerError {
 pub fn lower_function_early(
     function_span: Span,
     function: &nia_ast::FunctionItem,
-) -> Result<ComptimeFunction, ComptimeLowerError> {
+) -> Result<EarlyComptimeFunction, ComptimeLowerError> {
     lower_function_internal(
         function_span,
         function,
@@ -1828,7 +1844,7 @@ fn lower_function_internal(
     function_span: Span,
     function: &nia_ast::FunctionItem,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeFunction, ComptimeLowerError> {
+) -> Result<EarlyComptimeFunction, ComptimeLowerError> {
     if !function.is_comptime || function.is_extern {
         return Err(ComptimeLowerError {
             span: function_span,
@@ -1851,7 +1867,7 @@ fn lower_function_internal(
                     message: "comptime function parameter requires a name".to_string(),
                 });
             };
-            Ok(ComptimeParam {
+            Ok(EarlyComptimeParam {
                 span: param.span,
                 name: name.clone(),
                 local_id: lower_local_id(context, param.span)?,
@@ -1864,7 +1880,7 @@ fn lower_function_internal(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(ComptimeFunction {
+    Ok(EarlyComptimeFunction {
         span: function_span,
         params,
         body: lower_block_with_context(body, context)?,
@@ -1883,8 +1899,8 @@ pub fn lower_function_resolved_with_context(
 fn lower_block_with_context(
     block: &nia_ast::Block,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeBlock, ComptimeLowerError> {
-    Ok(ComptimeBlock {
+) -> Result<EarlyComptimeBlock, ComptimeLowerError> {
+    Ok(EarlyComptimeBlock {
         span: block.span,
         stmts: block
             .stmts
@@ -1903,7 +1919,7 @@ fn lower_block_with_context(
 fn lower_stmt_with_context(
     stmt: &nia_ast::Stmt,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeStmt, ComptimeLowerError> {
+) -> Result<EarlyComptimeStmt, ComptimeLowerError> {
     let kind = match &stmt.kind {
         nia_ast::StmtKind::Binding(binding) => {
             let Some(value) = &binding.value else {
@@ -1912,7 +1928,7 @@ fn lower_stmt_with_context(
                     message: "comptime function binding requires an initializer".to_string(),
                 });
             };
-            ComptimeStmtKind::Binding(ComptimeBinding {
+            EarlyComptimeStmtKind::Binding(EarlyComptimeBinding {
                 span: stmt.span,
                 name: binding.name.clone(),
                 local_id: lower_local_id(context, stmt.span)?,
@@ -1927,16 +1943,16 @@ fn lower_stmt_with_context(
             })
         }
         nia_ast::StmtKind::Expr(expr) => lower_expr_stmt_with_context(expr, context)?,
-        nia_ast::StmtKind::Return(value) => ComptimeStmtKind::Return(
+        nia_ast::StmtKind::Return(value) => EarlyComptimeStmtKind::Return(
             value
                 .as_ref()
                 .map(|value| lower_expr_internal(value, context))
                 .transpose()?,
         ),
-        nia_ast::StmtKind::Break => ComptimeStmtKind::Break,
-        nia_ast::StmtKind::Continue => ComptimeStmtKind::Continue,
-        nia_ast::StmtKind::ForIn(for_in) => ComptimeStmtKind::ForIn(ComptimeForIn {
-            binding: ComptimeForBinding {
+        nia_ast::StmtKind::Break => EarlyComptimeStmtKind::Break,
+        nia_ast::StmtKind::Continue => EarlyComptimeStmtKind::Continue,
+        nia_ast::StmtKind::ForIn(for_in) => EarlyComptimeStmtKind::ForIn(EarlyComptimeForIn {
+            binding: EarlyComptimeForBinding {
                 span: for_in.binding.span,
                 name: for_in.binding.name.clone(),
                 local_id: lower_local_id(context, for_in.binding.span)?,
@@ -1944,11 +1960,11 @@ fn lower_stmt_with_context(
             iter: lower_expr_internal(&for_in.iter, context)?,
             body: lower_block_with_context(&for_in.body, context)?,
         }),
-        nia_ast::StmtKind::While(while_stmt) => ComptimeStmtKind::While {
+        nia_ast::StmtKind::While(while_stmt) => EarlyComptimeStmtKind::While {
             cond: lower_expr_internal(&while_stmt.cond, context)?,
             body: lower_block_with_context(&while_stmt.body, context)?,
         },
-        nia_ast::StmtKind::Loop(loop_stmt) => ComptimeStmtKind::Loop {
+        nia_ast::StmtKind::Loop(loop_stmt) => EarlyComptimeStmtKind::Loop {
             body: lower_block_with_context(&loop_stmt.body, context)?,
         },
         _ => {
@@ -1958,7 +1974,7 @@ fn lower_stmt_with_context(
             });
         }
     };
-    Ok(ComptimeStmt {
+    Ok(EarlyComptimeStmt {
         span: stmt.span,
         kind,
     })
@@ -1967,13 +1983,13 @@ fn lower_stmt_with_context(
 fn lower_expr_stmt_with_context(
     expr: &nia_ast::Expr,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeStmtKind, ComptimeLowerError> {
+) -> Result<EarlyComptimeStmtKind, ComptimeLowerError> {
     match &expr.kind {
         nia_ast::ExprKind::If {
             cond,
             then_branch,
             else_branch,
-        } => Ok(ComptimeStmtKind::If {
+        } => Ok(EarlyComptimeStmtKind::If {
             cond: lower_expr_internal(cond, context)?,
             then_branch: lower_block_with_context(then_branch, context)?,
             else_branch: else_branch
@@ -1981,25 +1997,27 @@ fn lower_expr_stmt_with_context(
                 .map(|else_branch| lower_if_stmt_else_branch_with_context(else_branch, context))
                 .transpose()?,
         }),
-        _ => Ok(ComptimeStmtKind::Expr(lower_expr_internal(expr, context)?)),
+        _ => Ok(EarlyComptimeStmtKind::Expr(lower_expr_internal(
+            expr, context,
+        )?)),
     }
 }
 
 fn lower_if_stmt_else_branch_with_context(
     expr: &nia_ast::Expr,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeBlock, ComptimeLowerError> {
+) -> Result<EarlyComptimeBlock, ComptimeLowerError> {
     match &expr.kind {
         nia_ast::ExprKind::Block(block) => lower_block_with_context(block, context),
-        nia_ast::ExprKind::If { .. } => Ok(ComptimeBlock {
+        nia_ast::ExprKind::If { .. } => Ok(EarlyComptimeBlock {
             span: expr.span,
-            stmts: vec![ComptimeStmt {
+            stmts: vec![EarlyComptimeStmt {
                 span: expr.span,
                 kind: lower_expr_stmt_with_context(expr, context)?,
             }],
             tail: None,
         }),
-        _ => Ok(ComptimeBlock {
+        _ => Ok(EarlyComptimeBlock {
             span: expr.span,
             stmts: Vec::new(),
             tail: Some(Box::new(lower_expr_internal(expr, context)?)),
@@ -2011,8 +2029,8 @@ fn lower_switch_with_context(
     span: Span,
     switch: &nia_ast::SwitchStmt,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeSwitch, ComptimeLowerError> {
-    Ok(ComptimeSwitch {
+) -> Result<EarlyComptimeSwitch, ComptimeLowerError> {
+    Ok(EarlyComptimeSwitch {
         span,
         target: lower_expr_internal(&switch.target, context)?,
         arms: switch
@@ -2026,8 +2044,8 @@ fn lower_switch_with_context(
 fn lower_switch_arm_with_context(
     arm: &nia_ast::SwitchArm,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeSwitchArm, ComptimeLowerError> {
-    Ok(ComptimeSwitchArm {
+) -> Result<EarlyComptimeSwitchArm, ComptimeLowerError> {
+    Ok(EarlyComptimeSwitchArm {
         span: arm.span,
         patterns: arm
             .patterns
@@ -2041,38 +2059,40 @@ fn lower_switch_arm_with_context(
 fn lower_switch_pattern_with_context(
     pattern: &nia_ast::SwitchPattern,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeSwitchPattern, ComptimeLowerError> {
+) -> Result<EarlyComptimeSwitchPattern, ComptimeLowerError> {
     match pattern {
-        nia_ast::SwitchPattern::Default => Ok(ComptimeSwitchPattern::Default),
+        nia_ast::SwitchPattern::Default => Ok(EarlyComptimeSwitchPattern::Default),
         nia_ast::SwitchPattern::OptionalSome { name, span } => {
-            Ok(ComptimeSwitchPattern::OptionalSome {
+            Ok(EarlyComptimeSwitchPattern::OptionalSome {
                 name: name.clone(),
                 local_id: lower_local_id(context, *span)?,
                 span: *span,
             })
         }
         nia_ast::SwitchPattern::OptionalNull { span } => {
-            Ok(ComptimeSwitchPattern::OptionalNull { span: *span })
+            Ok(EarlyComptimeSwitchPattern::OptionalNull { span: *span })
         }
-        nia_ast::SwitchPattern::ErrorOk { name, span } => Ok(ComptimeSwitchPattern::ErrorOk {
+        nia_ast::SwitchPattern::ErrorOk { name, span } => Ok(EarlyComptimeSwitchPattern::ErrorOk {
             name: name.clone(),
             local_id: lower_local_id(context, *span)?,
             span: *span,
         }),
-        nia_ast::SwitchPattern::ErrorErr { name, span } => Ok(ComptimeSwitchPattern::ErrorErr {
-            name: name.clone(),
-            local_id: lower_local_id(context, *span)?,
-            span: *span,
-        }),
+        nia_ast::SwitchPattern::ErrorErr { name, span } => {
+            Ok(EarlyComptimeSwitchPattern::ErrorErr {
+                name: name.clone(),
+                local_id: lower_local_id(context, *span)?,
+                span: *span,
+            })
+        }
         nia_ast::SwitchPattern::Expr(expr) => {
-            lower_expr_internal(expr, context).map(ComptimeSwitchPattern::Expr)
+            lower_expr_internal(expr, context).map(EarlyComptimeSwitchPattern::Expr)
         }
         nia_ast::SwitchPattern::Range {
             start,
             end,
             inclusive,
             span,
-        } => Ok(ComptimeSwitchPattern::Range {
+        } => Ok(EarlyComptimeSwitchPattern::Range {
             start: lower_expr_internal(start, context)?,
             end: lower_expr_internal(end, context)?,
             inclusive: *inclusive,
@@ -2084,16 +2104,16 @@ fn lower_switch_pattern_with_context(
 fn lower_switch_arm_body_with_context(
     body: &nia_ast::SwitchArmBody,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeSwitchArmBody, ComptimeLowerError> {
+) -> Result<EarlyComptimeSwitchArmBody, ComptimeLowerError> {
     match body {
         nia_ast::SwitchArmBody::Expr(expr) => {
-            lower_expr_internal(expr, context).map(ComptimeSwitchArmBody::Expr)
+            lower_expr_internal(expr, context).map(EarlyComptimeSwitchArmBody::Expr)
         }
         nia_ast::SwitchArmBody::Stmt(stmt) => {
-            lower_stmt_with_context(stmt, context).map(ComptimeSwitchArmBody::Stmt)
+            lower_stmt_with_context(stmt, context).map(EarlyComptimeSwitchArmBody::Stmt)
         }
         nia_ast::SwitchArmBody::Block(block) => {
-            lower_block_with_context(block, context).map(ComptimeSwitchArmBody::Block)
+            lower_block_with_context(block, context).map(EarlyComptimeSwitchArmBody::Block)
         }
     }
 }
@@ -2101,8 +2121,8 @@ fn lower_switch_arm_body_with_context(
 fn lower_field_init_with_context(
     field: &nia_ast::FieldInit,
     context: &dyn ComptimeLowerContext,
-) -> Result<ComptimeFieldInit, ComptimeLowerError> {
-    Ok(ComptimeFieldInit {
+) -> Result<EarlyComptimeFieldInit, ComptimeLowerError> {
+    Ok(EarlyComptimeFieldInit {
         span: field.span,
         name: field.name.clone(),
         value: lower_expr_internal(&field.value, context)?,
@@ -2117,10 +2137,10 @@ mod tests {
         Span::new(0, 1)
     }
 
-    fn int_expr(value: &str) -> ComptimeExpr {
-        ComptimeExpr {
+    fn int_expr(value: &str) -> EarlyComptimeExpr {
+        EarlyComptimeExpr {
             span: span(),
-            kind: ComptimeExprKind::Integer(value.to_string()),
+            kind: EarlyComptimeExprKind::Integer(value.to_string()),
         }
     }
 
@@ -2145,9 +2165,9 @@ mod tests {
 
     #[test]
     fn resolved_expr_rejects_unresolved_names() {
-        let expr = ComptimeExpr {
+        let expr = EarlyComptimeExpr {
             span: span(),
-            kind: ComptimeExprKind::Ident {
+            kind: EarlyComptimeExprKind::Ident {
                 name: "x".to_string(),
                 resolution: None,
             },
@@ -2159,10 +2179,10 @@ mod tests {
 
     #[test]
     fn resolved_expr_rejects_unresolved_assignment_targets() {
-        let expr = ComptimeExpr {
+        let expr = EarlyComptimeExpr {
             span: span(),
-            kind: ComptimeExprKind::Assign(Box::new(ComptimeAssign {
-                lhs: ComptimeAssignTarget::Local {
+            kind: EarlyComptimeExprKind::Assign(Box::new(EarlyComptimeAssign {
+                lhs: EarlyComptimeAssignTarget::Local {
                     span: span(),
                     name: "x".to_string(),
                     local_id: None,
@@ -2180,15 +2200,15 @@ mod tests {
 
     #[test]
     fn resolved_function_rejects_unresolved_locals() {
-        let function = ComptimeFunction {
+        let function = EarlyComptimeFunction {
             span: span(),
-            params: vec![ComptimeParam {
+            params: vec![EarlyComptimeParam {
                 span: span(),
                 name: "x".to_string(),
                 local_id: None,
                 ty: None,
             }],
-            body: ComptimeBlock {
+            body: EarlyComptimeBlock {
                 span: span(),
                 stmts: Vec::new(),
                 tail: None,
@@ -2205,11 +2225,11 @@ mod tests {
 
     #[test]
     fn resolved_expr_rejects_unresolved_type_args() {
-        let expr = ComptimeExpr {
+        let expr = EarlyComptimeExpr {
             span: span(),
-            kind: ComptimeExprKind::LayoutBuiltin {
+            kind: EarlyComptimeExprKind::LayoutBuiltin {
                 builtin: LayoutBuiltin::Size,
-                type_arg: ComptimeTypeArg {
+                type_arg: EarlyComptimeTypeArg {
                     span: span(),
                     ty_span: span(),
                     ty: None,

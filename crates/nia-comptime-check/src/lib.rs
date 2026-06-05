@@ -4836,7 +4836,7 @@ mod tests {
         ComptimeCheck, ComptimeInput, ComptimeKey, ComptimeModuleInput, ComptimeModuleLowering,
         ComptimeProgramContext, ComptimeValueType, check_module_comptime, lower_module_comptime,
     };
-    use nia_comptime_ir::{ComptimeExpr, ComptimeExprKind, ComptimeTypeArg};
+    use nia_comptime_ir::{EarlyComptimeExpr, EarlyComptimeExprKind, EarlyComptimeTypeArg};
     use nia_defs::{DefCollection, DefKind, ModuleId, collect_module_defs};
     use nia_item_signatures::collect_item_signatures;
     use nia_local_resolve::{LocalResolution, resolve_module_locals};
@@ -5026,11 +5026,11 @@ comptime fn add_one(x: usize) usize {
 
     #[test]
     fn layout_builtin_requires_resolved_type_arg() {
-        let expr = ComptimeExpr {
+        let expr = EarlyComptimeExpr {
             span: Span::new(0, 1),
-            kind: ComptimeExprKind::LayoutBuiltin {
+            kind: EarlyComptimeExprKind::LayoutBuiltin {
                 builtin: nia_ids::LayoutBuiltin::Size,
-                type_arg: ComptimeTypeArg {
+                type_arg: EarlyComptimeTypeArg {
                     span: Span::new(0, 1),
                     ty_span: Span::new(0, 1),
                     ty: None,

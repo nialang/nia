@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use nia_ast::{ArrayElements, BindingItem, Expr, ExprKind, IndexArg, ItemKind, Module, UnaryOp};
 use nia_comptime_check::{ComptimeCheck, ComptimeKey};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, EarlyComptimeEnv};
-use nia_comptime_ir::ComptimeTypeArg;
+use nia_comptime_ir::EarlyComptimeTypeArg;
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
@@ -294,7 +294,7 @@ impl StaticChecker<'_> {
         &self,
         expr: &Expr,
         eval: impl FnOnce(
-            &nia_comptime_ir::ComptimeExpr,
+            &nia_comptime_ir::EarlyComptimeExpr,
             &mut StaticComptimeEnv<'_>,
         ) -> Result<T, nia_comptime_engine::ComptimeError>,
     ) -> Result<T, nia_comptime_engine::ComptimeError> {
@@ -454,7 +454,7 @@ impl EarlyComptimeEnv for StaticComptimeEnv<'_> {
         &mut self,
         span: Span,
         _builtin: nia_ids::LayoutBuiltin,
-        _type_arg: &ComptimeTypeArg,
+        _type_arg: &EarlyComptimeTypeArg,
     ) -> Result<ComptimeValue, ComptimeError> {
         Err(ComptimeError {
             span,
