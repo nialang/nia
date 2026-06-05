@@ -29,19 +29,22 @@ fn semantic_use_table(
     type_lowering: &TypeLowering,
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
-    for (span, local_use) in &locals.uses {
+    for (key, local_use) in &locals.node_uses {
         if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-            builder.insert_local_value_use(*span, *local_id);
+            builder.insert_node_local_value_use(key.clone(), *local_id);
         }
     }
-    for (span, global_id) in &values.qualified_values {
-        builder.insert_global_value_use(*span, *global_id);
-    }
-    for (span, resolution) in &values.names {
+    builder.extend_node_global_value_uses(
+        values
+            .node_qualified_values
+            .iter()
+            .map(|(key, global_id)| (key.clone(), *global_id)),
+    );
+    for (key, resolution) in &values.node_names {
         match resolution {
             nia_value_resolve::ValueNameResolution::Def(def_id) => {
-                builder.insert_global_value_use(
-                    *span,
+                builder.insert_node_global_value_use(
+                    key.clone(),
                     GlobalDefId {
                         module_id,
                         def_id: *def_id,
@@ -49,24 +52,24 @@ fn semantic_use_table(
                 );
             }
             nia_value_resolve::ValueNameResolution::External(global_id) => {
-                builder.insert_global_value_use(*span, *global_id);
+                builder.insert_node_global_value_use(key.clone(), *global_id);
             }
             nia_value_resolve::ValueNameResolution::ImportAlias
             | nia_value_resolve::ValueNameResolution::LocalDeferred
             | nia_value_resolve::ValueNameResolution::Error => {}
         }
     }
-    builder.extend_local_defs(
+    builder.extend_node_local_defs(
         locals
-            .local_defs
+            .node_local_defs
             .iter()
-            .map(|(span, local_id)| (*span, *local_id)),
+            .map(|(key, local_id)| (key.clone(), *local_id)),
     );
-    builder.extend_type_uses(
+    builder.extend_node_type_uses(
         type_lowering
-            .type_uses
+            .node_type_uses
             .iter()
-            .map(|(span, ty)| (*span, *ty)),
+            .map(|(key, ty)| (key.clone(), *ty)),
     );
     builder.finish()
 }
@@ -172,6 +175,7 @@ fn main() i32 {
             },
             trait_id: None,
             trait_args: Vec::new(),
+            where_predicates: Vec::new(),
         },
     );
     let origins = NodeOriginTable::default();
@@ -237,6 +241,8 @@ fn main() i32 {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_extensions: &HashMap::new(),
+        program_type_interners: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
         trait_impls: &[],
@@ -2696,6 +2702,7 @@ fn main() i32 {
                 def_id: add_id,
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),
+                where_predicates: Vec::new(),
             },
         );
     };
@@ -2879,6 +2886,7 @@ fn main() i32 {
                 def_id: add_id,
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),
+                where_predicates: Vec::new(),
             },
         );
     };
@@ -4450,6 +4458,8 @@ fn lower_source_with_body_check_mutation_and_optimization(
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_extensions: &HashMap::new(),
+        program_type_interners: &HashMap::new(),
         program_enums: &HashMap::new(),
         program_traits: &HashMap::new(),
         trait_impls: &[],

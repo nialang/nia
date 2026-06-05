@@ -46,8 +46,12 @@ fn main() i32 { 0 }
 #[test]
 fn parses_ast_from_lossless_syntax_tree() {
     let source = "fn  main() i32 { // retained by syntax\n  0\n}\n";
-    let syntax = nia_syntax::parse_source(source, None);
-    let (from_source, source_errors) = parse_module(source);
+    let version = SourceVersion {
+        id: SourceId(8),
+        revision: SourceRevision(1),
+    };
+    let syntax = nia_syntax::parse_source(source, Some(version));
+    let (from_source, source_errors) = parse_module_syntax(&syntax);
     let (from_syntax, syntax_errors) = parse_module_syntax(&syntax);
 
     assert_eq!(syntax.full_text(), source);

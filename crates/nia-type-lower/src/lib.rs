@@ -10,6 +10,7 @@ use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{ConstExprId, GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::{
     ArrayLenTy, AssociatedTypeBindingTy, BuiltinTrait, LayoutBuiltin, PrimitiveTy, RangeTyKind,
@@ -20,7 +21,7 @@ use nia_type_resolve::{PrimitiveType, TypeNameResolution, TypeResolution};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeLowering {
     pub interner: TyInterner,
-    pub type_uses: HashMap<Span, InternedTyId>,
+    pub node_type_uses: HashMap<NodeKey, InternedTyId>,
     pub const_exprs: HashMap<GlobalConstExprId, Expr>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -107,7 +108,7 @@ fn lower_module_types_from_items(
         resolved,
         program_defs,
         interner: TyInterner::new(module_id),
-        type_uses: HashMap::new(),
+        node_type_uses: HashMap::new(),
         const_exprs: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
@@ -119,7 +120,7 @@ fn lower_module_types_from_items(
     }
     TypeLowering {
         interner: lowerer.interner,
-        type_uses: lowerer.type_uses,
+        node_type_uses: lowerer.node_type_uses,
         const_exprs: lowerer.const_exprs,
         diagnostics: lowerer.diagnostics,
     }
@@ -130,7 +131,7 @@ struct TypeLowerer<'a> {
     resolved: &'a TypeResolution,
     program_defs: ProgramDefsContext<'a>,
     interner: TyInterner,
-    type_uses: HashMap<Span, InternedTyId>,
+    node_type_uses: HashMap<NodeKey, InternedTyId>,
     const_exprs: HashMap<GlobalConstExprId, Expr>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
@@ -388,7 +389,7 @@ impl TypeLowerer<'_> {
 impl<'a> TypeLowerer<'a> {
     fn lower_type_in_context(&mut self, ty: &TypeRef, context: TypeContext) -> InternedTyId {
         let lowered = self.lower_type(ty, context);
-        self.type_uses.insert(ty.span, lowered);
+        self.node_type_uses.insert(ty.node_key.clone(), lowered);
         if context == TypeContext::Value
             && let Some(message) = self.invalid_value_type_message(lowered)
         {
@@ -481,7 +482,7 @@ impl<'a> TypeLowerer<'a> {
                 let Some(type_segment) = type_name_segment(segments) else {
                     return self.interner.error();
                 };
-                match self.resolved.type_names.get(&ty.span).copied() {
+                match self.resolved.node_type_names.get(&ty.node_key).copied() {
                     Some(TypeNameResolution::Primitive(primitive)) => {
                         self.interner.primitive(lower_primitive(primitive))
                     }
@@ -494,8 +495,8 @@ impl<'a> TypeLowerer<'a> {
                     Some(TypeNameResolution::Def(def_id)) => {
                         let def_id = self
                             .resolved
-                            .qualified_type_names
-                            .get(&ty.span)
+                            .node_qualified_type_names
+                            .get(&ty.node_key)
                             .copied()
                             .unwrap_or(GlobalDefId {
                                 module_id: self.module_id,
@@ -676,15 +677,15 @@ impl<'a> TypeLowerer<'a> {
             return None;
         };
         let type_segment = type_name_segment(segments)?;
-        match self.resolved.type_names.get(&ty.span).copied() {
+        match self.resolved.node_type_names.get(&ty.node_key).copied() {
             Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
                 Some(self.lower_builtin_trait_object(ty.span, is_readonly, type_segment, trait_id))
             }
             Some(TypeNameResolution::Def(def_id)) => {
                 let def_id = self
                     .resolved
-                    .qualified_type_names
-                    .get(&ty.span)
+                    .node_qualified_type_names
+                    .get(&ty.node_key)
                     .copied()
                     .unwrap_or(GlobalDefId {
                         module_id: self.module_id,
@@ -1222,19 +1223,19 @@ fn make(ptr: &u8, cb: &fn(i32) void) [4]Box[i32] {
         );
         assert!(
             lowered
-                .type_uses
+                .node_type_uses
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Nominal { .. })))
         );
         assert!(
             lowered
-                .type_uses
+                .node_type_uses
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Array { .. })))
         );
         assert!(
             lowered
-                .type_uses
+                .node_type_uses
                 .values()
                 .any(|ty_id| matches!(lowered.interner.get(*ty_id), Some(TyKind::Pointer { .. })))
         );
@@ -1384,7 +1385,7 @@ fn write(source: &mut Source[i32, Item = i32]) void {}
         );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
         let trait_objects = lowered
-            .type_uses
+            .node_type_uses
             .values()
             .filter_map(|ty| match lowered.interner.get(*ty) {
                 Some(TyKind::TraitObject {
@@ -1521,7 +1522,7 @@ comptime if false {
             ProgramDefsContext::empty(),
         );
         assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
-        assert!(lowered.type_uses.values().any(|ty| matches!(
+        assert!(lowered.node_type_uses.values().any(|ty| matches!(
             lowered.interner.get(*ty),
             Some(TyKind::Primitive(PrimitiveTy::I32))
         )));

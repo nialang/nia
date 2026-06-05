@@ -114,7 +114,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere",
+                    right: "map an import root; may appear anywhere; `root` is reserved",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -147,7 +147,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "exe <file.nia>",
-                    right: "link a hosted executable",
+                    right: "link a freestanding executable",
                 },
             ],
             options: GLOBAL_OPTIONS,
@@ -175,7 +175,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere",
+                    right: "map an import root; may appear anywhere; `root` is reserved",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -204,7 +204,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere",
+                    right: "map an import root; may appear anywhere; `root` is reserved",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -243,7 +243,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere",
+                    right: "map an import root; may appear anywhere; `root` is reserved",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -264,7 +264,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
         },
         HelpTopic::EmitExe => HelpDoc {
             title: "nia emit exe",
-            about: "Write native objects to a temporary directory, then invoke the host C linker.",
+            about: "Write native objects to a temporary directory, then invoke the target linker without CRT startup.",
             usage: &["nia emit exe <file.nia> [-o <executable>] [--opt-report] [options]"],
             commands: &[],
             options: &[
@@ -282,7 +282,7 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
                 },
                 HelpRow {
                     left: "-M, --module <name=path>",
-                    right: "map an import root; may appear anywhere",
+                    right: "map an import root; may appear anywhere; `root` is reserved",
                 },
                 HelpRow {
                     left: "-h, --help",
@@ -296,7 +296,8 @@ fn help_doc(topic: HelpTopic) -> HelpDoc {
             ],
             notes: &[
                 "The optimization report is written to stderr so the executable path remains the only file output.",
-                "The linker is selected with CC, or `cc` when CC is not set.",
+                "The linker is selected with NIA_LINKER, or the target default linker when NIA_LINKER is not set.",
+                "The default executable runtime is freestanding and enters through the injected std.start facade; the current implementation is Linux x86_64.",
                 "Missing parent directories for -o are created automatically.",
             ],
         },
@@ -310,7 +311,7 @@ const GLOBAL_OPTIONS: &[HelpRow] = &[
     },
     HelpRow {
         left: "-M, --module <name=path>",
-        right: "map an import root; may appear anywhere",
+        right: "map an import root; may appear anywhere; `root` is reserved",
     },
     HelpRow {
         left: "-h, --help",

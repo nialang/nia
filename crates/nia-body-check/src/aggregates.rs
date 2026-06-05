@@ -13,6 +13,7 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
 use nia_item_signatures::{EnumSignature, StructSignature};
+use nia_local_resolve::LocalKind;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
@@ -28,7 +29,7 @@ impl<'a> BodyChecker<'a> {
             return self.check_expr(expr);
         };
         let ty = self.infer_array_literal_type(expr.span, elems);
-        self.record_expr_type(expr.span, ty);
+        self.record_expr_node_type(expr, ty);
         ty
     }
 
@@ -129,7 +130,7 @@ impl<'a> BodyChecker<'a> {
                     nia_ast::ArrayElements::Repeat { count, .. } => {
                         match self.eval_array_repeat_count(count) {
                             Ok(value) => {
-                                self.record_array_repeat_count(count.span, value);
+                                self.record_array_repeat_count(count, value);
                                 value
                             }
                             Err(err) => {
@@ -156,7 +157,7 @@ impl<'a> BodyChecker<'a> {
                 match explicit_array_literal_len(self, elems) {
                     Ok(Some(actual)) => {
                         if let nia_ast::ArrayElements::Repeat { count, .. } = elems {
-                            self.record_array_repeat_count(count.span, actual);
+                            self.record_array_repeat_count(count, actual);
                         }
                         match self.array_len_value(span, &expected) {
                             Ok(expected_value) => match check_array_literal_len(
@@ -349,16 +350,20 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn check_field_access(
         &mut self,
-        span: Span,
+        expr: &Expr,
         lhs: &Expr,
         name: &str,
     ) -> InternedTyId {
+        let span = expr.span;
         if let Some(ty) = self.comptime_field_expr_runtime_type(lhs, name) {
             return ty;
         }
-        if self.values.qualified_values.contains_key(&span) {
+        if matches!(
+            self.semantic_uses.node_value_use(&expr.node_key),
+            Some(SemanticValueUse::Global(_))
+        ) {
             return self
-                .qualified_global_type(span)
+                .qualified_global_type(expr)
                 .unwrap_or_else(|| self.error());
         }
         if let Some(ty) = self.check_enum_variant_access(span, lhs, name) {
@@ -472,8 +477,12 @@ impl<'a> BodyChecker<'a> {
         self.substitute_generics(field.ty, &substitutions)
     }
 
-    pub(crate) fn qualified_global_type(&mut self, span: Span) -> Option<InternedTyId> {
-        let def_id = self.values.qualified_values.get(&span).copied()?;
+    pub(crate) fn qualified_global_type(&mut self, expr: &Expr) -> Option<InternedTyId> {
+        let Some(SemanticValueUse::Global(def_id)) =
+            self.semantic_uses.node_value_use(&expr.node_key)
+        else {
+            return None;
+        };
         if def_id.module_id == self.defs.module_id {
             return self
                 .global_types
@@ -533,6 +542,10 @@ impl<'a> BodyChecker<'a> {
         let program_signature = self.program_structs.get(&def_id)?.clone();
         let signature = StructSignature {
             generics: program_signature.signature.generics,
+            where_predicates: self.import_where_predicates_from(
+                &program_signature.interner,
+                &program_signature.signature.where_predicates,
+            ),
             fields: program_signature
                 .signature
                 .fields
@@ -561,6 +574,10 @@ impl<'a> BodyChecker<'a> {
         let program_signature = self.program_unions.get(&def_id)?.clone();
         let signature = nia_item_signatures::UnionSignature {
             generics: program_signature.signature.generics,
+            where_predicates: self.import_where_predicates_from(
+                &program_signature.interner,
+                &program_signature.signature.where_predicates,
+            ),
             fields: program_signature
                 .signature
                 .fields
@@ -948,7 +965,7 @@ impl<'a> BodyChecker<'a> {
 
     fn comptime_semantic_uses(&self) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
-        for (span, value_use) in &self.semantic_uses.value_uses {
+        for (key, value_use) in &self.semantic_uses.node_value_uses {
             match value_use {
                 SemanticValueUse::Local(local_id)
                     if self
@@ -956,27 +973,31 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .rev()
                         .any(|frame| frame.locals.contains_key(local_id))
-                        || self.local_comptime_use(*span).is_some() =>
+                        || self
+                            .locals
+                            .locals
+                            .get(*local_id)
+                            .is_some_and(|local| local.kind == LocalKind::ComptimeBinding) =>
                 {
-                    builder.insert_local_value_use(*span, *local_id);
+                    builder.insert_node_local_value_use(key.clone(), *local_id);
                 }
                 SemanticValueUse::Global(global_id) => {
-                    builder.insert_global_value_use(*span, *global_id);
+                    builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
                 SemanticValueUse::Local(_) => {}
             }
         }
-        builder.extend_local_defs(
+        builder.extend_node_local_defs(
             self.semantic_uses
-                .local_defs
+                .node_local_defs
                 .iter()
-                .map(|(span, local_id)| (*span, *local_id)),
+                .map(|(key, local_id)| (key.clone(), *local_id)),
         );
-        builder.extend_type_uses(
+        builder.extend_node_type_uses(
             self.semantic_uses
-                .type_uses
+                .node_type_uses
                 .iter()
-                .map(|(span, ty)| (*span, *ty)),
+                .map(|(key, ty)| (key.clone(), *ty)),
         );
         builder.finish()
     }
@@ -994,8 +1015,9 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    fn record_array_repeat_count(&mut self, span: Span, value: u64) {
-        self.array_repeat_counts.insert(span, value);
+    fn record_array_repeat_count(&mut self, expr: &Expr, value: u64) {
+        self.node_array_repeat_counts
+            .insert(expr.node_key.clone(), value);
     }
 
     fn instantiate_resolved_comptime_function_generics(
@@ -1034,6 +1056,7 @@ impl<'a> BodyChecker<'a> {
             signature,
             type_args,
             arg_exprs,
+            None,
         )
     }
 
@@ -1093,12 +1116,14 @@ impl<'a> BodyChecker<'a> {
         self.substitute_generics(ty, &substitutions)
     }
 
-    pub(crate) fn local_comptime_use(&self, span: Span) -> Option<LocalId> {
-        let Some(nia_local_resolve::LocalUse::Local(local_id)) = self.locals.uses.get(&span) else {
+    pub(crate) fn local_comptime_use(&self, expr: &Expr) -> Option<LocalId> {
+        let Some(SemanticValueUse::Local(local_id)) =
+            self.semantic_uses.node_value_use(&expr.node_key)
+        else {
             return None;
         };
-        let local = self.locals.locals.get(*local_id)?;
-        (local.kind == nia_local_resolve::LocalKind::ComptimeBinding).then_some(*local_id)
+        let local = self.locals.locals.get(local_id)?;
+        (local.kind == nia_local_resolve::LocalKind::ComptimeBinding).then_some(local_id)
     }
 
     fn comptime_call_local_value(&self, local_id: LocalId) -> Option<ComptimeValue> {
@@ -1157,20 +1182,13 @@ impl<'a> BodyChecker<'a> {
         })
     }
 
-    pub(crate) fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
-        if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
-            if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
-                return Some(global_id);
-            }
-            return None;
-        }
-        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
-            self.values.names.get(&span)
+    pub(crate) fn global_comptime_use(&self, expr: &Expr) -> Option<GlobalDefId> {
+        let Some(SemanticValueUse::Global(global_id)) =
+            self.semantic_uses.node_value_use(&expr.node_key)
         else {
             return None;
         };
-        let def = self.defs.defs.get(*def_id)?;
-        (def.kind == DefKind::Comptime).then_some(self.global_def_id(*def_id))
+        (self.global_def_kind(global_id) == Some(DefKind::Comptime)).then_some(global_id)
     }
 
     pub(crate) fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {

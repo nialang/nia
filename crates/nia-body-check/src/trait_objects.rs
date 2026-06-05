@@ -65,8 +65,8 @@ impl<'a> BodyChecker<'a> {
         {
             return None;
         }
-        self.record_trait_object_upcast(
-            expr.span,
+        self.record_trait_object_node_upcast(
+            expr,
             TraitObjectUpcast {
                 source_ty: actual,
                 target_ty: expected,
@@ -148,8 +148,8 @@ impl<'a> BodyChecker<'a> {
         ) {
             return None;
         }
-        self.record_trait_object_coercion(
-            expr.span,
+        self.record_trait_object_node_coercion(
+            expr,
             TraitObjectCoercion {
                 source_ty: actual,
                 target_ty: expected,

@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use crate::BodyChecker;
 use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_item_signatures::{FunctionSignature, TraitImplSignature};
+use nia_item_signatures::{FunctionSignature, TraitImplSignature, WherePredicateSignature};
 use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{TraitId, TyKind};
@@ -45,14 +45,7 @@ impl<'a> BodyChecker<'a> {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
     ) -> TraitResolution {
-        let obligations = self
-            .current_def_id
-            .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
-            .and_then(|def_id| {
-                let signature = self.signatures.functions.get(&def_id)?.clone();
-                Some(self.function_signature_trait_obligations(def_id, &signature))
-            })
-            .unwrap_or_default();
+        let obligations = self.current_trait_obligations();
         let required = TraitObligation {
             self_ty,
             trait_id,
@@ -87,18 +80,26 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn current_trait_goals(&mut self) -> Vec<TraitGoal> {
+        self.current_trait_obligations()
+            .into_iter()
+            .map(TraitGoal::from)
+            .collect()
+    }
+
+    fn current_trait_obligations(&mut self) -> Vec<TraitObligation> {
         self.current_def_id
             .and_then(|def_id| (def_id.module_id == self.defs.module_id).then_some(def_id.def_id))
-            .and_then(|def_id| {
-                let signature = self.signatures.functions.get(&def_id)?.clone();
-                Some(
-                    self.function_signature_trait_obligations(def_id, &signature)
-                        .into_iter()
-                        .map(TraitGoal::from)
-                        .collect(),
-                )
-            })
+            .map(|def_id| self.def_trait_obligations(def_id))
             .unwrap_or_default()
+    }
+
+    fn def_trait_obligations(&mut self, def_id: DefId) -> Vec<TraitObligation> {
+        let mut obligations = Vec::new();
+        self.push_method_owner_trait_obligations(def_id, &mut obligations);
+        if let Some(signature) = self.signatures.functions.get(&def_id).cloned() {
+            self.push_where_predicate_obligations(&mut obligations, &signature.where_predicates);
+        }
+        obligations
     }
 
     fn function_signature_trait_obligations(
@@ -110,16 +111,285 @@ impl<'a> BodyChecker<'a> {
         if let Some(trait_obligation) = self.method_trait_obligation(def_id) {
             self.push_trait_obligation_with_supertraits(&mut obligations, trait_obligation);
         }
-        for predicate in &signature.where_predicates {
-            for bound in &predicate.bounds {
-                self.push_trait_obligation_from_bound(
-                    &mut obligations,
+        self.push_where_predicate_obligations(&mut obligations, &signature.where_predicates);
+        obligations
+    }
+
+    fn push_method_owner_trait_obligations(
+        &mut self,
+        def_id: DefId,
+        obligations: &mut Vec<TraitObligation>,
+    ) {
+        if let Some(trait_obligation) = self.method_trait_obligation(def_id) {
+            self.push_trait_obligation_with_supertraits(obligations, trait_obligation);
+        }
+        let Some(method) = self.defs.defs.get(def_id) else {
+            return;
+        };
+        match method.kind {
+            DefKind::Method => {
+                if let Some(impl_signature) = self
+                    .trait_impl_signature_for_method(self.global_def_id(def_id))
+                    .cloned()
+                {
+                    self.push_where_predicate_obligations(
+                        obligations,
+                        &impl_signature.where_predicates,
+                    );
+                }
+                if let Some(owner_ty) = self.method_owner_type(def_id) {
+                    self.push_nominal_owner_where_obligations(obligations, owner_ty);
+                }
+            }
+            DefKind::TraitMethod => {
+                if let Some(parent) = method.parent
+                    && let Some(trait_signature) = self.signatures.traits.get(&parent).cloned()
+                {
+                    self.push_where_predicate_obligations(
+                        obligations,
+                        &trait_signature.where_predicates,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn push_nominal_owner_where_obligations(
+        &mut self,
+        obligations: &mut Vec<TraitObligation>,
+        owner_ty: InternedTyId,
+    ) {
+        let owner_ty = self.normalization.normalize(owner_ty);
+        let Some(TyKind::Nominal { def_id, args }) = self.interner.get(owner_ty).cloned() else {
+            return;
+        };
+        if def_id.module_id != self.defs.module_id {
+            return;
+        }
+        let Some(predicates) = self
+            .signatures
+            .structs
+            .get(&def_id.def_id)
+            .map(|signature| {
+                (
+                    signature.generics.clone(),
+                    signature.where_predicates.clone(),
+                )
+            })
+            .or_else(|| {
+                self.signatures.unions.get(&def_id.def_id).map(|signature| {
+                    (
+                        signature.generics.clone(),
+                        signature.where_predicates.clone(),
+                    )
+                })
+            })
+        else {
+            return;
+        };
+        let substitutions = predicates
+            .0
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect::<std::collections::HashMap<_, _>>();
+        let predicates = predicates
+            .1
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .collect::<Vec<_>>();
+        self.push_where_predicate_obligations(obligations, &predicates);
+    }
+
+    pub(crate) fn substitute_where_predicate(
+        &mut self,
+        predicate: &WherePredicateSignature,
+        substitutions: &std::collections::HashMap<String, InternedTyId>,
+    ) -> WherePredicateSignature {
+        WherePredicateSignature {
+            ty: self.substitute_ty(predicate.ty, substitutions),
+            bounds: predicate
+                .bounds
+                .iter()
+                .map(|bound| nia_item_signatures::WhereBoundSignature {
+                    trait_ty: self.substitute_ty(bound.trait_ty, substitutions),
+                    associated_type_bindings: bound
+                        .associated_type_bindings
+                        .iter()
+                        .map(
+                            |binding| nia_item_signatures::AssociatedTypeBindingSignature {
+                                name: binding.name.clone(),
+                                ty: self.substitute_ty(binding.ty, substitutions),
+                                span: binding.span,
+                            },
+                        )
+                        .collect(),
+                    span: bound.span,
+                })
+                .collect(),
+            span: predicate.span,
+        }
+    }
+
+    pub(crate) fn check_where_predicates_hold(
+        &mut self,
+        predicates: &[WherePredicateSignature],
+        substitutions: &std::collections::HashMap<String, InternedTyId>,
+        span: Span,
+    ) {
+        let predicates = predicates
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
+            .collect::<Vec<_>>();
+        for predicate in predicates {
+            for bound in predicate.bounds {
+                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
+                    continue;
+                };
+                if !self.current_context_proves_trait_obligation(
                     predicate.ty,
-                    bound.trait_ty,
-                );
+                    trait_id,
+                    trait_args.clone(),
+                ) {
+                    self.diagnostics.push(nia_diagnostic::Diagnostic::error(
+                        span,
+                        format!(
+                            "trait bound not satisfied: {}: {}",
+                            self.ty_name(predicate.ty),
+                            self.trait_ty_name(trait_id, &trait_args)
+                        ),
+                    ));
+                }
             }
         }
-        obligations
+    }
+
+    fn substitute_ty(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &std::collections::HashMap<String, InternedTyId>,
+    ) -> InternedTyId {
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::Slice { is_readonly, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.substitute_ty(bound, substitutions));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_ty(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_ty(return_type, substitutions);
+                self.interner.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.substitute_ty(error, substitutions);
+                let value = self.substitute_ty(value, substitutions);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.substitute_ty(arg, substitutions))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.substitute_ty(binding.ty, substitutions),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.substitute_ty(self_ty, substitutions);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
+            }
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => ty,
+        }
+    }
+
+    fn push_where_predicate_obligations(
+        &mut self,
+        obligations: &mut Vec<TraitObligation>,
+        predicates: &[WherePredicateSignature],
+    ) {
+        for predicate in predicates {
+            for bound in &predicate.bounds {
+                self.push_trait_obligation_from_bound(obligations, predicate.ty, bound.trait_ty);
+            }
+        }
     }
 
     fn method_trait_obligation(&mut self, def_id: DefId) -> Option<TraitObligation> {
@@ -160,7 +430,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn trait_impl_signature_for_method(
+    pub(crate) fn trait_impl_signature_for_method(
         &self,
         method_id: GlobalDefId,
     ) -> Option<&TraitImplSignature> {
@@ -413,10 +683,11 @@ impl<'a> BodyChecker<'a> {
                 self.check_type_projection_obligations(span, error, obligations);
                 self.check_type_projection_obligations(span, value, obligations);
             }
-            Some(TyKind::Nominal { args, .. }) => {
-                for arg in args {
-                    self.check_type_projection_obligations(span, arg, obligations);
+            Some(TyKind::Nominal { def_id, args }) => {
+                for arg in &args {
+                    self.check_type_projection_obligations(span, *arg, obligations);
                 }
+                self.check_nominal_where_obligations(span, def_id, &args, obligations);
             }
             Some(TyKind::BuiltinTrait { args, .. }) => {
                 for arg in args {
@@ -424,12 +695,16 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             Some(TyKind::TraitObject {
+                trait_id,
                 trait_args,
                 associated_type_bindings,
                 ..
             }) => {
-                for arg in trait_args {
-                    self.check_type_projection_obligations(span, arg, obligations);
+                for arg in &trait_args {
+                    self.check_type_projection_obligations(span, *arg, obligations);
+                }
+                if let TraitId::Source(def_id) = trait_id {
+                    self.check_nominal_where_obligations(span, def_id, &trait_args, obligations);
                 }
                 for binding in associated_type_bindings {
                     for arg in binding.trait_args {
@@ -471,6 +746,69 @@ impl<'a> BodyChecker<'a> {
                 | TyKind::GenericParam(_),
             )
             | None => {}
+        }
+    }
+
+    fn check_nominal_where_obligations(
+        &mut self,
+        span: Span,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        obligations: &[TraitObligation],
+    ) {
+        let Some((generics, predicates)) = self
+            .resolved_struct_signature(def_id)
+            .map(|resolved| {
+                (
+                    resolved.signature.generics,
+                    resolved.signature.where_predicates,
+                )
+            })
+            .or_else(|| {
+                self.resolved_union_signature(def_id).map(|resolved| {
+                    (
+                        resolved.signature.generics,
+                        resolved.signature.where_predicates,
+                    )
+                })
+            })
+            .or_else(|| {
+                self.resolved_trait_signature(def_id)
+                    .map(|signature| (signature.generics, signature.where_predicates))
+            })
+        else {
+            return;
+        };
+        let substitutions = generics
+            .iter()
+            .cloned()
+            .zip(args.iter().copied())
+            .collect::<std::collections::HashMap<_, _>>();
+        let predicates = predicates
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .collect::<Vec<_>>();
+        for predicate in predicates {
+            for bound in predicate.bounds {
+                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
+                    continue;
+                };
+                let required = TraitObligation {
+                    self_ty: predicate.ty,
+                    trait_id,
+                    trait_args,
+                };
+                if !self.proves_trait_obligation(obligations, &required) {
+                    self.diagnostics.push(nia_diagnostic::Diagnostic::error(
+                        span,
+                        format!(
+                            "trait bound not satisfied: {}: {}",
+                            self.ty_name(required.self_ty),
+                            self.trait_ty_name(required.trait_id, &required.trait_args)
+                        ),
+                    ));
+                }
+            }
         }
     }
 

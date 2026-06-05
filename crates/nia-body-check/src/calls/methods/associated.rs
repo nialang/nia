@@ -4,18 +4,18 @@ use super::*;
 impl<'a> BodyChecker<'a> {
     pub(in crate::calls) fn check_associated_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         ty_expr: &Expr,
         name: &str,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
-        self.check_associated_call_inner(span, ty_expr, name, None, args, expected)
+        self.check_associated_call_inner(expr, ty_expr, name, None, args, expected)
     }
 
     pub(in crate::calls) fn check_explicit_generic_associated_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         ty_expr: &Expr,
         name: &str,
         method_type_args: &[BracketArg],
@@ -23,7 +23,7 @@ impl<'a> BodyChecker<'a> {
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         self.check_associated_call_inner(
-            span,
+            expr,
             ty_expr,
             name,
             Some(method_type_args),
@@ -34,18 +34,19 @@ impl<'a> BodyChecker<'a> {
 
     fn check_associated_call_inner(
         &mut self,
-        span: Span,
+        expr: &Expr,
         ty_expr: &Expr,
         name: &str,
         method_type_args: Option<&[BracketArg]>,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
+        let span = expr.span;
         let target_ty = self.associated_target_ty(ty_expr, expected, name)?;
         let candidates = self.method_candidates_for_target(target_ty, name);
         if candidates.is_empty()
             && let Some(return_ty) = self.check_builtin_trait_associated_method_call(
-                span,
+                expr,
                 target_ty,
                 name,
                 method_type_args,
@@ -155,15 +156,16 @@ impl<'a> BodyChecker<'a> {
             let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, span);
-            self.record_resolved_call(
+            self.record_resolved_node_call(
                 span,
+                &expr.node_key,
                 ResolvedCall::FunctionInstance {
                     def_id: method_id,
                     args: instance_args,
                 },
             );
         } else {
-            self.record_resolved_call(span, ResolvedCall::Function(method_id));
+            self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::Function(method_id));
         }
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
         Some(self.normalize_projection(return_type))
@@ -194,7 +196,7 @@ impl<'a> BodyChecker<'a> {
         name: &str,
     ) -> Option<InternedTyId> {
         if let ExprKind::TypeTarget { ty } = &ty_expr.kind {
-            return Some(self.ty_for_span(ty.span));
+            return Some(self.ty_for_type(ty));
         }
         let (struct_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
         let candidates = self.method_candidates_for_struct(struct_id, name);
@@ -254,7 +256,7 @@ impl<'a> BodyChecker<'a> {
         let mut inferred = Vec::new();
         for candidate in candidates {
             let Some(signature) = self
-                .resolved_function_signature(candidate.method_id)
+                .resolved_function_signature(candidate.method.def_id)
                 .map(|resolved| resolved.signature)
             else {
                 continue;
@@ -323,20 +325,21 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
         if let ExprKind::BracketSuffix { callee, args } = &expr.kind {
             let def_id = self.type_prefix_def_id(callee)?;
-            self.record_bracket_suffix_resolution(
-                expr.span,
+            self.record_bracket_suffix_node_resolution(
+                expr,
                 BracketSuffixResolution::TypePrefixInstantiation,
             );
             let args = self.lower_bracket_type_args(args);
             return Some((def_id, args));
         }
-        if let Some(ty) = self.type_uses.get(&expr.span).copied()
+        if let ExprKind::TypeTarget { ty } = &expr.kind
+            && let Some(ty) = self.node_type_uses.get(&ty.node_key).copied()
             && let Some(nia_ty::TyKind::Nominal { def_id, args }) = self.interner.get(ty)
         {
             return Some((*def_id, args.clone()));
         }
         if let ExprKind::Qualified { .. } = &expr.kind {
-            if let Some(def_id) = self.values.qualified_type_prefixes.get(&expr.span).copied() {
+            if let Some(def_id) = self.qualified_type_prefix(expr) {
                 return Some((def_id, Vec::new()));
             }
             return None;
@@ -344,11 +347,11 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Ident(name) = &expr.kind else {
             return None;
         };
-        if let Some(def_id) = self.values.qualified_type_prefixes.get(&expr.span).copied() {
+        if let Some(def_id) = self.qualified_type_prefix(expr) {
             return Some((def_id, Vec::new()));
         }
         matches!(
-            self.locals.uses.get(&expr.span),
+            self.local_use(expr),
             Some(nia_local_resolve::LocalUse::TypePrefix)
         )
         .then(|| {

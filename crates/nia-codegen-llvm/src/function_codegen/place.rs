@@ -50,11 +50,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 .get(def_id)
                 .map(|global| global.as_pointer_value())
                 .ok_or_else(|| self.error(span, "missing global value")),
-            FunctionExprKind::Local(local_id) => self
-                .locals
-                .get(local_id)
-                .copied()
-                .ok_or_else(|| self.error(span, "missing local storage")),
+            FunctionExprKind::Local(local_id) => self.local_addr(*local_id, span),
             FunctionExprKind::Unary {
                 op: nia_ast::UnaryOp::Deref,
                 expr,
@@ -364,11 +360,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         place: &FunctionPlace,
     ) -> Result<PointerValue<'ctx>, Diagnostic> {
         let mut ptr = match &place.base {
-            FunctionPlaceBase::Local(local_id) => self
-                .locals
-                .get(local_id)
-                .copied()
-                .ok_or_else(|| self.error(place.span, "missing local storage"))?,
+            FunctionPlaceBase::Local(local_id) => self.local_addr(*local_id, place.span)?,
             FunctionPlaceBase::Global(def_id) => self
                 .module
                 .globals

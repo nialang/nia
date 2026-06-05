@@ -1,0 +1,48 @@
+import std.os;
+
+comptime if @builtin().target.arch == "x86_64" {
+    import std.os.linux.x86_64.syscall;
+}
+
+pub fn write(fd: os::Fd, bytes: &[u8]) os::Error!usize {
+    var ptr = bytes.get_ptr_read();
+    var ret = syscall::syscall3(1, os::fd_raw(fd) as usize, ptr as usize, bytes.len());
+    if ret < 0 {
+        (os::error((0isize - ret) as i32))!
+    } else {
+        !(ret as usize)
+    }
+}
+
+pub fn map_pages(len: usize) os::Error!&mut u8 {
+    var prot_read_write = 3usize;
+    var private_anonymous = 34usize;
+    var ret = syscall::syscall6(
+        9,
+        0,
+        len,
+        prot_read_write,
+        private_anonymous,
+        (-1isize) as usize,
+        0,
+    );
+    if ret < 0 {
+        (os::error((0isize - ret) as i32))!
+    } else {
+        !((ret as usize) as &mut u8)
+    }
+}
+
+pub fn unmap_pages(ptr: &mut u8, len: usize) os::Error!void {
+    var ret = syscall::syscall3(11, ptr as usize, len, 0);
+    if ret < 0 {
+        (os::error((0isize - ret) as i32))!
+    } else {
+        !{}
+    }
+}
+
+pub fn exit(code: i32) void {
+    _ = syscall::syscall1(60, code as usize);
+    loop {}
+}

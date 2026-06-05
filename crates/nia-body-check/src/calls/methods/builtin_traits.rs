@@ -3,6 +3,7 @@ use super::*;
 
 struct BuiltinAssociatedPlaceMethodCall<'a> {
     span: Span,
+    node_key: &'a nia_node_id::NodeKey,
     target_ty: InternedTyId,
     name: &'a str,
     method: BuiltinTraitMethod,
@@ -55,19 +56,24 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = call.expected {
             self.expect_type(call.span, expected, output, "builtin trait method call");
         }
-        self.record_resolved_call(call.span, ResolvedCall::BuiltinTraitMethod { trait_id, op });
+        self.record_resolved_node_call(
+            call.span,
+            call.node_key,
+            ResolvedCall::BuiltinTraitMethod { trait_id, op },
+        );
         Some(output)
     }
 
     pub(in crate::calls::methods) fn check_builtin_trait_associated_method_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         target_ty: InternedTyId,
         name: &str,
         method_type_args: Option<&[BracketArg]>,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
+        let span = expr.span;
         let method = BuiltinTraitMethod::from_name(name)?;
         if method_type_args.is_some() {
             self.diagnostics.push(Diagnostic::error(
@@ -83,6 +89,7 @@ impl<'a> BodyChecker<'a> {
             return self.check_builtin_trait_associated_place_method_call(
                 BuiltinAssociatedPlaceMethodCall {
                     span,
+                    node_key: &expr.node_key,
                     target_ty,
                     name,
                     method,
@@ -125,7 +132,11 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = expected {
             self.expect_type(span, expected, output, "builtin trait method call");
         }
-        self.record_resolved_call(span, ResolvedCall::BuiltinTraitMethod { trait_id, op });
+        self.record_resolved_node_call(
+            span,
+            &expr.node_key,
+            ResolvedCall::BuiltinTraitMethod { trait_id, op },
+        );
         Some(output)
     }
 
@@ -155,8 +166,9 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = call.expected {
             self.expect_type(call.span, expected, output, "builtin trait method call");
         }
-        self.record_resolved_call(
+        self.record_resolved_node_call(
             call.span,
+            call.node_key,
             ResolvedCall::BuiltinPlaceMethod {
                 trait_id,
                 method,
@@ -214,8 +226,9 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = call.expected {
             self.expect_type(call.span, expected, output, "builtin trait method call");
         }
-        self.record_resolved_call(
+        self.record_resolved_node_call(
             call.span,
+            call.node_key,
             ResolvedCall::BuiltinPlaceMethod {
                 trait_id,
                 method: call.method,
@@ -285,7 +298,7 @@ impl<'a> BodyChecker<'a> {
                 if let Some(expected) = rhs_expected {
                     self.expect_expr_type(rhs, expected, rhs_ty, "call argument");
                 }
-                let rhs_ty = self.expr_types.get(&rhs.span).copied().unwrap_or(rhs_ty);
+                let rhs_ty = self.expr_ty(rhs).unwrap_or(rhs_ty);
                 Some(vec![rhs_ty])
             }
             _ => {

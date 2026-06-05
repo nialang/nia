@@ -10,6 +10,7 @@ use nia_comptime_ir::{
 use nia_diagnostic::Diagnostic;
 use nia_item_tree::ActiveModuleItemTree;
 use nia_item_tree::{ComptimeBranch, ComptimeBranchResolver, ItemTreeError, ModuleItemTree};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -446,16 +447,16 @@ impl Pruner<'_> {
                 }]
             }
             StmtKind::Expr(expr) => vec![Stmt {
-                span: stmt.span,
                 kind: StmtKind::Expr(self.prune_expr(expr)),
+                ..stmt
             }],
             StmtKind::Return(value) => vec![Stmt {
                 kind: StmtKind::Return(value.map(|value| self.prune_expr(value))),
                 ..stmt
             }],
             StmtKind::Defer(expr) => vec![Stmt {
-                span: stmt.span,
                 kind: StmtKind::Defer(self.prune_expr(expr)),
+                ..stmt
             }],
             StmtKind::ForIn(mut for_stmt) => {
                 for_stmt.iter = self.prune_expr(for_stmt.iter);
@@ -485,12 +486,15 @@ impl Pruner<'_> {
     }
 
     fn prune_expr(&mut self, expr: Expr) -> Expr {
+        let span = expr.span;
+        let node_key = expr.node_key.clone();
         match expr.kind {
             ExprKind::ComptimeIf(comptime_if) => {
-                self.prune_comptime_if_expr(expr.span, *comptime_if)
+                self.prune_comptime_if_expr(span, node_key, *comptime_if)
             }
             ExprKind::Block(block) => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Block(self.prune_block(block)),
             },
             ExprKind::If {
@@ -498,7 +502,8 @@ impl Pruner<'_> {
                 then_branch,
                 else_branch,
             } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::If {
                     cond: Box::new(self.prune_expr(*cond)),
                     then_branch: self.prune_block(then_branch),
@@ -507,14 +512,16 @@ impl Pruner<'_> {
                 },
             },
             ExprKind::Unary { op, expr: inner } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Unary {
                     op,
                     expr: Box::new(self.prune_expr(*inner)),
                 },
             },
             ExprKind::Binary { lhs, op, rhs } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Binary {
                     lhs: Box::new(self.prune_expr(*lhs)),
                     op,
@@ -522,7 +529,8 @@ impl Pruner<'_> {
                 },
             },
             ExprKind::Assign { lhs, op, rhs } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Assign {
                     lhs: Box::new(self.prune_expr(*lhs)),
                     op,
@@ -530,21 +538,24 @@ impl Pruner<'_> {
                 },
             },
             ExprKind::Cast { expr: inner, ty } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Cast {
                     expr: Box::new(self.prune_expr(*inner)),
                     ty,
                 },
             },
             ExprKind::Call { callee, args } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Call {
                     callee: Box::new(self.prune_expr(*callee)),
                     args: args.into_iter().map(|arg| self.prune_expr(arg)).collect(),
                 },
             },
             ExprKind::BracketSuffix { callee, args } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::BracketSuffix {
                     callee: Box::new(self.prune_expr(*callee)),
                     args: args
@@ -557,54 +568,62 @@ impl Pruner<'_> {
                 },
             },
             ExprKind::ArrayLiteral { elems } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::ArrayLiteral {
                     elems: self.prune_array_elements(elems),
                 },
             },
             ExprKind::StructLiteral { fields } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::StructLiteral {
                     fields: self.prune_fields(fields),
                 },
             },
             ExprKind::TypedArrayLiteral { ty, elems } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::TypedArrayLiteral {
                     ty,
                     elems: self.prune_array_elements(elems),
                 },
             },
             ExprKind::TypedStructLiteral { ty, fields } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::TypedStructLiteral {
                     ty,
                     fields: self.prune_fields(fields),
                 },
             },
             ExprKind::Qualified { lhs, name } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Qualified {
                     lhs: Box::new(self.prune_expr(*lhs)),
                     name,
                 },
             },
             ExprKind::Field { lhs, name } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Field {
                     lhs: Box::new(self.prune_expr(*lhs)),
                     name,
                 },
             },
             ExprKind::Index { lhs, index } => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Index {
                     lhs: Box::new(self.prune_expr(*lhs)),
                     index: self.prune_index_arg(index),
                 },
             },
             ExprKind::Range(range) => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: ExprKind::Range(self.prune_range(range)),
             },
             ExprKind::Switch(mut switch) => {
@@ -613,18 +632,36 @@ impl Pruner<'_> {
                     for pattern in &mut arm.patterns {
                         *pattern = match std::mem::replace(pattern, SwitchPattern::Default) {
                             SwitchPattern::Default => SwitchPattern::Default,
-                            SwitchPattern::OptionalSome { name, span } => {
-                                SwitchPattern::OptionalSome { name, span }
-                            }
+                            SwitchPattern::OptionalSome {
+                                name,
+                                span,
+                                node_key,
+                            } => SwitchPattern::OptionalSome {
+                                name,
+                                span,
+                                node_key,
+                            },
                             SwitchPattern::OptionalNull { span } => {
                                 SwitchPattern::OptionalNull { span }
                             }
-                            SwitchPattern::ErrorOk { name, span } => {
-                                SwitchPattern::ErrorOk { name, span }
-                            }
-                            SwitchPattern::ErrorErr { name, span } => {
-                                SwitchPattern::ErrorErr { name, span }
-                            }
+                            SwitchPattern::ErrorOk {
+                                name,
+                                span,
+                                node_key,
+                            } => SwitchPattern::ErrorOk {
+                                name,
+                                span,
+                                node_key,
+                            },
+                            SwitchPattern::ErrorErr {
+                                name,
+                                span,
+                                node_key,
+                            } => SwitchPattern::ErrorErr {
+                                name,
+                                span,
+                                node_key,
+                            },
                             SwitchPattern::Expr(expr) => SwitchPattern::Expr(self.prune_expr(expr)),
                             SwitchPattern::Range {
                                 start,
@@ -666,12 +703,14 @@ impl Pruner<'_> {
                     };
                 }
                 Expr {
-                    span: expr.span,
+                    span,
+                    node_key,
                     kind: ExprKind::Switch(switch),
                 }
             }
             other => Expr {
-                span: expr.span,
+                span,
+                node_key,
                 kind: other,
             },
         }
@@ -717,15 +756,22 @@ impl Pruner<'_> {
         }
     }
 
-    fn prune_comptime_if_expr(&mut self, span: Span, comptime_if: ComptimeIfExpr) -> Expr {
+    fn prune_comptime_if_expr(
+        &mut self,
+        span: Span,
+        node_key: NodeKey,
+        comptime_if: ComptimeIfExpr,
+    ) -> Expr {
         match self.eval_bool(&comptime_if.cond) {
             Some(true) => Expr {
                 span,
+                node_key,
                 kind: ExprKind::Block(self.prune_block(comptime_if.then_branch)),
             },
             Some(false) => comptime_if.else_branch.map_or(
                 Expr {
                     span,
+                    node_key: node_key.clone(),
                     kind: ExprKind::Block(Block {
                         span,
                         stmts: Vec::new(),
@@ -736,6 +782,7 @@ impl Pruner<'_> {
             ),
             None => Expr {
                 span,
+                node_key,
                 kind: ExprKind::Error,
             },
         }

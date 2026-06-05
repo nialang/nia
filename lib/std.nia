@@ -1,0 +1,4 @@
+// Nia standard library root.
+//
+// This module is intentionally small while the startup/runtime model is being
+// built. Public standard-library surfaces should be re-exported from here.

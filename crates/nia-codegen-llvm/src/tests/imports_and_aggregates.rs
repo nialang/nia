@@ -2,6 +2,55 @@
 use super::common::*;
 
 #[test]
+fn emits_imported_open_enum_as_error_union_payload() {
+    let root = temp_dir("emits_imported_open_enum_as_error_union_payload");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import .errors;
+
+fn maybe(flag: bool) errors::Error!i32 {
+    if flag {
+        !40
+    } else {
+        errors::Error::Io!
+    }
+}
+
+fn add_two(flag: bool) errors::Error!i32 {
+    var value = maybe(flag).?;
+    !(value + 2)
+}
+
+fn main() i32 {
+    switch add_two(true) {
+        !value => value,
+        error! => error as i32,
+    }
+}
+"#,
+    )
+    .expect("write main source");
+    std::fs::write(
+        root.join("errors.nia"),
+        r#"
+pub enum Error: i32 {
+    Io = 5,
+    _,
+}
+"#,
+    )
+    .expect("write errors source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn emits_local_struct_with_imported_nominal_field() {
     let root = temp_dir("emits_local_struct_with_imported_nominal_field");
     let main = root.join("main.nia");

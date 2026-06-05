@@ -8,6 +8,9 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNodeKind};
 pub use nia_source::SourcePath;
 use nia_span::Span;
 
+pub const ROOT_MODULE_MAP_NAME: &str = "root";
+pub const STD_MODULE_MAP_NAME: &str = "std";
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleMap {
     entries: HashMap<String, SourcePath>,
@@ -20,6 +23,21 @@ impl ModuleMap {
 
     pub fn insert(&mut self, name: impl Into<String>, path: SourcePath) {
         self.entries.insert(name.into(), path);
+    }
+
+    pub fn with_compiler_root(&self, root_path: SourcePath) -> Self {
+        let mut map = self.clone();
+        map.entries
+            .insert(ROOT_MODULE_MAP_NAME.to_string(), root_path);
+        map
+    }
+
+    pub fn with_default_std(&self, std_path: SourcePath) -> Self {
+        let mut map = self.clone();
+        map.entries
+            .entry(STD_MODULE_MAP_NAME.to_string())
+            .or_insert(std_path);
+        map
     }
 
     pub fn get(&self, name: &str) -> Option<&SourcePath> {
@@ -162,6 +180,7 @@ pub fn collect_root_imports_with_map(
     root_module: &Module,
     module_map: &ModuleMap,
 ) -> ImportCollection {
+    let module_map = module_map.with_compiler_root(root_path.clone());
     let mut graph = ModuleGraph::new(root_path.clone());
     let mut diagnostics = Vec::new();
     let root = graph.root();
@@ -171,7 +190,7 @@ pub fn collect_root_imports_with_map(
         root,
         &root_path,
         root_module,
-        module_map,
+        &module_map,
     );
     let aliases = collect_import_aliases(&graph);
     ImportCollection {
@@ -487,6 +506,50 @@ import .b.math as math;
                 .message
                 .contains("unknown module mapping")
         );
+    }
+
+    #[test]
+    fn root_import_resolves_to_compiler_root_without_user_module_map() {
+        let (module, errors) = parse_module(r#"import root;"#);
+        assert!(errors.is_empty(), "{errors:?}");
+        let collection = collect_root_imports(SourcePath::new("src/main.nia"), &module);
+
+        assert!(
+            collection.diagnostics.is_empty(),
+            "{:?}",
+            collection.diagnostics
+        );
+        let root = collection
+            .graph
+            .get(collection.graph.root())
+            .expect("root module");
+        assert_eq!(root.imports.len(), 1);
+        assert_eq!(root.imports[0].alias, "root");
+        assert_eq!(root.imports[0].path.as_str(), "src/main.nia");
+        assert_eq!(root.imports[0].target, collection.graph.root());
+    }
+
+    #[test]
+    fn compiler_root_overrides_user_root_module_map_entry() {
+        let (module, errors) = parse_module(r#"import root;"#);
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut map = ModuleMap::new();
+        map.insert("root", SourcePath::new("other.nia"));
+
+        let collection =
+            collect_root_imports_with_map(SourcePath::new("src/main.nia"), &module, &map);
+
+        assert!(
+            collection.diagnostics.is_empty(),
+            "{:?}",
+            collection.diagnostics
+        );
+        let root = collection
+            .graph
+            .get(collection.graph.root())
+            .expect("root module");
+        assert_eq!(root.imports[0].path.as_str(), "src/main.nia");
+        assert_eq!(root.imports[0].target, collection.graph.root());
     }
 
     #[test]

@@ -4,6 +4,28 @@ use std::collections::HashMap;
 use crate::DefId;
 use nia_ast::Visibility;
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId, TraitId};
+use nia_span::Span;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WherePredicateSignature {
+    pub ty: InternedTyId,
+    pub bounds: Vec<WhereBoundSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhereBoundSignature {
+    pub trait_ty: InternedTyId,
+    pub associated_type_bindings: Vec<AssociatedTypeBindingSignature>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedTypeBindingSignature {
+    pub name: String,
+    pub ty: InternedTyId,
+    pub span: Span,
+}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ExtensionMethods {
@@ -16,6 +38,7 @@ pub struct ExtensionMethod {
     pub target_ty: InternedTyId,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub visibility: Visibility,
 }
 
@@ -30,6 +53,7 @@ pub struct VisibleExtensionMethod {
     pub def_id: GlobalDefId,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
+    pub where_predicates: Vec<WherePredicateSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,14 +125,15 @@ impl VisibleExtensionMethods {
             .collect()
     }
 
-    pub fn all_methods_named(&self, name: &str) -> Vec<(InternedTyId, GlobalDefId)> {
+    pub fn all_methods_named(&self, name: &str) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
         self.targets
             .iter()
             .flat_map(|item| {
                 item.methods
                     .iter()
                     .filter(move |method| method.name == name)
-                    .map(move |method| (item.target_ty, method.def_id))
+                    .cloned()
+                    .map(move |method| (item.target_ty, method))
             })
             .collect()
     }

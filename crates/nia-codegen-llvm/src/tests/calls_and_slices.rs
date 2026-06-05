@@ -60,6 +60,42 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_freestanding_start_entry_as_extern_start_calling_root_main() {
+    let root = temp_dir("emits_freestanding_start_entry_as_extern_start_calling_root_main");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_freestanding_executable_with_options(
+        main.to_string_lossy().into_owned(),
+        nia_driver::NiaOptimizationLevel::default(),
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = output
+        .modules
+        .iter()
+        .map(|module| module.ir.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(ir.contains("define void @_start("), "{ir}");
+    assert!(ir.contains("define void @nia__m0__"), "{ir}");
+    assert!(ir.contains("call void @nia__m0__"), "{ir}");
+}
+
+#[test]
 fn emits_slice_readruction_len_ptr_and_indexing() {
     let root = temp_dir("emits_slice_readruction_len_ptr_and_indexing");
     let main = root.join("main.nia");

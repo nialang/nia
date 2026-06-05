@@ -9,7 +9,7 @@ use nia_function_ir::{
     FunctionForHeader, FunctionInlineAsm, FunctionLocal, FunctionOp, FunctionPlace,
     FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
-use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
+use nia_ids::{BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_trait_solve::{TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{LayoutBuiltin, TyKind};
 
@@ -196,6 +196,40 @@ impl<'a> ModuleLowerer<'a> {
         Self::generic_substitutions(generics, args)
     }
 
+    pub(crate) fn effective_generic_substitutions_for_instance(
+        &mut self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: &[InternedTyId],
+    ) -> HashMap<String, InternedTyId> {
+        let args = args
+            .iter()
+            .map(|arg| self.import_instance_arg_type(arg_module_id, *arg))
+            .collect::<Vec<_>>();
+        self.effective_generic_substitutions(def_id, &args)
+    }
+
+    fn import_instance_arg_type(
+        &mut self,
+        arg_module_id: ModuleId,
+        ty: InternedTyId,
+    ) -> InternedTyId {
+        if ty.interner_id == self.interner.interner_id() {
+            return ty;
+        }
+        if let Some(interner) = self.input.program_type_interners.get(&arg_module_id)
+            && ty.interner_id == interner.interner_id()
+        {
+            return nia_ty::import_type_into(&mut self.interner, interner, ty);
+        }
+        if let Some((_, interner)) = self.input.program_extensions.get(&arg_module_id)
+            && ty.interner_id == interner.interner_id()
+        {
+            return nia_ty::import_type_into(&mut self.interner, interner, ty);
+        }
+        ty
+    }
+
     pub(crate) fn instantiate_params(
         &mut self,
         function: &BackendFunction,
@@ -218,10 +252,23 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn instantiate_function_body(
         &mut self,
         function: nia_ids::GlobalDefId,
+        instantiation_module_id: ModuleId,
         type_arg_count: usize,
         body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> FunctionBody {
+        let previous_candidates = self.instance_extension_trait_method_candidates.take();
+        let previous_interner = self.instance_extension_interner.take();
+        if instantiation_module_id != self.input.module_id
+            && let Some((extensions, interner)) =
+                self.input.program_extensions.get(&instantiation_module_id)
+        {
+            self.instance_extension_trait_method_candidates = Some((
+                instantiation_module_id,
+                crate::index_extension_trait_method_candidates(extensions),
+            ));
+            self.instance_extension_interner = Some(*interner);
+        }
         let substitutions = self.intern_type_substitutions(substitutions);
         let body = FunctionBody {
             span: body.span,
@@ -256,7 +303,10 @@ impl<'a> ModuleLowerer<'a> {
             ty: self.instantiate_ty_with_id(body.ty, substitutions),
         };
         let body = self.resolve_builtin_operator_calls_in_body(body);
-        self.optimize_function_body(function, true, type_arg_count, body)
+        let body = self.optimize_function_body(function, true, type_arg_count, body);
+        self.instance_extension_trait_method_candidates = previous_candidates;
+        self.instance_extension_interner = previous_interner;
+        body
     }
 
     pub(crate) fn generic_params_in_extension_ty(&mut self, ty: InternedTyId) -> &[String] {
@@ -565,21 +615,29 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn import_extension_type(&mut self, ty: InternedTyId) -> InternedTyId {
-        let Some(extension_interner) = self.input.extension_interner else {
-            return ty;
-        };
-        if ty.interner_id == extension_interner.interner_id() {
-            nia_ty::import_type_into(&mut self.interner, extension_interner, ty)
-        } else {
-            ty
+        if let Some(extension_interner) = self.instance_extension_interner
+            && ty.interner_id == extension_interner.interner_id()
+        {
+            return nia_ty::import_type_into(&mut self.interner, extension_interner, ty);
         }
+        if let Some(extension_interner) = self.input.extension_interner
+            && ty.interner_id == extension_interner.interner_id()
+        {
+            return nia_ty::import_type_into(&mut self.interner, extension_interner, ty);
+        }
+        ty
     }
 
     fn extension_ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        self.input
-            .extension_interner
+        self.instance_extension_interner
             .filter(|interner| ty.interner_id == interner.interner_id())
             .and_then(|interner| interner.get(ty))
+            .or_else(|| {
+                self.input
+                    .extension_interner
+                    .filter(|interner| ty.interner_id == interner.interner_id())
+                    .and_then(|interner| interner.get(ty))
+            })
             .or_else(|| self.ty_kind(ty))
     }
 

@@ -24,27 +24,19 @@ impl<'a> BodyChecker<'a> {
                 let lhs_ty = self.check_assignment_lhs(lhs);
                 let index_ty = self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
                 self.expect_integer(index.span, index_ty, "index");
-                let index_ty = self
-                    .expr_types
-                    .get(&index.span)
-                    .copied()
-                    .unwrap_or(index_ty);
+                let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                 if index_ty == self.error() {
                     return self.error();
                 }
                 self.index_result_type_for_write_index(expr.span, lhs_ty, index_ty)
             }
-            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr.span) => {
+            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr) => {
                 let lhs_ty = self.check_assignment_lhs(callee);
                 if let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) {
                     let index_ty =
                         self.check_index_expr_for_trait(lhs_ty, BuiltinTrait::Index, index);
                     self.expect_integer(index.span, index_ty, "index");
-                    let index_ty = self
-                        .expr_types
-                        .get(&index.span)
-                        .copied()
-                        .unwrap_or(index_ty);
+                    let index_ty = self.expr_ty(index).unwrap_or(index_ty);
                     if index_ty == self.error() {
                         return self.error();
                     }
@@ -62,22 +54,18 @@ impl<'a> BodyChecker<'a> {
             }
             _ => self.check_expr(expr),
         };
-        self.record_expr_type(expr.span, ty);
+        self.record_expr_node_type(expr, ty);
         ty
     }
 
     pub(crate) fn assignable_expr_type(&mut self, expr: &Expr) -> InternedTyId {
-        let ty = self
-            .expr_types
-            .get(&expr.span)
-            .copied()
-            .unwrap_or_else(|| self.error());
+        let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
         match &expr.kind {
             ExprKind::Unary {
                 op: UnaryOp::Deref,
                 expr: inner,
             } => {
-                let Some(inner_ty) = self.expr_types.get(&inner.span).copied() else {
+                let Some(inner_ty) = self.expr_ty(inner) else {
                     return ty;
                 };
                 let target = self.interner.intern(TyKind::Projection {
@@ -92,10 +80,10 @@ impl<'a> BodyChecker<'a> {
                 lhs,
                 index: IndexArg::Expr(index),
             } => {
-                let Some(lhs_ty) = self.expr_types.get(&lhs.span).copied() else {
+                let Some(lhs_ty) = self.expr_ty(lhs) else {
                     return ty;
                 };
-                let Some(index_ty) = self.expr_types.get(&index.span).copied() else {
+                let Some(index_ty) = self.expr_ty(index) else {
                     return ty;
                 };
                 let output = self.interner.intern(TyKind::Projection {
@@ -106,14 +94,14 @@ impl<'a> BodyChecker<'a> {
                 });
                 self.normalize_projection(output)
             }
-            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr.span) => {
+            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr) => {
                 let Some(index) = args.first().and_then(|arg| arg.expr.as_ref()) else {
                     return ty;
                 };
-                let Some(lhs_ty) = self.expr_types.get(&callee.span).copied() else {
+                let Some(lhs_ty) = self.expr_ty(callee) else {
                     return ty;
                 };
-                let Some(index_ty) = self.expr_types.get(&index.span).copied() else {
+                let Some(index_ty) = self.expr_ty(index) else {
                     return ty;
                 };
                 let output = self.interner.intern(TyKind::Projection {
@@ -138,7 +126,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn check_reference_target(&mut self, expr: &Expr, context: &str, is_readonly: bool) {
-        let ty = self.expr_types.get(&expr.span).copied();
+        let ty = self.expr_ty(expr);
         self.check_reference_target_with_ty(expr, context, is_readonly, ty);
     }
 
@@ -183,11 +171,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn not_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
-        if self.values.qualified_values.contains_key(&expr.span) {
+        if self.qualified_value(expr).is_some() {
             return None;
         }
         match &expr.kind {
-            ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
+            ExprKind::Ident(_) => match self.local_use(expr) {
                 Some(LocalUse::Local(_)) | Some(LocalUse::ModuleValue) => None,
                 Some(LocalUse::ImportAlias) => Some("import alias is not a value place"),
                 Some(LocalUse::TypePrefix) => Some("type prefix is not a value place"),
@@ -198,7 +186,7 @@ impl<'a> BodyChecker<'a> {
                 IndexArg::Expr(_) => self.not_addressable_reason(lhs),
                 IndexArg::Range(_) => Some("range index must be borrowed as a slice"),
             },
-            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr.span) => {
+            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr) => {
                 self.not_addressable_reason(callee)
             }
             ExprKind::Unary {
@@ -210,7 +198,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn deref_addressable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
-        let Some(ty) = self.expr_types.get(&expr.span).copied() else {
+        let Some(ty) = self.expr_ty(expr) else {
             return Some("pointer type is not known");
         };
         let has_deref_read = self.current_context_proves_trait_obligation(
@@ -227,11 +215,11 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
-        if self.values.qualified_values.contains_key(&expr.span) {
+        if self.qualified_value(expr).is_some() {
             return Some("cross-module value is not assignable");
         }
         match &expr.kind {
-            ExprKind::Ident(_) => self.ident_not_assignable_reason(expr.span),
+            ExprKind::Ident(_) => self.ident_not_assignable_reason(expr),
             ExprKind::Field { lhs, .. } => self.not_assignable_reason(lhs),
             ExprKind::Index { lhs, index } => match index {
                 IndexArg::Range(_) => Some("range index must be borrowed as a slice"),
@@ -239,7 +227,7 @@ impl<'a> BodyChecker<'a> {
                     .not_assignable_reason(lhs)
                     .or_else(|| self.index_write_not_assignable_reason(lhs, index)),
             },
-            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr.span) => {
+            ExprKind::BracketSuffix { callee, args } if self.bracket_suffix_is_index(expr) => {
                 self.not_assignable_reason(callee).or_else(|| {
                     args.first()
                         .and_then(|arg| arg.expr.as_ref())
@@ -256,9 +244,9 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn ident_not_assignable_reason(&self, span: Span) -> Option<&'static str> {
-        match self.locals.uses.get(&span) {
-            Some(LocalUse::Local(local_id)) => match self.locals.locals.get(*local_id) {
+    fn ident_not_assignable_reason(&self, expr: &Expr) -> Option<&'static str> {
+        match self.local_use(expr) {
+            Some(LocalUse::Local(local_id)) => match self.locals.locals.get(local_id) {
                 Some(local) if local.kind == LocalKind::ConstBinding => Some("local is let"),
                 Some(local) if local.kind == LocalKind::ComptimeBinding => {
                     Some("comptime binding has no storage")
@@ -267,12 +255,12 @@ impl<'a> BodyChecker<'a> {
                 None => Some("local definition is missing"),
             },
             Some(LocalUse::ModuleValue) => {
-                if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
+                if let Some(global_id) = self.qualified_value(expr) {
                     return self.global_not_assignable_reason_global(global_id);
                 }
-                match self.values.names.get(&span) {
+                match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) => {
-                        self.global_not_assignable_reason(*def_id)
+                        self.global_not_assignable_reason(def_id)
                     }
                     _ => Some("module value is unresolved"),
                 }
@@ -314,7 +302,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn deref_not_assignable_reason(&mut self, expr: &Expr) -> Option<&'static str> {
-        let Some(ty) = self.expr_types.get(&expr.span).copied() else {
+        let Some(ty) = self.expr_ty(expr) else {
             return Some("pointer type is not known");
         };
         let has_deref = self.current_context_proves_trait_obligation(
@@ -590,10 +578,10 @@ impl<'a> BodyChecker<'a> {
         lhs: &Expr,
         index: &Expr,
     ) -> Option<&'static str> {
-        let Some(lhs_ty) = self.expr_types.get(&lhs.span).copied() else {
+        let Some(lhs_ty) = self.expr_ty(lhs) else {
             return Some("index base type is not known");
         };
-        let Some(index_ty) = self.expr_types.get(&index.span).copied() else {
+        let Some(index_ty) = self.expr_ty(index) else {
             return Some("index type is not known");
         };
         let has_index = self.current_context_proves_trait_obligation(
@@ -685,12 +673,12 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn is_place_expr(&self, expr: &Expr) -> bool {
-        if self.values.qualified_values.contains_key(&expr.span) {
+        if self.qualified_value(expr).is_some() {
             return true;
         }
         match &expr.kind {
             ExprKind::Ident(_) => matches!(
-                self.locals.uses.get(&expr.span),
+                self.local_use(expr),
                 Some(LocalUse::Local(_) | LocalUse::ModuleValue)
             ),
             ExprKind::Field { lhs, .. } => self.is_place_expr(lhs),
@@ -698,7 +686,7 @@ impl<'a> BodyChecker<'a> {
                 lhs,
                 index: IndexArg::Expr(_),
             } => self.is_place_expr(lhs),
-            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr.span) => {
+            ExprKind::BracketSuffix { callee, .. } if self.bracket_suffix_is_index(expr) => {
                 self.is_place_expr(callee)
             }
             ExprKind::Unary {
@@ -708,9 +696,9 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn bracket_suffix_is_index(&self, span: Span) -> bool {
+    fn bracket_suffix_is_index(&self, expr: &Expr) -> bool {
         matches!(
-            self.bracket_suffix_resolutions.get(&span),
+            self.bracket_suffix_resolution(expr),
             Some(BracketSuffixResolution::Index)
         )
     }

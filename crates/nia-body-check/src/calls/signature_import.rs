@@ -6,6 +6,7 @@ use nia_ast::Expr;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     AssociatedTypeBindingSignature, FunctionSignature, TraitSignature, WhereBoundSignature,
+    WherePredicateSignature,
 };
 use nia_ty::{TyInterner, import_type_into};
 
@@ -14,10 +15,10 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         callee: &Expr,
     ) -> Option<ResolvedFunctionSignature> {
-        let def_id = self.values.qualified_values.get(&callee.span)?;
-        let program_signature = self.program_functions.get(def_id)?.clone();
+        let def_id = self.qualified_value(callee)?;
+        let program_signature = self.program_functions.get(&def_id)?.clone();
         Some(ResolvedFunctionSignature {
-            def_id: *def_id,
+            def_id,
             signature: self.import_program_function_signature(&program_signature),
         })
     }
@@ -42,32 +43,8 @@ impl<'a> BodyChecker<'a> {
         program_signature: &ProgramFunctionSignature,
     ) -> FunctionSignature {
         let mut signature = program_signature.signature.clone();
-        signature.where_predicates = signature
-            .where_predicates
-            .iter()
-            .map(|predicate| nia_item_signatures::WherePredicateSignature {
-                ty: self.import_type_from(&program_signature.interner, predicate.ty),
-                bounds: predicate
-                    .bounds
-                    .iter()
-                    .map(|bound| WhereBoundSignature {
-                        trait_ty: self
-                            .import_type_from(&program_signature.interner, bound.trait_ty),
-                        associated_type_bindings: bound
-                            .associated_type_bindings
-                            .iter()
-                            .map(|binding| AssociatedTypeBindingSignature {
-                                name: binding.name.clone(),
-                                ty: self.import_type_from(&program_signature.interner, binding.ty),
-                                span: binding.span,
-                            })
-                            .collect(),
-                        span: bound.span,
-                    })
-                    .collect(),
-                span: predicate.span,
-            })
-            .collect();
+        signature.where_predicates = self
+            .import_where_predicates_from(&program_signature.interner, &signature.where_predicates);
         signature.params = signature
             .params
             .iter()
@@ -99,6 +76,8 @@ impl<'a> BodyChecker<'a> {
         program_signature: &ProgramTraitSignature,
     ) -> TraitSignature {
         let mut signature = program_signature.signature.clone();
+        signature.where_predicates = self
+            .import_where_predicates_from(&program_signature.interner, &signature.where_predicates);
         signature.supertraits = signature
             .supertraits
             .iter()
@@ -123,10 +102,29 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
     ) -> FunctionSignature {
         let mut signature = signature.clone();
-        signature.where_predicates = signature
-            .where_predicates
+        signature.where_predicates =
+            self.import_where_predicates_from(source, &signature.where_predicates);
+        signature.params = signature
+            .params
             .iter()
-            .map(|predicate| nia_item_signatures::WherePredicateSignature {
+            .map(|param| {
+                let mut param = param.clone();
+                param.ty = self.import_type_from(source, param.ty);
+                param
+            })
+            .collect();
+        signature.return_type = self.import_type_from(source, signature.return_type);
+        signature
+    }
+
+    pub(crate) fn import_where_predicates_from(
+        &mut self,
+        source: &TyInterner,
+        predicates: &[WherePredicateSignature],
+    ) -> Vec<WherePredicateSignature> {
+        predicates
+            .iter()
+            .map(|predicate| WherePredicateSignature {
                 ty: self.import_type_from(source, predicate.ty),
                 bounds: predicate
                     .bounds
@@ -147,18 +145,7 @@ impl<'a> BodyChecker<'a> {
                     .collect(),
                 span: predicate.span,
             })
-            .collect();
-        signature.params = signature
-            .params
-            .iter()
-            .map(|param| {
-                let mut param = param.clone();
-                param.ty = self.import_type_from(source, param.ty);
-                param
-            })
-            .collect();
-        signature.return_type = self.import_type_from(source, signature.return_type);
-        signature
+            .collect()
     }
 
     pub(crate) fn import_type_from(

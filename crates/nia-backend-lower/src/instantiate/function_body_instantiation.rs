@@ -649,11 +649,7 @@ impl<'a> ModuleLowerer<'a> {
             method_name: trait_method_name.clone(),
             trait_arg_count: trait_args.len(),
         };
-        let candidates = self
-            .extension_trait_method_candidates
-            .get(&key)
-            .cloned()
-            .unwrap_or_default();
+        let candidates = self.extension_trait_method_candidates(&key);
         let candidates = candidates
             .iter()
             .filter_map(|candidate| {

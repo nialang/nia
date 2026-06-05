@@ -21,14 +21,14 @@ fn main() usize {
     assert!(
         checked
             .facts
-            .builtin_values
+            .node_builtin_values
             .values()
             .any(|value| *value == BuiltinValue::Usize(8))
     );
     assert!(
         checked
             .facts
-            .builtin_values
+            .node_builtin_values
             .values()
             .any(|value| *value == BuiltinValue::Usize(4))
     );
@@ -278,11 +278,11 @@ fn main() i32 {
     assert!(
         checked
             .facts
-            .array_repeat_counts
+            .node_array_repeat_counts
             .values()
             .any(|count| *count == 1048576),
         "{:?}",
-        checked.facts.array_repeat_counts
+        checked.facts.node_array_repeat_counts
     );
 }
 
@@ -455,9 +455,9 @@ fn make() i32 {
         checked.diagnostics
     );
     assert!(
-        checked.facts.array_to_slice_coercions.len() >= 6,
+        checked.facts.node_array_to_slice_coercions.len() >= 6,
         "{:?}",
-        checked.facts.array_to_slice_coercions
+        checked.facts.node_array_to_slice_coercions
     );
 }
 
@@ -494,7 +494,7 @@ fn main() i32 {
 "#,
     );
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    assert_eq!(checked.facts.c_string_pointer_coercions.len(), 6);
+    assert_eq!(checked.facts.node_c_string_pointer_coercions.len(), 6);
 }
 
 #[test]
@@ -523,5 +523,5 @@ fn main() void {
             >= 2,
         "{messages:?}"
     );
-    assert!(checked.facts.c_string_pointer_coercions.is_empty());
+    assert!(checked.facts.node_c_string_pointer_coercions.is_empty());
 }

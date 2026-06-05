@@ -497,23 +497,23 @@ fn main() i32 {
             dependency.from.name == "semantic_use_table" && dependency.to.name == "type_lowering"
         }));
 
-        let value_start = source.rfind("VALUE").expect("value use");
-        let value_span = Span::new(value_start, value_start + "VALUE".len());
         assert!(matches!(
-            table.value_use(value_span),
+            table
+                .node_value_uses
+                .values()
+                .find(|value_use| matches!(value_use, SemanticValueUse::Global(_))),
             Some(SemanticValueUse::Global(_))
         ));
 
-        let local_start = source.rfind("local").expect("local use");
-        let local_span = Span::new(local_start, local_start + "local".len());
         assert!(matches!(
-            table.value_use(local_span),
+            table
+                .node_value_uses
+                .values()
+                .find(|value_use| matches!(value_use, SemanticValueUse::Local(_))),
             Some(SemanticValueUse::Local(_))
         ));
 
-        let type_start = source.find("i32").expect("return type use");
-        let type_span = Span::new(type_start, type_start + "i32".len());
-        assert!(table.type_use(type_span).is_some());
+        assert!(!table.node_type_uses.is_empty());
     }
 
     #[test]
@@ -527,10 +527,12 @@ fn main() i32 {
 
         assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
         let module = checked.modules.first().expect("checked module");
-        let local_start = source.rfind("local").expect("local use");
-        let local_span = Span::new(local_start, local_start + "local".len());
         assert!(matches!(
-            module.semantic_uses.value_use(local_span),
+            module
+                .semantic_uses
+                .node_value_uses
+                .values()
+                .find(|value_use| matches!(value_use, SemanticValueUse::Local(_))),
             Some(SemanticValueUse::Local(_))
         ));
     }

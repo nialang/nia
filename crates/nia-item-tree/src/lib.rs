@@ -4,6 +4,7 @@ use nia_ast::{
     ImportItem, Item, ItemKind, Module, StructItem, TraitItem, TypeAliasItem, UnionItem, UsingItem,
     Visibility,
 };
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use std::collections::HashSet;
 
@@ -15,6 +16,7 @@ pub struct ModuleItemTree {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ItemTreeNode {
     pub span: Span,
+    pub node_key: NodeKey,
     pub attributes: Vec<Attribute>,
     pub visibility: Visibility,
     pub kind: ItemTreeNodeKind,
@@ -121,6 +123,7 @@ impl ItemTreeNode {
     pub fn to_ast_item(&self) -> Item {
         Item {
             span: self.span,
+            node_key: self.node_key.clone(),
             attributes: self.attributes.clone(),
             vis: self.visibility,
             kind: match &self.kind {
@@ -172,6 +175,7 @@ pub fn lower_module_items(module: &Module) -> ModuleItemTree {
 fn lower_item(item: &Item) -> ItemTreeNode {
     ItemTreeNode {
         span: item.span,
+        node_key: item.node_key.clone(),
         attributes: item.attributes.clone(),
         visibility: item.vis,
         kind: match &item.kind {

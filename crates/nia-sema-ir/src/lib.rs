@@ -9,9 +9,9 @@ use nia_ty::{BuiltinTrait, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticUseTable {
-    pub value_uses: HashMap<Span, SemanticValueUse>,
-    pub local_defs: HashMap<Span, LocalId>,
-    pub type_uses: HashMap<Span, InternedTyId>,
+    pub node_value_uses: HashMap<NodeKey, SemanticValueUse>,
+    pub node_local_defs: HashMap<NodeKey, LocalId>,
+    pub node_type_uses: HashMap<NodeKey, InternedTyId>,
 }
 
 impl SemanticUseTable {
@@ -19,16 +19,16 @@ impl SemanticUseTable {
         SemanticUseTableBuilder::new()
     }
 
-    pub fn value_use(&self, span: Span) -> Option<SemanticValueUse> {
-        self.value_uses.get(&span).copied()
+    pub fn node_value_use(&self, key: &NodeKey) -> Option<SemanticValueUse> {
+        self.node_value_uses.get(key).copied()
     }
 
-    pub fn local_def(&self, span: Span) -> Option<LocalId> {
-        self.local_defs.get(&span).copied()
+    pub fn node_local_def(&self, key: &NodeKey) -> Option<LocalId> {
+        self.node_local_defs.get(key).copied()
     }
 
-    pub fn type_use(&self, span: Span) -> Option<InternedTyId> {
-        self.type_uses.get(&span).copied()
+    pub fn node_type_use(&self, key: &NodeKey) -> Option<InternedTyId> {
+        self.node_type_uses.get(key).copied()
     }
 }
 
@@ -42,33 +42,48 @@ impl SemanticUseTableBuilder {
         Self::default()
     }
 
-    pub fn insert_local_value_use(&mut self, span: Span, local_id: LocalId) {
+    pub fn insert_node_local_value_use(&mut self, key: NodeKey, local_id: LocalId) {
         self.table
-            .value_uses
-            .insert(span, SemanticValueUse::Local(local_id));
+            .node_value_uses
+            .insert(key, SemanticValueUse::Local(local_id));
     }
 
-    pub fn insert_global_value_use(&mut self, span: Span, global_id: GlobalDefId) {
+    pub fn insert_node_global_value_use(&mut self, key: NodeKey, global_id: GlobalDefId) {
         self.table
-            .value_uses
-            .entry(span)
+            .node_value_uses
+            .entry(key)
             .or_insert(SemanticValueUse::Global(global_id));
     }
 
-    pub fn insert_local_def(&mut self, span: Span, local_id: LocalId) {
-        self.table.local_defs.insert(span, local_id);
+    pub fn extend_node_global_value_uses(
+        &mut self,
+        value_uses: impl IntoIterator<Item = (NodeKey, GlobalDefId)>,
+    ) {
+        for (key, global_id) in value_uses {
+            self.insert_node_global_value_use(key, global_id);
+        }
     }
 
-    pub fn extend_local_defs(&mut self, local_defs: impl IntoIterator<Item = (Span, LocalId)>) {
-        self.table.local_defs.extend(local_defs);
+    pub fn insert_node_local_def(&mut self, key: NodeKey, local_id: LocalId) {
+        self.table.node_local_defs.insert(key, local_id);
     }
 
-    pub fn insert_type_use(&mut self, span: Span, ty: InternedTyId) {
-        self.table.type_uses.insert(span, ty);
+    pub fn extend_node_local_defs(
+        &mut self,
+        local_defs: impl IntoIterator<Item = (NodeKey, LocalId)>,
+    ) {
+        self.table.node_local_defs.extend(local_defs);
     }
 
-    pub fn extend_type_uses(&mut self, type_uses: impl IntoIterator<Item = (Span, InternedTyId)>) {
-        self.table.type_uses.extend(type_uses);
+    pub fn insert_node_type_use(&mut self, key: NodeKey, ty: InternedTyId) {
+        self.table.node_type_uses.insert(key, ty);
+    }
+
+    pub fn extend_node_type_uses(
+        &mut self,
+        type_uses: impl IntoIterator<Item = (NodeKey, InternedTyId)>,
+    ) {
+        self.table.node_type_uses.extend(type_uses);
     }
 
     pub fn finish(self) -> SemanticUseTable {
@@ -84,19 +99,7 @@ pub enum SemanticValueUse {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFacts {
-    pub expr_types: HashMap<Span, InternedTyId>,
-    pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
-    pub array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
-    pub c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
-    pub trait_object_coercions: HashMap<Span, TraitObjectCoercion>,
-    pub trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
     pub local_types: HashMap<LocalId, InternedTyId>,
-    pub comptime_if_selections: HashMap<Span, ComptimeIfSelection>,
-    pub builtin_values: HashMap<Span, BuiltinValue>,
-    pub array_repeat_counts: HashMap<Span, u64>,
-    pub switch_pattern_values: HashMap<Span, i128>,
-    pub resolved_calls: HashMap<Span, ResolvedCall>,
-    pub function_references: HashMap<Span, FunctionReference>,
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub node_expr_types: HashMap<NodeKey, InternedTyId>,
     pub node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
@@ -104,7 +107,10 @@ pub struct SemanticFacts {
     pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
+    pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
+    pub node_array_repeat_counts: HashMap<NodeKey, u64>,
+    pub node_switch_pattern_values: HashMap<NodeKey, i128>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     pub node_function_references: HashMap<NodeKey, FunctionReference>,
 }
@@ -327,17 +333,27 @@ impl BuiltinOperatorOp {
 mod tests {
     use super::*;
     use nia_ids::ModuleId;
+    use nia_node_id::{NodeChildPath, SyntaxKind};
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
 
-    fn span() -> Span {
-        Span::new(4, 7)
+    fn key() -> NodeKey {
+        NodeKey::child_path(
+            SourceVersion {
+                id: SourceId(0),
+                revision: SourceRevision::INITIAL,
+            },
+            SyntaxKind::Expr,
+            NodeChildPath::from_steps([0]),
+        )
     }
 
     #[test]
     fn semantic_use_builder_keeps_local_value_uses_over_globals() {
         let mut builder = SemanticUseTable::builder();
-        builder.insert_local_value_use(span(), LocalId(2));
-        builder.insert_global_value_use(
-            span(),
+        let key = key();
+        builder.insert_node_local_value_use(key.clone(), LocalId(2));
+        builder.insert_node_global_value_use(
+            key.clone(),
             GlobalDefId {
                 module_id: ModuleId(1),
                 def_id: nia_ids::DefId(3),
@@ -347,7 +363,7 @@ mod tests {
         let table = builder.finish();
 
         assert_eq!(
-            table.value_use(span()),
+            table.node_value_use(&key),
             Some(SemanticValueUse::Local(LocalId(2)))
         );
     }

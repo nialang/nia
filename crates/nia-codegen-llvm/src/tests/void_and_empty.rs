@@ -226,6 +226,36 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_addresses_for_zero_sized_locals() {
+    let root = temp_dir("emits_addresses_for_zero_sized_locals");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Empty {}
+
+extern fn observe(value: &Empty);
+
+fn main() i32 {
+    var empty: Empty = {};
+    observe(&empty);
+    0
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("%zst.local = alloca i8"), "{ir}");
+    assert!(ir.contains("call void @observe(ptr %zst.local)"), "{ir}");
+}
+
+#[test]
 fn preserves_effects_inside_zero_sized_aggregate_literals() {
     let root = temp_dir("preserves_effects_inside_zero_sized_aggregate_literals");
     let main = root.join("main.nia");

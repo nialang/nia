@@ -1,0 +1,34 @@
+import root;
+import std.os;
+import std.process;
+
+fn call_user_main(init: process::Init) process::Exit {
+    switch root::main(init) {
+        !ok => process::exit(0),
+        error! => error,
+    }
+}
+
+extern fn nia_start_stack(stack: &usize) void {
+    var argc = stack.*;
+    var argv = (stack as usize + @size[usize]()) as &&u8;
+    var envp = (stack as usize + @size[usize]() * (argc + 2)) as &&u8;
+    var init = process::init(argc, argv, envp);
+    var exit = call_user_main(init);
+    os::exit(process::exit_code(exit));
+    loop {}
+}
+
+@[naked]
+pub extern fn _start() void {
+    @asm({
+        code:
+            b\\mov rdi, rsp
+            \\call nia_start_stack
+            \\ud2
+        ,
+        clobbers: [b"rdi", b"rax", b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}

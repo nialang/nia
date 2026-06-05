@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_ast::{ImportPath, ImportPathKind};
 use nia_compiler_query::{LoadedModule, LoadedProgram, ProgramDiagnostic};
 use nia_diagnostic::Diagnostic;
+use nia_imports::resolve_import_path;
 use nia_imports::{
     ImportAliasMap, ModuleGraph, ModuleMap, ResolvedImport, add_resolved_imports,
     collect_import_aliases, resolve_module_imports_from_active_item_tree,
@@ -10,19 +12,38 @@ use nia_query::{QueryDb, QueryKey};
 use nia_source::{SourceDatabase, SourceFile, SourcePath, SourceVersion};
 use nia_span::Span;
 use nia_target_config::{TargetConfig, prune_module_for_target};
+use std::path::Path;
 
 pub fn load_program(root_path: impl Into<String>) -> LoadedProgram {
     load_program_with_map(root_path, ModuleMap::default())
 }
 
 pub fn load_program_with_map(root_path: impl Into<String>, module_map: ModuleMap) -> LoadedProgram {
+    load_program_with_map_and_entry_runtime(root_path, module_map, EntryRuntime::None)
+}
+
+pub fn load_program_with_map_and_entry_runtime(
+    root_path: impl Into<String>,
+    module_map: ModuleMap,
+    entry_runtime: EntryRuntime,
+) -> LoadedProgram {
+    let root_path = SourcePath::new(root_path.into());
+    let module_map = effective_module_map(&root_path, module_map);
     let db = QueryDb::new(LoaderContext {
-        root_path: SourcePath::new(root_path.into()),
+        root_path,
         module_map,
         sources: SourceDatabase::new(),
         target: TargetConfig::host(),
+        entry_runtime,
     });
     db.query(LoadedProgramQuery)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum EntryRuntime {
+    #[default]
+    None,
+    Freestanding,
 }
 
 #[cfg(test)]
@@ -31,11 +52,14 @@ fn load_program_from_sources(
     module_map: ModuleMap,
     sources: SourceDatabase,
 ) -> LoadedProgram {
+    let root_path = SourcePath::new(root_path.into());
+    let module_map = effective_module_map(&root_path, module_map);
     let db = QueryDb::new(LoaderContext {
-        root_path: SourcePath::new(root_path.into()),
+        root_path,
         module_map,
         sources,
         target: TargetConfig::host(),
+        entry_runtime: EntryRuntime::None,
     });
     db.query(LoadedProgramQuery)
 }
@@ -45,14 +69,37 @@ fn load_program_trace(
     root_path: impl Into<String>,
     module_map: ModuleMap,
 ) -> nia_query::QueryTrace {
+    let root_path = SourcePath::new(root_path.into());
+    let module_map = effective_module_map(&root_path, module_map);
     let db = QueryDb::new(LoaderContext {
-        root_path: SourcePath::new(root_path.into()),
+        root_path,
         module_map,
         sources: SourceDatabase::new(),
         target: TargetConfig::host(),
+        entry_runtime: EntryRuntime::None,
     });
     let _ = db.query(LoadedProgramQuery);
     db.query_trace()
+}
+
+fn effective_module_map(root_path: &SourcePath, module_map: ModuleMap) -> ModuleMap {
+    module_map
+        .with_compiler_root(root_path.clone())
+        .with_default_std(default_std_module_path())
+}
+
+fn default_std_module_path() -> SourcePath {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or(manifest_dir);
+    SourcePath::new(
+        workspace_root
+            .join("lib/std.nia")
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 struct LoaderContext {
@@ -60,6 +107,7 @@ struct LoaderContext {
     module_map: ModuleMap,
     sources: SourceDatabase,
     target: TargetConfig,
+    entry_runtime: EntryRuntime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -102,6 +150,15 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
 
     fn execute(&self, db: &QueryDb<LoaderContext>) -> Self::Value {
         let mut graph = ModuleGraph::new(db.context().root_path.clone());
+        if let Some(runtime_import) = entry_runtime_import(db.context()) {
+            let root = graph.root();
+            add_resolved_imports(&mut graph, root, [runtime_import]).unwrap_or_else(|diagnostic| {
+                db.invalid_input(
+                    self,
+                    format!("failed to add entry runtime import: {}", diagnostic.message),
+                )
+            });
+        }
         let mut index = 0;
         while index < graph.modules().count() {
             let Some(node) = graph.get(nia_imports::ModuleId(index as u32)).cloned() else {
@@ -117,6 +174,24 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             index += 1;
         }
         graph
+    }
+}
+
+fn entry_runtime_import(context: &LoaderContext) -> Option<ResolvedImport> {
+    match context.entry_runtime {
+        EntryRuntime::None => None,
+        EntryRuntime::Freestanding => {
+            let import_path = ImportPath {
+                kind: ImportPathKind::Root,
+                segments: vec!["std".to_string(), "start".to_string()],
+            };
+            let path = resolve_import_path(&context.root_path, &import_path, &context.module_map)?;
+            Some(ResolvedImport {
+                alias: "<std.start>".to_string(),
+                path,
+                span: Span::default(),
+            })
+        }
     }
 }
 
@@ -530,6 +605,94 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
 
         assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
         assert!(program.imports.get(program.graph.root(), "io").is_some());
+        assert!(program.modules.iter().any(
+            |module| module.path.as_str() == root.join("std/io.nia").to_string_lossy().as_ref()
+        ));
+    }
+
+    #[test]
+    fn query_loader_injects_default_std_module_map_to_toolchain_lib() {
+        let root = temp_dir("query_loader_injects_default_std_module_map_to_toolchain_lib");
+        let main_path = root.join("main.nia");
+        write(&main_path, "import std;");
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.modules.len(), 2);
+        let std_alias = program
+            .imports
+            .get(program.graph.root(), "std")
+            .expect("std import alias");
+        let std_module = program.graph.get(std_alias.target).expect("std module");
+        assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
+    }
+
+    #[test]
+    fn query_loader_injects_freestanding_entry_runtime_through_std_start_facade() {
+        let root =
+            temp_dir("query_loader_injects_freestanding_entry_runtime_through_std_start_facade");
+        let main_path = root.join("main.nia");
+        write(
+            &main_path,
+            "import std.process; pub fn main(init: process::Init) process::Exit!void { _ = init; !{} }",
+        );
+
+        let program = load_program_with_map_and_entry_runtime(
+            main_path.to_string_lossy().into_owned(),
+            ModuleMap::default(),
+            EntryRuntime::Freestanding,
+        );
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert!(
+            program
+                .modules
+                .iter()
+                .any(|module| module.path.as_str().ends_with("lib/std/start.nia")),
+            "{:?}",
+            program
+                .modules
+                .iter()
+                .map(|module| module.path.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            program.modules.iter().any(|module| module
+                .path
+                .as_str()
+                .ends_with("lib/std/start/freestanding/linux/x86_64.nia")),
+            "{:?}",
+            program
+                .modules
+                .iter()
+                .map(|module| module.path.as_str())
+                .collect::<Vec<_>>()
+        );
+        let root = program
+            .graph
+            .get(program.graph.root())
+            .expect("root module");
+        assert!(root.imports.iter().any(|import| {
+            import.alias == "<std.start>" && import.path.as_str().ends_with("lib/std/start.nia")
+        }));
+    }
+
+    #[test]
+    fn query_loader_injects_root_module_map_to_entry_file() {
+        let root = temp_dir("query_loader_injects_root_module_map_to_entry_file");
+        let main_path = root.join("main.nia");
+        write(&main_path, "import root;");
+
+        let program = load_program(main_path.to_string_lossy().into_owned());
+
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert_eq!(program.modules.len(), 1);
+        let root_alias = program
+            .imports
+            .get(program.graph.root(), "root")
+            .expect("root import alias");
+        assert_eq!(root_alias.target, program.graph.root());
     }
 
     #[test]
@@ -594,6 +757,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             module_map: ModuleMap::default(),
             sources: sources.clone(),
             target: TargetConfig::host(),
+            entry_runtime: EntryRuntime::None,
         });
 
         let first = db.query(LoadedProgramQuery);
@@ -638,6 +802,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             module_map: ModuleMap::default(),
             sources: sources.clone(),
             target: TargetConfig::host(),
+            entry_runtime: EntryRuntime::None,
         });
 
         let first = db.query(LoadedProgramQuery);
@@ -665,6 +830,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
             module_map: ModuleMap::default(),
             sources: SourceDatabase::new(),
             target: TargetConfig::host(),
+            entry_runtime: EntryRuntime::None,
         });
 
         let err = db

@@ -9,7 +9,6 @@ pub(crate) use types::{AbiParam, AbiReturn};
 use std::{cell::RefCell, collections::HashMap};
 
 use crate::function_codegen::{FunctionCodegen, FunctionCodegenInput};
-use crate::output::LlvmCodegenOptions;
 use crate::program_index::ProgramIndex;
 use nia_backend_ir::{BackendFunction, BackendLayouts, BackendModule};
 use nia_diagnostic::Diagnostic;
@@ -45,7 +44,6 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) source: &'a BackendModule,
     pub(super) program: &'a ProgramIndex<'a>,
     pub(super) module: nia_llvm::module::Module<'ctx>,
-    pub(super) options: LlvmCodegenOptions,
     pub(super) structs: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) unions: HashMap<GlobalDefId, StructType<'ctx>>,
     pub(super) struct_instances: HashMap<GlobalDefId, HashMap<Vec<InternedTyId>, StructType<'ctx>>>,
@@ -78,7 +76,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         context: &'ctx Context,
         source: &'a BackendModule,
         program: &'a ProgramIndex<'a>,
-        options: LlvmCodegenOptions,
+        _options: crate::output::LlvmCodegenOptions,
     ) -> Result<Self, Diagnostic> {
         Ok(Self {
             context,
@@ -87,7 +85,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             module: context
                 .create_module(&source.name)
                 .map_err(Self::diagnostic_from_llvm_error)?,
-            options,
             structs: HashMap::new(),
             unions: HashMap::new(),
             struct_instances: HashMap::new(),
@@ -126,7 +123,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        self.check_hosted_entry_signatures()?;
         self.declare_structs()?;
         self.define_struct_bodies()?;
         self.declare_functions()?;
@@ -136,41 +132,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         self.module
             .verify()
             .map_err(Self::diagnostic_from_llvm_error)
-    }
-
-    fn check_hosted_entry_signatures(&self) -> Result<(), Diagnostic> {
-        if !self.options.hosted_entry || self.options.root_module != Some(self.source.id) {
-            return Ok(());
-        }
-        for function in &self.source.functions {
-            if function.name != "main" || function.is_extern {
-                continue;
-            }
-            if !self.is_valid_hosted_entry_signature(function) {
-                return Err(self.error(
-                    function.span,
-                    "hosted entry `main` must be `fn main() i32` or `fn main(argc: i32, argv: &&u8) i32`",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn is_valid_hosted_entry_signature(&self, function: &BackendFunction) -> bool {
-        if !function.generics.is_empty()
-            || function.is_variadic
-            || function.return_type != self.source.interner.primitive(PrimitiveTy::I32)
-        {
-            return false;
-        }
-        match function.params.as_slice() {
-            [] => true,
-            [argc, argv] => {
-                argc.ty == self.source.interner.primitive(PrimitiveTy::I32)
-                    && self.is_readonly_argv_ty(argv.ty)
-            }
-            _ => false,
-        }
     }
 
     pub(super) fn layout_of(&self, ty: InternedTyId) -> Option<TypeLayout> {
@@ -195,6 +156,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .struct_layout(*def_id)
                 .or_else(|| self.program.union_layout(*def_id))
                 .map(|layout| layout.layout.clone())
+                .or_else(|| {
+                    let enum_item = self.program.enums.get(def_id).copied()?;
+                    self.layout_of(enum_item.backing_type)
+                })
         } else {
             self.program
                 .struct_instance_layout(*def_id, args)
@@ -221,24 +186,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                         })
                 })
         }
-    }
-
-    fn is_readonly_argv_ty(&self, ty: InternedTyId) -> bool {
-        let Some(TyKind::Pointer {
-            is_readonly: true,
-            elem: argv_elem,
-        }) = self.ty_kind(ty)
-        else {
-            return false;
-        };
-        let Some(TyKind::Pointer {
-            is_readonly: true,
-            elem: byte_elem,
-        }) = self.ty_kind(*argv_elem)
-        else {
-            return false;
-        };
-        *byte_elem == self.source.interner.primitive(PrimitiveTy::U8)
     }
 
     pub(super) fn integer_llvm_type(
@@ -318,18 +265,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     fn function_symbol_name(&self, function: &BackendFunction) -> String {
         if function.is_extern {
             function.name.clone()
-        } else if self.is_hosted_entry(function) {
-            "main".to_string()
         } else {
             self.symbol_name(function.def_id, &function.name)
         }
-    }
-
-    fn is_hosted_entry(&self, function: &BackendFunction) -> bool {
-        self.options.hosted_entry
-            && self.options.root_module == Some(function.def_id.module_id)
-            && function.name == "main"
-            && function.generics.is_empty()
     }
 
     fn global_symbol_name(&self, global: &nia_backend_ir::BackendGlobal) -> String {

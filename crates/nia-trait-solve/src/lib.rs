@@ -898,12 +898,18 @@ where
                 .iter()
                 .map(|arg| import_type_into(self.interner, &impl_signature.interner, *arg))
                 .collect::<Vec<_>>();
-            if self.types_equivalent(target_ty, goal.self_ty)
-                && trait_args.len() == goal.trait_args.len()
+            if trait_args.len() != goal.trait_args.len() {
+                continue;
+            }
+            let mut substitutions = HashMap::new();
+            if self.match_impl_pattern(target_ty, goal.self_ty, &mut substitutions)
                 && trait_args
                     .iter()
                     .zip(&goal.trait_args)
-                    .all(|(actual, expected)| self.types_equivalent(*actual, *expected))
+                    .all(|(actual, expected)| {
+                        self.match_impl_pattern(*actual, *expected, &mut substitutions)
+                    })
+                && self.impl_where_predicates_hold(impl_signature, &substitutions)
             {
                 matches.push(UserImpl {
                     goal: goal.clone(),
@@ -912,6 +918,348 @@ where
             }
         }
         matches
+    }
+
+    fn impl_where_predicates_hold(
+        &mut self,
+        impl_signature: &ProgramTraitImplSignature,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> bool {
+        for predicate in &impl_signature.where_predicates {
+            let self_ty = import_type_into(self.interner, &impl_signature.interner, predicate.ty);
+            let self_ty = self.substitute_ty(self_ty, substitutions);
+            for bound in &predicate.bounds {
+                let trait_ty =
+                    import_type_into(self.interner, &impl_signature.interner, bound.trait_ty);
+                let trait_ty = self.substitute_ty(trait_ty, substitutions);
+                let Some((trait_id, trait_args)) = self.trait_id_and_args(trait_ty) else {
+                    return false;
+                };
+                if !self.proves(TraitGoal {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                }) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn match_impl_pattern(
+        &mut self,
+        pattern: InternedTyId,
+        actual: InternedTyId,
+        substitutions: &mut HashMap<String, InternedTyId>,
+    ) -> bool {
+        let pattern = self.normalize(pattern);
+        let actual = self.normalize(actual);
+        match self.interner.get(pattern).cloned() {
+            Some(TyKind::GenericParam(name)) => {
+                if let Some(existing) = substitutions.get(&name).copied() {
+                    self.types_equivalent(existing, actual)
+                } else {
+                    substitutions.insert(name, actual);
+                    true
+                }
+            }
+            Some(TyKind::Pointer { is_readonly, elem }) => matches!(
+                self.interner.get(actual).cloned(),
+                Some(TyKind::Pointer {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) if is_readonly == actual_readonly
+                    && self.match_impl_pattern(elem, actual_elem, substitutions)
+            ),
+            Some(TyKind::Slice { is_readonly, elem }) => matches!(
+                self.interner.get(actual).cloned(),
+                Some(TyKind::Slice {
+                    is_readonly: actual_readonly,
+                    elem: actual_elem,
+                }) if is_readonly == actual_readonly
+                    && self.match_impl_pattern(elem, actual_elem, substitutions)
+            ),
+            Some(TyKind::Array { len, elem }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::Array {
+                    len: actual_len,
+                    elem: actual_elem,
+                }) if len == actual_len => {
+                    self.match_impl_pattern(elem, actual_elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Range { kind, bound }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::Range {
+                    kind: actual_kind,
+                    bound: actual_bound,
+                }) if kind == actual_kind => match (bound, actual_bound) {
+                    (Some(bound), Some(actual_bound)) => {
+                        self.match_impl_pattern(bound, actual_bound, substitutions)
+                    }
+                    (None, None) => true,
+                    _ => false,
+                },
+                _ => false,
+            },
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::FunctionPointer {
+                    params: actual_params,
+                    return_type: actual_return,
+                    is_variadic: actual_variadic,
+                }) if is_variadic == actual_variadic && params.len() == actual_params.len() => {
+                    params
+                        .iter()
+                        .zip(actual_params)
+                        .all(|(param, actual_param)| {
+                            self.match_impl_pattern(*param, actual_param, substitutions)
+                        })
+                        && self.match_impl_pattern(return_type, actual_return, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Optional { elem }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::Optional { elem: actual_elem }) => {
+                    self.match_impl_pattern(elem, actual_elem, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::ErrorUnion { error, value }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::ErrorUnion {
+                    error: actual_error,
+                    value: actual_value,
+                }) => {
+                    self.match_impl_pattern(error, actual_error, substitutions)
+                        && self.match_impl_pattern(value, actual_value, substitutions)
+                }
+                _ => false,
+            },
+            Some(TyKind::Nominal { def_id, args }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::Nominal {
+                    def_id: actual_def,
+                    args: actual_args,
+                }) if def_id == actual_def && args.len() == actual_args.len() => {
+                    args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                        self.match_impl_pattern(*arg, actual_arg, substitutions)
+                    })
+                }
+                _ => false,
+            },
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                match self.interner.get(actual).cloned() {
+                    Some(TyKind::BuiltinTrait {
+                        trait_id: actual_trait,
+                        args: actual_args,
+                    }) if trait_id == actual_trait && args.len() == actual_args.len() => {
+                        args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                            self.match_impl_pattern(*arg, actual_arg, substitutions)
+                        })
+                    }
+                    _ => false,
+                }
+            }
+            Some(TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::TraitObject {
+                    is_readonly: actual_readonly,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    associated_type_bindings: actual_bindings,
+                }) if is_readonly == actual_readonly
+                    && trait_id == actual_trait
+                    && trait_args.len() == actual_args.len()
+                    && associated_type_bindings.len() == actual_bindings.len() =>
+                {
+                    trait_args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                        self.match_impl_pattern(*arg, actual_arg, substitutions)
+                    }) && associated_type_bindings.iter().all(|binding| {
+                        actual_bindings
+                            .iter()
+                            .find(|actual_binding| {
+                                binding.name == actual_binding.name
+                                    && binding.trait_id == actual_binding.trait_id
+                                    && binding.trait_args.len() == actual_binding.trait_args.len()
+                            })
+                            .is_some_and(|actual_binding| {
+                                binding
+                                    .trait_args
+                                    .iter()
+                                    .zip(&actual_binding.trait_args)
+                                    .all(|(arg, actual_arg)| {
+                                        self.match_impl_pattern(*arg, *actual_arg, substitutions)
+                                    })
+                                    && self.match_impl_pattern(
+                                        binding.ty,
+                                        actual_binding.ty,
+                                        substitutions,
+                                    )
+                            })
+                    })
+                }
+                _ => false,
+            },
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::Projection {
+                    self_ty: actual_self,
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    name: actual_name,
+                }) if trait_id == actual_trait
+                    && name == actual_name
+                    && trait_args.len() == actual_args.len() =>
+                {
+                    self.match_impl_pattern(self_ty, actual_self, substitutions)
+                        && trait_args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                            self.match_impl_pattern(*arg, actual_arg, substitutions)
+                        })
+                }
+                _ => false,
+            },
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {
+                self.types_equivalent(pattern, actual)
+            }
+        }
+    }
+
+    fn substitute_ty(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> InternedTyId {
+        let ty = self.normalize(ty);
+        match self.interner.get(ty).cloned() {
+            Some(TyKind::GenericParam(name)) => substitutions.get(&name).copied().unwrap_or(ty),
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Pointer { is_readonly, elem })
+            }
+            Some(TyKind::Slice { is_readonly, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Slice { is_readonly, elem })
+            }
+            Some(TyKind::Array { len, elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Array { len, elem })
+            }
+            Some(TyKind::Range { kind, bound }) => {
+                let bound = bound.map(|bound| self.substitute_ty(bound, substitutions));
+                self.interner.intern(TyKind::Range { kind, bound })
+            }
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                is_variadic,
+            }) => {
+                let params = params
+                    .into_iter()
+                    .map(|param| self.substitute_ty(param, substitutions))
+                    .collect();
+                let return_type = self.substitute_ty(return_type, substitutions);
+                self.interner.intern(TyKind::FunctionPointer {
+                    params,
+                    return_type,
+                    is_variadic,
+                })
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::Optional { elem })
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.substitute_ty(error, substitutions);
+                let value = self.substitute_ty(value, substitutions);
+                self.interner.intern(TyKind::ErrorUnion { error, value })
+            }
+            Some(TyKind::Nominal { def_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Nominal { def_id, args })
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                self.interner
+                    .intern(TyKind::BuiltinTrait { trait_id, args })
+            }
+            Some(TyKind::TraitObject {
+                is_readonly,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.substitute_ty(arg, substitutions))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.substitute_ty(binding.ty, substitutions),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObject {
+                    is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.substitute_ty(self_ty, substitutions);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                self.interner.intern(TyKind::Projection {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                    name,
+                })
+            }
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => ty,
+        }
+    }
+
+    fn trait_id_and_args(&self, ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match self.interner.get(self.normalize(ty)) {
+            Some(TyKind::Nominal { def_id, args }) => {
+                Some((TraitId::Source(*def_id), args.clone()))
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                Some((TraitId::Builtin(*trait_id), args.clone()))
+            }
+            _ => None,
+        }
     }
 
     fn goals_equivalent(&self, left: &TraitGoal, right: &TraitGoal) -> bool {

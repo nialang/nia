@@ -9,22 +9,14 @@ use nia_defs::DefCollection;
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::LocalId;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
-use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
-use nia_source::SourceVersion;
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalResolution {
     pub locals: LocalMap,
-    /// Span-keyed facts are the compatibility path used by older lowering and
-    /// checking passes that receive AST spans directly.
-    pub local_defs: HashMap<Span, LocalId>,
-    /// Node-keyed facts are the incremental path. When syntax origins are
-    /// available they prefer red child paths over raw spans so duplicated
-    /// spans and partial reparses do not silently alias unrelated nodes.
     pub node_local_defs: HashMap<NodeKey, LocalId>,
-    pub uses: HashMap<Span, LocalUse>,
     pub node_uses: HashMap<NodeKey, LocalUse>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -98,33 +90,21 @@ pub fn resolve_module_locals_with_source(
     module: &Module,
     defs: &DefCollection,
     values: &ValueResolution,
-    source_version: Option<SourceVersion>,
+    _source_version: Option<nia_source::SourceVersion>,
 ) -> LocalResolution {
     let item_tree = ModuleItemTree::from_module(module);
-    resolve_module_locals_from_item_tree_with_origins(
-        &item_tree,
-        defs,
-        values,
-        source_version,
-        &NodeOriginTable::default(),
-    )
+    resolve_module_locals_from_items(&item_tree.items, defs, values)
 }
 
 pub fn resolve_module_locals_with_origins(
     module: &Module,
     defs: &DefCollection,
     values: &ValueResolution,
-    source_version: Option<SourceVersion>,
-    origins: &NodeOriginTable,
+    _source_version: Option<nia_source::SourceVersion>,
+    _origins: &nia_node_id::NodeOriginTable,
 ) -> LocalResolution {
     let item_tree = ModuleItemTree::from_module(module);
-    resolve_module_locals_from_item_tree_with_origins(
-        &item_tree,
-        defs,
-        values,
-        source_version,
-        origins,
-    )
+    resolve_module_locals_from_items(&item_tree.items, defs, values)
 }
 
 pub fn resolve_module_locals_from_item_tree(
@@ -132,51 +112,39 @@ pub fn resolve_module_locals_from_item_tree(
     defs: &DefCollection,
     values: &ValueResolution,
 ) -> LocalResolution {
-    resolve_module_locals_from_item_tree_with_origins(
-        item_tree,
-        defs,
-        values,
-        None,
-        &NodeOriginTable::default(),
-    )
+    resolve_module_locals_from_items(&item_tree.items, defs, values)
 }
 
 pub fn resolve_module_locals_from_active_item_tree_with_origins(
     item_tree: &ActiveModuleItemTree,
     defs: &DefCollection,
     values: &ValueResolution,
-    source_version: Option<SourceVersion>,
-    origins: &NodeOriginTable,
+    _source_version: Option<nia_source::SourceVersion>,
+    _origins: &nia_node_id::NodeOriginTable,
 ) -> LocalResolution {
-    resolve_module_locals_from_items(&item_tree.items, defs, values, source_version, origins)
+    resolve_module_locals_from_items(&item_tree.items, defs, values)
 }
 
 pub fn resolve_module_locals_from_item_tree_with_origins(
     item_tree: &ModuleItemTree,
     defs: &DefCollection,
     values: &ValueResolution,
-    source_version: Option<SourceVersion>,
-    origins: &NodeOriginTable,
+    _source_version: Option<nia_source::SourceVersion>,
+    _origins: (),
 ) -> LocalResolution {
-    resolve_module_locals_from_items(&item_tree.items, defs, values, source_version, origins)
+    resolve_module_locals_from_items(&item_tree.items, defs, values)
 }
 
 fn resolve_module_locals_from_items(
     items: &[ItemTreeNode],
     defs: &DefCollection,
     values: &ValueResolution,
-    source_version: Option<SourceVersion>,
-    origins: &NodeOriginTable,
 ) -> LocalResolution {
     let mut resolver = LocalResolver {
-        source_version,
-        origins,
         defs,
         values,
         locals: LocalMap::default(),
-        local_defs: HashMap::new(),
         node_local_defs: HashMap::new(),
-        uses: HashMap::new(),
         node_uses: HashMap::new(),
         diagnostics: Vec::new(),
         scopes: Vec::new(),
@@ -184,23 +152,17 @@ fn resolve_module_locals_from_items(
     resolver.resolve_items(items);
     LocalResolution {
         locals: resolver.locals,
-        local_defs: resolver.local_defs,
         node_local_defs: resolver.node_local_defs,
-        uses: resolver.uses,
         node_uses: resolver.node_uses,
         diagnostics: resolver.diagnostics,
     }
 }
 
 struct LocalResolver<'a> {
-    source_version: Option<SourceVersion>,
-    origins: &'a NodeOriginTable,
     defs: &'a DefCollection,
     values: &'a ValueResolution,
     locals: LocalMap,
-    local_defs: HashMap<Span, LocalId>,
     node_local_defs: HashMap<NodeKey, LocalId>,
-    uses: HashMap<Span, LocalUse>,
     node_uses: HashMap<NodeKey, LocalUse>,
     diagnostics: Vec<Diagnostic>,
     scopes: Vec<HashMap<String, ScopedLocal>>,
@@ -274,7 +236,7 @@ impl<'a> LocalResolver<'a> {
                     name,
                     LocalKind::Param,
                     param.span,
-                    SyntaxKind::Param,
+                    param.node_key.clone(),
                     "duplicate parameter name",
                 );
             }
@@ -302,7 +264,7 @@ impl<'a> LocalResolver<'a> {
     fn resolve_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Binding(binding) => {
-                self.resolve_binding(stmt.span, binding);
+                self.resolve_binding(stmt.span, stmt.node_key.clone(), binding);
             }
             StmtKind::Using(_) => {
                 // Block-scope `using` is handled by a later resolution pass; nothing local to bind.
@@ -328,7 +290,7 @@ impl<'a> LocalResolver<'a> {
                         LocalKind::Binding
                     },
                     for_stmt.binding.span,
-                    SyntaxKind::Stmt,
+                    for_stmt.binding.node_key.clone(),
                     "duplicate local binding",
                 );
                 self.resolve_block(&for_stmt.body);
@@ -342,7 +304,7 @@ impl<'a> LocalResolver<'a> {
         }
     }
 
-    fn resolve_binding(&mut self, span: Span, binding: &BindingStmt) {
+    fn resolve_binding(&mut self, span: Span, node_key: NodeKey, binding: &BindingStmt) {
         if let Some(ty) = &binding.ty {
             self.resolve_type(ty);
         }
@@ -359,7 +321,7 @@ impl<'a> LocalResolver<'a> {
                 LocalKind::Binding
             },
             span,
-            SyntaxKind::Stmt,
+            node_key,
             "duplicate local binding",
         );
     }
@@ -433,7 +395,7 @@ impl<'a> LocalResolver<'a> {
     fn resolve_expr(&mut self, expr: &Expr) {
         match &expr.kind {
             ExprKind::Ident(name) => {
-                self.resolve_ident(name, expr.span);
+                self.resolve_ident(name, expr.node_key.clone());
             }
             ExprKind::Builtin { .. }
             | ExprKind::TypeTarget { .. }
@@ -551,14 +513,26 @@ impl<'a> LocalResolver<'a> {
                     for pattern in &arm.patterns {
                         match pattern {
                             SwitchPattern::Default => {}
-                            SwitchPattern::OptionalSome { name, span }
-                            | SwitchPattern::ErrorOk { name, span }
-                            | SwitchPattern::ErrorErr { name, span } => {
+                            SwitchPattern::OptionalSome {
+                                name,
+                                span,
+                                node_key,
+                            }
+                            | SwitchPattern::ErrorOk {
+                                name,
+                                span,
+                                node_key,
+                            }
+                            | SwitchPattern::ErrorErr {
+                                name,
+                                span,
+                                node_key,
+                            } => {
                                 self.define(
                                     name,
                                     LocalKind::Binding,
                                     *span,
-                                    SyntaxKind::Pattern,
+                                    node_key.clone(),
                                     "duplicate switch pattern binding",
                                 );
                             }
@@ -625,15 +599,19 @@ impl<'a> LocalResolver<'a> {
             return self.try_resolve_type_prefix(callee);
         }
         if matches!(expr.kind, ExprKind::TypeTarget { .. }) {
-            self.record_use(expr.span, LocalUse::TypePrefix);
+            self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
             return true;
         }
         if let ExprKind::Qualified { lhs, .. } = &expr.kind {
-            if self.values.qualified_type_prefixes.contains_key(&expr.span) {
+            if self
+                .values
+                .node_qualified_type_prefixes
+                .contains_key(&expr.node_key)
+            {
                 // The Qualified's own span resolves to a type — recurse into
                 // lhs so the import-alias span still gets marked, then mark us.
                 self.resolve_expr(lhs);
-                self.record_use(expr.span, LocalUse::TypePrefix);
+                self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
                 return true;
             }
             return false;
@@ -642,13 +620,16 @@ impl<'a> LocalResolver<'a> {
             return false;
         };
         if matches!(
-            self.values.names.get(&expr.span),
+            self.values.node_names.get(&expr.node_key),
             None | Some(ValueNameResolution::LocalDeferred | ValueNameResolution::External(_))
         ) && self.lookup(name).is_none()
             && (self.defs.module_scope.types.get(name).is_some()
-                || self.values.qualified_type_prefixes.contains_key(&expr.span))
+                || self
+                    .values
+                    .node_qualified_type_prefixes
+                    .contains_key(&expr.node_key))
         {
-            self.record_use(expr.span, LocalUse::TypePrefix);
+            self.record_use(expr.node_key.clone(), LocalUse::TypePrefix);
             return true;
         }
         false
@@ -676,21 +657,23 @@ impl<'a> LocalResolver<'a> {
         match &callee.kind {
             ExprKind::Ident(name) => {
                 matches!(
-                    self.values.names.get(&callee.span),
+                    self.values.node_names.get(&callee.node_key),
                     Some(ValueNameResolution::Def(_))
                 ) || (self.lookup(name).is_none()
                     && (self.defs.module_scope.types.get(name).is_some()
                         || self
                             .values
-                            .qualified_type_prefixes
-                            .contains_key(&callee.span)))
+                            .node_qualified_type_prefixes
+                            .contains_key(&callee.node_key)))
             }
             ExprKind::Qualified { .. } => {
-                self.values.qualified_values.contains_key(&callee.span)
+                self.values
+                    .node_qualified_values
+                    .contains_key(&callee.node_key)
                     || self
                         .values
-                        .qualified_type_prefixes
-                        .contains_key(&callee.span)
+                        .node_qualified_type_prefixes
+                        .contains_key(&callee.node_key)
             }
             ExprKind::TypeTarget { .. } => true,
             ExprKind::Field { .. } => true,
@@ -738,23 +721,23 @@ impl<'a> LocalResolver<'a> {
         )
     }
 
-    fn resolve_ident(&mut self, name: &str, span: Span) {
+    fn resolve_ident(&mut self, name: &str, node_key: NodeKey) {
         if let Some(local) = self.lookup(name) {
-            self.record_use(span, LocalUse::Local(local.id));
+            self.record_use(node_key, LocalUse::Local(local.id));
             return;
         }
-        match self.values.names.get(&span) {
+        match self.values.node_names.get(&node_key).copied() {
             Some(ValueNameResolution::Def(_)) | Some(ValueNameResolution::External(_)) => {
-                self.record_use(span, LocalUse::ModuleValue);
+                self.record_use(node_key, LocalUse::ModuleValue);
             }
             Some(ValueNameResolution::ImportAlias) => {
-                self.record_use(span, LocalUse::ImportAlias);
+                self.record_use(node_key, LocalUse::ImportAlias);
             }
             Some(ValueNameResolution::LocalDeferred) | None => {
-                self.record_use(span, LocalUse::Unresolved);
+                self.record_use(node_key, LocalUse::Unresolved);
             }
             Some(ValueNameResolution::Error) => {
-                self.record_use(span, LocalUse::Unresolved);
+                self.record_use(node_key, LocalUse::Unresolved);
             }
         }
     }
@@ -764,7 +747,7 @@ impl<'a> LocalResolver<'a> {
         name: &str,
         kind: LocalKind,
         span: Span,
-        syntax_kind: SyntaxKind,
+        node_key: NodeKey,
         duplicate_message: &'static str,
     ) {
         let id = self.locals.push(Local {
@@ -772,10 +755,7 @@ impl<'a> LocalResolver<'a> {
             kind,
             span,
         });
-        self.local_defs.insert(span, id);
-        if let Some(key) = self.node_key(syntax_kind, span) {
-            self.node_local_defs.insert(key, id);
-        }
+        self.node_local_defs.insert(node_key, id);
         let Some(scope) = self.scopes.last_mut() else {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -794,21 +774,8 @@ impl<'a> LocalResolver<'a> {
         scope.insert(name.to_string(), ScopedLocal { id, span });
     }
 
-    fn record_use(&mut self, span: Span, use_kind: LocalUse) {
-        self.uses.insert(span, use_kind);
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_uses.insert(key, use_kind);
-        }
-    }
-
-    fn node_key(&self, kind: SyntaxKind, span: Span) -> Option<NodeKey> {
-        // Origin keys are tied to the parsed red-node path. The span fallback
-        // keeps non-incremental callers useful, but it is less precise when two
-        // recovered AST nodes share a span.
-        self.origins.get(kind, span).cloned().or_else(|| {
-            self.source_version
-                .map(|version| NodeKey::span(version, kind, span))
-        })
+    fn record_use(&mut self, node_key: NodeKey, use_kind: LocalUse) {
+        self.node_uses.insert(node_key, use_kind);
     }
 
     fn lookup(&self, name: &str) -> Option<ScopedLocal> {
@@ -859,13 +826,13 @@ fn add(a: i32, b: i32) i32 {
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(
             locals
-                .uses
+                .node_uses
                 .values()
                 .any(|use_kind| matches!(use_kind, LocalUse::Local(_)))
         );
         assert!(
             locals
-                .uses
+                .node_uses
                 .values()
                 .any(|use_kind| matches!(use_kind, LocalUse::ModuleValue))
         );
@@ -886,32 +853,35 @@ fn id(value: i32) i32 {
         let values = resolve_module_values(&module, &defs);
         let locals = resolve_module_locals(&module, &defs, &values);
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
-        let body_value_start = source.rfind("value").expect("body value use must exist");
-        let body_value_span = Span::new(body_value_start, body_value_start + 5);
-        assert!(matches!(
-            locals.uses.get(&body_value_span),
-            Some(LocalUse::Local(_))
-        ));
+        assert!(
+            locals
+                .node_uses
+                .values()
+                .any(|use_kind| matches!(*use_kind, LocalUse::Local(_)))
+        );
     }
 
     #[test]
     fn records_local_facts_by_source_versioned_node_keys() {
-        let (module, errors) = parse_module(
+        let version = SourceVersion {
+            id: SourceId(4),
+            revision: SourceRevision(2),
+        };
+        let syntax = nia_syntax::parse_source(
             r#"
 fn main(a: i32) i32 {
     var x = a;
     x
 }
 "#,
+            Some(version),
         );
+        let (module, errors, origins) = parse_module_syntax_with_origins(&syntax);
         assert!(errors.is_empty(), "{errors:?}");
         let defs = collect_module_defs(ModuleId(0), &module);
         let values = resolve_module_values(&module, &defs);
-        let version = SourceVersion {
-            id: SourceId(4),
-            revision: SourceRevision(2),
-        };
-        let locals = resolve_module_locals_with_source(&module, &defs, &values, Some(version));
+        let locals =
+            resolve_module_locals_with_origins(&module, &defs, &values, Some(version), &origins);
 
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(!locals.node_local_defs.is_empty());
@@ -919,7 +889,7 @@ fn main(a: i32) i32 {
         assert!(locals.node_uses.iter().any(|(key, use_kind)| {
             key.source_version() == version
                 && key.kind == SyntaxKind::Expr
-                && matches!(key.position, NodePosition::Span(_))
+                && matches!(key.position, NodePosition::ChildPathRange { .. })
                 && matches!(use_kind, LocalUse::Local(_))
         }));
     }
@@ -971,11 +941,11 @@ fn main() i32 {
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(
             locals
-                .uses
+                .node_uses
                 .values()
                 .any(|use_kind| matches!(use_kind, LocalUse::Unresolved)),
             "{:?}",
-            locals.uses
+            locals.node_uses
         );
     }
 
@@ -1040,7 +1010,7 @@ fn main() Point {
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(
             locals
-                .uses
+                .node_uses
                 .values()
                 .any(|use_kind| matches!(use_kind, LocalUse::TypePrefix))
         );
@@ -1079,11 +1049,11 @@ fn main() i32 {
             .expect("expected loop local");
         assert!(
             locals
-                .uses
+                .node_uses
                 .values()
                 .any(|use_kind| *use_kind == LocalUse::Local(i_id)),
             "{:?}",
-            locals.uses
+            locals.node_uses
         );
     }
 
@@ -1118,11 +1088,11 @@ fn main() i32 {
             .expect("expected local named i32");
         assert!(
             locals
-                .uses
+                .node_uses
                 .values()
                 .any(|use_kind| *use_kind == LocalUse::Local(i32_id)),
             "{:?}",
-            locals.uses
+            locals.node_uses
         );
     }
 
@@ -1161,7 +1131,7 @@ comptime if false {
             &defs,
             &values,
             None,
-            &NodeOriginTable::default(),
+            &nia_node_id::NodeOriginTable::default(),
         );
         assert!(locals.diagnostics.is_empty(), "{:?}", locals.diagnostics);
         assert!(locals.locals.iter().any(|(_, local)| local.name == "value"));

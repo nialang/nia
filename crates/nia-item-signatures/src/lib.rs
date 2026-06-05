@@ -2,9 +2,10 @@
 use std::collections::HashMap;
 
 use nia_ast::{
-    BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param, ReceiverKind, StructItem,
-    TraitItem, TypeAliasItem, UnionItem, WhereClause,
+    Attribute, BindingItem, EnumItem, ExtendItem, FunctionItem, Module, Param, ReceiverKind,
+    StructItem, TraitItem, TypeAliasItem, TypeRef, UnionItem, WhereClause,
 };
+pub use nia_defs::{AssociatedTypeBindingSignature, WhereBoundSignature, WherePredicateSignature};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
@@ -74,6 +75,7 @@ pub struct ProgramTraitImplSignature {
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
     pub trait_args: Vec<InternedTyId>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
     pub interner: nia_ty::TyInterner,
 }
@@ -99,29 +101,14 @@ pub struct FunctionSignature {
     pub is_extern: bool,
     pub is_comptime: bool,
     pub is_variadic: bool,
+    pub attributes: Vec<FunctionAttribute>,
     pub has_body: bool,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct WherePredicateSignature {
-    pub ty: InternedTyId,
-    pub bounds: Vec<WhereBoundSignature>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct WhereBoundSignature {
-    pub trait_ty: InternedTyId,
-    pub associated_type_bindings: Vec<AssociatedTypeBindingSignature>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AssociatedTypeBindingSignature {
-    pub name: String,
-    pub ty: InternedTyId,
-    pub span: Span,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionAttribute {
+    Naked,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +122,7 @@ pub struct ParamSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructSignature {
     pub generics: Vec<String>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
     pub span: Span,
@@ -143,6 +131,7 @@ pub struct StructSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionSignature {
     pub generics: Vec<String>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub fields: Vec<FieldSignature>,
     pub is_extern: bool,
     pub span: Span,
@@ -151,6 +140,7 @@ pub struct UnionSignature {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitSignature {
     pub generics: Vec<String>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub supertraits: Vec<InternedTyId>,
     pub associated_types: Vec<TraitAssociatedTypeSignature>,
     pub methods: Vec<TraitMethodSignature>,
@@ -177,6 +167,7 @@ pub struct TraitMethodSignature {
 pub struct TraitImplSignature {
     pub target_ty: InternedTyId,
     pub trait_ty: Option<InternedTyId>,
+    pub where_predicates: Vec<WherePredicateSignature>,
     pub associated_types: Vec<TraitImplAssociatedTypeSignature>,
     pub span: Span,
 }
@@ -192,6 +183,7 @@ impl UnionSignature {
     pub fn as_struct_like(&self) -> StructSignature {
         StructSignature {
             generics: self.generics.clone(),
+            where_predicates: self.where_predicates.clone(),
             fields: self.fields.clone(),
             is_extern: self.is_extern,
             span: self.span,
@@ -327,8 +319,8 @@ impl<'a> SignatureCollector<'a> {
             ItemTreeNodeKind::TypeAlias(alias) => {
                 self.collect_type_alias(signatures, item.span, alias);
             }
-            ItemTreeNodeKind::Function(function) => {
-                self.collect_function(signatures, item.span, function);
+            ItemTreeNodeKind::Function(_) => {
+                self.collect_function(signatures, item);
             }
             ItemTreeNodeKind::Binding(binding) => {
                 if binding.is_comptime {
@@ -357,7 +349,7 @@ impl<'a> SignatureCollector<'a> {
             fields.push(FieldSignature {
                 def_id: field_id,
                 name: field.name.clone(),
-                ty: self.ty_for_span(field.ty.span),
+                ty: self.ty_for_type(&field.ty),
                 span: field.span,
             });
         }
@@ -365,6 +357,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             StructSignature {
                 generics: item_struct.generics.clone(),
+                where_predicates: self.where_predicate_signatures(&item_struct.where_clause),
                 fields,
                 is_extern: item_struct.is_extern,
                 span: item_span,
@@ -389,7 +382,7 @@ impl<'a> SignatureCollector<'a> {
             fields.push(FieldSignature {
                 def_id: field_id,
                 name: field.name.clone(),
-                ty: self.ty_for_span(field.ty.span),
+                ty: self.ty_for_type(&field.ty),
                 span: field.span,
             });
         }
@@ -397,6 +390,7 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             UnionSignature {
                 generics: item_union.generics.clone(),
+                where_predicates: self.where_predicate_signatures(&item_union.where_clause),
                 fields,
                 is_extern: item_union.is_extern,
                 span: item_span,
@@ -406,17 +400,18 @@ impl<'a> SignatureCollector<'a> {
 
     fn collect_extend(&mut self, signatures: &mut ItemSignatures, extend: &ExtendItem) {
         signatures.trait_impls.push(TraitImplSignature {
-            target_ty: self.ty_for_span(extend.target.span),
+            target_ty: self.ty_for_type(&extend.target),
             trait_ty: extend
                 .trait_ref
                 .as_ref()
-                .map(|trait_ref| self.ty_for_span(trait_ref.span)),
+                .map(|trait_ref| self.ty_for_type(trait_ref)),
+            where_predicates: self.where_predicate_signatures(&extend.where_clause),
             associated_types: extend
                 .associated_types
                 .iter()
                 .map(|associated_type| TraitImplAssociatedTypeSignature {
                     name: associated_type.name.clone(),
-                    ty: self.ty_for_span(associated_type.ty.span),
+                    ty: self.ty_for_type(&associated_type.ty),
                     span: associated_type.span,
                 })
                 .collect(),
@@ -469,10 +464,11 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             TraitSignature {
                 generics: item_trait.generics.clone(),
+                where_predicates: self.where_predicate_signatures(&item_trait.where_clause),
                 supertraits: item_trait
                     .supertraits
                     .iter()
-                    .map(|supertrait| self.ty_for_span(supertrait.span))
+                    .map(|supertrait| self.ty_for_type(supertrait))
                     .collect(),
                 associated_types,
                 methods,
@@ -500,7 +496,7 @@ impl<'a> SignatureCollector<'a> {
             return;
         };
         let backing_type = match &item_enum.backing_type {
-            Some(ty) => self.ty_for_span(ty.span),
+            Some(ty) => self.ty_for_type(ty),
             None => self.primitive(PrimitiveTy::I32),
         };
         let mut variants = Vec::new();
@@ -538,24 +534,25 @@ impl<'a> SignatureCollector<'a> {
             def_id,
             TypeAliasSignature {
                 generics: alias.generics.clone(),
-                target: self.ty_for_span(alias.ty.span),
+                target: self.ty_for_type(&alias.ty),
                 span: item_span,
             },
         );
     }
 
-    fn collect_function(
-        &mut self,
-        signatures: &mut ItemSignatures,
-        item_span: Span,
-        function: &FunctionItem,
-    ) {
+    fn collect_function(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
+        let item_span = item.span;
+        let ItemTreeNodeKind::Function(function) = &item.kind else {
+            return;
+        };
         let Some(def_id) = self.def_id_for_span(item_span, DefKind::Function) else {
             return;
         };
-        signatures
-            .functions
-            .insert(def_id, self.function_signature(function));
+        let attributes = self.function_attributes(&item.attributes, function);
+        signatures.functions.insert(
+            def_id,
+            self.function_signature_with_attributes(function, attributes),
+        );
     }
 
     fn collect_global(
@@ -570,7 +567,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.globals.insert(
             def_id,
             GlobalSignature {
-                explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_span(ty.span)),
+                explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
                 is_let: binding.is_let,
                 is_extern: binding.is_extern,
                 span: item_span,
@@ -590,7 +587,7 @@ impl<'a> SignatureCollector<'a> {
         signatures.comptimes.insert(
             def_id,
             ComptimeSignature {
-                explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_span(ty.span)),
+                explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
                 span: item_span,
             },
         );
@@ -603,7 +600,7 @@ impl<'a> SignatureCollector<'a> {
             .map(|param| self.param_signature(param))
             .collect();
         let return_type = match &function.return_type {
-            Some(ty) => self.ty_for_span(ty.span),
+            Some(ty) => self.ty_for_type(ty),
             None => self.primitive(PrimitiveTy::Void),
         };
         FunctionSignature {
@@ -614,14 +611,62 @@ impl<'a> SignatureCollector<'a> {
             is_extern: function.is_extern,
             is_comptime: function.is_comptime,
             is_variadic: function.is_variadic,
+            attributes: self.function_attributes(&[], function),
             has_body: function.body.is_some(),
             span: function.span,
         }
     }
 
+    fn function_signature_with_attributes(
+        &mut self,
+        function: &FunctionItem,
+        attributes: Vec<FunctionAttribute>,
+    ) -> FunctionSignature {
+        let mut signature = self.function_signature(function);
+        signature.attributes = attributes;
+        signature
+    }
+
+    fn function_attributes(
+        &mut self,
+        attributes: &[Attribute],
+        function: &FunctionItem,
+    ) -> Vec<FunctionAttribute> {
+        let mut out = Vec::new();
+        for attribute in attributes {
+            match attribute.path.as_slice() {
+                [name] if name == "naked" => {
+                    if !attribute.args.is_empty() {
+                        self.diagnostics.push(Diagnostic::error(
+                            attribute.span,
+                            "`@[naked]` does not take arguments",
+                        ));
+                    }
+                    if !function.is_extern || function.body.is_none() {
+                        self.diagnostics.push(Diagnostic::error(
+                            attribute.span,
+                            "`@[naked]` is only valid on `extern fn` definitions",
+                        ));
+                    }
+                    out.push(FunctionAttribute::Naked);
+                }
+                _ => {
+                    self.diagnostics.push(Diagnostic::error(
+                        attribute.span,
+                        format!(
+                            "unknown function attribute `@[{}]`",
+                            attribute.path.join(".")
+                        ),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
     fn param_signature(&mut self, param: &Param) -> ParamSignature {
         let ty = match &param.ty {
-            Some(ty) => self.ty_for_span(ty.span),
+            Some(ty) => self.ty_for_type(ty),
             None if param.receiver.is_some() => self.error(),
             None => {
                 self.diagnostics.push(Diagnostic::error(
@@ -644,12 +689,12 @@ impl<'a> SignatureCollector<'a> {
             .predicates
             .iter()
             .map(|predicate| WherePredicateSignature {
-                ty: self.ty_for_span(predicate.ty.span),
+                ty: self.ty_for_type(&predicate.ty),
                 bounds: predicate
                     .bounds
                     .iter()
                     .map(|bound| WhereBoundSignature {
-                        trait_ty: self.ty_for_span(bound.span),
+                        trait_ty: self.ty_for_type(bound),
                         associated_type_bindings: self.associated_type_binding_signatures(bound),
                         span: bound.span,
                     })
@@ -686,7 +731,7 @@ impl<'a> SignatureCollector<'a> {
                     };
                     Some(AssociatedTypeBindingSignature {
                         name,
-                        ty: self.ty_for_span(ty.span),
+                        ty: self.ty_for_type(ty),
                         span: *span,
                     })
                 }
@@ -720,12 +765,12 @@ impl<'a> SignatureCollector<'a> {
         Some(def_id)
     }
 
-    fn ty_for_span(&mut self, span: Span) -> InternedTyId {
-        if let Some(ty) = self.lowered.type_uses.get(&span).copied() {
+    fn ty_for_type(&mut self, ty_ref: &TypeRef) -> InternedTyId {
+        if let Some(ty) = self.lowered.node_type_uses.get(&ty_ref.node_key).copied() {
             ty
         } else {
             self.diagnostics.push(Diagnostic::error(
-                span,
+                ty_ref.span,
                 "missing lowered type for signature",
             ));
             self.lowered.interner.error()

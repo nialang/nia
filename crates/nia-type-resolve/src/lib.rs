@@ -13,13 +13,14 @@ pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ImportAliasMap;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::BuiltinTrait;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeResolution {
-    pub type_names: HashMap<Span, TypeNameResolution>,
-    pub qualified_type_names: HashMap<Span, GlobalDefId>,
+    pub node_type_names: HashMap<NodeKey, TypeNameResolution>,
+    pub node_qualified_type_names: HashMap<NodeKey, GlobalDefId>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -171,8 +172,8 @@ fn resolve_module_types_from_items(
         program_defs,
         public_surfaces,
         using_scope,
-        type_names: HashMap::new(),
-        qualified_type_names: HashMap::new(),
+        node_type_names: HashMap::new(),
+        node_qualified_type_names: HashMap::new(),
         diagnostics: Vec::new(),
         generic_stack: Vec::new(),
         self_type_stack: Vec::new(),
@@ -182,8 +183,8 @@ fn resolve_module_types_from_items(
         resolver.visit_item_tree_node(item);
     }
     TypeResolution {
-        type_names: resolver.type_names,
-        qualified_type_names: resolver.qualified_type_names,
+        node_type_names: resolver.node_type_names,
+        node_qualified_type_names: resolver.node_qualified_type_names,
         diagnostics: resolver.diagnostics,
     }
 }
@@ -194,8 +195,8 @@ struct TypeResolver<'a> {
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
-    type_names: HashMap<Span, TypeNameResolution>,
-    qualified_type_names: HashMap<Span, GlobalDefId>,
+    node_type_names: HashMap<NodeKey, TypeNameResolution>,
+    node_qualified_type_names: HashMap<NodeKey, GlobalDefId>,
     diagnostics: Vec<Diagnostic>,
     generic_stack: Vec<Vec<String>>,
     self_type_stack: Vec<Span>,
@@ -315,7 +316,7 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                 self.visit_type(error);
                 self.visit_type(value);
             }
-            TypeKind::Path { segments } => self.resolve_type_path(ty.span, segments),
+            TypeKind::Path { segments } => self.resolve_type_path(ty, segments),
         }
     }
 }
@@ -411,18 +412,18 @@ impl TypeResolver<'_> {
 }
 
 impl<'a> TypeResolver<'a> {
-    fn resolve_type_path(&mut self, span: Span, segments: &[TypePathSegment]) {
+    fn resolve_type_path(&mut self, ty: &TypeRef, segments: &[TypePathSegment]) {
         let Some(first) = segments.first() else {
             return;
         };
         if segments.len() > 1 {
-            let resolution = self.resolve_qualified_type_path(span, segments);
-            self.type_names.insert(span, resolution);
+            let resolution = self.resolve_qualified_type_path(ty.span, &ty.node_key, segments);
+            self.node_type_names.insert(ty.node_key.clone(), resolution);
             self.visit_type_path_args(segments);
             return;
         }
-        let resolution = self.resolve_type_name(first, span);
-        self.type_names.insert(span, resolution);
+        let resolution = self.resolve_type_name(first, ty.span, &ty.node_key);
+        self.node_type_names.insert(ty.node_key.clone(), resolution);
         self.visit_type_path_args(segments);
     }
 
@@ -453,6 +454,7 @@ impl<'a> TypeResolver<'a> {
     fn resolve_qualified_type_path(
         &mut self,
         span: Span,
+        node_key: &NodeKey,
         segments: &[TypePathSegment],
     ) -> TypeNameResolution {
         let Some((last, prefix)) = segments.split_last() else {
@@ -464,7 +466,7 @@ impl<'a> TypeResolver<'a> {
         match namespace {
             ResolvedNamespace::Module(module_id) => {
                 let path_text = type_path_text(segments);
-                self.resolve_module_type(span, module_id, last, &path_text)
+                self.resolve_module_type(span, node_key, module_id, last, &path_text)
             }
             ResolvedNamespace::Type(_) => {
                 self.diagnostics.push(Diagnostic::error(
@@ -565,6 +567,7 @@ impl<'a> TypeResolver<'a> {
     fn resolve_module_type(
         &mut self,
         span: Span,
+        node_key: &NodeKey,
         module_id: ModuleId,
         segment: &TypePathSegment,
         path_text: &str,
@@ -577,7 +580,8 @@ impl<'a> TypeResolver<'a> {
                 module_id: item.target_module,
                 def_id: item.target_def_id,
             };
-            self.qualified_type_names.insert(span, global);
+            self.node_qualified_type_names
+                .insert(node_key.clone(), global);
             return TypeNameResolution::External(global);
         }
         let Some(target_defs) = self.defs_for_module(module_id) else {
@@ -610,8 +614,8 @@ impl<'a> TypeResolver<'a> {
             ));
             return TypeNameResolution::Error;
         }
-        self.qualified_type_names
-            .insert(span, GlobalDefId { module_id, def_id });
+        self.node_qualified_type_names
+            .insert(node_key.clone(), GlobalDefId { module_id, def_id });
         if module_id == self.defs.module_id {
             TypeNameResolution::Def(def_id)
         } else {
@@ -619,7 +623,12 @@ impl<'a> TypeResolver<'a> {
         }
     }
 
-    fn resolve_type_name(&mut self, segment: &TypePathSegment, span: Span) -> TypeNameResolution {
+    fn resolve_type_name(
+        &mut self,
+        segment: &TypePathSegment,
+        span: Span,
+        node_key: &NodeKey,
+    ) -> TypeNameResolution {
         if let Some(primitive) = primitive_type(&segment.name) {
             return TypeNameResolution::Primitive(primitive);
         }
@@ -652,7 +661,8 @@ impl<'a> TypeResolver<'a> {
                 module_id: entry.target_module,
                 def_id: entry.target_def_id,
             };
-            self.qualified_type_names.insert(span, global);
+            self.node_qualified_type_names
+                .insert(node_key.clone(), global);
             return TypeNameResolution::External(global);
         }
         if !self.suppress_unknown_type_errors {
@@ -765,19 +775,19 @@ fn make(value: i32) Box[i32] {
         );
         assert!(
             resolved
-                .type_names
+                .node_type_names
                 .values()
                 .any(|resolution| matches!(resolution, TypeNameResolution::GenericParam))
         );
         assert!(
             resolved
-                .type_names
+                .node_type_names
                 .values()
                 .any(|resolution| matches!(resolution, TypeNameResolution::Primitive(_)))
         );
         assert!(
             resolved
-                .type_names
+                .node_type_names
                 .values()
                 .any(|resolution| matches!(resolution, TypeNameResolution::Def(_)))
         );
@@ -856,7 +866,7 @@ comptime if false {
         );
         assert!(
             resolved
-                .type_names
+                .node_type_names
                 .values()
                 .any(|resolution| matches!(resolution, TypeNameResolution::Primitive(_)))
         );

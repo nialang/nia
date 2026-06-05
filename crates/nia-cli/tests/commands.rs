@@ -331,6 +331,57 @@ pub comptime let answer: i32 = 42;
 }
 
 #[test]
+fn module_map_rejects_compiler_reserved_root() {
+    let root = temp_dir("module_map_rejects_compiler_reserved_root");
+    let main = root.join("main.nia");
+    std::fs::write(&main, "fn main() i32 { 0 }").expect("write main source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&main)
+        .arg("-M")
+        .arg(format!("root={}", main.display()))
+        .output()
+        .expect("run nia check with reserved root module map");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("`root` is a compiler-reserved module root"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn check_uses_default_std_module_map() {
+    let root = temp_dir("check_uses_default_std_module_map");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import std;
+
+fn main() i32 {
+    0
+}
+"#,
+    )
+    .expect("write main source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("check")
+        .arg(&main)
+        .output()
+        .expect("run nia check with default std");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn check_can_emit_backend_optimization_report() {
     let root = temp_dir("check_can_emit_backend_optimization_report");
     let main = root.join("main.nia");
@@ -882,15 +933,18 @@ fn main() i32 {
 }
 
 #[test]
-fn emit_exe_links_hosted_executable() {
-    let root = temp_dir("emit_exe_links_hosted_executable");
+fn emit_exe_links_freestanding_executable() {
+    let root = temp_dir("emit_exe_links_freestanding_executable");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
-    7
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    process::exit(7)!
 }
 "#,
     )
@@ -916,6 +970,228 @@ fn main() i32 {
 }
 
 #[test]
+fn emit_exe_can_write_stdout_through_std_os() {
+    let root = temp_dir("emit_exe_can_write_stdout_through_std_os");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.os;
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    var stdout = os::stdout();
+    switch io::write_all[os::Fd](& stdout, b"nia\n") {
+        !ok => _ = ok,
+        error! => return process::exit(1)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).output().expect("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "nia\n");
+}
+
+#[test]
+fn emit_exe_can_allocate_with_std_mem_page_allocator() {
+    let root = temp_dir("emit_exe_can_allocate_with_std_mem_page_allocator");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    var allocator = mem::page_allocator();
+    switch mem::allocate[mem::PageAllocator](& allocator, 4096, 1) {
+        !block => {
+            var ptr = mem::block_ptr(block);
+            ptr.* = 42u8;
+            if ptr.* != 42u8 {
+                return process::exit(2)!;
+            }
+            switch mem::deallocate[mem::PageAllocator](& allocator, block) {
+                !ok => _ = ok,
+                error! => return process::exit(3)!,
+            }
+        },
+        error! => return process::exit(1)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_reports_private_root_entry_called_by_freestanding_start() {
+    let root = temp_dir("emit_exe_reports_private_root_entry_called_by_freestanding_start");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    process::exit(7)!
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("private"), "{stderr}");
+    assert!(stderr.contains("root::main"), "{stderr}");
+}
+
+#[test]
+fn emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler() {
+    let root = temp_dir("emit_exe_entry_name_is_chosen_by_std_runtime_not_compiler");
+    let main = root.join("main.nia");
+    let std_root = root.join("custom_std/std.nia");
+    let std_process = root.join("custom_std/std/process.nia");
+    let std_start = root.join("custom_std/std/start.nia");
+    let std_start_linux_x86_64 = root.join("custom_std/std/start/freestanding/linux/x86_64.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::create_dir_all(std_start_linux_x86_64.parent().expect("std start parent"))
+        .expect("create custom std dir");
+    std::fs::write(&std_root, "").expect("write custom std root");
+    std::fs::write(&std_process, "").expect("write custom std process");
+    std::fs::write(
+        &std_start,
+        r#"
+comptime if @builtin().target.os == "linux"
+    and @builtin().target.arch == "x86_64"
+{
+    import std.start.freestanding.linux.x86_64;
+}
+"#,
+    )
+    .expect("write custom std start facade");
+    std::fs::write(
+        &std_start_linux_x86_64,
+        r#"
+import root;
+
+fn syscall_exit(code: i32) void {
+    @asm({
+        code:
+            b\\syscall
+        ,
+        inputs: {
+            rax: 60,
+            rdi: code,
+        },
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+}
+
+@[naked]
+pub extern fn _start() void {
+    @asm({
+        code:
+            b\\call custom_start
+            \\ud2
+        ,
+        clobbers: [b"rax", b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    loop {}
+}
+
+extern fn custom_start() void {
+    syscall_exit(root::mymain());
+    loop {}
+}
+"#,
+    )
+    .expect("write custom std start");
+    std::fs::write(
+        &main,
+        r#"
+pub fn mymain() i32 {
+    11
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-M")
+        .arg(format!("std={}", std_root.display()))
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe with custom std start");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(11));
+}
+
+#[test]
 fn emit_exe_preserves_output_paths_that_look_like_optimization_flags() {
     let root = temp_dir("emit_exe_preserves_output_paths_that_look_like_optimization_flags");
     let main = root.join("main.nia");
@@ -924,8 +1200,11 @@ fn emit_exe_preserves_output_paths_that_look_like_optimization_flags() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
-    9
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    process::exit(9)!
 }
 "#,
     )
@@ -986,8 +1265,11 @@ fn emit_exe_can_emit_optimization_report_to_stderr() {
     std::fs::write(
         &main,
         r#"
-fn main() i32 {
-    5
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    process::exit(5)!
 }
 "#,
     )
@@ -1029,6 +1311,8 @@ fn emitted_executables_preserve_semantics_across_optimization_levels() {
     std::fs::write(
         &main,
         r#"
+import std.process;
+
 fn pick(flag: bool, a: i32, b: i32) i32 {
     if flag {
         a
@@ -1049,12 +1333,13 @@ fn plus_two(value: i32) i32 {
     value + 2
 }
 
-fn main() i32 {
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
     var x = answer();
     var y = x;
     y = identity[i32](y);
     var unused = plus_two(99);
-    pick(true, plus_two(y), unused)
+    process::exit(pick(true, plus_two(y), unused))!
 }
 "#,
     )

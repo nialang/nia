@@ -36,11 +36,7 @@ impl<'a> ModuleLowerer<'a> {
             method_name: method.name().to_string(),
             trait_arg_count: trait_args.len(),
         };
-        let candidates = self
-            .extension_trait_method_candidates
-            .get(&key)
-            .cloned()
-            .unwrap_or_default();
+        let candidates = self.extension_trait_method_candidates(&key);
         let candidates = candidates
             .iter()
             .filter_map(|candidate| {
@@ -240,6 +236,28 @@ impl<'a> ModuleLowerer<'a> {
         self.builtin_trait_resolutions
             .insert(key, resolution.clone());
         resolution
+    }
+
+    pub(super) fn extension_trait_method_candidates(
+        &self,
+        key: &ExtensionTraitMethodKey,
+    ) -> Vec<ExtensionTraitMethodCandidate> {
+        let mut out = self
+            .extension_trait_method_candidates
+            .get(key)
+            .cloned()
+            .unwrap_or_default();
+        if let Some((_, instance_candidates)) = &self.instance_extension_trait_method_candidates {
+            for candidate in instance_candidates.get(key).cloned().unwrap_or_default() {
+                if !out
+                    .iter()
+                    .any(|existing| existing.method_def_id == candidate.method_def_id)
+                {
+                    out.push(candidate);
+                }
+            }
+        }
+        out
     }
 
     pub(super) fn pointer_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {

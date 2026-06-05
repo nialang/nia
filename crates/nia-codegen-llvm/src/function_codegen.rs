@@ -34,6 +34,7 @@ pub(super) struct FunctionCodegen<'m, 'ctx, 'a> {
     llvm_function: FunctionValue<'ctx>,
     locals: HashMap<LocalId, PointerValue<'ctx>>,
     local_tys: HashMap<LocalId, InternedTyId>,
+    zst_locals: HashMap<LocalId, PointerValue<'ctx>>,
     out_ptr: Option<PointerValue<'ctx>>,
     defer_scopes: Vec<DeferScope>,
     function_defer_scopes: HashMap<FunctionScopeId, usize>,
@@ -70,6 +71,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             llvm_function,
             locals: HashMap::new(),
             local_tys: HashMap::new(),
+            zst_locals: HashMap::new(),
             out_ptr: None,
             defer_scopes: Vec::new(),
             function_defer_scopes: HashMap::new(),
@@ -79,6 +81,31 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 
     fn alloc_function_locals(&mut self, body: &FunctionBody) -> Result<(), Diagnostic> {
         self.alloc_local_list(&body.locals)
+    }
+
+    fn local_addr(
+        &mut self,
+        local_id: LocalId,
+        span: Span,
+    ) -> Result<PointerValue<'ctx>, Diagnostic> {
+        if let Some(ptr) = self.locals.get(&local_id).copied() {
+            return Ok(ptr);
+        }
+        let Some(ty) = self.local_tys.get(&local_id).copied() else {
+            return Err(self.error(span, "missing local storage"));
+        };
+        if !self.is_zero_sized(ty) {
+            return Err(self.error(span, "missing local storage"));
+        }
+        if let Some(ptr) = self.zst_locals.get(&local_id).copied() {
+            return Ok(ptr);
+        }
+        let ptr = self
+            .builder
+            .build_alloca(self.module.context.i8_type(), "zst.local")
+            .map_err(|_| self.error(span, "failed to build zero-sized local address"))?;
+        self.zst_locals.insert(local_id, ptr);
+        Ok(ptr)
     }
 
     fn alloc_local_list(&mut self, locals: &[FunctionLocal]) -> Result<(), Diagnostic> {

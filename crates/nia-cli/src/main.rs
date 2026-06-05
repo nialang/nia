@@ -6,8 +6,7 @@ use std::{
 };
 
 use nia_diagnostic::{Diagnostic, render_diagnostic};
-use nia_ids::ModuleId;
-use nia_imports::ModuleMap;
+use nia_imports::{ModuleMap, ROOT_MODULE_MAP_NAME};
 use nia_opt::{
     InlineThreshold, NiaOptimizationLevel, OptimizationDepth, OptimizationPolicy,
     SpecializationPolicy,
@@ -591,6 +590,11 @@ fn insert_module_map_entry(map: &mut ModuleMap, payload: &str) -> Result<(), Str
     if name.is_empty() {
         return Err("module map name cannot be empty".to_string());
     }
+    if name == ROOT_MODULE_MAP_NAME {
+        return Err(format!(
+            "`{ROOT_MODULE_MAP_NAME}` is a compiler-reserved module root"
+        ));
+    }
     if path.is_empty() {
         return Err(format!("module map `{name}` has empty path"));
     }
@@ -669,7 +673,7 @@ fn run_emit_llvm(
     }
     let output = nia_codegen_llvm::emit_llvm_ir_with_options(
         &program.backend_lowering.program,
-        codegen_options(program.graph.root(), false, program.optimization),
+        codegen_options(program.optimization),
     );
     if !output.diagnostics.is_empty() {
         eprintln!("codegen diagnostics:");
@@ -709,7 +713,7 @@ fn run_emit_obj(
     }
     let output = nia_codegen_llvm::emit_native_objects(
         &program.backend_lowering.program,
-        hosted_codegen_options(program.graph.root(), program.optimization),
+        codegen_options(program.optimization),
     );
     if !output.diagnostics.is_empty() {
         print_codegen_diagnostics(path, source, &output.diagnostics);
@@ -761,7 +765,11 @@ fn run_emit_exe(
             return ExitCode::FAILURE;
         }
     };
-    let program = nia_driver::check_program_with_map_and_options(path, module_map, optimization);
+    let program = nia_driver::check_freestanding_executable_with_map_and_options(
+        path,
+        module_map,
+        optimization,
+    );
     if !program.diagnostics.is_empty() {
         print_program_diagnostics(path, source, &program);
         return ExitCode::FAILURE;
@@ -771,7 +779,7 @@ fn run_emit_exe(
     }
     let output = nia_codegen_llvm::emit_native_objects(
         &program.backend_lowering.program,
-        hosted_codegen_options(program.graph.root(), program.optimization),
+        codegen_options(program.optimization),
     );
     if !output.diagnostics.is_empty() {
         print_codegen_diagnostics(path, source, &output.diagnostics);
@@ -800,42 +808,52 @@ fn run_emit_exe(
         return ExitCode::FAILURE;
     }
 
-    let linker = env::var("CC").unwrap_or_else(|_| "cc".to_string());
-    let status = Command::new(&linker)
+    let linker = executable_linker();
+    let status = Command::new(&linker.program)
+        .args(&linker.args_before_objects)
         .args(&object_paths)
+        .args(&linker.args_after_objects)
         .arg("-o")
         .arg(&output_path)
         .status();
     match status {
         Ok(status) if status.success() => ExitCode::SUCCESS,
         Ok(status) => {
-            eprintln!("linker `{linker}` failed with status {status}");
+            eprintln!("linker `{}` failed with status {status}", linker.program);
             ExitCode::FAILURE
         }
         Err(err) => {
-            eprintln!("failed to run linker `{linker}`: {err}");
+            eprintln!("failed to run linker `{}`: {err}", linker.program);
             ExitCode::FAILURE
         }
     }
 }
 
-fn hosted_codegen_options(
-    root_module: ModuleId,
-    optimization: OptimizationPolicy,
-) -> nia_codegen_llvm::LlvmCodegenOptions {
-    codegen_options(root_module, true, optimization)
+struct ExecutableLinker {
+    program: String,
+    args_before_objects: Vec<String>,
+    args_after_objects: Vec<String>,
 }
 
-fn codegen_options(
-    root_module: ModuleId,
-    hosted_entry: bool,
-    optimization: OptimizationPolicy,
-) -> nia_codegen_llvm::LlvmCodegenOptions {
-    nia_codegen_llvm::LlvmCodegenOptions {
-        root_module: Some(root_module),
-        hosted_entry,
-        optimization,
+fn executable_linker() -> ExecutableLinker {
+    if let Ok(program) = env::var("NIA_LINKER")
+        && !program.is_empty()
+    {
+        return ExecutableLinker {
+            program,
+            args_before_objects: Vec::new(),
+            args_after_objects: vec!["-e".to_string(), "_start".to_string()],
+        };
     }
+    ExecutableLinker {
+        program: "ld".to_string(),
+        args_before_objects: Vec::new(),
+        args_after_objects: vec!["-e".to_string(), "_start".to_string()],
+    }
+}
+
+fn codegen_options(optimization: OptimizationPolicy) -> nia_codegen_llvm::LlvmCodegenOptions {
+    nia_codegen_llvm::LlvmCodegenOptions { optimization }
 }
 
 enum EmitObjOptions {

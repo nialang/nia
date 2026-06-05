@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+nia-node-id.workspace = true
 nia-span.workspace = true
 
 [lib]

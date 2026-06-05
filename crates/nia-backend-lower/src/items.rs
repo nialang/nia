@@ -2,11 +2,12 @@
 use crate::ModuleLowerer;
 use nia_ast::{BindingItem, FunctionItem};
 use nia_backend_ir::{
-    BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendGlobal, BackendParam,
-    BackendStruct, BackendUnion,
+    BackendEnum, BackendEnumVariant, BackendField, BackendFunction, BackendFunctionAttribute,
+    BackendGlobal, BackendParam, BackendStruct, BackendUnion,
 };
 use nia_comptime_check::ComptimeValue;
 use nia_defs::DefKind;
+use nia_item_signatures::FunctionAttribute;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 
@@ -180,7 +181,12 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .zip(signature.params.iter())
                 .map(|(param, signature)| {
-                    let local_id = self.input.locals.local_defs.get(&param.span).copied();
+                    let local_id = self
+                        .input
+                        .locals
+                        .node_local_defs
+                        .get(&param.node_key)
+                        .copied();
                     let ty = if signature.receiver.is_some() {
                         local_id
                             .and_then(|local_id| {
@@ -206,6 +212,13 @@ impl<'a> ModuleLowerer<'a> {
             return_type: signature.return_type,
             is_extern: signature.is_extern,
             is_variadic: signature.is_variadic,
+            attributes: signature
+                .attributes
+                .iter()
+                .map(|attribute| match attribute {
+                    FunctionAttribute::Naked => BackendFunctionAttribute::Naked,
+                })
+                .collect(),
             function_body,
             span,
         })

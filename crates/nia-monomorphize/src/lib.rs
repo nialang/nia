@@ -679,10 +679,23 @@ mod tests {
     use super::*;
     use nia_defs::{ModuleId, collect_module_defs};
     use nia_ids::ConstExprId;
+    use nia_node_id::{NodeChildPath, NodeKey, SyntaxKind};
     use nia_parser::parse_module;
     use nia_sema_ir::GenericInstantiation;
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
     use nia_span::Span;
     use nia_ty::{ArrayLenTy, PrimitiveTy};
+
+    fn expr_key(ordinal: u32) -> NodeKey {
+        NodeKey::child_path(
+            SourceVersion {
+                id: SourceId(0),
+                revision: SourceRevision::INITIAL,
+            },
+            SyntaxKind::Expr,
+            NodeChildPath::from_steps([ordinal]),
+        )
+    }
 
     #[test]
     fn deduplicates_generic_instances() {
@@ -897,6 +910,7 @@ fn main() i32 { 0 }
             len_id,
             nia_ast::Expr {
                 span: Span::new(10, 12),
+                node_key: expr_key(0),
                 kind: nia_ast::ExprKind::Integer("N".to_string()),
             },
         );

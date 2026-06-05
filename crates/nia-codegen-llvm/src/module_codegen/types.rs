@@ -365,7 +365,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         _interner: &TyInterner,
         layouts: &BackendLayouts,
     ) -> Result<BasicTypeEnum<'ctx>, Diagnostic> {
-        if self.layout_of_in(ty).is_some_and(|layout| layout.size == 0)
+        if self.layout_of(ty).is_some_and(|layout| layout.size == 0)
             && !matches!(
                 self.ty_kind(ty),
                 Some(TyKind::Pointer { .. } | TyKind::FunctionPointer { .. })
@@ -622,10 +622,6 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .iter()
             .find(|candidate| candidate.def_id == field)
             .ok_or_else(|| self.error(span, "missing struct field"))
-    }
-
-    fn layout_of_in(&self, ty: InternedTyId) -> Option<nia_layout::TypeLayout> {
-        self.program.type_layout(ty).cloned()
     }
 
     pub(crate) fn layouts_for(&self, ty: InternedTyId) -> &'a BackendLayouts {

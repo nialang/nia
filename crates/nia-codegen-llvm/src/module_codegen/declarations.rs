@@ -2,7 +2,7 @@
 use super::{FunctionSignature, ModuleCodegen};
 use nia_backend_ir::BackendTraitObjectVtableFunction;
 use nia_diagnostic::Diagnostic;
-use nia_llvm::module::Linkage;
+use nia_llvm::{Attribute, AttributeLoc, module::Linkage};
 
 impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     pub(super) fn declare_structs(&mut self) -> Result<(), Diagnostic> {
@@ -146,6 +146,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 .module
                 .add_function(&self.function_symbol_name(function), ty, linkage)
                 .map_err(Self::diagnostic_from_llvm_error)?;
+            self.apply_function_attributes(value, &function.attributes);
             self.functions.insert(function.def_id, value);
         }
         for instance in self.program.function_instances_by_def.values().flatten() {
@@ -173,6 +174,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                     },
                 )
                 .map_err(Self::diagnostic_from_llvm_error)?;
+            self.apply_function_attributes(value, &instance.attributes);
             self.function_instances
                 .entry((instance.def_id, instance.arg_module_id))
                 .or_default()
@@ -184,6 +186,26 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.function_instance_value_lookups.borrow_mut().clear();
         }
         Ok(())
+    }
+
+    fn apply_function_attributes(
+        &self,
+        value: nia_llvm::values::FunctionValue<'_>,
+        attributes: &[nia_backend_ir::BackendFunctionAttribute],
+    ) {
+        for attribute in attributes {
+            match attribute {
+                nia_backend_ir::BackendFunctionAttribute::Naked => {
+                    let kind = Attribute::get_named_enum_kind_id("naked");
+                    if kind != 0 {
+                        value.add_attribute(
+                            AttributeLoc::Function,
+                            self.context.create_enum_attribute(kind, 0),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     pub(super) fn declare_globals(&mut self) -> Result<(), Diagnostic> {

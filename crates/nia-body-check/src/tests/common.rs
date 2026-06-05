@@ -79,7 +79,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         let nia_ast::ItemKind::Extend(extend) = &item.kind else {
             continue;
         };
-        let Some(target_ty) = lowered.type_uses.get(&extend.target.span).copied() else {
+        let Some(target_ty) = lowered.node_type_uses.get(&extend.target.node_key).copied() else {
             continue;
         };
         let target_ty = normalization.normalize(target_ty);
@@ -103,6 +103,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
                     },
                     trait_id: None,
                     trait_args: Vec::new(),
+                    where_predicates: Vec::new(),
                 },
             );
         }
@@ -156,19 +157,22 @@ pub(super) fn semantic_use_table(
     type_lowering: &nia_type_lower::TypeLowering,
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
-    for (span, local_use) in &locals.uses {
+    for (key, local_use) in &locals.node_uses {
         if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-            builder.insert_local_value_use(*span, *local_id);
+            builder.insert_node_local_value_use(key.clone(), *local_id);
         }
     }
-    for (span, global_id) in &values.qualified_values {
-        builder.insert_global_value_use(*span, *global_id);
-    }
-    for (span, resolution) in &values.names {
+    builder.extend_node_global_value_uses(
+        values
+            .node_qualified_values
+            .iter()
+            .map(|(key, global_id)| (key.clone(), *global_id)),
+    );
+    for (key, resolution) in &values.node_names {
         match resolution {
             nia_value_resolve::ValueNameResolution::Def(def_id) => {
-                builder.insert_global_value_use(
-                    *span,
+                builder.insert_node_global_value_use(
+                    key.clone(),
                     nia_ids::GlobalDefId {
                         module_id,
                         def_id: *def_id,
@@ -176,24 +180,24 @@ pub(super) fn semantic_use_table(
                 );
             }
             nia_value_resolve::ValueNameResolution::External(global_id) => {
-                builder.insert_global_value_use(*span, *global_id);
+                builder.insert_node_global_value_use(key.clone(), *global_id);
             }
             nia_value_resolve::ValueNameResolution::ImportAlias
             | nia_value_resolve::ValueNameResolution::LocalDeferred
             | nia_value_resolve::ValueNameResolution::Error => {}
         }
     }
-    builder.extend_local_defs(
+    builder.extend_node_local_defs(
         locals
-            .local_defs
+            .node_local_defs
             .iter()
-            .map(|(span, local_id)| (*span, *local_id)),
+            .map(|(key, local_id)| (key.clone(), *local_id)),
     );
-    builder.extend_type_uses(
+    builder.extend_node_type_uses(
         type_lowering
-            .type_uses
+            .node_type_uses
             .iter()
-            .map(|(span, ty)| (*span, *ty)),
+            .map(|(key, ty)| (key.clone(), *ty)),
     );
     builder.finish()
 }
