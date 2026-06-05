@@ -413,7 +413,6 @@ pub(super) fn provide_local_resolution(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
 ) -> LocalResolution {
-    let loaded = db.query(LoadedModuleQuery(module_id));
     let active_item_tree = db.query(ActiveModuleItemTreeQuery(module_id));
     let defs = db.query(ModuleDefsQuery(module_id));
     let values = db.query(ValueResolutionQuery(module_id));
@@ -421,8 +420,8 @@ pub(super) fn provide_local_resolution(
         &active_item_tree,
         &defs,
         &values,
-        Some(loaded.source_version),
-        &loaded.origins,
+        None,
+        &nia_node_id::NodeOriginTable::default(),
     )
 }
 
@@ -435,19 +434,22 @@ pub(super) fn provide_semantic_use_table(
     let type_lowering = db.query(TypeLoweringQuery(module_id));
     let mut builder = nia_sema_ir::SemanticUseTable::builder();
 
-    for (span, local_use) in &locals.uses {
+    for (key, local_use) in &locals.node_uses {
         if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-            builder.insert_local_value_use(*span, *local_id);
+            builder.insert_node_local_value_use(key.clone(), *local_id);
         }
     }
-    for (span, global_id) in &values.qualified_values {
-        builder.insert_global_value_use(*span, *global_id);
-    }
-    for (span, resolution) in &values.names {
+    builder.extend_node_global_value_uses(
+        values
+            .node_qualified_values
+            .iter()
+            .map(|(key, global_id)| (key.clone(), *global_id)),
+    );
+    for (key, resolution) in &values.node_names {
         match resolution {
             nia_value_resolve::ValueNameResolution::Def(def_id) => {
-                builder.insert_global_value_use(
-                    *span,
+                builder.insert_node_global_value_use(
+                    key.clone(),
                     GlobalDefId {
                         module_id,
                         def_id: *def_id,
@@ -455,24 +457,24 @@ pub(super) fn provide_semantic_use_table(
                 );
             }
             nia_value_resolve::ValueNameResolution::External(global_id) => {
-                builder.insert_global_value_use(*span, *global_id);
+                builder.insert_node_global_value_use(key.clone(), *global_id);
             }
             nia_value_resolve::ValueNameResolution::ImportAlias
             | nia_value_resolve::ValueNameResolution::LocalDeferred
             | nia_value_resolve::ValueNameResolution::Error => {}
         }
     }
-    builder.extend_local_defs(
+    builder.extend_node_local_defs(
         locals
-            .local_defs
+            .node_local_defs
             .iter()
-            .map(|(span, local_id)| (*span, *local_id)),
+            .map(|(key, local_id)| (key.clone(), *local_id)),
     );
-    builder.extend_type_uses(
+    builder.extend_node_type_uses(
         type_lowering
-            .type_uses
+            .node_type_uses
             .iter()
-            .map(|(span, ty)| (*span, *ty)),
+            .map(|(key, ty)| (key.clone(), *ty)),
     );
     builder.finish()
 }
@@ -832,6 +834,20 @@ pub(super) fn provide_backend_lowering(
         .iter()
         .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let program_extensions = checked_modules
+        .iter()
+        .zip(visible_extensions.iter())
+        .map(|(checked_module, visible_extensions)| {
+            (
+                checked_module.id,
+                (&visible_extensions.methods, &visible_extensions.interner),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let program_type_interners = checked_modules
+        .iter()
+        .map(|checked_module| (checked_module.id, &checked_module.body_ir.interner))
+        .collect::<HashMap<_, _>>();
     let function_bodies = checked_modules
         .iter()
         .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
@@ -861,6 +877,8 @@ pub(super) fn provide_backend_lowering(
                     layouts: &checked_module.layouts,
                     function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
+                    program_extensions: &program_extensions,
+                    program_type_interners: &program_type_interners,
                     program_enums: &program_signatures.enums,
                     program_traits: &program_signatures.traits,
                     trait_impls: &program_signatures.trait_impls,

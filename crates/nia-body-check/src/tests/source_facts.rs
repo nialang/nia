@@ -3,14 +3,20 @@ use super::common::*;
 
 #[test]
 fn records_body_facts_by_source_versioned_node_keys() {
-    let (module, parse_errors) = parse_module(
+    let version = SourceVersion {
+        id: SourceId(7),
+        revision: SourceRevision(3),
+    };
+    let syntax = nia_syntax::parse_source(
         r#"
 fn main() i32 {
     var x = 1;
     x
 }
 "#,
+        Some(version),
     );
+    let (module, parse_errors, origins) = parse_module_syntax_with_origins(&syntax);
     assert!(parse_errors.is_empty(), "{parse_errors:?}");
     let defs = collect_module_defs(ModuleId(0), &module);
     let type_resolved = resolve_module_types(&module, &defs);
@@ -57,11 +63,6 @@ fn main() i32 {
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );
-    let version = SourceVersion {
-        id: SourceId(7),
-        revision: SourceRevision(3),
-    };
-    let origins = NodeOriginTable::default();
     let checked = check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: Some(version),
         origins: &origins,
@@ -101,7 +102,7 @@ fn main() i32 {
     assert!(checked.facts.node_expr_types.keys().any(|key| {
         key.source_version() == version
             && key.kind == SyntaxKind::Expr
-            && matches!(key.position, NodePosition::Span(_))
+            && matches!(key.position, NodePosition::ChildPathRange { .. })
     }));
 }
 

@@ -240,6 +240,10 @@ impl BackendValidator<'_> {
                         .or_else(|| self.index.union_layout(*def_id))
                         .map(|layout| layout.layout.clone())
                         .or_else(|| {
+                            let enum_item = self.index.enums.get(def_id).copied()?;
+                            self.layout_of_with_active(enum_item.backing_type, active)
+                        })
+                        .or_else(|| {
                             self.index.structs.get(def_id).and_then(|item| {
                                 self.zero_sized_aggregate_layout(&item.fields, active)
                             })

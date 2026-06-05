@@ -15,7 +15,7 @@ impl<'a> BodyChecker<'a> {
         let mut lowered = Vec::new();
         for arg in type_args {
             if let Some(ty) = &arg.ty {
-                lowered.push(self.ty_for_span(ty.span));
+                lowered.push(self.ty_for_type(ty));
             } else {
                 if let Some(expr) = &arg.expr {
                     let expr_ty = self.check_expr(expr);

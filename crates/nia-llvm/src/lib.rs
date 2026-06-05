@@ -8,7 +8,7 @@
 mod llvm_api;
 mod llvm_facade;
 
-pub use llvm_api::{Context, InlineAsmDialect, InlineAsmOptions};
+pub use llvm_api::{Attribute, AttributeLoc, Context, InlineAsmDialect, InlineAsmOptions};
 pub use llvm_facade::{
     AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, LlvmError,
     LlvmResult, OptimizationLevel, attributes, basic_block, builder, context, intrinsics, llvm_sys,

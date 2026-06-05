@@ -119,6 +119,61 @@ pub fn value() i32 {
 }
 
 #[test]
+fn imported_runtime_module_can_call_public_items_through_root() {
+    let root = temp_dir("imported_runtime_module_can_call_public_items_through_root");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .runtime;
+
+pub fn app_main() i32 {
+    42
+}
+
+fn main() i32 {
+    runtime::call_app_main()
+}
+"#,
+    );
+    write(
+        &root.join("runtime.nia"),
+        r#"
+import root;
+
+pub fn call_app_main() i32 {
+    root::app_main()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn freestanding_start_can_call_public_root_main() {
+    let root = temp_dir("freestanding_start_can_call_public_root_main");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    !{}
+}
+"#,
+    );
+
+    let program = crate::check_freestanding_executable_with_map_and_options(
+        root.join("main.nia").to_string_lossy().into_owned(),
+        nia_imports::ModuleMap::default(),
+        nia_opt::NiaOptimizationLevel::default(),
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn rejects_private_items_inside_cyclic_imports() {
     let root = temp_dir("rejects_private_items_inside_cyclic_imports");
     write(
@@ -357,7 +412,7 @@ fn origin(p: math::Point) math::Point { p }
         .iter()
         .find(|module| module.id == ModuleId(0))
         .expect("main module");
-    assert_eq!(main.type_resolution.qualified_type_names.len(), 2);
+    assert_eq!(main.type_resolution.node_qualified_type_names.len(), 2);
 }
 
 #[test]
@@ -384,7 +439,7 @@ fn main() i32 {
         .iter()
         .find(|module| module.id == ModuleId(0))
         .expect("main module");
-    assert_eq!(main.value_resolution.qualified_values.len(), 1);
+    assert_eq!(main.value_resolution.node_qualified_values.len(), 1);
 }
 
 #[test]
@@ -520,6 +575,89 @@ extend[T] &mut T {
 extend[T] &T {
     pub fn is_null(self) bool {
         self as usize == 0
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imported_extension_method_where_clause_constrains_candidates() {
+    let root = temp_dir("imported_extension_method_where_clause_constrains_candidates");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .containers;
+
+fn main(boxed: containers::Box[bool]) i32 {
+    boxed.tag()
+}
+"#,
+    );
+    write(
+        &root.join("containers.nia"),
+        r#"
+trait Marker {}
+
+extend i32 : Marker {}
+
+pub struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T]
+where T: Marker {
+    pub fn tag(& self) i32 {
+        _ = self;
+        1
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("unknown struct field `tag`")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn imported_extension_method_where_clause_allows_satisfied_candidates() {
+    let root = temp_dir("imported_extension_method_where_clause_allows_satisfied_candidates");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .containers;
+
+fn main(boxed: containers::Box[i32]) i32 {
+    boxed.tag()
+}
+"#,
+    );
+    write(
+        &root.join("containers.nia"),
+        r#"
+trait Marker {}
+
+extend i32 : Marker {}
+
+pub struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T]
+where T: Marker {
+    pub fn tag(& self) i32 {
+        _ = self;
+        1
     }
 }
 "#,

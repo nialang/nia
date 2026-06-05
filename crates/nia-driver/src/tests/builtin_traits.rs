@@ -297,6 +297,96 @@ fn main() usize {
 }
 
 #[test]
+fn extend_where_clause_allows_generic_layout_builtins_in_methods() {
+    let root = temp_dir("extend_where_clause_allows_generic_layout_builtins_in_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct ArrayList[T] {
+    ptr: &mut T,
+    len: usize,
+}
+
+extend[T] ArrayList[T]
+where T: Sized {
+    fn elem_size(& self) usize {
+        _ = self;
+        @size[T]()
+    }
+}
+
+fn main(list: &ArrayList[i32]) usize {
+    list.elem_size()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn method_where_clause_allows_extra_generic_layout_builtins_in_extension_methods() {
+    let root =
+        temp_dir("method_where_clause_allows_extra_generic_layout_builtins_in_extension_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct ArrayList[T] {
+    ptr: &mut T,
+    len: usize,
+}
+
+extend[T] ArrayList[T] {
+    fn other_size[U](& self) usize
+    where U: Sized {
+        _ = self;
+        @size[U]()
+    }
+}
+
+fn main(list: &ArrayList[i32]) usize {
+    list.other_size[u8]()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn struct_where_clause_allows_generic_layout_builtins_in_structural_extension_methods() {
+    let root = temp_dir(
+        "struct_where_clause_allows_generic_layout_builtins_in_structural_extension_methods",
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+struct ArrayList[T]
+where T: Sized {
+    ptr: &mut T,
+    len: usize,
+}
+
+extend[T] ArrayList[T] {
+    fn elem_size(& self) usize {
+        _ = self;
+        @size[T]()
+    }
+}
+
+fn main(list: &ArrayList[i32]) usize {
+    list.elem_size()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn builtin_place_traits_allow_constrained_generic_deref_index_and_slice() {
     let root = temp_dir("builtin_place_traits_allow_constrained_generic_deref_index_and_slice");
     write(

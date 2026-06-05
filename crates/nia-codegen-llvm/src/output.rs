@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
-use nia_ids::ModuleId;
 use nia_opt::OptimizationPolicy;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,7 +28,5 @@ pub struct LlvmObjectModuleOutput {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LlvmCodegenOptions {
-    pub root_module: Option<ModuleId>,
-    pub hosted_entry: bool,
     pub optimization: OptimizationPolicy,
 }

@@ -38,6 +38,38 @@ fn id(p: Ptr[u8]) &u8 {
 }
 
 #[test]
+fn struct_where_clause_constrains_nominal_type_arguments() {
+    let root = temp_dir("struct_where_clause_constrains_nominal_type_arguments");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Marker {}
+
+extend i32 : Marker {}
+
+struct Box[T]
+where T: Marker {
+    value: &T,
+}
+
+fn main(value: &Box[bool]) void {
+    _ = value;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("trait bound not satisfied")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn supports_alias_to_pointer_extension_methods_without_void_cascades() {
     let root = temp_dir("supports_alias_to_pointer_extension_methods_without_void_cascades");
     write(

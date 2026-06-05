@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_node_id::NodeKey;
 use nia_span::Span;
 
 use crate::{Expr, ExprStub};
@@ -6,6 +7,7 @@ use crate::{Expr, ExprStub};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeRef {
     pub span: Span,
+    pub node_key: NodeKey,
     pub text: String,
     pub kind: TypeKind,
 }

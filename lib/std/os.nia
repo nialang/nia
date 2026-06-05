@@ -1,0 +1,66 @@
+comptime if @builtin().target.os == "linux" {
+    import std.os.linux;
+}
+
+pub struct Fd {
+    raw: i32,
+}
+
+pub enum Error: i32 {
+    PermissionDenied = 1,
+    NoEntry = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    NoMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    Exists = 17,
+    Invalid = 22,
+    NoSpace = 28,
+    BrokenPipe = 32,
+    Range = 34,
+    _,
+}
+
+pub fn fd(raw: i32) Fd {
+    { raw: raw }
+}
+
+pub fn fd_raw(fd: Fd) i32 {
+    fd.raw
+}
+
+pub fn error(code: i32) Error {
+    code as Error
+}
+
+pub fn stdin() Fd {
+    fd(0)
+}
+
+pub fn stdout() Fd {
+    fd(1)
+}
+
+pub fn stderr() Fd {
+    fd(2)
+}
+
+pub fn write(fd: Fd, bytes: &[u8]) Error!usize {
+    linux::write(fd, bytes)
+}
+
+pub fn map_pages(len: usize) Error!&mut u8 {
+    linux::map_pages(len)
+}
+
+pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
+    linux::unmap_pages(ptr, len)
+}
+
+pub fn exit(code: i32) void {
+    linux::exit(code);
+}

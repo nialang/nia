@@ -11,11 +11,12 @@ use nia_value_resolve::BuiltinResolution;
 impl<'a> BodyChecker<'a> {
     pub(crate) fn check_builtin(
         &mut self,
-        span: Span,
+        expr: &Expr,
         name: &str,
         type_arg: &Option<TypeRef>,
     ) -> InternedTyId {
-        let Some(resolution) = self.values.builtins.get(&span).copied() else {
+        let span = expr.span;
+        let Some(resolution) = self.builtin_resolution(expr) else {
             return self.error();
         };
         if matches!(resolution, BuiltinResolution::Builtin) {
@@ -28,7 +29,7 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.primitive(PrimitiveTy::Usize);
         };
-        let ty = self.ty_for_span(type_arg.span);
+        let ty = self.ty_for_type(type_arg);
         let builtin = match resolution {
             BuiltinResolution::Builtin => return self.error(),
             BuiltinResolution::SizeOf => {
@@ -49,9 +50,12 @@ impl<'a> BodyChecker<'a> {
             BuiltinResolution::Reserved => return self.error(),
         };
         if let Some(layout) = self.layout_of(ty) {
-            self.record_builtin_value(span, BuiltinValue::Usize(layout.builtin_value(builtin)));
+            self.record_builtin_node_value(
+                expr,
+                BuiltinValue::Usize(layout.builtin_value(builtin)),
+            );
         } else {
-            self.record_builtin_value(span, BuiltinValue::Layout { builtin, ty });
+            self.record_builtin_node_value(expr, BuiltinValue::Layout { builtin, ty });
         }
         self.primitive(PrimitiveTy::Usize)
     }
@@ -59,12 +63,13 @@ impl<'a> BodyChecker<'a> {
     pub(super) fn check_builtin_call(
         &mut self,
         call_span: Span,
-        builtin_span: Span,
+        builtin: &Expr,
         name: &str,
         type_arg: &Option<TypeRef>,
         args: &[Expr],
     ) -> InternedTyId {
-        let Some(resolution) = self.values.builtins.get(&builtin_span).copied() else {
+        let builtin_span = builtin.span;
+        let Some(resolution) = self.builtin_resolution(builtin) else {
             return self.error();
         };
         match resolution {
@@ -90,7 +95,7 @@ impl<'a> BodyChecker<'a> {
                         self.check_expr(arg);
                     }
                 }
-                self.check_builtin(builtin_span, name, type_arg)
+                self.check_builtin(builtin, name, type_arg)
             }
             BuiltinResolution::Asm => self.check_asm_builtin_call(call_span, builtin_span, args),
             BuiltinResolution::Reserved => self.error(),

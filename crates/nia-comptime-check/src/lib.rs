@@ -277,6 +277,7 @@ pub fn instantiate_resolved_comptime_function_generics(
     signature: &FunctionSignature,
     type_args: &[ResolvedComptimeTypeArg],
     arg_exprs: &[ResolvedComptimeExpr],
+    expected_return: Option<InternedTyId>,
 ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
     let mut analyzer = Analyzer::for_typed_query(input);
     analyzer.instantiate_resolved_function_generics(
@@ -285,6 +286,7 @@ pub fn instantiate_resolved_comptime_function_generics(
         signature,
         type_args,
         arg_exprs,
+        expected_return,
     )
 }
 
@@ -311,6 +313,7 @@ pub fn check_module_comptime(input: ComptimeInput<'_>) -> ComptimeCheck {
         diagnostics: Vec::new(),
         active: HashSet::new(),
         working_interners: HashMap::from([(input.defs.module_id, input.interner.clone())]),
+        resolved_call_type_substitutions: HashMap::new(),
     };
     analyzer.analyze_module();
     ComptimeCheck {
@@ -450,7 +453,7 @@ impl ComptimeModuleLowerer<'_> {
         allowed_locals: &HashSet<LocalId>,
     ) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
-        for (span, value_use) in &self.input.semantic_uses.value_uses {
+        for (key, value_use) in &self.input.semantic_uses.node_value_uses {
             match value_use {
                 SemanticValueUse::Local(local_id)
                     if allowed_locals.contains(local_id)
@@ -461,27 +464,27 @@ impl ComptimeModuleLowerer<'_> {
                             .get(*local_id)
                             .is_some_and(|local| local.kind == LocalKind::ComptimeBinding) =>
                 {
-                    builder.insert_local_value_use(*span, *local_id);
+                    builder.insert_node_local_value_use(key.clone(), *local_id);
                 }
                 SemanticValueUse::Global(global_id) => {
-                    builder.insert_global_value_use(*span, *global_id);
+                    builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
                 SemanticValueUse::Local(_) => {}
             }
         }
-        builder.extend_local_defs(
+        builder.extend_node_local_defs(
             self.input
                 .semantic_uses
-                .local_defs
+                .node_local_defs
                 .iter()
-                .map(|(span, local_id)| (*span, *local_id)),
+                .map(|(key, local_id)| (key.clone(), *local_id)),
         );
-        builder.extend_type_uses(
+        builder.extend_node_type_uses(
             self.input
                 .semantic_uses
-                .type_uses
+                .node_type_uses
                 .iter()
-                .map(|(span, ty)| (*span, *ty)),
+                .map(|(key, ty)| (key.clone(), *ty)),
         );
         builder.finish()
     }
@@ -489,7 +492,7 @@ impl ComptimeModuleLowerer<'_> {
     fn function_locals(&self, function: &nia_ast::FunctionItem) -> HashSet<LocalId> {
         let mut locals = HashSet::new();
         for param in &function.params {
-            if let Some(local_id) = self.input.semantic_uses.local_def(param.span) {
+            if let Some(local_id) = self.input.semantic_uses.node_local_def(&param.node_key) {
                 locals.insert(local_id);
             }
         }
@@ -511,7 +514,7 @@ impl ComptimeModuleLowerer<'_> {
     fn collect_stmt_locals(&self, stmt: &nia_ast::Stmt, out: &mut HashSet<LocalId>) {
         match &stmt.kind {
             nia_ast::StmtKind::Binding(binding) => {
-                if let Some(local_id) = self.input.semantic_uses.local_def(stmt.span) {
+                if let Some(local_id) = self.input.semantic_uses.node_local_def(&stmt.node_key) {
                     out.insert(local_id);
                 }
                 if let Some(value) = &binding.value {
@@ -522,7 +525,11 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::StmtKind::Return(Some(expr))
             | nia_ast::StmtKind::Defer(expr) => self.collect_expr_locals(expr, out),
             nia_ast::StmtKind::ForIn(for_stmt) => {
-                if let Some(local_id) = self.input.semantic_uses.local_def(for_stmt.binding.span) {
+                if let Some(local_id) = self
+                    .input
+                    .semantic_uses
+                    .node_local_def(&for_stmt.binding.node_key)
+                {
                     out.insert(local_id);
                 }
                 self.collect_expr_locals(&for_stmt.iter, out);
@@ -595,6 +602,13 @@ impl ComptimeModuleLowerer<'_> {
                     nia_ast::IndexArg::Range(range) => self.collect_range_locals(range, out),
                 }
             }
+            nia_ast::ExprKind::Ident(_) => {
+                if let Some(SemanticValueUse::Local(local_id)) =
+                    self.input.semantic_uses.node_value_use(&expr.node_key)
+                {
+                    out.insert(local_id);
+                }
+            }
             nia_ast::ExprKind::Range(range) => self.collect_range_locals(range, out),
             nia_ast::ExprKind::Block(block) => self.collect_block_locals(block, out),
             nia_ast::ExprKind::If {
@@ -641,7 +655,6 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::ExprKind::Raw(_)
             | nia_ast::ExprKind::Bool(_)
             | nia_ast::ExprKind::Null
-            | nia_ast::ExprKind::Ident(_)
             | nia_ast::ExprKind::Underscore
             | nia_ast::ExprKind::Builtin { .. }
             | nia_ast::ExprKind::TypeTarget { .. } => {}
@@ -663,10 +676,10 @@ impl ComptimeModuleLowerer<'_> {
         out: &mut HashSet<LocalId>,
     ) {
         match pattern {
-            nia_ast::SwitchPattern::OptionalSome { span, .. }
-            | nia_ast::SwitchPattern::ErrorOk { span, .. }
-            | nia_ast::SwitchPattern::ErrorErr { span, .. } => {
-                if let Some(local_id) = self.input.semantic_uses.local_def(*span) {
+            nia_ast::SwitchPattern::OptionalSome { node_key, .. }
+            | nia_ast::SwitchPattern::ErrorOk { node_key, .. }
+            | nia_ast::SwitchPattern::ErrorErr { node_key, .. } => {
+                if let Some(local_id) = self.input.semantic_uses.node_local_def(node_key) {
                     out.insert(local_id);
                 }
             }
@@ -708,15 +721,15 @@ impl ComptimeModuleLowerer<'_> {
         for stmt in &block.stmts {
             match &stmt.kind {
                 nia_ast::StmtKind::Binding(binding)
-                    if self.input.semantic_uses.local_def(stmt.span) == Some(local_id) =>
+                    if self.input.semantic_uses.node_local_def(&stmt.node_key)
+                        == Some(local_id) =>
                 {
                     return binding.value.clone().map(|value| {
                         (
                             value,
-                            binding
-                                .ty
-                                .as_ref()
-                                .and_then(|ty| self.input.semantic_uses.type_use(ty.span)),
+                            binding.ty.as_ref().and_then(|ty| {
+                                self.input.semantic_uses.node_type_use(&ty.node_key)
+                            }),
                         )
                     });
                 }
@@ -770,6 +783,7 @@ struct Analyzer<'a> {
     diagnostics: Vec<Diagnostic>,
     active: HashSet<ComptimeKey>,
     working_interners: HashMap<ModuleId, TyInterner>,
+    resolved_call_type_substitutions: HashMap<Span, HashMap<String, InternedTyId>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -827,6 +841,7 @@ impl Analyzer<'_> {
                 input.interner.interner_id(),
                 input.interner.clone(),
             )]),
+            resolved_call_type_substitutions: HashMap::new(),
         }
     }
 
@@ -952,6 +967,8 @@ impl Analyzer<'_> {
         let module_id = self.key_module_id(key);
         let result = self.initializer_for_key(key).cloned().and_then(|expr| {
             self.with_execution_module(module_id, |this| {
+                let expected = this.explicit_type_for_key(key);
+                let _ = this.resolved_comptime_expr_type(&expr, expected);
                 match nia_comptime_engine::eval_resolved_comptime_expr(&expr, this) {
                     Ok(value) => Some(value),
                     Err(err) => {
@@ -1976,6 +1993,7 @@ impl Analyzer<'_> {
         signature: &FunctionSignature,
         type_args: &[ResolvedComptimeTypeArg],
         arg_exprs: &[ResolvedComptimeExpr],
+        expected_return: Option<InternedTyId>,
     ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
         if self.ensure_working_interner(signature_module_id).is_none() {
             return Err(ComptimeError {
@@ -1999,13 +2017,28 @@ impl Analyzer<'_> {
         }
         let mut substitutions = HashMap::new();
         if type_args.is_empty() {
+            if let Some(expected) = expected_return
+                && let Some(expected) =
+                    self.import_ty_into_module_or_none(expected, signature_module_id)
+            {
+                self.infer_generics_from_tys(
+                    span,
+                    signature_module_id,
+                    signature.return_type,
+                    expected,
+                    &mut substitutions,
+                )?;
+            }
             for (param, arg_expr) in signature.params.iter().zip(arg_exprs) {
                 let expected = self.comptime_expected_param_type(
                     signature_module_id,
                     param.ty,
                     &substitutions,
                 );
-                let Some(arg_ty) = self.resolved_comptime_arg_runtime_type(arg_expr, expected)
+                let concrete_expected =
+                    expected.filter(|expected| !self.type_contains_generic(*expected));
+                let Some(arg_ty) =
+                    self.resolved_comptime_arg_runtime_type(arg_expr, concrete_expected)
                 else {
                     continue;
                 };
@@ -2280,7 +2313,7 @@ impl Analyzer<'_> {
                 type_args,
                 args,
             } => self
-                .resolved_comptime_call_return_type(expr.span(), callee, type_args, args)
+                .resolved_comptime_call_return_type(expr.span(), callee, type_args, args, expected)
                 .map(ComptimeValueType::Runtime),
             ResolvedComptimeExprKind::LayoutBuiltin { .. }
             | ResolvedComptimeExprKind::Null
@@ -3644,6 +3677,7 @@ impl Analyzer<'_> {
         callee: &ResolvedComptimeExpr,
         type_args: &[ResolvedComptimeTypeArg],
         args: &[ResolvedComptimeExpr],
+        expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
         let function_id = self.resolved_comptime_function(callee)?;
         let signature = self
@@ -3658,8 +3692,11 @@ impl Analyzer<'_> {
                 &signature,
                 type_args,
                 args,
+                expected,
             )
             .ok()?;
+        self.resolved_call_type_substitutions
+            .insert(span, substitutions.clone());
         self.substitute_ty_into_current_module(
             function_id.module_id,
             signature.return_type,
@@ -4291,6 +4328,19 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 if let Some(value) = self.call_local_value(local_id) {
                     return Ok(value);
                 }
+                if !self
+                    .input
+                    .locals
+                    .locals
+                    .get(local_id)
+                    .is_some_and(|local| local.kind == LocalKind::ComptimeBinding)
+                {
+                    return Err(ComptimeError {
+                        span,
+                        message: "resolved comptime expression can only use comptime bindings"
+                            .to_string(),
+                    });
+                }
                 self.eval_key(ComptimeKey::Local(local_id), span)
                     .ok_or_else(|| ComptimeError {
                         span,
@@ -4363,13 +4413,20 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        let type_substitutions = self.instantiate_resolved_function_generics(
-            span,
-            function_id.module_id,
-            &signature,
-            type_args,
-            arg_exprs,
-        )?;
+        let type_substitutions = if let Some(substitutions) =
+            self.resolved_call_type_substitutions.get(&span).cloned()
+        {
+            substitutions
+        } else {
+            self.instantiate_resolved_function_generics(
+                span,
+                function_id.module_id,
+                &signature,
+                type_args,
+                arg_exprs,
+                None,
+            )?
+        };
         let return_ty = self
             .substitute_ty_into_current_module(
                 function_id.module_id,
@@ -4871,19 +4928,22 @@ mod tests {
         lowered: &TypeLowering,
     ) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
-        for (span, local_use) in &locals.uses {
+        for (key, local_use) in &locals.node_uses {
             if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-                builder.insert_local_value_use(*span, *local_id);
+                builder.insert_node_local_value_use(key.clone(), *local_id);
             }
         }
-        for (span, global_id) in &values.qualified_values {
-            builder.insert_global_value_use(*span, *global_id);
-        }
-        for (span, resolution) in &values.names {
+        builder.extend_node_global_value_uses(
+            values
+                .node_qualified_values
+                .iter()
+                .map(|(key, global_id)| (key.clone(), *global_id)),
+        );
+        for (key, resolution) in &values.node_names {
             match resolution {
                 nia_value_resolve::ValueNameResolution::Def(def_id) => {
-                    builder.insert_global_value_use(
-                        *span,
+                    builder.insert_node_global_value_use(
+                        key.clone(),
                         super::GlobalDefId {
                             module_id,
                             def_id: *def_id,
@@ -4891,20 +4951,25 @@ mod tests {
                     );
                 }
                 nia_value_resolve::ValueNameResolution::External(global_id) => {
-                    builder.insert_global_value_use(*span, *global_id);
+                    builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
                 nia_value_resolve::ValueNameResolution::ImportAlias
                 | nia_value_resolve::ValueNameResolution::LocalDeferred
                 | nia_value_resolve::ValueNameResolution::Error => {}
             }
         }
-        builder.extend_local_defs(
+        builder.extend_node_local_defs(
             locals
-                .local_defs
+                .node_local_defs
                 .iter()
-                .map(|(span, local_id)| (*span, *local_id)),
+                .map(|(key, local_id)| (key.clone(), *local_id)),
         );
-        builder.extend_type_uses(lowered.type_uses.iter().map(|(span, ty)| (*span, *ty)));
+        builder.extend_node_type_uses(
+            lowered
+                .node_type_uses
+                .iter()
+                .map(|(key, ty)| (key.clone(), *ty)),
+        );
         builder.finish()
     }
 
@@ -5011,12 +5076,17 @@ comptime fn add_one(x: usize) usize {
         let lowered = lower_module_types_with_id(ModuleId(0), &module, &type_names);
         let values = resolve_module_values(&module, &defs);
         let mut locals = resolve_module_locals(&module, &defs, &values);
-        let removed = locals.local_defs.iter().find_map(|(span, local_id)| {
+        let removed_key = locals.node_local_defs.iter().find_map(|(key, local_id)| {
             let local = locals.locals.get(*local_id)?;
-            (local.name == "y").then_some(*span)
+            (local.name == "y").then_some(key.clone())
         });
-        let removed = removed.expect("local y span");
-        locals.local_defs.remove(&removed);
+        let removed_key = removed_key.expect("local y node key");
+        locals.node_local_defs.remove(&removed_key);
+        let removed_span = locals
+            .locals
+            .iter()
+            .find_map(|(_, local)| (local.name == "y").then_some(local.span))
+            .expect("local y span");
         let semantic_uses = semantic_use_table(ModuleId(0), &values, &locals, &lowered);
 
         let comptime_module = lower_module_comptime(ComptimeModuleInput {
@@ -5030,7 +5100,7 @@ comptime fn add_one(x: usize) usize {
 
         assert!(
             comptime_module.diagnostics.iter().any(|diagnostic| {
-                diagnostic.span == removed
+                diagnostic.span == removed_span
                     && diagnostic.message == "failed to resolve comptime local binding"
             }),
             "{:?}",

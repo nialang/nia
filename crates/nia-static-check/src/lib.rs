@@ -60,6 +60,28 @@ struct StaticChecker<'a> {
 }
 
 impl StaticChecker<'_> {
+    fn local_use(&self, expr: &Expr) -> Option<LocalUse> {
+        self.locals.node_uses.get(&expr.node_key).copied()
+    }
+
+    fn value_name(&self, expr: &Expr) -> Option<ValueNameResolution> {
+        self.values.node_names.get(&expr.node_key).copied()
+    }
+
+    fn qualified_value(&self, expr: &Expr) -> Option<GlobalDefId> {
+        self.values
+            .node_qualified_values
+            .get(&expr.node_key)
+            .copied()
+    }
+
+    fn qualified_type_prefix(&self, expr: &Expr) -> Option<GlobalDefId> {
+        self.values
+            .node_qualified_type_prefixes
+            .get(&expr.node_key)
+            .copied()
+    }
+
     fn check_module(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Binding(binding) = &item.kind
@@ -130,10 +152,10 @@ impl StaticChecker<'_> {
             ExprKind::Cast { expr: inner, .. } => self.static_init_reject_reason(inner),
             ExprKind::Builtin { .. } => None,
             ExprKind::TypeTarget { .. } => Some("type target is not static data"),
-            ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
-                Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
-                    Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(*def_id) => None,
-                    Some(ValueNameResolution::Def(def_id)) if self.is_comptime(*def_id) => None,
+            ExprKind::Ident(_) => match self.local_use(expr) {
+                Some(LocalUse::ModuleValue) => match self.value_name(expr) {
+                    Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id) => None,
+                    Some(ValueNameResolution::Def(def_id)) if self.is_comptime(def_id) => None,
                     _ => Some("bare global value is not static data; take its address explicitly"),
                 },
                 Some(LocalUse::Unresolved) | None => None,
@@ -181,14 +203,14 @@ impl StaticChecker<'_> {
     }
 
     fn static_address_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
-        if self.values.qualified_values.contains_key(&expr.span) {
+        if self.qualified_value(expr).is_some() {
             return None;
         }
         match &expr.kind {
-            ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
-                Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
+            ExprKind::Ident(_) => match self.local_use(expr) {
+                Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id))
-                        if self.is_global(*def_id) || self.is_function(*def_id) =>
+                        if self.is_global(def_id) || self.is_function(def_id) =>
                     {
                         None
                     }
@@ -205,15 +227,15 @@ impl StaticChecker<'_> {
     }
 
     fn static_address_path_reject_reason(&self, expr: &Expr) -> Option<&'static str> {
-        if self.values.qualified_values.contains_key(&expr.span) {
+        if self.qualified_value(expr).is_some() {
             return None;
         }
-        if self.values.qualified_type_prefixes.contains_key(&expr.span) {
+        if self.qualified_type_prefix(expr).is_some() {
             return None;
         }
         match &expr.kind {
             ExprKind::Qualified { lhs, .. } => {
-                if self.values.qualified_type_prefixes.contains_key(&expr.span) {
+                if self.qualified_type_prefix(expr).is_some() {
                     return None;
                 }
                 if self.is_type_prefix_expr(lhs) {
@@ -250,12 +272,8 @@ impl StaticChecker<'_> {
 
     fn is_type_prefix_expr(&self, expr: &Expr) -> bool {
         match &expr.kind {
-            ExprKind::Ident(_) => {
-                matches!(self.locals.uses.get(&expr.span), Some(LocalUse::TypePrefix))
-            }
-            ExprKind::Qualified { .. } => {
-                self.values.qualified_type_prefixes.contains_key(&expr.span)
-            }
+            ExprKind::Ident(_) => matches!(self.local_use(expr), Some(LocalUse::TypePrefix)),
+            ExprKind::Qualified { .. } => self.qualified_type_prefix(expr).is_some(),
             ExprKind::TypeTarget { .. } => true,
             ExprKind::BracketSuffix { callee, .. } => self.is_type_prefix_expr(callee),
             _ => false,
@@ -322,7 +340,7 @@ impl StaticChecker<'_> {
 
     fn comptime_semantic_uses(&self) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
-        for (span, value_use) in &self.semantic_uses.value_uses {
+        for (key, value_use) in &self.semantic_uses.node_value_uses {
             match value_use {
                 SemanticValueUse::Local(local_id)
                     if self
@@ -330,46 +348,33 @@ impl StaticChecker<'_> {
                         .values
                         .contains_key(&ComptimeKey::Local(*local_id)) =>
                 {
-                    builder.insert_local_value_use(*span, *local_id);
+                    builder.insert_node_local_value_use(key.clone(), *local_id);
                 }
                 SemanticValueUse::Global(global_id)
-                    if self.global_comptime_use(*span) == Some(*global_id) =>
+                    if self.global_comptime_id(*global_id) == Some(*global_id) =>
                 {
-                    builder.insert_global_value_use(*span, *global_id);
+                    builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
                 SemanticValueUse::Local(_) | SemanticValueUse::Global(_) => {}
             }
         }
-        builder.extend_local_defs(
+        builder.extend_node_local_defs(
             self.semantic_uses
-                .local_defs
+                .node_local_defs
                 .iter()
-                .map(|(span, local_id)| (*span, *local_id)),
+                .map(|(key, local_id)| (key.clone(), *local_id)),
         );
-        builder.extend_type_uses(
+        builder.extend_node_type_uses(
             self.semantic_uses
-                .type_uses
+                .node_type_uses
                 .iter()
-                .map(|(span, ty)| (*span, *ty)),
+                .map(|(key, ty)| (key.clone(), *ty)),
         );
         builder.finish()
     }
 
-    fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
-        if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
-            if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
-                return Some(global_id);
-            }
-            return None;
-        }
-        let Some(ValueNameResolution::Def(def_id)) = self.values.names.get(&span) else {
-            return None;
-        };
-        let def = self.defs.defs.get(*def_id)?;
-        (def.kind == DefKind::Comptime).then_some(GlobalDefId {
-            module_id: self.defs.module_id,
-            def_id: *def_id,
-        })
+    fn global_comptime_id(&self, global_id: GlobalDefId) -> Option<GlobalDefId> {
+        (self.global_def_kind(global_id) == Some(DefKind::Comptime)).then_some(global_id)
     }
 
     fn global_def_kind(&self, global_id: GlobalDefId) -> Option<DefKind> {
@@ -408,12 +413,12 @@ impl StaticChecker<'_> {
 
     fn is_enum_variant_access(&self, expr: &Expr, lhs: &Expr) -> bool {
         matches!(
-            self.values.names.get(&expr.span),
-            Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(*def_id)
+            self.value_name(expr),
+            Some(ValueNameResolution::Def(def_id)) if self.is_enum_variant(def_id)
         ) || matches!(
-            self.values.qualified_values.get(&expr.span),
+            self.qualified_value(expr),
             Some(def_id) if self.is_enum_variant(def_id.def_id)
-        ) || matches!(self.locals.uses.get(&lhs.span), Some(LocalUse::TypePrefix))
+        ) || matches!(self.local_use(lhs), Some(LocalUse::TypePrefix))
     }
 
     fn def_id_for_span(&self, span: Span, expected: DefKind) -> Option<DefId> {
@@ -577,19 +582,22 @@ mod tests {
         type_lowering: &nia_type_lower::TypeLowering,
     ) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
-        for (span, local_use) in &locals.uses {
+        for (key, local_use) in &locals.node_uses {
             if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-                builder.insert_local_value_use(*span, *local_id);
+                builder.insert_node_local_value_use(key.clone(), *local_id);
             }
         }
-        for (span, global_id) in &values.qualified_values {
-            builder.insert_global_value_use(*span, *global_id);
-        }
-        for (span, resolution) in &values.names {
+        builder.extend_node_global_value_uses(
+            values
+                .node_qualified_values
+                .iter()
+                .map(|(key, global_id)| (key.clone(), *global_id)),
+        );
+        for (key, resolution) in &values.node_names {
             match resolution {
                 nia_value_resolve::ValueNameResolution::Def(def_id) => {
-                    builder.insert_global_value_use(
-                        *span,
+                    builder.insert_node_global_value_use(
+                        key.clone(),
                         nia_ids::GlobalDefId {
                             module_id,
                             def_id: *def_id,
@@ -597,24 +605,24 @@ mod tests {
                     );
                 }
                 nia_value_resolve::ValueNameResolution::External(global_id) => {
-                    builder.insert_global_value_use(*span, *global_id);
+                    builder.insert_node_global_value_use(key.clone(), *global_id);
                 }
                 nia_value_resolve::ValueNameResolution::ImportAlias
                 | nia_value_resolve::ValueNameResolution::LocalDeferred
                 | nia_value_resolve::ValueNameResolution::Error => {}
             }
         }
-        builder.extend_local_defs(
+        builder.extend_node_local_defs(
             locals
-                .local_defs
+                .node_local_defs
                 .iter()
-                .map(|(span, local_id)| (*span, *local_id)),
+                .map(|(key, local_id)| (key.clone(), *local_id)),
         );
-        builder.extend_type_uses(
+        builder.extend_node_type_uses(
             type_lowering
-                .type_uses
+                .node_type_uses
                 .iter()
-                .map(|(span, ty)| (*span, *ty)),
+                .map(|(key, ty)| (key.clone(), *ty)),
         );
         builder.finish()
     }

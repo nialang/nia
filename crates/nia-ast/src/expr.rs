@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_node_id::NodeKey;
 use nia_span::Span;
 
 use crate::TypeRef;
@@ -19,6 +20,7 @@ pub struct Block {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub span: Span,
+    pub node_key: NodeKey,
     pub kind: StmtKind,
 }
 
@@ -55,6 +57,7 @@ pub struct ForInStmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForBinding {
     pub span: Span,
+    pub node_key: NodeKey,
     pub name: String,
     pub ty: Option<TypeRef>,
     pub is_let: bool,
@@ -97,6 +100,7 @@ pub enum SwitchPattern {
     OptionalSome {
         name: String,
         span: Span,
+        node_key: NodeKey,
     },
     OptionalNull {
         span: Span,
@@ -104,10 +108,12 @@ pub enum SwitchPattern {
     ErrorOk {
         name: String,
         span: Span,
+        node_key: NodeKey,
     },
     ErrorErr {
         name: String,
         span: Span,
+        node_key: NodeKey,
     },
     Expr(Expr),
     Range {
@@ -138,6 +144,7 @@ impl SwitchArmBody {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Expr {
     pub span: Span,
+    pub node_key: NodeKey,
     pub kind: ExprKind,
 }
 

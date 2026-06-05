@@ -14,8 +14,8 @@ use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, Module
 use nia_span::Span;
 
 pub use extensions::{
-    ExtensionMethod, ExtensionMethods, VisibleExtensionMethod, VisibleExtensionMethods,
-    VisibleExtensionTarget,
+    AssociatedTypeBindingSignature, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
+    VisibleExtensionMethods, VisibleExtensionTarget, WhereBoundSignature, WherePredicateSignature,
 };
 pub use public_surface::{
     ModulePublicSurface, ModuleUsingScope, PublicItem, PublicNamespace, PublicSource,

@@ -189,7 +189,7 @@ fn inspect(path: & u8) i32 {
     0
 }
 
-fn main(argc: i32, argv: & & u8) i32 {
+fn run(argv: & & u8) i32 {
     inspect(argv[0])
 }
 "#,

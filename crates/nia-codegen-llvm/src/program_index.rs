@@ -365,6 +365,7 @@ mod tests {
             return_type: i32_ty,
             is_extern: false,
             is_variadic: false,
+            attributes: Vec::new(),
             function_body: None,
             span: Span::default(),
         };

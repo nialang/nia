@@ -49,41 +49,60 @@ Nia source files use the `.nia` extension.
 A compilation unit is UTF-8 text. Source locations are tracked with byte offsets
 and reported through source spans.
 
-A hosted executable uses a root `main` function. The minimal form is:
+An executable is started by the standard library. The compiler loads the entry
+source as the reserved `root` module and injects the `std.start` startup
+facade; that facade selects the target startup implementation and calls the
+public user entry function through `root::main`.
+
+The current user entry contract is intentionally single-shaped:
 
 ```nia
-fn main() i32 {
-    0
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    !{}
 }
 ```
 
-CLI-style programs may receive arguments from the host C runtime:
+Returning `!{}` means process success. Returning an error payload such as
+`process::exit(1)!` asks the startup layer to terminate with that exit status:
 
 ```nia
-fn main(argc: i32, argv: &&u8) i32 {
-    0
+import std.process;
+
+pub fn main(init: process::Init) process::Exit!void {
+    _ = init;
+    process::exit(1)!
 }
 ```
 
 Nia distinguishes two execution models:
 
-- `host`: the default model. The program relies on libc and the platform C
-  runtime. Platform startup code calls the exported `main` symbol, and the
-  compiler driver may perform host linking.
-- `bare`: no startup logic is injected and `main` is not required. The compiler
+- executable emission: the driver injects the standard-library `std.start`
+  facade for the selected runtime. The current default is freestanding startup
+  linked without CRT startup; the current target implementation is Linux
+  x86_64. The user entry remains the Nia-level
+  `root::main(process::Init) process::Exit!void` contract.
+- bare/object/IR emission: no startup logic is injected and `main` is not
+  required. The compiler
   emits LLVM IR or object files for an external build system, custom entry
   symbol, linker script, or freestanding runtime.
 
-In hosted mode, only a non-generic root `main` with one of the accepted hosted
-entry signatures is exported as the C ABI symbol `main`:
+Other Nia functions named `main` use normal Nia internal symbol naming unless
+they are declared `extern`. The compiler does not export the root user `main`
+as the C ABI entry point; that responsibility belongs to `std.start`.
 
-```nia
-fn main() i32
-fn main(argc: i32, argv: &&u8) i32
-```
+The current standard library surface is intentionally small:
 
-Other Nia functions, including imported functions named `main`, use normal Nia
-internal symbol naming unless they are declared `extern`.
+- `std.process` defines the executable entry payload and process exit value.
+- `std.os` defines a target-dispatched OS facade. It currently exposes `Fd`,
+  `WriteError`, `stdin()`, `stdout()`, `stderr()`, `write(fd, bytes)`, and
+  `exit(code)`.
+
+`std.os` is a Nia-defined OS layer, not libc. Platform-specific implementation
+modules such as `std.os.linux` may use syscalls directly. A future `std.c` can
+model optional libc linkage without becoming the default executable runtime.
 
 ## 3. Lexical Structure
 
@@ -2375,9 +2394,18 @@ import ..lib;          // src/lib.nia
 ```
 
 A bare import such as `import math;` is not relative. Its first segment is
-resolved through an external module map. The CLI registers map entries with
-`-M name=path` or `--module name=path`. Module map options may appear before or
-after the command:
+resolved through a module map. The compiler reserves `root` as the module map
+entry for the compilation entry file:
+
+```nia
+import root;           // the current compilation entry module
+```
+
+This is equivalent to the compiler automatically adding `-M root=<entry>`, but
+`root` is not user-overridable. The toolchain also provides `std` as the
+standard-library root. Other module map entries are external roots. The CLI
+registers them with `-M name=path` or `--module name=path`. Module map options
+may appear before or after the command:
 
 ```bash
 nia check src/main.nia -M std=/usr/share/nia/std.nia
@@ -2658,7 +2686,8 @@ A conforming Nia compiler supports:
 - trait declarations, associated types, and direct trait implementation checks;
 - lowering to a typed backend IR;
 - LLVM IR or object emission;
-- hosted executable emission when host linking is available.
+- freestanding executable emission for Linux x86_64 when a target linker is
+  available.
 
 The CLI surface is:
 
@@ -2698,11 +2727,12 @@ remains backend IR or LLVM IR and native emit targets remain file-only.
 
 `emit obj` writes one object per backend codegen unit. `-o` is only valid for a
 single-unit program. Multi-unit output uses `--out-dir`. `emit exe` writes
-temporary objects and invokes the host C linker. Native emit commands create
-missing output directories: `emit obj -o build/main.o`, `emit obj --out-dir
-build/obj`, and `emit exe -o build/main` all create `build` or `build/obj` when
-needed. This applies only to compiler output paths, not to input source files or
-module-map paths.
+temporary objects and invokes the target linker without CRT startup. The linker
+is selected with `NIA_LINKER`; if it is unset, the target default linker is used.
+Native emit commands create missing output directories: `emit obj -o
+build/main.o`, `emit obj --out-dir build/obj`, and `emit exe -o build/main` all
+create `build` or `build/obj` when needed. This applies only to compiler output
+paths, not to input source files or module-map paths.
 
 `build` is reserved for an external build system. The current CLI does not
 provide `run`; use `emit exe` and execute the result.

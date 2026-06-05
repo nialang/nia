@@ -5,7 +5,7 @@ use crate::literals::{
     integer_literal_value, integer_range, numeric_literal_suffix, parse_float_literal,
     string_literal_char_len,
 };
-use nia_ast::{Expr, ExprKind, UnaryOp};
+use nia_ast::{Expr, ExprKind, TypeRef, UnaryOp};
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalConstExprId, InternedTyId};
@@ -271,19 +271,19 @@ impl<'a> BodyChecker<'a> {
         context: &str,
     ) {
         if let Some(coerced) = self.coerce_c_string_to_pointer(expr, expected, actual) {
-            self.record_expr_type(expr.span, coerced);
+            self.record_expr_node_type(expr, coerced);
             return;
         }
         if let Some(coerced) = self.coerce_array_to_slice(expr, expected, actual) {
-            self.record_expr_type(expr.span, coerced);
+            self.record_expr_node_type(expr, coerced);
             return;
         }
         if let Some(coerced) = self.coerce_trait_object_to_supertrait(expr, expected, actual) {
-            self.record_expr_type(expr.span, coerced);
+            self.record_expr_node_type(expr, coerced);
             return;
         }
         if let Some(coerced) = self.coerce_pointer_to_trait_object(expr, expected, actual) {
-            self.record_expr_type(expr.span, coerced);
+            self.record_expr_node_type(expr, coerced);
             return;
         }
         if !has_numeric_literal_suffix(expr)
@@ -352,8 +352,8 @@ impl<'a> BodyChecker<'a> {
             is_readonly,
             Some(actual),
         );
-        self.record_array_to_slice_coercion(
-            expr.span,
+        self.record_array_to_slice_node_coercion(
+            expr,
             ArrayToSliceCoercion {
                 array_ty: actual,
                 slice_ty: expected,
@@ -394,8 +394,8 @@ impl<'a> BodyChecker<'a> {
         {
             return None;
         }
-        self.record_c_string_pointer_coercion(
-            expr.span,
+        self.record_c_string_pointer_node_coercion(
+            expr,
             CStringPointerCoercion {
                 array_ty: actual,
                 pointer_ty: expected,
@@ -406,13 +406,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(crate) fn materialize_literal_expr_type(&mut self, expr: &Expr, ty: InternedTyId) {
-        self.record_expr_type(expr.span, ty);
+        self.record_expr_node_type(expr, ty);
         if let ExprKind::Unary {
             op: UnaryOp::Neg,
             expr: inner,
         } = &expr.kind
         {
-            self.record_expr_type(inner.span, ty);
+            self.record_expr_node_type(inner, ty);
         }
     }
 
@@ -680,8 +680,6 @@ impl<'a> BodyChecker<'a> {
 
     fn clone_for_type_compare(&self) -> BodyChecker<'a> {
         BodyChecker {
-            source_version: self.source_version,
-            origins: self.origins,
             module: self.module,
             defs: self.defs,
             program: self.program,
@@ -689,7 +687,7 @@ impl<'a> BodyChecker<'a> {
             locals: self.locals,
             semantic_uses: self.semantic_uses,
             interner: self.interner.clone(),
-            type_uses: self.type_uses,
+            node_type_uses: self.node_type_uses,
             signatures: self.signatures,
             normalization: self.normalization,
             target: self.target,
@@ -707,24 +705,16 @@ impl<'a> BodyChecker<'a> {
             program_trait_impls: self.program_trait_impls,
             program_comptime: self.program_comptime,
             program_comptime_modules: self.program_comptime_modules,
-            expr_types: HashMap::new(),
-            bracket_suffix_resolutions: HashMap::new(),
-            array_to_slice_coercions: HashMap::new(),
-            c_string_pointer_coercions: HashMap::new(),
-            trait_object_coercions: HashMap::new(),
-            trait_object_upcasts: HashMap::new(),
-            builtin_values: HashMap::new(),
-            array_repeat_counts: HashMap::new(),
-            switch_pattern_values: HashMap::new(),
-            resolved_calls: HashMap::new(),
-            function_references: HashMap::new(),
             node_expr_types: HashMap::new(),
             node_bracket_suffix_resolutions: HashMap::new(),
             node_array_to_slice_coercions: HashMap::new(),
             node_c_string_pointer_coercions: HashMap::new(),
             node_trait_object_coercions: HashMap::new(),
             node_trait_object_upcasts: HashMap::new(),
+            node_comptime_if_selections: HashMap::new(),
             node_builtin_values: HashMap::new(),
+            node_array_repeat_counts: HashMap::new(),
+            node_switch_pattern_values: HashMap::new(),
             node_resolved_calls: HashMap::new(),
             node_function_references: HashMap::new(),
             generic_instantiations: Vec::new(),
@@ -733,7 +723,6 @@ impl<'a> BodyChecker<'a> {
             local_types: HashMap::new(),
             global_types: HashMap::new(),
             comptime_types: HashMap::new(),
-            comptime_if_selections: HashMap::new(),
             diagnostics: Vec::new(),
             current_return: self.current_return,
             current_def_id: self.current_def_id,
@@ -772,9 +761,9 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn ty_for_span(&self, span: Span) -> InternedTyId {
-        self.type_uses
-            .get(&span)
+    pub(crate) fn ty_for_type(&self, ty: &TypeRef) -> InternedTyId {
+        self.node_type_uses
+            .get(&ty.node_key)
             .copied()
             .unwrap_or_else(|| self.error())
     }

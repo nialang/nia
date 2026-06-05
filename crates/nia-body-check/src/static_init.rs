@@ -73,7 +73,7 @@ impl<'a> BodyChecker<'a> {
                     ));
                     StaticInit::Byte(0)
                 }),
-            ExprKind::Builtin { .. } => match self.builtin_values.get(&expr.span) {
+            ExprKind::Builtin { .. } => match self.builtin_value(expr) {
                 Some(BuiltinValue::Usize(value)) => StaticInit::Int(*value as i128),
                 Some(BuiltinValue::Layout { .. }) => {
                     self.diagnostics.push(Diagnostic::error(
@@ -109,11 +109,7 @@ impl<'a> BodyChecker<'a> {
                 },
             },
             ExprKind::StructLiteral { fields } => {
-                let ty = self
-                    .expr_types
-                    .get(&expr.span)
-                    .copied()
-                    .unwrap_or_else(|| self.error());
+                let ty = self.expr_ty(expr).unwrap_or_else(|| self.error());
                 StaticInit::Struct(
                     fields
                         .iter()
@@ -206,8 +202,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn static_function_address(&self, expr: &Expr) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        self.function_references
-            .get(&expr.span)
+        self.function_reference(expr)
             .map(|reference| (reference.def_id, reference.args.clone()))
     }
 
@@ -222,17 +217,17 @@ impl<'a> BodyChecker<'a> {
         expr: &Expr,
         elems: &mut Vec<StaticAddressElem>,
     ) -> StaticAddressBase {
-        if self.values.variant_enums.contains_key(&expr.span) {
+        if self.variant_enum(expr).is_some() {
             return StaticAddressBase::Invalid;
         }
-        if let Some(def_id) = self.values.qualified_values.get(&expr.span).copied() {
+        if let Some(def_id) = self.qualified_value(expr) {
             return StaticAddressBase::Global(def_id);
         }
         match &expr.kind {
-            ExprKind::Ident(_) => match self.locals.uses.get(&expr.span) {
-                Some(LocalUse::ModuleValue) => match self.values.names.get(&expr.span) {
+            ExprKind::Ident(_) => match self.local_use(expr) {
+                Some(LocalUse::ModuleValue) => match self.value_name(expr) {
                     Some(ValueNameResolution::Def(def_id)) => {
-                        StaticAddressBase::Global(self.global_def_id(*def_id))
+                        StaticAddressBase::Global(self.global_def_id(def_id))
                     }
                     _ => StaticAddressBase::Invalid,
                 },
@@ -250,11 +245,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Field { lhs, name } | ExprKind::Qualified { lhs, name } => {
                 let base = self.lower_static_place_inner(lhs, elems);
-                let lhs_ty = self
-                    .expr_types
-                    .get(&lhs.span)
-                    .copied()
-                    .unwrap_or_else(|| self.error());
+                let lhs_ty = self.expr_ty(lhs).unwrap_or_else(|| self.error());
                 let field = self
                     .field_def_for_base_ty(lhs_ty, name)
                     .map(StaticAddressElem::Field)
@@ -273,7 +264,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::BracketSuffix { callee, args } => {
                 if matches!(
-                    self.bracket_suffix_resolution(expr.span),
+                    self.bracket_suffix_resolution(expr),
                     Some(nia_sema_ir::BracketSuffixResolution::Index)
                 ) {
                     let base = self.lower_static_place_inner(callee, elems);
@@ -308,13 +299,13 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn static_comptime_int(&self, expr: &Expr) -> Option<i128> {
-        if let Some(global_id) = self.global_comptime_use(expr.span) {
+        if let Some(global_id) = self.global_comptime_use(expr) {
             return match self.global_comptime_value(global_id)? {
                 nia_comptime_check::ComptimeValue::Int(value) => Some(value),
                 _ => None,
             };
         }
-        if let Some(local_id) = self.local_comptime_use(expr.span) {
+        if let Some(local_id) = self.local_comptime_use(expr) {
             return match self
                 .comptime
                 .values

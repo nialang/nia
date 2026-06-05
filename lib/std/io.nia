@@ -1,0 +1,27 @@
+import std.os;
+
+pub trait Writer {
+    type Error;
+
+    fn write(&self, bytes: &[u8]) [Self as Writer]::Error!usize;
+}
+
+pub fn write_all[W](writer: &W, bytes: &[u8]) [W as Writer]::Error!void
+where W: Writer
+{
+    var written = 0usize;
+    while written < bytes.len() {
+        var chunk = & bytes[written..];
+        var n = writer.write(chunk).?;
+        written += n;
+    }
+    !{}
+}
+
+extend os::Fd : Writer {
+    type Error = os::Error;
+
+    fn write(&self, bytes: &[u8]) os::Error!usize {
+        os::write(self.*, bytes)
+    }
+}

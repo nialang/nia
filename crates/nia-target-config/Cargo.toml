@@ -12,6 +12,7 @@ nia-comptime-ir.workspace = true
 nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-tree.workspace = true
+nia-node-id.workspace = true
 nia-span.workspace = true
 
 [dev-dependencies]

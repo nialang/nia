@@ -11,6 +11,7 @@ use nia_ast::{
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};
+use nia_source::{SourceId, SourceRevision, SourceVersion};
 use nia_span::Span;
 use nia_syntax::{SyntaxToken, SyntaxTokenCursor, SyntaxTree};
 
@@ -19,8 +20,15 @@ mod items;
 mod stmt;
 mod types;
 
+fn synthetic_source_version() -> SourceVersion {
+    SourceVersion {
+        id: SourceId(u32::MAX),
+        revision: SourceRevision::INITIAL,
+    }
+}
+
 pub fn parse_module(source: &str) -> (Module, Vec<ParseError>) {
-    let syntax = nia_syntax::parse_source(source, None);
+    let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
     parse_module_syntax(&syntax)
 }
 
@@ -51,7 +59,7 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(source: &str) -> Self {
-        let syntax = nia_syntax::parse_source(source, None);
+        let syntax = nia_syntax::parse_source(source, Some(synthetic_source_version()));
         Self::from_syntax(&syntax)
     }
 
@@ -89,28 +97,28 @@ impl Parser {
         (Module { items }, self.errors, self.origins)
     }
 
-    fn record_origin(&mut self, kind: NodeSyntaxKind, span: Span) {
+    fn node_key(&mut self, kind: NodeSyntaxKind, span: Span) -> NodeKey {
         let start = self.tokens.token_at_or_after(span.start);
         let end = self.tokens.token_before_or_at(span.end);
         let (Some(start), Some(end)) = (start, end) else {
-            return;
+            panic!("parser produced {kind:?} AST node without syntax tokens at {span:?}");
         };
         let Some(version) = start.source_version() else {
-            return;
+            panic!("parser produced {kind:?} AST node from unversioned syntax at {span:?}");
         };
-        if end.source_version() != Some(version) {
-            return;
-        }
-        self.origins.insert(
-            kind,
-            span,
-            NodeKey::child_path_range(
-                version,
-                kind,
-                start.child_path().clone(),
-                end.child_path().clone(),
-            ),
+        assert_eq!(
+            end.source_version(),
+            Some(version),
+            "parser produced {kind:?} AST node spanning multiple source versions at {span:?}"
         );
+        let key = NodeKey::child_path_range(
+            version,
+            kind,
+            start.child_path().clone(),
+            end.child_path().clone(),
+        );
+        self.origins.insert(kind, span, key.clone());
+        key
     }
 
     fn make_item(
@@ -120,9 +128,10 @@ impl Parser {
         vis: Visibility,
         kind: ItemKind,
     ) -> Item {
-        self.record_origin(NodeSyntaxKind::Item, span);
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
         Item {
             span,
+            node_key,
             attributes,
             vis,
             kind,
@@ -136,32 +145,42 @@ impl Parser {
         name: Option<String>,
         ty: Option<TypeRef>,
     ) -> Param {
-        self.record_origin(NodeSyntaxKind::Param, span);
+        let node_key = self.node_key(NodeSyntaxKind::Param, span);
         Param {
             receiver,
             name,
             ty,
             span,
+            node_key,
         }
     }
 
     fn make_type_ref(&mut self, span: Span, kind: TypeKind) -> TypeRef {
-        self.record_origin(NodeSyntaxKind::Type, span);
+        let node_key = self.node_key(NodeSyntaxKind::Type, span);
         TypeRef {
             span,
+            node_key,
             text: self.source_text(span),
             kind,
         }
     }
 
     fn make_expr(&mut self, span: Span, kind: ExprKind) -> Expr {
-        self.record_origin(NodeSyntaxKind::Expr, span);
-        Expr { span, kind }
+        let node_key = self.node_key(NodeSyntaxKind::Expr, span);
+        Expr {
+            span,
+            node_key,
+            kind,
+        }
     }
 
     fn make_stmt(&mut self, span: Span, kind: StmtKind) -> Stmt {
-        self.record_origin(NodeSyntaxKind::Stmt, span);
-        Stmt { span, kind }
+        let node_key = self.node_key(NodeSyntaxKind::Stmt, span);
+        Stmt {
+            span,
+            node_key,
+            kind,
+        }
     }
 
     fn parse_expr_until(&mut self, stops: &[TokenKind]) -> Option<Expr> {

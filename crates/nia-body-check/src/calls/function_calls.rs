@@ -26,15 +26,15 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Ident(_) = &base.kind else {
             return None;
         };
-        let Some(ValueNameResolution::Def(def_id)) = self.values.names.get(&base.span) else {
+        let Some(ValueNameResolution::Def(def_id)) = self.value_name(base) else {
             return None;
         };
         self.signatures
             .functions
-            .get(def_id)
+            .get(&def_id)
             .cloned()
             .map(|signature| ResolvedFunctionSignature {
-                def_id: self.global_def_id(*def_id),
+                def_id: self.global_def_id(def_id),
                 signature,
             })
     }
@@ -54,7 +54,7 @@ impl<'a> BodyChecker<'a> {
         }
         let signature = item.resolved.signature;
         let substitutions = self.generic_substitutions_for_function_ref(
-            expr.span,
+            expr,
             item.resolved.def_id,
             &signature,
             &item.type_args,
@@ -87,8 +87,8 @@ impl<'a> BodyChecker<'a> {
         match &expr.kind {
             ExprKind::BracketSuffix { callee, args } => {
                 let mut item = self.function_item_ref(callee)?;
-                self.record_bracket_suffix_resolution(
-                    expr.span,
+                self.record_bracket_suffix_node_resolution(
+                    expr,
                     BracketSuffixResolution::GenericCall,
                 );
                 let type_args = self.lower_bracket_type_args(args);
@@ -126,7 +126,7 @@ impl<'a> BodyChecker<'a> {
         let (target_ty, method_id, target_substitutions) = if let ExprKind::TypeTarget { ty } =
             &ty_expr.kind
         {
-            let target_ty = self.ty_for_span(ty.span);
+            let target_ty = self.ty_for_type(ty);
             let candidates = self.method_candidates_for_target(target_ty, name);
             let method_id = self.single_method_candidate(span, name, candidates)?;
             let target_substitutions = self.extension_target_substitutions(method_id, target_ty);
@@ -166,11 +166,12 @@ impl<'a> BodyChecker<'a> {
 
     fn generic_substitutions_for_function_ref(
         &mut self,
-        span: Span,
+        expr: &Expr,
         def_id: GlobalDefId,
         signature: &FunctionSignature,
         type_args: &[InternedTyId],
     ) -> Option<HashMap<String, InternedTyId>> {
+        let span = expr.span;
         let generics = self.effective_generics_for_def(def_id);
         if generics.len() != type_args.len() {
             let message = if type_args.is_empty() {
@@ -188,8 +189,9 @@ impl<'a> BodyChecker<'a> {
         if !type_args.is_empty() {
             self.record_generic_instantiation(def_id, type_args, span);
         }
-        self.record_function_reference(
+        self.record_function_node_reference(
             span,
+            &expr.node_key,
             FunctionReference {
                 def_id,
                 args: type_args.to_vec(),
@@ -210,11 +212,12 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn check_function_signature_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         resolved: &ResolvedFunctionSignature,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        let span = expr.span;
         let signature = &resolved.signature;
         if signature.is_comptime && !self.in_comptime_context() {
             self.diagnostics.push(Diagnostic::error(
@@ -230,17 +233,21 @@ impl<'a> BodyChecker<'a> {
             let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
             self.check_direct_call_args(span, args, &params, signature.is_variadic);
             if !signature.is_comptime {
-                self.record_resolved_call(span, ResolvedCall::Function(resolved.def_id));
+                self.record_resolved_node_call(
+                    span,
+                    &expr.node_key,
+                    ResolvedCall::Function(resolved.def_id),
+                );
             }
             return signature.return_type;
         }
-        self.check_inferred_generic_function_call(span, resolved.def_id, signature, args, expected)
+        self.check_inferred_generic_function_call(expr, resolved.def_id, signature, args, expected)
     }
 
     pub(super) fn check_explicit_generic_call(
         &mut self,
-        span: Span,
-        callee_span: Span,
+        expr: &Expr,
+        bracket_expr: &Expr,
         callee: &Expr,
         type_args: &[BracketArg],
         args: &[Expr],
@@ -248,32 +255,32 @@ impl<'a> BodyChecker<'a> {
     ) -> InternedTyId {
         if let ExprKind::Field { lhs, name } = &callee.kind
             && let Some(return_type) = self.check_explicit_generic_field_method_call(
-                span, lhs, name, type_args, args, expected,
+                expr, lhs, name, type_args, args, expected,
             )
         {
-            self.record_bracket_suffix_resolution(
-                callee_span,
+            self.record_bracket_suffix_node_resolution(
+                bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
             return return_type;
         }
         if let ExprKind::Qualified { lhs, name } = &callee.kind
             && let Some(return_type) = self
-                .check_explicit_generic_associated_call(span, lhs, name, type_args, args, expected)
+                .check_explicit_generic_associated_call(expr, lhs, name, type_args, args, expected)
         {
-            self.record_bracket_suffix_resolution(
-                callee_span,
+            self.record_bracket_suffix_node_resolution(
+                bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
             return return_type;
         }
         if let Some(resolved) = self.qualified_callee_signature(callee) {
-            self.record_bracket_suffix_resolution(
-                callee_span,
+            self.record_bracket_suffix_node_resolution(
+                bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
             return self.check_instantiated_function_call(
-                span,
+                expr,
                 resolved.def_id,
                 &resolved.signature,
                 type_args,
@@ -281,29 +288,30 @@ impl<'a> BodyChecker<'a> {
             );
         }
         if let Some(resolved) = self.direct_callee_signature(callee) {
-            self.record_bracket_suffix_resolution(
-                callee_span,
+            self.record_bracket_suffix_node_resolution(
+                bracket_expr,
                 BracketSuffixResolution::GenericCall,
             );
             return self.check_instantiated_function_call(
-                span,
+                expr,
                 resolved.def_id,
                 &resolved.signature,
                 type_args,
                 args,
             );
         }
-        let callee_ty = self.check_bracket_suffix_expr(callee_span, callee, type_args, None);
-        self.record_expr_type(callee_span, callee_ty);
-        self.check_function_pointer_call_with_callee_ty(span, callee_ty, args)
+        let callee_ty = self.check_bracket_suffix_expr(bracket_expr, callee, type_args, None);
+        self.record_expr_node_type(bracket_expr, callee_ty);
+        self.check_function_pointer_call_with_callee_ty(expr, callee_ty, args)
     }
 
     pub(super) fn check_function_pointer_call_with_callee_ty(
         &mut self,
-        span: Span,
+        expr: &Expr,
         callee_ty: InternedTyId,
         args: &[Expr],
     ) -> InternedTyId {
+        let span = expr.span;
         match self.interner.get(callee_ty).cloned() {
             Some(TyKind::FunctionPointer {
                 params,
@@ -311,7 +319,7 @@ impl<'a> BodyChecker<'a> {
                 is_variadic,
             }) => {
                 self.check_direct_call_args(span, args, &params, is_variadic);
-                self.record_resolved_call(span, ResolvedCall::FunctionPointer);
+                self.record_resolved_node_call(span, &expr.node_key, ResolvedCall::FunctionPointer);
                 return_type
             }
             Some(TyKind::Error) | None => {
@@ -333,12 +341,13 @@ impl<'a> BodyChecker<'a> {
 
     fn check_instantiated_function_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         def_id: GlobalDefId,
         signature: &FunctionSignature,
         type_args: &[BracketArg],
         args: &[Expr],
     ) -> InternedTyId {
+        let span = expr.span;
         let lowered_args = self.lower_bracket_type_args(type_args);
         if signature.generics.len() != lowered_args.len() {
             self.diagnostics.push(Diagnostic::error(
@@ -355,14 +364,16 @@ impl<'a> BodyChecker<'a> {
             return self.error();
         }
         self.record_generic_instantiation(def_id, &lowered_args, span);
-        self.record_resolved_call(
+        self.record_resolved_node_call(
             span,
+            &expr.node_key,
             ResolvedCall::FunctionInstance {
                 def_id,
                 args: lowered_args.clone(),
             },
         );
         let substitutions = self.generic_substitutions(&signature.generics, &lowered_args);
+        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, span);
         let params: Vec<InternedTyId> = signature
             .params
             .iter()
@@ -375,12 +386,13 @@ impl<'a> BodyChecker<'a> {
 
     fn check_inferred_generic_function_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         def_id: GlobalDefId,
         signature: &FunctionSignature,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> InternedTyId {
+        let span = expr.span;
         let params: Vec<InternedTyId> = signature.params.iter().map(|param| param.ty).collect();
         let mut substitutions = HashMap::new();
         if let Some(expected) = expected.and_then(|expected| self.generic_call_expected(expected)) {
@@ -432,8 +444,9 @@ impl<'a> BodyChecker<'a> {
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
         self.record_generic_instantiation(def_id, &instance_args, span);
-        self.record_resolved_call(
+        self.record_resolved_node_call(
             span,
+            &expr.node_key,
             ResolvedCall::FunctionInstance {
                 def_id,
                 args: instance_args,
@@ -444,6 +457,7 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .map(|param| self.substitute_generics(*param, &substitutions))
             .collect();
+        self.check_where_predicates_hold(&signature.where_predicates, &substitutions, span);
         for (index, arg) in args.iter().enumerate() {
             if let Some(expected) = instantiated_params.get(index).copied() {
                 let actual = self.check_expr_with_expected(arg, Some(expected));

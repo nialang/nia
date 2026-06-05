@@ -23,16 +23,13 @@ impl<'a> BodyChecker<'a> {
         self.extensions
             .all_methods_named(name)
             .into_iter()
-            .filter_map(|(target_ty, method_id)| {
+            .filter_map(|(target_ty, method)| {
                 let target_ty = self.normalization.normalize(target_ty);
                 matches!(
                     self.interner.get(target_ty),
                     Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
                 )
-                .then_some(MethodCandidate {
-                    target_ty,
-                    method_id,
-                })
+                .then_some(MethodCandidate { target_ty, method })
             })
             .collect()
     }
@@ -45,11 +42,11 @@ impl<'a> BodyChecker<'a> {
         self.extensions
             .all_methods_named(name)
             .into_iter()
-            .filter_map(|(candidate_ty, method_id)| {
+            .filter_map(|(candidate_ty, method)| {
                 self.match_type_pattern(candidate_ty, target_ty, &mut HashMap::new())
                     .then_some(MethodCandidate {
                         target_ty: candidate_ty,
-                        method_id,
+                        method,
                     })
             })
             .collect()
@@ -66,13 +63,12 @@ impl<'a> BodyChecker<'a> {
                 .extensions
                 .all_methods_named(name)
                 .into_iter()
-                .filter_map(|(target_ty, method_id)| {
+                .filter_map(|(target_ty, method)| {
                     let target_ty = self.normalization.normalize(target_ty);
-                    self.match_type_pattern(target_ty, receiver_ty, &mut HashMap::new())
-                        .then_some(MethodCandidate {
-                            target_ty,
-                            method_id,
-                        })
+                    let mut substitutions = HashMap::new();
+                    (self.match_type_pattern(target_ty, receiver_ty, &mut substitutions)
+                        && self.extension_method_where_predicates_hold(&method, &substitutions))
+                    .then_some(MethodCandidate { target_ty, method })
                 })
                 .collect::<Vec<_>>();
             if !candidates.is_empty() {
@@ -355,7 +351,7 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<GlobalDefId> {
         let candidates = self.most_specific_candidates(&candidates);
         match candidates.as_slice() {
-            [method] => Some(method.method_id),
+            [method] => Some(method.method.def_id),
             [] => None,
             _ => {
                 self.diagnostics.push(Diagnostic::error(
@@ -370,10 +366,10 @@ impl<'a> BodyChecker<'a> {
     fn most_specific_candidates(&self, candidates: &[MethodCandidate]) -> Vec<MethodCandidate> {
         candidates
             .iter()
-            .copied()
+            .cloned()
             .filter(|candidate| {
                 !candidates.iter().any(|other| {
-                    other.method_id != candidate.method_id
+                    other.method.def_id != candidate.method.def_id
                         && self.strictly_more_specific(other.target_ty, candidate.target_ty)
                 })
             })
@@ -683,6 +679,26 @@ impl<'a> BodyChecker<'a> {
         let mut substitutions = HashMap::new();
         self.match_receiver_target(target_ty, receiver_ty, &mut substitutions);
         substitutions
+    }
+
+    fn extension_method_where_predicates_hold(
+        &mut self,
+        method: &nia_defs::VisibleExtensionMethod,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> bool {
+        let predicates = method
+            .where_predicates
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
+            .collect::<Vec<_>>();
+        predicates.iter().all(|predicate| {
+            predicate.bounds.iter().all(|bound| {
+                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
+                    return false;
+                };
+                self.current_context_proves_trait_obligation(predicate.ty, trait_id, trait_args)
+            })
+        })
     }
 
     pub(in crate::calls) fn extension_target_instance_args(

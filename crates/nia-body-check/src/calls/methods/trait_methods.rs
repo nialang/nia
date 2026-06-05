@@ -92,8 +92,9 @@ impl<'a> BodyChecker<'a> {
             instance_args.extend(method_instantiation_args.iter().copied());
             self.record_generic_instantiation(candidate.method_id, &instance_args, call.span);
         }
-        self.record_resolved_call(
+        self.record_resolved_node_call(
             call.span,
+            call.node_key,
             ResolvedCall::TraitMethod {
                 trait_id: candidate.trait_id,
                 method_id: candidate.method_id,
@@ -178,8 +179,9 @@ impl<'a> BodyChecker<'a> {
         self.check_direct_call_args(call.span, call.args, &params, false);
         let return_type = self.substitute_generics(candidate.signature.return_type, &substitutions);
         let return_type = self.normalize_dynamic_trait_object_projection(candidate, return_type);
-        self.record_resolved_call(
+        self.record_resolved_node_call(
             call.span,
+            call.node_key,
             ResolvedCall::DynamicTraitMethod {
                 object_ty: candidate.object_ty,
                 trait_id: candidate.trait_id,

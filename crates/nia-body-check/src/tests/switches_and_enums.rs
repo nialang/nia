@@ -313,11 +313,11 @@ fn non_constant(value: i32, start: i32) i32 {
         assert!(
             checked
                 .facts
-                .switch_pattern_values
+                .node_switch_pattern_values
                 .values()
                 .any(|value| *value == expected),
             "missing switch pattern value {expected}: {:?}",
-            checked.facts.switch_pattern_values
+            checked.facts.node_switch_pattern_values
         );
     }
 }

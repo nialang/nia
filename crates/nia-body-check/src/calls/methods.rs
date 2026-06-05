@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::BodyChecker;
 use nia_ast::{BracketArg, Expr, ExprKind, ReceiverKind};
+use nia_defs::VisibleExtensionMethod;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, GlobalDefId, InternedTyId, TraitId};
 use nia_item_signatures::FunctionSignature;
@@ -12,6 +13,7 @@ use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TyKind};
 
 pub(super) struct MethodCall<'a> {
     pub(super) span: Span,
+    pub(super) node_key: &'a nia_node_id::NodeKey,
     pub(super) receiver: &'a Expr,
     pub(super) receiver_ty: InternedTyId,
     pub(super) name: &'a str,
@@ -50,10 +52,10 @@ pub(super) struct DynamicTraitMethodCandidate {
     pub(super) slot: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct MethodCandidate {
     pub(super) target_ty: InternedTyId,
-    pub(super) method_id: GlobalDefId,
+    pub(super) method: VisibleExtensionMethod,
 }
 
 mod associated;
@@ -64,12 +66,13 @@ mod trait_methods;
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_field_method_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         receiver: &Expr,
         name: &str,
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
+        let span = expr.span;
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
         let trait_candidates = self.trait_method_candidates_for_receiver(receiver_ty, name);
@@ -78,6 +81,7 @@ impl<'a> BodyChecker<'a> {
         if candidates.is_empty() && trait_candidates.is_empty() && dynamic_candidates.is_empty() {
             if let Some(output) = self.check_builtin_method_call_with_receiver_ty(
                 span,
+                &expr.node_key,
                 receiver,
                 receiver_ty,
                 name,
@@ -93,6 +97,7 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_method_call_with_receiver_ty(MethodCall {
             span,
+            node_key: &expr.node_key,
             receiver,
             receiver_ty,
             name,
@@ -105,6 +110,7 @@ impl<'a> BodyChecker<'a> {
     fn check_builtin_method_call_with_receiver_ty(
         &mut self,
         span: Span,
+        node_key: &nia_node_id::NodeKey,
         receiver: &Expr,
         receiver_ty: InternedTyId,
         name: &str,
@@ -158,8 +164,9 @@ impl<'a> BodyChecker<'a> {
         if let Some(expected) = expected {
             self.expect_type(span, expected, output, "builtin method call");
         }
-        self.record_resolved_call(
+        self.record_resolved_node_call(
             span,
+            node_key,
             ResolvedCall::BuiltinMethod {
                 method,
                 self_ty: receiver_ty,
@@ -170,13 +177,14 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn check_explicit_generic_field_method_call(
         &mut self,
-        span: Span,
+        expr: &Expr,
         receiver: &Expr,
         name: &str,
         type_args: &[BracketArg],
         args: &[Expr],
         expected: Option<InternedTyId>,
     ) -> Option<InternedTyId> {
+        let span = expr.span;
         let receiver_ty = self.check_expr(receiver);
         let candidates = self.method_candidates_for_receiver(receiver_ty, name);
         if candidates.is_empty()
@@ -195,6 +203,7 @@ impl<'a> BodyChecker<'a> {
         }
         self.check_method_call_with_receiver_ty(MethodCall {
             span,
+            node_key: &expr.node_key,
             receiver,
             receiver_ty,
             name,
@@ -298,16 +307,18 @@ impl<'a> BodyChecker<'a> {
             let mut instance_args = target_args;
             instance_args.extend(method_instantiation_args);
             self.record_generic_instantiation(method_id, &instance_args, call.span);
-            self.record_resolved_call(
+            self.record_resolved_node_call(
                 call.span,
+                call.node_key,
                 ResolvedCall::Method {
                     def_id: method_id,
                     args: instance_args,
                 },
             );
         } else {
-            self.record_resolved_call(
+            self.record_resolved_node_call(
                 call.span,
+                call.node_key,
                 ResolvedCall::Method {
                     def_id: method_id,
                     args: Vec::new(),

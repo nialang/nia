@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ValueBuiltin};
+use nia_node_id::NodeKey;
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 
@@ -1430,7 +1431,7 @@ impl EarlyComptimeTypeArg {
         Ok(Self {
             span: ty.span,
             ty_span: ty.span,
-            ty: lower_type_id(context, ty.span)?,
+            ty: lower_type_id(context, &ty.node_key, ty.span)?,
         })
     }
 }
@@ -1482,60 +1483,120 @@ impl<'a> ResolvedComptimeLowerInputs<'a> {
 trait ComptimeLowerContext {
     fn resolve_name(
         &self,
-        span: Span,
+        key: &NodeKey,
+        _span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError>;
 
-    fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError>;
+    fn lower_local_use(
+        &self,
+        key: &NodeKey,
+        _span: Span,
+    ) -> Result<Option<LocalId>, ComptimeLowerError>;
 
-    fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError>;
+    fn lower_local_id(
+        &self,
+        key: &NodeKey,
+        _span: Span,
+    ) -> Result<Option<LocalId>, ComptimeLowerError>;
+
+    fn lower_type_id(
+        &self,
+        key: &NodeKey,
+        _span: Span,
+    ) -> Result<Option<InternedTyId>, ComptimeLowerError>;
 }
 
 impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
     fn resolve_name(
         &self,
-        span: Span,
+        key: &NodeKey,
+        _span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
         Ok(self
             .semantic_uses
-            .and_then(|semantic_uses| semantic_uses.value_use(span))
+            .and_then(|semantic_uses| semantic_uses.node_value_use(key))
             .map(ComptimeNameResolution::from))
     }
 
-    fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError> {
+    fn lower_local_use(
+        &self,
+        key: &NodeKey,
+        _span: Span,
+    ) -> Result<Option<LocalId>, ComptimeLowerError> {
         Ok(self
             .semantic_uses
-            .and_then(|semantic_uses| semantic_uses.local_def(span)))
+            .and_then(|semantic_uses| semantic_uses.node_value_use(key))
+            .and_then(|value_use| match value_use {
+                SemanticValueUse::Local(local_id) => Some(local_id),
+                SemanticValueUse::Global(_) => None,
+            }))
     }
 
-    fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError> {
+    fn lower_local_id(
+        &self,
+        key: &NodeKey,
+        _span: Span,
+    ) -> Result<Option<LocalId>, ComptimeLowerError> {
         Ok(self
             .semantic_uses
-            .and_then(|semantic_uses| semantic_uses.type_use(span)))
+            .and_then(|semantic_uses| semantic_uses.node_local_def(key)))
+    }
+
+    fn lower_type_id(
+        &self,
+        key: &NodeKey,
+        _span: Span,
+    ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
+        Ok(self
+            .semantic_uses
+            .and_then(|semantic_uses| semantic_uses.node_type_use(key)))
     }
 }
 
 impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
     fn resolve_name(
         &self,
+        key: &NodeKey,
         span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
         self.semantic_uses
-            .value_use(span)
+            .node_value_use(key)
             .map(ComptimeNameResolution::from)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "comptime name"))
     }
 
-    fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError> {
+    fn lower_local_use(
+        &self,
+        key: &NodeKey,
+        span: Span,
+    ) -> Result<Option<LocalId>, ComptimeLowerError> {
+        match self.semantic_uses.node_value_use(key) {
+            Some(SemanticValueUse::Local(local_id)) => Ok(Some(local_id)),
+            Some(SemanticValueUse::Global(_)) | None => {
+                Err(unresolved_error(span, "comptime assignment target"))
+            }
+        }
+    }
+
+    fn lower_local_id(
+        &self,
+        key: &NodeKey,
+        span: Span,
+    ) -> Result<Option<LocalId>, ComptimeLowerError> {
         self.semantic_uses
-            .local_def(span)
+            .node_local_def(key)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "comptime local binding"))
     }
 
-    fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError> {
+    fn lower_type_id(
+        &self,
+        key: &NodeKey,
+        span: Span,
+    ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
         self.semantic_uses
-            .type_use(span)
+            .node_type_use(key)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "comptime type"))
     }
@@ -1561,12 +1622,15 @@ fn lower_expr_internal(
         }
         nia_ast::ExprKind::Bool(value) => EarlyComptimeExprKind::Bool(*value),
         nia_ast::ExprKind::Null => EarlyComptimeExprKind::Null,
-        nia_ast::ExprKind::Ident(name) => {
-            EarlyComptimeExprKind::Ident(lower_comptime_name(name, expr.span, context)?)
-        }
-        nia_ast::ExprKind::Qualified { name, .. } => {
-            EarlyComptimeExprKind::Qualified(lower_comptime_name(name, expr.span, context)?)
-        }
+        nia_ast::ExprKind::Ident(name) => EarlyComptimeExprKind::Ident(lower_comptime_name(
+            name,
+            &expr.node_key,
+            expr.span,
+            context,
+        )?),
+        nia_ast::ExprKind::Qualified { name, .. } => EarlyComptimeExprKind::Qualified(
+            lower_comptime_name(name, &expr.node_key, expr.span, context)?,
+        ),
         nia_ast::ExprKind::Field { lhs, name } => EarlyComptimeExprKind::Field {
             lhs: Box::new(lower_expr_internal(lhs, context)?),
             name: name.clone(),
@@ -1605,7 +1669,7 @@ fn lower_expr_internal(
             elems: lower_array_elements_with_context(elems, context)?,
         },
         nia_ast::ExprKind::TypedArrayLiteral { ty, elems } => EarlyComptimeExprKind::ArrayLiteral {
-            ty: lower_type_id(context, ty.span)?,
+            ty: lower_type_id(context, &ty.node_key, ty.span)?,
             elems: lower_array_elements_with_context(elems, context)?,
         },
         nia_ast::ExprKind::StructLiteral { fields } => EarlyComptimeExprKind::StructLiteral {
@@ -1617,7 +1681,7 @@ fn lower_expr_internal(
         },
         nia_ast::ExprKind::TypedStructLiteral { ty, fields } => {
             EarlyComptimeExprKind::StructLiteral {
-                ty: lower_type_id(context, ty.span)?,
+                ty: lower_type_id(context, &ty.node_key, ty.span)?,
                 fields: fields
                     .iter()
                     .map(|field| lower_field_init_with_context(field, context))
@@ -1701,7 +1765,7 @@ fn lower_expr_internal(
         )),
         nia_ast::ExprKind::Cast { expr, ty } => EarlyComptimeExprKind::Cast {
             expr: Box::new(lower_expr_internal(expr, context)?),
-            ty: lower_type_id(context, ty.span)?,
+            ty: lower_type_id(context, &ty.node_key, ty.span)?,
         },
         nia_ast::ExprKind::Block(block) => {
             EarlyComptimeExprKind::Block(lower_block_with_context(block, context)?)
@@ -1788,6 +1852,15 @@ fn lower_call_with_context(
     args: &[nia_ast::Expr],
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeExprKind, ComptimeLowerError> {
+    if let nia_ast::ExprKind::Builtin { name, type_arg } = &callee.kind
+        && type_arg.is_none()
+        && ValueBuiltin::from_name(name).is_none()
+    {
+        return Err(ComptimeLowerError {
+            span: callee.span,
+            message: format!("unsupported builtin call in comptime expression: @{name}"),
+        });
+    }
     if args.is_empty()
         && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
         && name == "len"
@@ -1888,7 +1961,7 @@ fn lower_type_args_with_context(
             Ok(EarlyComptimeTypeArg {
                 span: arg.span,
                 ty_span: ty.span,
-                ty: lower_type_id(context, ty.span)?,
+                ty: lower_type_id(context, &ty.node_key, ty.span)?,
             })
         })
         .collect()
@@ -1914,9 +1987,11 @@ fn lower_assign_target_base_with_context(
     path: &mut Vec<EarlyComptimeAssignPathElem>,
 ) -> Result<(Span, String, Option<LocalId>), ComptimeLowerError> {
     match &expr.kind {
-        nia_ast::ExprKind::Ident(name) => {
-            Ok((expr.span, name.clone(), lower_local_id(context, expr.span)?))
-        }
+        nia_ast::ExprKind::Ident(name) => Ok((
+            expr.span,
+            name.clone(),
+            lower_local_use(context, &expr.node_key, expr.span)?,
+        )),
         nia_ast::ExprKind::Field { lhs, name } => {
             let base = lower_assign_target_base_with_context(lhs, context, path)?;
             path.push(EarlyComptimeAssignPathElem::Field {
@@ -1988,17 +2063,19 @@ fn lower_array_elements_with_context(
 
 fn resolve_name(
     context: &dyn ComptimeLowerContext,
+    key: &NodeKey,
     span: Span,
 ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
-    context.resolve_name(span)
+    context.resolve_name(key, span)
 }
 
 fn lower_comptime_name(
     name: &str,
+    key: &NodeKey,
     span: Span,
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeName, ComptimeLowerError> {
-    match resolve_name(context, span)? {
+    match resolve_name(context, key, span)? {
         Some(resolution) => Ok(EarlyComptimeName::resolved(name.to_string(), resolution)),
         None => Ok(EarlyComptimeName::unresolved(name.to_string())),
     }
@@ -2006,16 +2083,26 @@ fn lower_comptime_name(
 
 fn lower_local_id(
     context: &dyn ComptimeLowerContext,
+    key: &NodeKey,
     span: Span,
 ) -> Result<Option<LocalId>, ComptimeLowerError> {
-    context.lower_local_id(span)
+    context.lower_local_id(key, span)
+}
+
+fn lower_local_use(
+    context: &dyn ComptimeLowerContext,
+    key: &NodeKey,
+    span: Span,
+) -> Result<Option<LocalId>, ComptimeLowerError> {
+    context.lower_local_use(key, span)
 }
 
 fn lower_type_id(
     context: &dyn ComptimeLowerContext,
+    key: &NodeKey,
     span: Span,
 ) -> Result<Option<InternedTyId>, ComptimeLowerError> {
-    context.lower_type_id(span)
+    context.lower_type_id(key, span)
 }
 
 pub fn resolve_function(
@@ -2509,11 +2596,11 @@ fn lower_function_internal(
             Ok(EarlyComptimeParam {
                 span: param.span,
                 name: name.clone(),
-                local_id: lower_local_id(context, param.span)?,
+                local_id: lower_local_id(context, &param.node_key, param.span)?,
                 ty: param
                     .ty
                     .as_ref()
-                    .map(|ty| lower_type_id(context, ty.span))
+                    .map(|ty| lower_type_id(context, &ty.node_key, ty.span))
                     .transpose()?
                     .flatten(),
             })
@@ -2570,11 +2657,11 @@ fn lower_stmt_with_context(
             EarlyComptimeStmtKind::Binding(EarlyComptimeBinding {
                 span: stmt.span,
                 name: binding.name.clone(),
-                local_id: lower_local_id(context, stmt.span)?,
+                local_id: lower_local_id(context, &stmt.node_key, stmt.span)?,
                 explicit_type: binding
                     .ty
                     .as_ref()
-                    .map(|ty| lower_type_id(context, ty.span))
+                    .map(|ty| lower_type_id(context, &ty.node_key, ty.span))
                     .transpose()?
                     .flatten(),
                 is_mutable: !binding.is_let,
@@ -2594,7 +2681,7 @@ fn lower_stmt_with_context(
             binding: EarlyComptimeForBinding {
                 span: for_in.binding.span,
                 name: for_in.binding.name.clone(),
-                local_id: lower_local_id(context, for_in.binding.span)?,
+                local_id: lower_local_id(context, &for_in.binding.node_key, for_in.binding.span)?,
             },
             iter: lower_expr_internal(&for_in.iter, context)?,
             body: lower_block_with_context(&for_in.body, context)?,
@@ -2701,28 +2788,36 @@ fn lower_switch_pattern_with_context(
 ) -> Result<EarlyComptimeSwitchPattern, ComptimeLowerError> {
     match pattern {
         nia_ast::SwitchPattern::Default => Ok(EarlyComptimeSwitchPattern::Default),
-        nia_ast::SwitchPattern::OptionalSome { name, span } => {
-            Ok(EarlyComptimeSwitchPattern::OptionalSome {
-                name: name.clone(),
-                local_id: lower_local_id(context, *span)?,
-                span: *span,
-            })
-        }
+        nia_ast::SwitchPattern::OptionalSome {
+            name,
+            span,
+            node_key,
+        } => Ok(EarlyComptimeSwitchPattern::OptionalSome {
+            name: name.clone(),
+            local_id: lower_local_id(context, node_key, *span)?,
+            span: *span,
+        }),
         nia_ast::SwitchPattern::OptionalNull { span } => {
             Ok(EarlyComptimeSwitchPattern::OptionalNull { span: *span })
         }
-        nia_ast::SwitchPattern::ErrorOk { name, span } => Ok(EarlyComptimeSwitchPattern::ErrorOk {
+        nia_ast::SwitchPattern::ErrorOk {
+            name,
+            span,
+            node_key,
+        } => Ok(EarlyComptimeSwitchPattern::ErrorOk {
             name: name.clone(),
-            local_id: lower_local_id(context, *span)?,
+            local_id: lower_local_id(context, node_key, *span)?,
             span: *span,
         }),
-        nia_ast::SwitchPattern::ErrorErr { name, span } => {
-            Ok(EarlyComptimeSwitchPattern::ErrorErr {
-                name: name.clone(),
-                local_id: lower_local_id(context, *span)?,
-                span: *span,
-            })
-        }
+        nia_ast::SwitchPattern::ErrorErr {
+            name,
+            span,
+            node_key,
+        } => Ok(EarlyComptimeSwitchPattern::ErrorErr {
+            name: name.clone(),
+            local_id: lower_local_id(context, node_key, *span)?,
+            span: *span,
+        }),
         nia_ast::SwitchPattern::Expr(expr) => {
             lower_expr_internal(expr, context).map(EarlyComptimeSwitchPattern::Expr)
         }
@@ -2771,9 +2866,15 @@ fn lower_field_init_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_node_id::{NodeChildPath, SyntaxKind};
+    use nia_source::{SourceId, SourceRevision, SourceVersion};
 
     fn span() -> Span {
         Span::new(0, 1)
+    }
+
+    fn other_span() -> Span {
+        Span::new(2, 3)
     }
 
     fn int_expr(value: &str) -> EarlyComptimeExpr {
@@ -2783,9 +2884,33 @@ mod tests {
         }
     }
 
+    fn node_key(kind: SyntaxKind, ordinal: u32) -> NodeKey {
+        NodeKey::child_path(
+            SourceVersion {
+                id: SourceId(0),
+                revision: SourceRevision::INITIAL,
+            },
+            kind,
+            NodeChildPath::from_steps([ordinal]),
+        )
+    }
+
+    fn expr_key(ordinal: u32) -> NodeKey {
+        node_key(SyntaxKind::Expr, ordinal)
+    }
+
+    fn stmt_key(ordinal: u32) -> NodeKey {
+        node_key(SyntaxKind::Stmt, ordinal)
+    }
+
+    fn type_key(ordinal: u32) -> NodeKey {
+        node_key(SyntaxKind::Type, ordinal)
+    }
+
     fn ast_ident(name: &str) -> nia_ast::Expr {
         nia_ast::Expr {
             span: span(),
+            node_key: expr_key(0),
             kind: nia_ast::ExprKind::Ident(name.to_string()),
         }
     }
@@ -2885,12 +3010,13 @@ mod tests {
         assert_eq!(name.display(), "x");
         assert_eq!(name.resolution(), None);
 
+        let ident = ast_ident("x");
         let mut semantic_uses = SemanticUseTable::default();
         semantic_uses
-            .value_uses
-            .insert(span(), SemanticValueUse::Local(LocalId(0)));
+            .node_value_uses
+            .insert(ident.node_key.clone(), SemanticValueUse::Local(LocalId(0)));
         let context = EarlyComptimeLowerInputs::default().with_semantic_uses(&semantic_uses);
-        let early = lower_expr_early_with_context(&ast_ident("x"), &context)
+        let early = lower_expr_early_with_context(&ident, &context)
             .expect("early lowering with semantic inputs should resolve names");
         let EarlyComptimeExprKind::Ident(name) = early.kind else {
             panic!("identifier should lower to early comptime name");
@@ -2908,6 +3034,7 @@ mod tests {
             span: span(),
             stmts: vec![nia_ast::Stmt {
                 span: span(),
+                node_key: stmt_key(0),
                 kind: nia_ast::StmtKind::Binding(nia_ast::BindingStmt {
                     name: "x".to_string(),
                     ty: None,
@@ -2920,12 +3047,13 @@ mod tests {
         };
         let expr = nia_ast::Expr {
             span: span(),
+            node_key: expr_key(1),
             kind: nia_ast::ExprKind::Block(block),
         };
         let mut semantic_uses = SemanticUseTable::default();
         semantic_uses
-            .value_uses
-            .insert(span(), SemanticValueUse::Local(LocalId(0)));
+            .node_value_uses
+            .insert(expr_key(0), SemanticValueUse::Local(LocalId(0)));
         let context = ResolvedComptimeLowerInputs::new(&semantic_uses);
         let err = lower_expr_resolved_with_context(&expr, &context)
             .expect_err("resolved lowering must reject unresolved local bindings");
@@ -2933,16 +3061,55 @@ mod tests {
     }
 
     #[test]
+    fn resolved_lowering_uses_local_uses_for_assignment_targets() {
+        let assign_span = other_span();
+        let lhs_key = expr_key(2);
+        let expr = nia_ast::Expr {
+            span: Span::new(0, 3),
+            node_key: expr_key(3),
+            kind: nia_ast::ExprKind::Assign {
+                lhs: Box::new(nia_ast::Expr {
+                    span: assign_span,
+                    node_key: lhs_key.clone(),
+                    kind: nia_ast::ExprKind::Ident("x".to_string()),
+                }),
+                op: nia_ast::AssignOp::Assign,
+                rhs: Box::new(nia_ast::Expr {
+                    span: span(),
+                    node_key: expr_key(4),
+                    kind: nia_ast::ExprKind::Integer("1".to_string()),
+                }),
+            },
+        };
+        let mut semantic_uses = SemanticUseTable::default();
+        semantic_uses
+            .node_value_uses
+            .insert(lhs_key, SemanticValueUse::Local(LocalId(7)));
+        let context = ResolvedComptimeLowerInputs::new(&semantic_uses);
+        let lowered = lower_expr_resolved_with_context(&expr, &context)
+            .expect("assignment target should use local-use facts");
+
+        let ResolvedComptimeExprKind::Assign(assign) = lowered.kind() else {
+            panic!("expression should lower to assignment");
+        };
+        let ResolvedComptimeAssignTargetKind::Local { local_id, .. } = assign.lhs().kind();
+        assert_eq!(*local_id, LocalId(7));
+    }
+
+    #[test]
     fn resolved_lowering_requires_type_ids() {
         let expr = nia_ast::Expr {
             span: span(),
+            node_key: expr_key(5),
             kind: nia_ast::ExprKind::Cast {
                 expr: Box::new(nia_ast::Expr {
                     span: span(),
+                    node_key: expr_key(6),
                     kind: nia_ast::ExprKind::Integer("1".to_string()),
                 }),
                 ty: nia_ast::TypeRef {
                     span: span(),
+                    node_key: type_key(0),
                     text: "i32".to_string(),
                     kind: nia_ast::TypeKind::Path {
                         segments: vec![nia_ast::TypePathSegment {
@@ -2955,9 +3122,11 @@ mod tests {
         };
         let mut semantic_uses = SemanticUseTable::default();
         semantic_uses
-            .value_uses
-            .insert(span(), SemanticValueUse::Local(LocalId(0)));
-        semantic_uses.local_defs.insert(span(), LocalId(0));
+            .node_value_uses
+            .insert(expr_key(6), SemanticValueUse::Local(LocalId(0)));
+        semantic_uses
+            .node_local_defs
+            .insert(stmt_key(0), LocalId(0));
         let context = ResolvedComptimeLowerInputs::new(&semantic_uses);
         let err = lower_expr_resolved_with_context(&expr, &context)
             .expect_err("resolved lowering must reject unresolved types");

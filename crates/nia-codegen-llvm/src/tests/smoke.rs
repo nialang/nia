@@ -94,8 +94,6 @@ fn main() i32 {
         let output = emit_llvm_ir_with_options(
             &checked.backend_lowering.program,
             LlvmCodegenOptions {
-                root_module: Some(checked.graph.root()),
-                hosted_entry: false,
                 optimization: checked.optimization,
             },
         );

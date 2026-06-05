@@ -32,7 +32,7 @@ use nia_item_signatures::{
 };
 use nia_layout::Layouts;
 use nia_local_resolve::LocalResolution;
-use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
+use nia_node_id::{NodeKey, NodeOriginTable};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
     ComptimeIfSelection, FunctionReference, GenericInstantiation, ResolvedCall, SemanticFacts,
@@ -257,19 +257,22 @@ fn semantic_use_table_for_body_input(
     lowered: &TypeLowering,
 ) -> SemanticUseTable {
     let mut builder = SemanticUseTable::builder();
-    for (span, local_use) in &locals.uses {
+    for (key, local_use) in &locals.node_uses {
         if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
-            builder.insert_local_value_use(*span, *local_id);
+            builder.insert_node_local_value_use(key.clone(), *local_id);
         }
     }
-    for (span, global_id) in &values.qualified_values {
-        builder.insert_global_value_use(*span, *global_id);
-    }
-    for (span, resolution) in &values.names {
+    builder.extend_node_global_value_uses(
+        values
+            .node_qualified_values
+            .iter()
+            .map(|(key, global_id)| (key.clone(), *global_id)),
+    );
+    for (key, resolution) in &values.node_names {
         match resolution {
             nia_value_resolve::ValueNameResolution::Def(def_id) => {
-                builder.insert_global_value_use(
-                    *span,
+                builder.insert_node_global_value_use(
+                    key.clone(),
                     GlobalDefId {
                         module_id,
                         def_id: *def_id,
@@ -277,20 +280,25 @@ fn semantic_use_table_for_body_input(
                 );
             }
             nia_value_resolve::ValueNameResolution::External(global_id) => {
-                builder.insert_global_value_use(*span, *global_id);
+                builder.insert_node_global_value_use(key.clone(), *global_id);
             }
             nia_value_resolve::ValueNameResolution::ImportAlias
             | nia_value_resolve::ValueNameResolution::LocalDeferred
             | nia_value_resolve::ValueNameResolution::Error => {}
         }
     }
-    builder.extend_local_defs(
+    builder.extend_node_local_defs(
         locals
-            .local_defs
+            .node_local_defs
             .iter()
-            .map(|(span, local_id)| (*span, *local_id)),
+            .map(|(key, local_id)| (key.clone(), *local_id)),
     );
-    builder.extend_type_uses(lowered.type_uses.iter().map(|(span, ty)| (*span, *ty)));
+    builder.extend_node_type_uses(
+        lowered
+            .node_type_uses
+            .iter()
+            .map(|(key, ty)| (key.clone(), *ty)),
+    );
     builder.finish()
 }
 
@@ -298,8 +306,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
 ) -> BodyCheck {
     let mut checker = BodyChecker {
-        source_version: input.source_version,
-        origins: input.origins,
         module: input.module,
         defs: input.defs,
         program: input.program,
@@ -310,7 +316,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             .extension_interner
             .cloned()
             .unwrap_or_else(|| input.normalization.interner.clone()),
-        type_uses: &input.lowered.type_uses,
+        node_type_uses: &input.lowered.node_type_uses,
         signatures: input.signatures,
         normalization: input.normalization,
         target: input.target,
@@ -328,24 +334,16 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program_trait_impls: input.program_signatures.trait_impls,
         program_comptime: input.program_comptime.comptimes,
         program_comptime_modules: input.program_comptime.modules,
-        expr_types: HashMap::new(),
-        bracket_suffix_resolutions: HashMap::new(),
-        array_to_slice_coercions: HashMap::new(),
-        c_string_pointer_coercions: HashMap::new(),
-        trait_object_coercions: HashMap::new(),
-        trait_object_upcasts: HashMap::new(),
-        builtin_values: HashMap::new(),
-        array_repeat_counts: HashMap::new(),
-        switch_pattern_values: HashMap::new(),
-        resolved_calls: HashMap::new(),
-        function_references: HashMap::new(),
         node_expr_types: HashMap::new(),
         node_bracket_suffix_resolutions: HashMap::new(),
         node_array_to_slice_coercions: HashMap::new(),
         node_c_string_pointer_coercions: HashMap::new(),
         node_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
+        node_comptime_if_selections: HashMap::new(),
         node_builtin_values: HashMap::new(),
+        node_array_repeat_counts: HashMap::new(),
+        node_switch_pattern_values: HashMap::new(),
         node_resolved_calls: HashMap::new(),
         node_function_references: HashMap::new(),
         generic_instantiations: Vec::new(),
@@ -354,7 +352,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         local_types: HashMap::new(),
         global_types: HashMap::new(),
         comptime_types: HashMap::new(),
-        comptime_if_selections: HashMap::new(),
         diagnostics: Vec::new(),
         current_return: input.normalization.interner.primitive(PrimitiveTy::Void),
         current_def_id: None,
@@ -371,19 +368,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             global_inits: checker.global_inits,
         },
         facts: SemanticFacts {
-            expr_types: checker.expr_types,
-            bracket_suffix_resolutions: checker.bracket_suffix_resolutions,
-            array_to_slice_coercions: checker.array_to_slice_coercions,
-            c_string_pointer_coercions: checker.c_string_pointer_coercions,
-            trait_object_coercions: checker.trait_object_coercions,
-            trait_object_upcasts: checker.trait_object_upcasts,
             local_types: checker.local_types,
-            comptime_if_selections: checker.comptime_if_selections,
-            builtin_values: checker.builtin_values,
-            array_repeat_counts: checker.array_repeat_counts,
-            switch_pattern_values: checker.switch_pattern_values,
-            resolved_calls: checker.resolved_calls,
-            function_references: checker.function_references,
             generic_instantiations: checker.generic_instantiations,
             node_expr_types: checker.node_expr_types,
             node_bracket_suffix_resolutions: checker.node_bracket_suffix_resolutions,
@@ -391,7 +376,10 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
             node_trait_object_coercions: checker.node_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
+            node_comptime_if_selections: checker.node_comptime_if_selections,
             node_builtin_values: checker.node_builtin_values,
+            node_array_repeat_counts: checker.node_array_repeat_counts,
+            node_switch_pattern_values: checker.node_switch_pattern_values,
             node_resolved_calls: checker.node_resolved_calls,
             node_function_references: checker.node_function_references,
         },
@@ -400,8 +388,6 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
 }
 
 struct BodyChecker<'a> {
-    source_version: Option<SourceVersion>,
-    origins: &'a NodeOriginTable,
     module: &'a Module,
     defs: &'a DefCollection,
     program: BodyProgramContext<'a>,
@@ -409,7 +395,7 @@ struct BodyChecker<'a> {
     locals: &'a LocalResolution,
     semantic_uses: &'a SemanticUseTable,
     interner: TyInterner,
-    type_uses: &'a HashMap<Span, InternedTyId>,
+    node_type_uses: &'a HashMap<NodeKey, InternedTyId>,
     signatures: &'a ItemSignatures,
     normalization: &'a TypeNormalization,
     target: &'a TargetConfig,
@@ -427,24 +413,16 @@ struct BodyChecker<'a> {
     program_trait_impls: &'a [ProgramTraitImplSignature],
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
     program_comptime_modules: &'a HashMap<ModuleId, ResolvedComptimeModule>,
-    expr_types: HashMap<Span, InternedTyId>,
-    bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,
-    array_to_slice_coercions: HashMap<Span, ArrayToSliceCoercion>,
-    c_string_pointer_coercions: HashMap<Span, CStringPointerCoercion>,
-    trait_object_coercions: HashMap<Span, TraitObjectCoercion>,
-    trait_object_upcasts: HashMap<Span, TraitObjectUpcast>,
-    builtin_values: HashMap<Span, BuiltinValue>,
-    array_repeat_counts: HashMap<Span, u64>,
-    switch_pattern_values: HashMap<Span, i128>,
-    resolved_calls: HashMap<Span, ResolvedCall>,
-    function_references: HashMap<Span, FunctionReference>,
     node_expr_types: HashMap<NodeKey, InternedTyId>,
     node_bracket_suffix_resolutions: HashMap<NodeKey, BracketSuffixResolution>,
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
+    node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     node_builtin_values: HashMap<NodeKey, BuiltinValue>,
+    node_array_repeat_counts: HashMap<NodeKey, u64>,
+    node_switch_pattern_values: HashMap<NodeKey, i128>,
     node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
     node_function_references: HashMap<NodeKey, FunctionReference>,
     generic_instantiations: Vec<GenericInstantiation>,
@@ -453,7 +431,6 @@ struct BodyChecker<'a> {
     local_types: HashMap<LocalId, InternedTyId>,
     global_types: HashMap<DefId, InternedTyId>,
     comptime_types: HashMap<DefId, InternedTyId>,
-    comptime_if_selections: HashMap<Span, ComptimeIfSelection>,
     diagnostics: Vec<Diagnostic>,
     current_return: InternedTyId,
     current_def_id: Option<GlobalDefId>,
@@ -480,78 +457,115 @@ struct ReceiverBase {
 }
 
 impl<'a> BodyChecker<'a> {
-    fn record_expr_type(&mut self, span: Span, ty: InternedTyId) {
-        self.expr_types.insert(span, ty);
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_expr_types.insert(key, ty);
-        }
+    fn record_expr_node_type(&mut self, expr: &Expr, ty: InternedTyId) {
+        self.node_expr_types.insert(expr.node_key.clone(), ty);
     }
 
-    fn record_bracket_suffix_resolution(
+    fn record_bracket_suffix_node_resolution(
         &mut self,
-        span: Span,
+        expr: &Expr,
         resolution: BracketSuffixResolution,
     ) {
-        self.bracket_suffix_resolutions.insert(span, resolution);
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_bracket_suffix_resolutions.insert(key, resolution);
-        }
+        self.node_bracket_suffix_resolutions
+            .insert(expr.node_key.clone(), resolution);
     }
 
-    fn record_resolved_call(&mut self, span: Span, call: ResolvedCall) {
-        self.resolved_calls.insert(span, call.clone());
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_resolved_calls.insert(key, call);
-        }
+    fn record_resolved_node_call(&mut self, _span: Span, key: &NodeKey, call: ResolvedCall) {
+        self.node_resolved_calls.insert(key.clone(), call);
     }
 
-    fn record_array_to_slice_coercion(&mut self, span: Span, coercion: ArrayToSliceCoercion) {
-        self.array_to_slice_coercions.insert(span, coercion);
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_array_to_slice_coercions.insert(key, coercion);
-        }
+    fn record_array_to_slice_node_coercion(&mut self, expr: &Expr, coercion: ArrayToSliceCoercion) {
+        self.node_array_to_slice_coercions
+            .insert(expr.node_key.clone(), coercion);
     }
 
-    fn record_c_string_pointer_coercion(&mut self, span: Span, coercion: CStringPointerCoercion) {
-        self.c_string_pointer_coercions.insert(span, coercion);
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_c_string_pointer_coercions.insert(key, coercion);
-        }
+    fn record_c_string_pointer_node_coercion(
+        &mut self,
+        expr: &Expr,
+        coercion: CStringPointerCoercion,
+    ) {
+        self.node_c_string_pointer_coercions
+            .insert(expr.node_key.clone(), coercion);
     }
 
-    fn record_trait_object_coercion(&mut self, span: Span, coercion: TraitObjectCoercion) {
-        self.trait_object_coercions.insert(span, coercion);
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_trait_object_coercions.insert(key, coercion);
-        }
+    fn record_trait_object_node_coercion(&mut self, expr: &Expr, coercion: TraitObjectCoercion) {
+        self.node_trait_object_coercions
+            .insert(expr.node_key.clone(), coercion);
     }
 
-    fn record_trait_object_upcast(&mut self, span: Span, upcast: TraitObjectUpcast) {
-        self.trait_object_upcasts.insert(span, upcast);
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_trait_object_upcasts.insert(key, upcast);
-        }
+    fn record_trait_object_node_upcast(&mut self, expr: &Expr, upcast: TraitObjectUpcast) {
+        self.node_trait_object_upcasts
+            .insert(expr.node_key.clone(), upcast);
     }
 
-    fn record_builtin_value(&mut self, span: Span, value: BuiltinValue) {
-        self.builtin_values.insert(span, value.clone());
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_builtin_values.insert(key, value);
-        }
+    fn record_builtin_node_value(&mut self, expr: &Expr, value: BuiltinValue) {
+        self.node_builtin_values
+            .insert(expr.node_key.clone(), value);
     }
 
-    fn record_function_reference(&mut self, span: Span, reference: FunctionReference) {
-        self.function_references.insert(span, reference.clone());
-        if let Some(key) = self.node_key(SyntaxKind::Expr, span) {
-            self.node_function_references.insert(key, reference);
-        }
+    fn record_function_node_reference(
+        &mut self,
+        _span: Span,
+        key: &NodeKey,
+        reference: FunctionReference,
+    ) {
+        self.node_function_references.insert(key.clone(), reference);
     }
 
-    fn node_key(&self, kind: SyntaxKind, span: Span) -> Option<NodeKey> {
-        self.origins.get(kind, span).cloned().or_else(|| {
-            self.source_version
-                .map(|version| NodeKey::span(version, kind, span))
-        })
+    fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
+        self.node_expr_types.get(&expr.node_key).copied()
+    }
+
+    fn bracket_suffix_resolution(&self, expr: &Expr) -> Option<BracketSuffixResolution> {
+        self.node_bracket_suffix_resolutions
+            .get(&expr.node_key)
+            .copied()
+    }
+
+    fn resolved_call(&self, expr: &Expr) -> Option<ResolvedCall> {
+        self.node_resolved_calls.get(&expr.node_key).cloned()
+    }
+
+    fn function_reference(&self, expr: &Expr) -> Option<&FunctionReference> {
+        self.node_function_references.get(&expr.node_key)
+    }
+
+    fn builtin_value(&self, expr: &Expr) -> Option<&BuiltinValue> {
+        self.node_builtin_values.get(&expr.node_key)
+    }
+
+    fn local_def(&self, key: &NodeKey) -> Option<LocalId> {
+        self.locals.node_local_defs.get(key).copied()
+    }
+
+    fn local_use(&self, expr: &Expr) -> Option<nia_local_resolve::LocalUse> {
+        self.locals.node_uses.get(&expr.node_key).copied()
+    }
+
+    fn value_name(&self, expr: &Expr) -> Option<nia_value_resolve::ValueNameResolution> {
+        self.values.node_names.get(&expr.node_key).copied()
+    }
+
+    fn qualified_value(&self, expr: &Expr) -> Option<GlobalDefId> {
+        self.values
+            .node_qualified_values
+            .get(&expr.node_key)
+            .copied()
+    }
+
+    fn variant_enum(&self, expr: &Expr) -> Option<GlobalDefId> {
+        self.values.node_variant_enums.get(&expr.node_key).copied()
+    }
+
+    fn qualified_type_prefix(&self, expr: &Expr) -> Option<GlobalDefId> {
+        self.values
+            .node_qualified_type_prefixes
+            .get(&expr.node_key)
+            .copied()
+    }
+
+    fn builtin_resolution(&self, expr: &Expr) -> Option<nia_value_resolve::BuiltinResolution> {
+        self.values.node_builtins.get(&expr.node_key).copied()
     }
 
     fn with_comptime_context<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -647,7 +661,7 @@ impl<'a> BodyChecker<'a> {
         };
         let comptime_ty = match binding.ty.as_ref() {
             Some(ty) => {
-                let explicit = self.ty_for_span(ty.span);
+                let explicit = self.ty_for_type(ty);
                 let value_ty = self.with_comptime_context(|this| {
                     this.check_expr_with_expected(value, Some(explicit))
                 });
@@ -688,7 +702,7 @@ impl<'a> BodyChecker<'a> {
         };
         let global_ty = match binding.ty.as_ref() {
             Some(ty) => {
-                let explicit = self.ty_for_span(ty.span);
+                let explicit = self.ty_for_type(ty);
                 let value_ty = self.check_expr_with_expected(value, Some(explicit));
                 if self.is_comptime_only_ty(value_ty) {
                     self.reject_runtime_comptime_only_value(value.span, "global initializer");
@@ -794,7 +808,7 @@ impl<'a> BodyChecker<'a> {
         self_ty: Option<InternedTyId>,
     ) {
         for (param, param_sig) in function.params.iter().zip(&signature.params) {
-            if let Some(local_id) = self.locals.local_defs.get(&param.span).copied() {
+            if let Some(local_id) = self.local_def(&param.node_key) {
                 let ty = if param_sig.receiver.is_some() {
                     self_ty.unwrap_or_else(|| self.error())
                 } else {
@@ -851,10 +865,7 @@ impl<'a> BodyChecker<'a> {
         };
         match &stmt.kind {
             StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue => true,
-            StmtKind::Expr(expr) => self
-                .expr_types
-                .get(&expr.span)
-                .is_some_and(|ty| self.is_never(*ty)),
+            StmtKind::Expr(expr) => self.expr_ty(expr).is_some_and(|ty| self.is_never(ty)),
             StmtKind::Binding(_)
             | StmtKind::Using(_)
             | StmtKind::Defer(_)
@@ -874,7 +885,7 @@ impl<'a> BodyChecker<'a> {
     fn check_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Binding(binding) => {
-                self.check_local_binding(stmt.span, binding);
+                self.check_local_binding(stmt, binding);
             }
             StmtKind::Using(_) => {
                 // Block-scope `using` is a no-op for body type-checking.
@@ -914,7 +925,7 @@ impl<'a> BodyChecker<'a> {
                     .binding
                     .ty
                     .as_ref()
-                    .map(|explicit| self.ty_for_span(explicit.span));
+                    .map(|explicit| self.ty_for_type(explicit));
                 let expected_iter_ty = explicit_binding_ty
                     .and_then(|item_ty| self.expected_for_iterator_ty(&for_stmt.iter, item_ty));
                 let iter_ty = self.check_expr_with_expected(&for_stmt.iter, expected_iter_ty);
@@ -925,8 +936,7 @@ impl<'a> BodyChecker<'a> {
                 } else {
                     item_ty
                 };
-                if let Some(local_id) = self.locals.local_defs.get(&for_stmt.binding.span).copied()
-                {
+                if let Some(local_id) = self.local_def(&for_stmt.binding.node_key) {
                     self.local_types.insert(local_id, binding_ty);
                 }
                 self.check_block(&for_stmt.body);
@@ -1004,7 +1014,8 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_local_binding(&mut self, span: Span, binding: &BindingStmt) {
+    fn check_local_binding(&mut self, stmt: &Stmt, binding: &BindingStmt) {
+        let span = stmt.span;
         if binding.is_comptime && binding.value.is_none() {
             self.diagnostics.push(Diagnostic::error(
                 span,
@@ -1013,7 +1024,7 @@ impl<'a> BodyChecker<'a> {
         }
         let binding_ty = match (&binding.ty, &binding.value) {
             (Some(ty), Some(value)) => {
-                let explicit = self.ty_for_span(ty.span);
+                let explicit = self.ty_for_type(ty);
                 let value_ty = if binding.is_comptime {
                     self.with_comptime_context(|this| {
                         this.check_expr_with_expected(value, Some(explicit))
@@ -1025,14 +1036,14 @@ impl<'a> BodyChecker<'a> {
                     // The initializer is validated by nia-comptime-check and has no runtime value.
                 } else if self.is_comptime_only_ty(value_ty) {
                     self.reject_runtime_comptime_only_value(value.span, "binding initializer");
-                    return self.record_error_local_binding(span);
+                    return self.record_error_local_binding(&stmt.node_key);
                 } else {
                     self.expect_expr_type(value, explicit, value_ty, "binding initializer");
                 }
                 self.materialize_inferred_array_type(explicit, value_ty)
                     .unwrap_or(explicit)
             }
-            (Some(ty), None) => self.ty_for_span(ty.span),
+            (Some(ty), None) => self.ty_for_type(ty),
             (None, Some(value)) => {
                 let value_ty = if matches!(value.kind, ExprKind::ArrayLiteral { .. }) {
                     if binding.is_comptime {
@@ -1062,7 +1073,7 @@ impl<'a> BodyChecker<'a> {
                 self.error()
             }
         };
-        if let Some(local_id) = self.locals.local_defs.get(&span).copied() {
+        if let Some(local_id) = self.local_def(&stmt.node_key) {
             self.local_types.insert(local_id, binding_ty);
         }
     }
@@ -1074,8 +1085,8 @@ impl<'a> BodyChecker<'a> {
         ));
     }
 
-    fn record_error_local_binding(&mut self, span: Span) {
-        if let Some(local_id) = self.locals.local_defs.get(&span).copied() {
+    fn record_error_local_binding(&mut self, key: &NodeKey) {
+        if let Some(local_id) = self.local_def(key) {
             self.local_types.insert(local_id, self.error());
         }
     }
@@ -1215,31 +1226,31 @@ impl<'a> BodyChecker<'a> {
     ) {
         let normalized = self.normalization.normalize(target_ty);
         for pattern in patterns {
-            let (span, ty) = match pattern {
-                nia_ast::SwitchPattern::OptionalSome { span, .. } => {
+            let (node_key, ty) = match pattern {
+                nia_ast::SwitchPattern::OptionalSome { node_key, .. } => {
                     let ty = match self.interner.get(normalized) {
                         Some(TyKind::Optional { elem }) => *elem,
                         _ => self.error(),
                     };
-                    (*span, ty)
+                    (node_key, ty)
                 }
-                nia_ast::SwitchPattern::ErrorOk { span, .. } => {
+                nia_ast::SwitchPattern::ErrorOk { node_key, .. } => {
                     let ty = match self.interner.get(normalized) {
                         Some(TyKind::ErrorUnion { value, .. }) => *value,
                         _ => self.error(),
                     };
-                    (*span, ty)
+                    (node_key, ty)
                 }
-                nia_ast::SwitchPattern::ErrorErr { span, .. } => {
+                nia_ast::SwitchPattern::ErrorErr { node_key, .. } => {
                     let ty = match self.interner.get(normalized) {
                         Some(TyKind::ErrorUnion { error, .. }) => *error,
                         _ => self.error(),
                     };
-                    (*span, ty)
+                    (node_key, ty)
                 }
                 _ => continue,
             };
-            if let Some(local_id) = self.locals.local_defs.get(&span).copied() {
+            if let Some(local_id) = self.local_def(node_key) {
                 self.local_types.insert(local_id, ty);
             }
         }
@@ -1389,7 +1400,7 @@ impl<'a> BodyChecker<'a> {
         if self.is_open_enum(target_ty)
             && self.check_integer_literal_enum_backing_range(pattern, target_ty, "switch pattern")
         {
-            self.record_expr_type(pattern.span, target_ty);
+            self.record_expr_node_type(pattern, target_ty);
         } else {
             self.expect_expr_type(pattern, target_ty, pattern_ty, "switch pattern");
         }
@@ -1504,7 +1515,8 @@ impl<'a> BodyChecker<'a> {
                 _ => return None,
             }
         };
-        self.switch_pattern_values.insert(expr.span, value);
+        self.node_switch_pattern_values
+            .insert(expr.node_key.clone(), value);
         Some(value)
     }
 

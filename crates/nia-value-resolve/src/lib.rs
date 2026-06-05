@@ -9,23 +9,24 @@ pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ImportAliasMap;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueResolution {
-    pub names: HashMap<Span, ValueNameResolution>,
-    pub qualified_values: HashMap<Span, GlobalDefId>,
+    pub node_names: HashMap<NodeKey, ValueNameResolution>,
+    pub node_qualified_values: HashMap<NodeKey, GlobalDefId>,
     /// For spans whose value resolves to an enum variant (brought in via
     /// `using` or accessed as `mod::Enum::Variant`), the parent enum's
     /// GlobalDefId so consumers can type the bare ident as that enum.
-    pub variant_enums: HashMap<Span, GlobalDefId>,
+    pub node_variant_enums: HashMap<NodeKey, GlobalDefId>,
     /// For `Qualified` spans like `mod::TypeName` appearing in expression
     /// position (e.g., as a type prefix in `mod::Enum::Variant` or
     /// `mod::Type::associated_fn(...)`), the resolved type's GlobalDefId.
     /// Populated by value-resolve so downstream phases can recognise these
     /// as type prefixes without re-resolving the import alias.
-    pub qualified_type_prefixes: HashMap<Span, GlobalDefId>,
-    pub builtins: HashMap<Span, BuiltinResolution>,
+    pub node_qualified_type_prefixes: HashMap<NodeKey, GlobalDefId>,
+    pub node_builtins: HashMap<NodeKey, BuiltinResolution>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -163,22 +164,22 @@ fn resolve_module_values_from_items(
         program_defs,
         public_surfaces,
         using_scope,
-        names: HashMap::new(),
-        qualified_values: HashMap::new(),
-        variant_enums: HashMap::new(),
-        qualified_type_prefixes: HashMap::new(),
-        builtins: HashMap::new(),
+        node_names: HashMap::new(),
+        node_qualified_values: HashMap::new(),
+        node_variant_enums: HashMap::new(),
+        node_qualified_type_prefixes: HashMap::new(),
+        node_builtins: HashMap::new(),
         diagnostics: Vec::new(),
     };
     for item in items {
         resolver.visit_item_tree_node(item);
     }
     ValueResolution {
-        names: resolver.names,
-        qualified_values: resolver.qualified_values,
-        variant_enums: resolver.variant_enums,
-        qualified_type_prefixes: resolver.qualified_type_prefixes,
-        builtins: resolver.builtins,
+        node_names: resolver.node_names,
+        node_qualified_values: resolver.node_qualified_values,
+        node_variant_enums: resolver.node_variant_enums,
+        node_qualified_type_prefixes: resolver.node_qualified_type_prefixes,
+        node_builtins: resolver.node_builtins,
         diagnostics: resolver.diagnostics,
     }
 }
@@ -189,11 +190,11 @@ struct ValueResolver<'a> {
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
-    names: HashMap<Span, ValueNameResolution>,
-    qualified_values: HashMap<Span, GlobalDefId>,
-    variant_enums: HashMap<Span, GlobalDefId>,
-    qualified_type_prefixes: HashMap<Span, GlobalDefId>,
-    builtins: HashMap<Span, BuiltinResolution>,
+    node_names: HashMap<NodeKey, ValueNameResolution>,
+    node_qualified_values: HashMap<NodeKey, GlobalDefId>,
+    node_variant_enums: HashMap<NodeKey, GlobalDefId>,
+    node_qualified_type_prefixes: HashMap<NodeKey, GlobalDefId>,
+    node_builtins: HashMap<NodeKey, BuiltinResolution>,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -207,21 +208,22 @@ enum ResolvedNamespace {
 struct PathSegment<'a> {
     name: &'a str,
     span: Span,
+    node_key: &'a NodeKey,
 }
 
 impl<'ast> Visitor<'ast> for ValueResolver<'_> {
     fn visit_expr(&mut self, expr: &'ast Expr) {
         match &expr.kind {
             ExprKind::Ident(name) => {
-                let resolution = self.resolve_ident(name, expr.span);
+                let resolution = self.resolve_ident(name, &expr.node_key);
                 if let ValueNameResolution::External(global_id) = resolution {
-                    self.qualified_values.insert(expr.span, global_id);
+                    self.insert_qualified_value(&expr.node_key, global_id);
                 }
-                self.names.insert(expr.span, resolution);
+                self.insert_name(&expr.node_key, resolution);
             }
             ExprKind::Builtin { name, .. } => {
                 let resolution = self.resolve_builtin(name, expr.span);
-                self.builtins.insert(expr.span, resolution);
+                self.node_builtins.insert(expr.node_key.clone(), resolution);
                 walk_expr(self, expr);
             }
             ExprKind::TypeTarget { .. } => {
@@ -353,13 +355,14 @@ impl<'a> ValueResolver<'a> {
             ResolvedNamespace::Module(module_id) => {
                 self.resolve_module_qualified_value(
                     expr.span,
+                    &expr.node_key,
                     module_id,
                     final_segment,
                     &path_text,
                 );
             }
             ResolvedNamespace::Type(type_id) => {
-                self.resolve_type_qualified_value(expr.span, type_id, final_segment);
+                self.resolve_type_qualified_value(&expr.node_key, type_id, final_segment);
             }
         }
     }
@@ -384,15 +387,13 @@ impl<'a> ValueResolver<'a> {
         if let Some(imports) = self.imports
             && let Some(import) = imports.get(self.defs.module_id, segment.name)
         {
-            self.names
-                .insert(segment.span, ValueNameResolution::ImportAlias);
+            self.insert_name(segment.node_key, ValueNameResolution::ImportAlias);
             return Some(ResolvedNamespace::Module(import.target));
         }
         if let Some(scope) = self.using_scope
             && let Some(module_id) = scope.lookup_module(segment.name)
         {
-            self.names
-                .insert(segment.span, ValueNameResolution::ImportAlias);
+            self.insert_name(segment.node_key, ValueNameResolution::ImportAlias);
             return Some(ResolvedNamespace::Module(module_id));
         }
         if let Some(def_id) = self.defs.module_scope.types.get(segment.name) {
@@ -408,9 +409,8 @@ impl<'a> ValueResolver<'a> {
                 module_id: entry.target_module,
                 def_id: entry.target_def_id,
             };
-            self.names
-                .insert(segment.span, ValueNameResolution::External(type_id));
-            self.qualified_type_prefixes.insert(segment.span, type_id);
+            self.insert_name(segment.node_key, ValueNameResolution::External(type_id));
+            self.insert_qualified_type_prefix(segment.node_key, type_id);
             return Some(ResolvedNamespace::Type(type_id));
         }
         None
@@ -464,6 +464,7 @@ impl<'a> ValueResolver<'a> {
     fn resolve_module_qualified_value(
         &mut self,
         span: Span,
+        node_key: &NodeKey,
         module_id: ModuleId,
         name: PathSegment<'_>,
         path_text: &str,
@@ -475,21 +476,21 @@ impl<'a> ValueResolver<'a> {
                 return;
             }
             if let Some(item) = surface.lookup_value(name.name) {
-                self.qualified_values.insert(
-                    span,
+                self.insert_qualified_value(
+                    node_key,
                     GlobalDefId {
                         module_id: item.target_module,
                         def_id: item.target_def_id,
                     },
                 );
                 if let Some(enum_id) = item.parent_enum {
-                    self.variant_enums.insert(span, enum_id);
+                    self.insert_variant_enum(node_key, enum_id);
                 }
                 return;
             }
             if let Some(item) = surface.lookup_type(name.name) {
-                self.qualified_type_prefixes.insert(
-                    span,
+                self.insert_qualified_type_prefix(
+                    node_key,
                     GlobalDefId {
                         module_id: item.target_module,
                         def_id: item.target_def_id,
@@ -516,8 +517,7 @@ impl<'a> ValueResolver<'a> {
                 ));
                 return;
             }
-            self.qualified_type_prefixes
-                .insert(span, GlobalDefId { module_id, def_id });
+            self.insert_qualified_type_prefix(node_key, GlobalDefId { module_id, def_id });
             return;
         }
         let Some(def_id) = target_defs.module_scope.values.get(name.name) else {
@@ -541,14 +541,13 @@ impl<'a> ValueResolver<'a> {
             def.kind,
             DefKind::Function | DefKind::Global | DefKind::Comptime
         ) {
-            self.qualified_values
-                .insert(span, GlobalDefId { module_id, def_id });
+            self.insert_qualified_value(node_key, GlobalDefId { module_id, def_id });
         }
     }
 
     fn resolve_type_qualified_value(
         &mut self,
-        span: Span,
+        node_key: &NodeKey,
         type_id: GlobalDefId,
         name: PathSegment<'_>,
     ) {
@@ -565,18 +564,18 @@ impl<'a> ValueResolver<'a> {
             return;
         };
         if let Some(variant_def_id) = enum_scope.variants.get(name.name) {
-            self.qualified_values.insert(
-                span,
+            self.insert_qualified_value(
+                node_key,
                 GlobalDefId {
                     module_id: type_id.module_id,
                     def_id: variant_def_id,
                 },
             );
-            self.variant_enums.insert(span, type_id);
+            self.insert_variant_enum(node_key, type_id);
         }
     }
 
-    fn resolve_ident(&mut self, name: &str, span: Span) -> ValueNameResolution {
+    fn resolve_ident(&mut self, name: &str, node_key: &NodeKey) -> ValueNameResolution {
         if let Some(def_id) = self.defs.module_scope.values.get(name) {
             let Some(def) = self.defs.defs.get(def_id) else {
                 return ValueNameResolution::Error;
@@ -594,7 +593,7 @@ impl<'a> ValueResolver<'a> {
             && entry.namespace == PublicNamespace::Value
         {
             if let Some(enum_id) = entry.parent_enum {
-                self.variant_enums.insert(span, enum_id);
+                self.insert_variant_enum(node_key, enum_id);
             }
             return ValueNameResolution::External(GlobalDefId {
                 module_id: entry.target_module,
@@ -629,6 +628,24 @@ impl<'a> ValueResolver<'a> {
             self.program_defs.defs?.get(&module_id)
         }
     }
+
+    fn insert_name(&mut self, node_key: &NodeKey, resolution: ValueNameResolution) {
+        self.node_names.insert(node_key.clone(), resolution);
+    }
+
+    fn insert_qualified_value(&mut self, node_key: &NodeKey, global_id: GlobalDefId) {
+        self.node_qualified_values
+            .insert(node_key.clone(), global_id);
+    }
+
+    fn insert_variant_enum(&mut self, node_key: &NodeKey, enum_id: GlobalDefId) {
+        self.node_variant_enums.insert(node_key.clone(), enum_id);
+    }
+
+    fn insert_qualified_type_prefix(&mut self, node_key: &NodeKey, type_id: GlobalDefId) {
+        self.node_qualified_type_prefixes
+            .insert(node_key.clone(), type_id);
+    }
 }
 
 fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
@@ -638,6 +655,7 @@ fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
                 segments.push(PathSegment {
                     name: name.as_str(),
                     span: expr.span,
+                    node_key: &expr.node_key,
                 });
                 Some(())
             }
@@ -646,6 +664,7 @@ fn qualified_path_segments(expr: &Expr) -> Option<Vec<PathSegment<'_>>> {
                 segments.push(PathSegment {
                     name: name.as_str(),
                     span: expr.span,
+                    node_key: &expr.node_key,
                 });
                 Some(())
             }
@@ -700,13 +719,13 @@ fn main() i32 {
         );
         assert!(
             resolved
-                .names
+                .node_names
                 .values()
                 .any(|resolution| matches!(resolution, ValueNameResolution::Def(_)))
         );
         assert!(
             resolved
-                .names
+                .node_names
                 .values()
                 .any(|resolution| matches!(resolution, ValueNameResolution::LocalDeferred))
         );
@@ -735,13 +754,13 @@ fn main() usize {
         );
         assert!(
             resolved
-                .builtins
+                .node_builtins
                 .values()
                 .any(|builtin| matches!(builtin, BuiltinResolution::SizeOf))
         );
         assert!(
             resolved
-                .builtins
+                .node_builtins
                 .values()
                 .any(|builtin| matches!(builtin, BuiltinResolution::AlignOf))
         );
@@ -782,7 +801,7 @@ comptime if false {
         );
         assert!(
             resolved
-                .builtins
+                .node_builtins
                 .values()
                 .any(|builtin| matches!(builtin, BuiltinResolution::SizeOf))
         );

@@ -1090,7 +1090,8 @@ The CLI does not yet expose separate before/after backend optimization snapshots
 The CLI regression fixture emits and runs the same program at `-O0`, `-O1`,
 `-O2`, `-O3`, `-Os`, `-Oz`, and `-O`; it exercises constant leaf inlining,
 generic instance calls, local cleanup, and size-safe forwarding wrappers while
-checking that the hosted executable exits with the same value at every level.
+checking that the freestanding executable exits with the same value at every
+level.
 
 `emit obj` may produce multiple object files because backend lowering can produce
 multiple codegen units. `-o` is only valid for single-unit output; `--out-dir` is

@@ -146,6 +146,10 @@ impl Parser {
         Some(ForInStmt {
             binding: ForBinding {
                 span: Span::new(binding_start, binding_end),
+                node_key: self.node_key(
+                    NodeSyntaxKind::Pattern,
+                    Span::new(binding_start, binding_end),
+                ),
                 name,
                 ty,
                 is_let,
@@ -230,7 +234,11 @@ impl Parser {
                 .start;
             let name = self.expect_text(TokenKind::Ident, "expected optional payload name")?;
             let span = Span::new(start, self.previous_end());
-            return Some(SwitchPattern::OptionalSome { name, span });
+            return Some(SwitchPattern::OptionalSome {
+                name,
+                span,
+                node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+            });
         }
         if self.at(TokenKind::Null) {
             let span = self.expect(
@@ -248,14 +256,22 @@ impl Parser {
                 .start;
             let name = self.expect_text(TokenKind::Ident, "expected error-union success name")?;
             let span = Span::new(start, self.previous_end());
-            return Some(SwitchPattern::ErrorOk { name, span });
+            return Some(SwitchPattern::ErrorOk {
+                name,
+                span,
+                node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+            });
         }
         if self.at(TokenKind::Ident) && matches!(self.tokens.nth_kind(1), Some(TokenKind::Bang)) {
             let start = self.peek().span.start;
             let name = self.expect_text(TokenKind::Ident, "expected error name")?;
             self.expect(TokenKind::Bang, "expected `!` after error name")?;
             let span = Span::new(start, self.previous_end());
-            return Some(SwitchPattern::ErrorErr { name, span });
+            return Some(SwitchPattern::ErrorErr {
+                name,
+                span,
+                node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+            });
         }
         let expr = self.parse_expr_until_tokens(&[TokenKind::Comma, TokenKind::FatArrow])?;
         let ExprKind::Range(range) = expr.kind else {

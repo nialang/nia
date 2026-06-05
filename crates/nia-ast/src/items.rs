@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use nia_node_id::NodeKey;
 use nia_span::Span;
 
 use crate::{Block, Expr, TypeRef, WhereClause};
@@ -11,6 +12,7 @@ pub struct Module {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
     pub span: Span,
+    pub node_key: NodeKey,
     pub attributes: Vec<Attribute>,
     pub vis: Visibility,
     pub kind: ItemKind,
@@ -226,6 +228,7 @@ pub struct Param {
     pub name: Option<String>,
     pub ty: Option<TypeRef>,
     pub span: Span,
+    pub node_key: NodeKey,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -3,11 +3,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::LoadedModule;
 use nia_defs::{
-    DefCollection, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
-    VisibleExtensionMethods,
+    AssociatedTypeBindingSignature, DefCollection, ExtensionMethod, ExtensionMethods,
+    VisibleExtensionMethod, VisibleExtensionMethods, WhereBoundSignature, WherePredicateSignature,
 };
 use nia_diagnostic::Diagnostic;
-use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId};
+use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId};
 use nia_item_signatures::{
     FunctionSignature, ItemSignatures, ParamSignature, ProgramComptimeSignature,
     ProgramEnumSignature, ProgramFunctionSignature, ProgramGlobalSignature, ProgramStructSignature,
@@ -30,6 +30,71 @@ pub(crate) struct ExtensionModuleInput<'a> {
     pub(crate) lowering: &'a TypeLowering,
     pub(crate) signatures: &'a ItemSignatures,
     pub(crate) normalization: &'a TypeNormalization,
+}
+
+fn lowered_type(module: &ExtensionModuleInput<'_>, ty: &nia_ast::TypeRef) -> Option<InternedTyId> {
+    module.lowering.node_type_uses.get(&ty.node_key).copied()
+}
+
+fn where_predicates(
+    module: &ExtensionModuleInput<'_>,
+    clause: &nia_ast::WhereClause,
+) -> Vec<WherePredicateSignature> {
+    clause
+        .predicates
+        .iter()
+        .map(|predicate| WherePredicateSignature {
+            ty: lowered_type(module, &predicate.ty)
+                .unwrap_or_else(|| module.lowering.interner.error()),
+            bounds: predicate
+                .bounds
+                .iter()
+                .map(|bound| WhereBoundSignature {
+                    trait_ty: lowered_type(module, bound)
+                        .unwrap_or_else(|| module.lowering.interner.error()),
+                    associated_type_bindings: associated_type_bindings(module, bound),
+                    span: bound.span,
+                })
+                .collect(),
+            span: predicate.span,
+        })
+        .collect()
+}
+
+fn associated_type_bindings(
+    module: &ExtensionModuleInput<'_>,
+    bound: &nia_ast::TypeRef,
+) -> Vec<AssociatedTypeBindingSignature> {
+    let nia_ast::TypeKind::Path { segments } = &bound.kind else {
+        return Vec::new();
+    };
+    let Some(segment) = segments.last() else {
+        return Vec::new();
+    };
+    segment
+        .args
+        .iter()
+        .filter_map(|arg| match arg {
+            nia_ast::TypeArg::AssocBinding { key, ty, span } => {
+                let name = match key {
+                    nia_ast::AssocBindingKey::Name(name) => name.clone(),
+                    nia_ast::AssocBindingKey::Projection(projection) => {
+                        let nia_ast::TypeKind::Projection { name, .. } = &projection.kind else {
+                            return None;
+                        };
+                        name.clone()
+                    }
+                };
+                Some(AssociatedTypeBindingSignature {
+                    name,
+                    ty: lowered_type(module, ty)
+                        .unwrap_or_else(|| module.lowering.interner.error()),
+                    span: *span,
+                })
+            }
+            nia_ast::TypeArg::Type(_) | nia_ast::TypeArg::Const(_) => None,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -203,6 +268,7 @@ pub(crate) fn collect_program_trait_impls(
                 target_ty: impl_signature.target_ty,
                 trait_id,
                 trait_args,
+                where_predicates: impl_signature.where_predicates.clone(),
                 associated_types: impl_signature.associated_types.clone(),
                 interner: module.lowering.interner.clone(),
             });
@@ -263,8 +329,7 @@ pub(crate) fn collect_extension_methods(
             let nia_ast::ItemKind::Extend(extend) = &item.kind else {
                 continue;
             };
-            let Some(target_ty) = module.lowering.type_uses.get(&extend.target.span).copied()
-            else {
+            let Some(target_ty) = lowered_type(module, &extend.target) else {
                 diagnostics.push(Diagnostic::error(
                     extend.target.span,
                     "extend target must resolve to a nominal type",
@@ -287,6 +352,7 @@ pub(crate) fn collect_extension_methods(
                 .as_ref()
                 .and_then(|trait_ref| trait_ref_ty_args(module, trait_ref, trait_id))
                 .unwrap_or_default();
+            let where_predicates = where_predicates(module, &extend.where_clause);
             if trait_id.is_none() {
                 for associated_type in &extend.associated_types {
                     diagnostics.push(Diagnostic::error(
@@ -333,6 +399,7 @@ pub(crate) fn collect_extension_methods(
                         target_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
+                        where_predicates: where_predicates.clone(),
                         visibility: method.vis,
                     },
                 );
@@ -383,7 +450,7 @@ fn trait_ref_id(
     defs_by_module: &HashMap<nia_ids::ModuleId, &DefCollection>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<TraitId> {
-    let Some(ty) = module.lowering.type_uses.get(&trait_ref.span).copied() else {
+    let Some(ty) = lowered_type(module, trait_ref) else {
         diagnostics.push(Diagnostic::error(
             trait_ref.span,
             "trait implementation target must resolve to a trait",
@@ -782,8 +849,7 @@ fn builtin_place_trait_method_signature_matches(
         .associated_types
         .iter()
         .find(|associated_type| associated_type.name == assoc_name)
-        .and_then(|associated_type| module.lowering.type_uses.get(&associated_type.ty.span))
-        .copied()
+        .and_then(|associated_type| lowered_type(module, &associated_type.ty))
     else {
         return false;
     };
@@ -822,8 +888,7 @@ fn builtin_slice_trait_method_signature_matches(
         .associated_types
         .iter()
         .find(|associated_type| associated_type.name == BuiltinTrait::OUTPUT_ASSOC_TYPE)
-        .and_then(|associated_type| module.lowering.type_uses.get(&associated_type.ty.span))
-        .copied()
+        .and_then(|associated_type| lowered_type(module, &associated_type.ty))
     else {
         return false;
     };
@@ -843,7 +908,7 @@ fn builtin_trait_ref_args(
     trait_ref: &nia_ast::TypeRef,
     trait_id: BuiltinTrait,
 ) -> Option<Vec<nia_ids::InternedTyId>> {
-    let ty = module.lowering.type_uses.get(&trait_ref.span).copied()?;
+    let ty = lowered_type(module, trait_ref)?;
     let ty = module.normalization.normalize(ty);
     match module.lowering.interner.get(ty) {
         Some(TyKind::BuiltinTrait {
@@ -859,7 +924,7 @@ fn trait_ref_args(
     trait_ref: &nia_ast::TypeRef,
     trait_id: GlobalDefId,
 ) -> Option<Vec<nia_ids::InternedTyId>> {
-    let ty = module.lowering.type_uses.get(&trait_ref.span).copied()?;
+    let ty = lowered_type(module, trait_ref)?;
     let ty = module.normalization.normalize(ty);
     match module.lowering.interner.get(ty) {
         Some(TyKind::Nominal { def_id, args }) if *def_id == trait_id => Some(args.clone()),
@@ -872,7 +937,7 @@ fn trait_ref_ty_args(
     trait_ref: &nia_ast::TypeRef,
     expected_trait_id: Option<TraitId>,
 ) -> Option<Vec<nia_ids::InternedTyId>> {
-    let ty = module.lowering.type_uses.get(&trait_ref.span).copied()?;
+    let ty = lowered_type(module, trait_ref)?;
     let ty = module.normalization.normalize(ty);
     match (expected_trait_id, module.lowering.interner.get(ty)) {
         (Some(TraitId::Source(expected)), Some(TyKind::Nominal { def_id, args }))
@@ -1429,8 +1494,8 @@ fn substitute_imported_type(
             {
                 return module
                     .lowering
-                    .type_uses
-                    .get(&associated_type.ty.span)
+                    .node_type_uses
+                    .get(&associated_type.ty.node_key)
                     .copied()
                     .unwrap_or_else(|| target_interner.error());
             }
@@ -1533,6 +1598,11 @@ pub(crate) fn visible_extensions_for_module(
                         import_type_into(&mut target_interner, &method_normalization.interner, arg)
                     })
                     .collect(),
+                where_predicates: import_where_predicates(
+                    &mut target_interner,
+                    &method_normalization.interner,
+                    &method.where_predicates,
+                ),
             },
         );
     }
@@ -1540,6 +1610,37 @@ pub(crate) fn visible_extensions_for_module(
         methods: visible,
         interner: target_interner,
     }
+}
+
+fn import_where_predicates(
+    target_interner: &mut TyInterner,
+    source_interner: &TyInterner,
+    predicates: &[WherePredicateSignature],
+) -> Vec<WherePredicateSignature> {
+    predicates
+        .iter()
+        .map(|predicate| WherePredicateSignature {
+            ty: import_type_into(target_interner, source_interner, predicate.ty),
+            bounds: predicate
+                .bounds
+                .iter()
+                .map(|bound| WhereBoundSignature {
+                    trait_ty: import_type_into(target_interner, source_interner, bound.trait_ty),
+                    associated_type_bindings: bound
+                        .associated_type_bindings
+                        .iter()
+                        .map(|binding| AssociatedTypeBindingSignature {
+                            name: binding.name.clone(),
+                            ty: import_type_into(target_interner, source_interner, binding.ty),
+                            span: binding.span,
+                        })
+                        .collect(),
+                    span: bound.span,
+                })
+                .collect(),
+            span: predicate.span,
+        })
+        .collect()
 }
 
 fn transitive_import_closure(

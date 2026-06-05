@@ -422,8 +422,9 @@ Normal Nia functions use the Nia function ABI.
 
 `extern` functions use the C function ABI.
 
-The hosted root `main` uses the platform C entry ABI when building a hosted
-executable.
+Executable startup is owned by the selected standard-library runtime. The
+default Linux x86_64 runtime exports `_start` as an `extern fn` symbol and calls
+the Nia-level root entry contract from standard-library code.
 
 ### 14.1 Nia Function Parameters
 
@@ -565,7 +566,8 @@ Normal Nia symbols use Nia mangling.
 
 Extern symbols use external names.
 
-Hosted root `main` is exported as the C symbol `main`.
+Executable runtime entry points are `extern fn` definitions exported with their
+source names, such as `_start`.
 
 Symbol policy:
 
@@ -577,7 +579,7 @@ generic method instance      Nia-mangled with type arguments
 normal global                Nia-mangled
 extern function              external source name
 extern global                external source name
-hosted root main             main
+runtime entry extern fn      external source name
 ```
 
 Nia mangling must be deterministic and must distinguish generic instances.
@@ -637,7 +639,7 @@ is emitted. They must not change:
 - hidden out-pointer use for aggregate returns;
 - omitted runtime representation for ZST parameters and returns;
 - static data layout and relocation meaning;
-- normal, generic, method, extern, global, and hosted `main` symbol identity;
+- normal, generic, method, extern, global, and runtime entry symbol identity;
 - diagnostics and semantic checks required by earlier phases.
 
 The current backend cleanup passes are backend-visible only. Removing

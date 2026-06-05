@@ -86,6 +86,11 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
+    pub program_extensions: &'a std::collections::HashMap<
+        ModuleId,
+        (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
+    >,
+    pub program_type_interners: &'a std::collections::HashMap<ModuleId, &'a nia_ty::TyInterner>,
     pub program_enums: &'a std::collections::HashMap<GlobalDefId, ProgramEnumSignature>,
     pub program_traits: &'a std::collections::HashMap<GlobalDefId, ProgramTraitSignature>,
     pub trait_impls: &'a [ProgramTraitImplSignature],
@@ -169,6 +174,11 @@ pub(crate) struct ModuleLowerer<'a> {
     extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
     extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
+    instance_extension_trait_method_candidates: Option<(
+        ModuleId,
+        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
+    )>,
+    instance_extension_interner: Option<&'a nia_ty::TyInterner>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
@@ -237,6 +247,8 @@ impl<'a> ModuleLowerer<'a> {
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
             ),
+            instance_extension_trait_method_candidates: None,
+            instance_extension_interner: None,
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
             ),
@@ -419,8 +431,8 @@ impl<'a> ModuleLowerer<'a> {
         let Some(ty) = self
             .input
             .type_lowering
-            .type_uses
-            .get(&extend.target.span)
+            .node_type_uses
+            .get(&extend.target.node_key)
             .copied()
         else {
             return !extend.generics.is_empty();
@@ -431,8 +443,8 @@ impl<'a> ModuleLowerer<'a> {
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
         self.input
             .semantic_facts
-            .expr_types
-            .get(&expr.span)
+            .node_expr_types
+            .get(&expr.node_key)
             .copied()
     }
 
@@ -529,8 +541,8 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {
-        if ty.interner_id == self.input.body_ir.interner.interner_id() {
-            return self.input.body_ir.interner.get(ty);
+        if ty.interner_id == self.interner.interner_id() {
+            return self.interner.get(ty);
         }
         if let Some(extension_interner) = self.input.extension_interner
             && ty.interner_id == extension_interner.interner_id()

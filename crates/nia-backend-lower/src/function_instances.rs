@@ -139,9 +139,19 @@ impl<'a> ModuleLowerer<'a> {
             let Some(base) = functions_by_def.get(&def_id).copied() else {
                 continue;
             };
-            let substitutions = self.effective_generic_substitutions(base.def_id, &args);
+            let substitutions = self.effective_generic_substitutions_for_instance(
+                base.def_id,
+                arg_module_id,
+                &args,
+            );
             let function_body = base.function_body.clone().map(|body| {
-                self.instantiate_function_body(def_id, args.len(), body, &substitutions)
+                self.instantiate_function_body(
+                    def_id,
+                    arg_module_id,
+                    args.len(),
+                    body,
+                    &substitutions,
+                )
             });
             if let Some(body) = &function_body {
                 self.enqueue_function_instances_from_body(body, seen, queue);
@@ -156,6 +166,7 @@ impl<'a> ModuleLowerer<'a> {
                 return_type: self.instantiate_ty(base.return_type, &substitutions),
                 is_extern: base.is_extern,
                 is_variadic: base.is_variadic,
+                attributes: base.attributes.clone(),
                 function_body,
                 span: base.span,
             });

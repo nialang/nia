@@ -204,8 +204,14 @@ pub struct BackendFunction {
     pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
+    pub attributes: Vec<BackendFunctionAttribute>,
     pub function_body: Option<FunctionBody>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendFunctionAttribute {
+    Naked,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -219,6 +225,7 @@ pub struct BackendFunctionInstance {
     pub return_type: InternedTyId,
     pub is_extern: bool,
     pub is_variadic: bool,
+    pub attributes: Vec<BackendFunctionAttribute>,
     pub function_body: Option<FunctionBody>,
     pub span: Span,
 }

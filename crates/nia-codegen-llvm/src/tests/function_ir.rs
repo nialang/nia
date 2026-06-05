@@ -31,64 +31,6 @@ fn single_module_program(
 }
 
 #[test]
-fn checks_hosted_main_signatures() {
-    let root = temp_dir("checks_hosted_main_signatures");
-    let good = root.join("good.nia");
-    std::fs::write(
-        &good,
-        r#"
-fn main(argc: i32, argv: & & u8) i32 {
-    argc
-}
-"#,
-    )
-    .expect("write good source");
-
-    let checked = nia_driver::check_program(good.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let output = emit_llvm_ir_with_options(
-        &checked.backend_lowering.program,
-        LlvmCodegenOptions {
-            root_module: Some(ModuleId(0)),
-            hosted_entry: true,
-            optimization: checked.optimization,
-        },
-    );
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert!(output.modules[0].ir.contains("define i32 @main(i32"));
-
-    let bad = root.join("bad.nia");
-    std::fs::write(
-        &bad,
-        r#"
-fn main(flag: bool) i32 {
-    0
-}
-"#,
-    )
-    .expect("write bad source");
-
-    let checked = nia_driver::check_program(bad.to_string_lossy().into_owned());
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-    let output = emit_llvm_ir_with_options(
-        &checked.backend_lowering.program,
-        LlvmCodegenOptions {
-            root_module: Some(ModuleId(0)),
-            hosted_entry: true,
-            optimization: checked.optimization,
-        },
-    );
-    assert!(
-        output
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("hosted entry `main`")),
-        "{:?}",
-        output.diagnostics
-    );
-}
-
-#[test]
 fn emits_function_body_from_function_ir_when_available() {
     let interner = nia_ty::TyInterner::new(ModuleId(0));
     let i32_ty = interner.primitive(PrimitiveTy::I32);
@@ -123,6 +65,7 @@ fn emits_function_body_from_function_ir_when_available() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -463,6 +406,7 @@ fn rejects_field_access_with_mismatched_base_struct() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(function_body),
                 span: Span::default(),
             }],
@@ -614,6 +558,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
                 return_type: i32_ty,
                 is_extern: true,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: None,
                 span,
             }],
@@ -675,6 +620,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -794,6 +740,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -837,6 +784,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -1174,6 +1122,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -1254,6 +1203,7 @@ fn validates_function_ir_missing_entry_before_llvm() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -1329,6 +1279,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
                 return_type: i32_ty,
                 is_extern: false,
                 is_variadic: false,
+                attributes: Vec::new(),
                 function_body: Some(FunctionBody {
                     span,
                     locals: Vec::new(),
@@ -1529,6 +1480,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
         return_type: struct_ty,
         is_extern: false,
         is_variadic: false,
+        attributes: Vec::new(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),
@@ -1636,6 +1588,7 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
         return_type: i32_ty,
         is_extern: false,
         is_variadic: false,
+        attributes: Vec::new(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),
@@ -1723,6 +1676,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
         return_type: i32_ty,
         is_extern: false,
         is_variadic: false,
+        attributes: Vec::new(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),
@@ -1809,6 +1763,7 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
         return_type: i32_ty,
         is_extern: false,
         is_variadic: false,
+        attributes: Vec::new(),
         function_body: Some(FunctionBody {
             span,
             locals: Vec::new(),

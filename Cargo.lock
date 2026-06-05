@@ -69,6 +69,7 @@ dependencies = [
 name = "nia-ast"
 version = "0.3.2"
 dependencies = [
+ "nia-node-id",
  "nia-span",
 ]
 
@@ -301,7 +302,9 @@ version = "0.3.2"
 dependencies = [
  "nia-ast",
  "nia-ids",
+ "nia-node-id",
  "nia-sema-ir",
+ "nia-source",
  "nia-span",
 ]
 
@@ -426,6 +429,7 @@ name = "nia-item-tree"
 version = "0.3.2"
 dependencies = [
  "nia-ast",
+ "nia-node-id",
  "nia-parser",
  "nia-span",
 ]
@@ -524,8 +528,10 @@ dependencies = [
  "nia-diagnostic",
  "nia-ids",
  "nia-mangle",
+ "nia-node-id",
  "nia-parser",
  "nia-sema-ir",
+ "nia-source",
  "nia-span",
  "nia-ty",
 ]
@@ -573,6 +579,7 @@ dependencies = [
  "nia-ast",
  "nia-ids",
  "nia-node-id",
+ "nia-source",
  "nia-span",
  "nia-ty",
 ]
@@ -635,6 +642,7 @@ dependencies = [
  "nia-diagnostic",
  "nia-ids",
  "nia-item-tree",
+ "nia-node-id",
  "nia-parser",
  "nia-span",
 ]
@@ -669,6 +677,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-item-tree",
+ "nia-node-id",
  "nia-parser",
  "nia-span",
  "nia-ty",
@@ -702,6 +711,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-item-tree",
+ "nia-node-id",
  "nia-parser",
  "nia-span",
  "nia-ty",
@@ -718,6 +728,7 @@ dependencies = [
  "nia-ids",
  "nia-imports",
  "nia-item-tree",
+ "nia-node-id",
  "nia-parser",
  "nia-span",
 ]
