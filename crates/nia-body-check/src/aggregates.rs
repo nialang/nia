@@ -4,13 +4,10 @@ use std::collections::{HashMap, HashSet};
 use crate::{BodyChecker, ResolvedEnumSignature, ResolvedStructSignature, ResolvedUnionSignature};
 use nia_ast::{Expr, ExprKind};
 use nia_comptime_check::{ComptimeKey, ComptimeValueType};
-use nia_comptime_engine::{
-    ComptimeCommonEnv, ComptimeError, ComptimeValue, RawComptimeEnv, ResolvedComptimeEnv,
-};
+use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, ResolvedComptimeEnv};
 use nia_comptime_ir::{
-    ComptimeAssignTarget, ComptimeBinding, ComptimeExpr, ComptimeNameResolution, ComptimeParam,
-    ComptimeTypeArg, ResolvedComptimeAssignTarget, ResolvedComptimeBinding, ResolvedComptimeExpr,
-    ResolvedComptimeExprKind, ResolvedComptimeParam, ResolvedComptimeTypeArg,
+    ComptimeNameResolution, ResolvedComptimeAssignTarget, ResolvedComptimeBinding,
+    ResolvedComptimeExpr, ResolvedComptimeExprKind, ResolvedComptimeParam, ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -759,251 +756,6 @@ impl ComptimeCommonEnv for BodyChecker<'_> {
     }
 }
 
-impl RawComptimeEnv for BodyChecker<'_> {
-    fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
-        if let Some(value) = self.comptime_call_local_name_value(name) {
-            return Ok(value);
-        }
-        if let Some(local_id) = self.local_use(span)
-            && let Some(value) = self.comptime_call_local_value(local_id)
-        {
-            return Ok(value);
-        }
-        if let Some(local_id) = self.local_comptime_use(span) {
-            return self
-                .comptime
-                .values
-                .get(&nia_comptime_check::ComptimeKey::Local(local_id))
-                .cloned()
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: format!("failed to evaluate comptime value `{name}`"),
-                });
-        }
-        if let Some(global_id) = self.global_comptime_use(span) {
-            return self
-                .global_comptime_value(global_id)
-                .ok_or_else(|| ComptimeError {
-                    span,
-                    message: format!("failed to evaluate comptime value `{name}`"),
-                });
-        }
-        Err(ComptimeError {
-            span,
-            message: format!("comptime expression can only use comptime bindings: `{name}`"),
-        })
-    }
-
-    fn resolve_name_resolution(
-        &mut self,
-        span: Span,
-        resolution: ComptimeNameResolution,
-        name: &str,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        match resolution {
-            ComptimeNameResolution::Local(local_id) => {
-                if let Some(value) = self.comptime_call_local_value(local_id) {
-                    return Ok(value);
-                }
-                if let Some(value) = self.comptime_call_local_name_value(name) {
-                    return Ok(value);
-                }
-                self.comptime
-                    .values
-                    .get(&nia_comptime_check::ComptimeKey::Local(local_id))
-                    .cloned()
-                    .ok_or_else(|| ComptimeError {
-                        span,
-                        message: format!("failed to evaluate comptime value `{name}`"),
-                    })
-            }
-            ComptimeNameResolution::Global(global_id) => {
-                if self.global_def_kind(global_id) == Some(DefKind::Comptime) {
-                    return self
-                        .global_comptime_value(global_id)
-                        .ok_or_else(|| ComptimeError {
-                            span,
-                            message: format!("failed to evaluate comptime value `{name}`"),
-                        });
-                }
-                Err(ComptimeError {
-                    span,
-                    message: format!(
-                        "comptime expression can only use comptime bindings: `{name}`"
-                    ),
-                })
-            }
-        }
-    }
-
-    fn resolve_layout_builtin(
-        &mut self,
-        span: Span,
-        builtin: LayoutBuiltin,
-        type_arg: &ComptimeTypeArg,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        let Some(ty_id) = self.comptime_type_arg(type_arg) else {
-            return Err(ComptimeError {
-                span,
-                message: format!(
-                    "cannot resolve type argument for comptime builtin `@{}`",
-                    builtin.name()
-                ),
-            });
-        };
-        let Some(layout) = self.layout_of(ty_id) else {
-            return Err(ComptimeError {
-                span,
-                message: format!(
-                    "cannot compute layout for comptime builtin `@{}`",
-                    builtin.name()
-                ),
-            });
-        };
-        let value = match builtin {
-            LayoutBuiltin::Size => layout.size,
-            LayoutBuiltin::Align => layout.align,
-        };
-        Ok(ComptimeValue::Int(value as i128))
-    }
-
-    fn call_function(
-        &mut self,
-        span: Span,
-        callee: &ComptimeExpr,
-        type_args: &[ComptimeTypeArg],
-        arg_exprs: &[ComptimeExpr],
-        args: Vec<ComptimeValue>,
-    ) -> Result<ComptimeValue, ComptimeError> {
-        let Some(function_id) = self.comptime_function(callee) else {
-            return Err(ComptimeError {
-                span,
-                message: "comptime expression can only call `comptime fn`".to_string(),
-            });
-        };
-        let Some(signature) = self
-            .resolved_function_signature(function_id)
-            .map(|resolved| resolved.signature)
-        else {
-            return Err(ComptimeError {
-                span,
-                message: "comptime expression can only call `comptime fn`".to_string(),
-            });
-        };
-        let type_substitutions = self.instantiate_comptime_function_generics(
-            span,
-            function_id,
-            &signature,
-            type_args,
-            arg_exprs,
-        )?;
-        let Some(function) = self.comptime_function_body(function_id).cloned() else {
-            return Err(ComptimeError {
-                span,
-                message: "comptime expression can only call `comptime fn`".to_string(),
-            });
-        };
-        nia_comptime_engine::eval_resolved_comptime_function_call(
-            span,
-            function_id.module_id,
-            &function,
-            type_substitutions.into_iter().collect(),
-            args,
-            self,
-        )
-    }
-
-    fn bind_function_param(
-        &mut self,
-        span: Span,
-        param: &ComptimeParam,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let Some(local_id) = param.local_id else {
-            return Err(ComptimeError {
-                span,
-                message: format!("failed to resolve comptime parameter `{}`", param.name),
-            });
-        };
-        let ty = param.ty.map(|ty| {
-            nia_comptime_check::ComptimeValueType::Runtime(
-                self.substitute_current_comptime_generics(ty),
-            )
-        });
-        self.bind_comptime_call_local_value(span, local_id, &param.name, false, value, ty)
-    }
-
-    fn bind_function_local(
-        &mut self,
-        span: Span,
-        binding: &ComptimeBinding,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let Some(local_id) = binding.local_id else {
-            return Err(ComptimeError {
-                span,
-                message: format!("failed to resolve comptime binding `{}`", binding.name),
-            });
-        };
-        let ty = binding
-            .explicit_type
-            .map(|ty| {
-                nia_comptime_check::ComptimeValueType::Runtime(
-                    self.substitute_current_comptime_generics(ty),
-                )
-            })
-            .or_else(|| self.comptime_expr_type_for_raw_ir(&binding.value));
-        self.bind_comptime_call_local_value(
-            span,
-            local_id,
-            &binding.name,
-            binding.is_mutable,
-            value,
-            ty,
-        )
-    }
-
-    fn bind_pattern_local(
-        &mut self,
-        span: Span,
-        name: &str,
-        local_id: Option<LocalId>,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        let Some(local_id) = local_id else {
-            return Err(ComptimeError {
-                span,
-                message: format!("failed to resolve comptime pattern local `{name}`"),
-            });
-        };
-        let ty = self
-            .local_types
-            .get(&local_id)
-            .copied()
-            .map(nia_comptime_check::ComptimeValueType::Runtime);
-        self.bind_comptime_call_local_value(span, local_id, name, false, value, ty)
-    }
-
-    fn assign_local(
-        &mut self,
-        span: Span,
-        target: &ComptimeAssignTarget,
-        value: ComptimeValue,
-    ) -> Result<(), ComptimeError> {
-        match target {
-            ComptimeAssignTarget::Local { name, local_id, .. } => {
-                let Some(local_id) = *local_id else {
-                    return Err(ComptimeError {
-                        span,
-                        message: format!("failed to resolve comptime assignment target `{name}`"),
-                    });
-                };
-                self.assign_comptime_call_local_value(span, local_id, name, value)
-            }
-        }
-    }
-}
-
 impl ResolvedComptimeEnv for BodyChecker<'_> {
     fn resolve_resolved_name(
         &mut self,
@@ -1243,46 +995,6 @@ impl<'a> BodyChecker<'a> {
         self.array_repeat_counts.insert(span, value);
     }
 
-    fn instantiate_comptime_function_generics(
-        &mut self,
-        span: Span,
-        function_id: GlobalDefId,
-        signature: &nia_item_signatures::FunctionSignature,
-        type_args: &[ComptimeTypeArg],
-        arg_exprs: &[ComptimeExpr],
-    ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
-        let frames = self.typed_comptime_frames();
-        nia_comptime_check::instantiate_comptime_function_generics(
-            nia_comptime_check::TypedComptimeQueryInput {
-                module: self.comptime_module,
-                defs: self.defs,
-                values: self.values,
-                locals: self.locals,
-                signatures: self.signatures,
-                interner: &self.interner,
-                type_uses: self.type_uses,
-                normalized: &self.normalization.normalized,
-                target: self.target,
-                program: nia_comptime_check::ComptimeProgramContext {
-                    modules: Some(self.program_comptime_modules),
-                    defs: self.program.defs,
-                    type_lowerings: self.program.type_lowerings,
-                    type_normalizations: self.program.type_normalizations,
-                    signatures: self.program.signatures,
-                },
-                typed_values: &self.comptime.typed_values,
-                array_lengths: &self.comptime.array_lengths,
-                frames: &frames,
-            },
-            span,
-            function_id,
-            function_id.module_id,
-            signature,
-            type_args,
-            arg_exprs,
-        )
-    }
-
     fn instantiate_resolved_comptime_function_generics(
         &mut self,
         span: Span,
@@ -1315,7 +1027,6 @@ impl<'a> BodyChecker<'a> {
                 frames: &frames,
             },
             span,
-            function_id,
             function_id.module_id,
             signature,
             type_args,
@@ -1359,16 +1070,6 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    fn comptime_expr_type_for_raw_ir(
-        &self,
-        expr: &ComptimeExpr,
-    ) -> Option<nia_comptime_check::ComptimeValueType> {
-        let frames = self.typed_comptime_frames();
-        let mut input = self.typed_comptime_query_input();
-        input.frames = &frames;
-        nia_comptime_check::infer_comptime_expr_type(input, expr, None)
-    }
-
     pub(crate) fn comptime_expr_type_for_ir_with_expected(
         &self,
         expr: &nia_comptime_ir::ResolvedComptimeExpr,
@@ -1378,11 +1079,6 @@ impl<'a> BodyChecker<'a> {
         let mut input = self.typed_comptime_query_input();
         input.frames = &frames;
         nia_comptime_check::infer_resolved_comptime_expr_type(input, expr, expected)
-    }
-
-    fn comptime_type_arg(&mut self, arg: &ComptimeTypeArg) -> Option<InternedTyId> {
-        let ty = arg.ty?;
-        Some(self.substitute_current_comptime_generics(ty))
     }
 
     fn substitute_current_comptime_generics(&mut self, ty: InternedTyId) -> InternedTyId {
@@ -1415,13 +1111,6 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .rev()
             .find_map(|frame| frame.locals.get(&local_id).cloned())
-    }
-
-    fn comptime_call_local_name_value(&self, name: &str) -> Option<ComptimeValue> {
-        self.comptime_call_locals
-            .iter()
-            .rev()
-            .find_map(|frame| frame.names.get(name).cloned())
     }
 
     fn bind_comptime_call_local_value(
@@ -1497,18 +1186,6 @@ impl<'a> BodyChecker<'a> {
         self.defs_for_module(global_id.module_id)
             .and_then(|defs| defs.defs.get(global_id.def_id))
             .map(|def| def.kind)
-    }
-
-    fn comptime_function(&self, callee: &ComptimeExpr) -> Option<GlobalDefId> {
-        let resolution = match &callee.kind {
-            nia_comptime_ir::ComptimeExprKind::Ident { resolution, .. }
-            | nia_comptime_ir::ComptimeExprKind::Qualified { resolution, .. } => *resolution,
-            _ => None,
-        };
-        let Some(ComptimeNameResolution::Global(global_id)) = resolution else {
-            return None;
-        };
-        (self.global_def_kind(global_id) == Some(DefKind::Function)).then_some(global_id)
     }
 
     fn resolved_comptime_function(&self, callee: &ResolvedComptimeExpr) -> Option<GlobalDefId> {

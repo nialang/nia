@@ -268,37 +268,15 @@ pub struct TypedComptimeQueryInput<'a> {
     pub frames: &'a [TypedComptimeFrame],
 }
 
-pub fn instantiate_comptime_function_generics(
-    input: TypedComptimeQueryInput<'_>,
-    span: Span,
-    function_id: GlobalDefId,
-    signature_module_id: ModuleId,
-    signature: &FunctionSignature,
-    type_args: &[ComptimeTypeArg],
-    arg_exprs: &[ComptimeExpr],
-) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
-    let mut analyzer = Analyzer::for_typed_query(input);
-    analyzer.instantiate_function_generics(
-        span,
-        function_id,
-        signature_module_id,
-        signature,
-        type_args,
-        arg_exprs,
-    )
-}
-
 pub fn instantiate_resolved_comptime_function_generics(
     input: TypedComptimeQueryInput<'_>,
     span: Span,
-    function_id: GlobalDefId,
     signature_module_id: ModuleId,
     signature: &FunctionSignature,
     type_args: &[ResolvedComptimeTypeArg],
     arg_exprs: &[ResolvedComptimeExpr],
 ) -> Result<HashMap<String, InternedTyId>, ComptimeError> {
     let mut analyzer = Analyzer::for_typed_query(input);
-    let _ = function_id;
     analyzer.instantiate_resolved_function_generics(
         span,
         signature_module_id,
@@ -306,15 +284,6 @@ pub fn instantiate_resolved_comptime_function_generics(
         type_args,
         arg_exprs,
     )
-}
-
-pub fn infer_comptime_expr_type(
-    input: TypedComptimeQueryInput<'_>,
-    expr: &ComptimeExpr,
-    expected: Option<InternedTyId>,
-) -> Option<ComptimeValueType> {
-    let mut analyzer = Analyzer::for_typed_query(input);
-    analyzer.comptime_expr_type(expr, expected)
 }
 
 pub fn infer_resolved_comptime_expr_type(
