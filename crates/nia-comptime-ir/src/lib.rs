@@ -230,15 +230,55 @@ impl ResolvedComptimeParam {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeBlock {
-    pub span: Span,
-    pub stmts: Vec<ResolvedComptimeStmt>,
-    pub tail: Option<Box<ResolvedComptimeExpr>>,
+    span: Span,
+    stmts: Vec<ResolvedComptimeStmt>,
+    tail: Option<Box<ResolvedComptimeExpr>>,
+}
+
+impl ResolvedComptimeBlock {
+    pub fn new(
+        span: Span,
+        stmts: Vec<ResolvedComptimeStmt>,
+        tail: Option<Box<ResolvedComptimeExpr>>,
+    ) -> Self {
+        Self { span, stmts, tail }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn stmts(&self) -> &[ResolvedComptimeStmt] {
+        &self.stmts
+    }
+
+    pub fn tail(&self) -> Option<&ResolvedComptimeExpr> {
+        self.tail.as_deref()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stmts.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeStmt {
-    pub span: Span,
-    pub kind: ResolvedComptimeStmtKind,
+    span: Span,
+    kind: ResolvedComptimeStmtKind,
+}
+
+impl ResolvedComptimeStmt {
+    pub fn new(span: Span, kind: ResolvedComptimeStmtKind) -> Self {
+        Self { span, kind }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> &ResolvedComptimeStmtKind {
+        &self.kind
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -265,12 +305,56 @@ pub enum ResolvedComptimeStmtKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeBinding {
-    pub span: Span,
-    pub name: String,
-    pub local_id: LocalId,
-    pub explicit_type: Option<InternedTyId>,
-    pub is_mutable: bool,
-    pub value: ResolvedComptimeExpr,
+    span: Span,
+    name: String,
+    local_id: LocalId,
+    explicit_type: Option<InternedTyId>,
+    is_mutable: bool,
+    value: ResolvedComptimeExpr,
+}
+
+impl ResolvedComptimeBinding {
+    pub fn new(
+        span: Span,
+        name: String,
+        local_id: LocalId,
+        explicit_type: Option<InternedTyId>,
+        is_mutable: bool,
+        value: ResolvedComptimeExpr,
+    ) -> Self {
+        Self {
+            span,
+            name,
+            local_id,
+            explicit_type,
+            is_mutable,
+            value,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn local_id(&self) -> LocalId {
+        self.local_id
+    }
+
+    pub fn explicit_type(&self) -> Option<InternedTyId> {
+        self.explicit_type
+    }
+
+    pub fn is_mutable(&self) -> bool {
+        self.is_mutable
+    }
+
+    pub fn value(&self) -> &ResolvedComptimeExpr {
+        &self.value
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -304,16 +388,64 @@ pub enum ResolvedComptimeAssignPathElem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeForIn {
-    pub binding: ResolvedComptimeForBinding,
-    pub iter: ResolvedComptimeExpr,
-    pub body: ResolvedComptimeBlock,
+    binding: ResolvedComptimeForBinding,
+    iter: ResolvedComptimeExpr,
+    body: ResolvedComptimeBlock,
+}
+
+impl ResolvedComptimeForIn {
+    pub fn new(
+        binding: ResolvedComptimeForBinding,
+        iter: ResolvedComptimeExpr,
+        body: ResolvedComptimeBlock,
+    ) -> Self {
+        Self {
+            binding,
+            iter,
+            body,
+        }
+    }
+
+    pub fn binding(&self) -> &ResolvedComptimeForBinding {
+        &self.binding
+    }
+
+    pub fn iter(&self) -> &ResolvedComptimeExpr {
+        &self.iter
+    }
+
+    pub fn body(&self) -> &ResolvedComptimeBlock {
+        &self.body
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeForBinding {
-    pub span: Span,
-    pub name: String,
-    pub local_id: LocalId,
+    span: Span,
+    name: String,
+    local_id: LocalId,
+}
+
+impl ResolvedComptimeForBinding {
+    pub fn new(span: Span, name: String, local_id: LocalId) -> Self {
+        Self {
+            span,
+            name,
+            local_id,
+        }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn local_id(&self) -> LocalId {
+        self.local_id
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1520,11 +1652,7 @@ fn resolve_comptime_block(
         .tail
         .map(|tail| resolve_expr(*tail).map(Box::new))
         .transpose()?;
-    Ok(ResolvedComptimeBlock {
-        span: block.span,
-        stmts,
-        tail,
-    })
+    Ok(ResolvedComptimeBlock::new(block.span, stmts, tail))
 }
 
 fn resolve_comptime_stmt(
@@ -1560,10 +1688,7 @@ fn resolve_comptime_stmt(
             body: resolve_comptime_block(body)?,
         },
     };
-    Ok(ResolvedComptimeStmt {
-        span: stmt.span,
-        kind,
-    })
+    Ok(ResolvedComptimeStmt::new(stmt.span, kind))
 }
 
 fn resolve_comptime_binding(
@@ -1572,14 +1697,14 @@ fn resolve_comptime_binding(
     let local_id = binding
         .local_id
         .ok_or_else(|| unresolved_error(binding.span, "comptime local binding"))?;
-    Ok(ResolvedComptimeBinding {
-        span: binding.span,
-        name: binding.name,
+    Ok(ResolvedComptimeBinding::new(
+        binding.span,
+        binding.name,
         local_id,
-        explicit_type: binding.explicit_type,
-        is_mutable: binding.is_mutable,
-        value: resolve_expr(binding.value)?,
-    })
+        binding.explicit_type,
+        binding.is_mutable,
+        resolve_expr(binding.value)?,
+    ))
 }
 
 fn resolve_comptime_for_in(
@@ -1589,15 +1714,11 @@ fn resolve_comptime_for_in(
         .binding
         .local_id
         .ok_or_else(|| unresolved_error(for_in.binding.span, "comptime for binding"))?;
-    Ok(ResolvedComptimeForIn {
-        binding: ResolvedComptimeForBinding {
-            span: for_in.binding.span,
-            name: for_in.binding.name,
-            local_id,
-        },
-        iter: resolve_expr(for_in.iter)?,
-        body: resolve_comptime_block(for_in.body)?,
-    })
+    Ok(ResolvedComptimeForIn::new(
+        ResolvedComptimeForBinding::new(for_in.binding.span, for_in.binding.name, local_id),
+        resolve_expr(for_in.iter)?,
+        resolve_comptime_block(for_in.body)?,
+    ))
 }
 
 pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, ComptimeLowerError> {

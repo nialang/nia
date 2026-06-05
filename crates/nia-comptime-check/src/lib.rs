@@ -1502,10 +1502,10 @@ impl Analyzer<'_> {
         block: &ResolvedComptimeBlock,
         local_id: LocalId,
     ) -> Option<InternedTyId> {
-        for stmt in &block.stmts {
-            match &stmt.kind {
-                ResolvedComptimeStmtKind::Binding(binding) if binding.local_id == local_id => {
-                    return binding.explicit_type;
+        for stmt in block.stmts() {
+            match stmt.kind() {
+                ResolvedComptimeStmtKind::Binding(binding) if binding.local_id() == local_id => {
+                    return binding.explicit_type();
                 }
                 ResolvedComptimeStmtKind::If {
                     then_branch,
@@ -1526,7 +1526,7 @@ impl Analyzer<'_> {
                 }
                 ResolvedComptimeStmtKind::ForIn(for_in) => {
                     if let Some(ty) =
-                        self.find_local_binding_type_in_resolved_block(&for_in.body, local_id)
+                        self.find_local_binding_type_in_resolved_block(for_in.body(), local_id)
                     {
                         return Some(ty);
                     }
@@ -1552,8 +1552,7 @@ impl Analyzer<'_> {
             }
         }
         block
-            .tail
-            .as_deref()
+            .tail()
             .and_then(|tail| self.find_local_binding_type_in_resolved_expr(tail, local_id))
     }
 
@@ -1582,11 +1581,11 @@ impl Analyzer<'_> {
                     ResolvedComptimeSwitchArmBody::Expr(expr) => {
                         self.find_local_binding_type_in_resolved_expr(expr, local_id)
                     }
-                    ResolvedComptimeSwitchArmBody::Stmt(stmt) => match &stmt.kind {
+                    ResolvedComptimeSwitchArmBody::Stmt(stmt) => match stmt.kind() {
                         ResolvedComptimeStmtKind::Binding(binding)
-                            if binding.local_id == local_id =>
+                            if binding.local_id() == local_id =>
                         {
-                            binding.explicit_type
+                            binding.explicit_type()
                         }
                         ResolvedComptimeStmtKind::Expr(expr)
                         | ResolvedComptimeStmtKind::Return(Some(expr)) => {
@@ -3177,7 +3176,7 @@ impl Analyzer<'_> {
         stmt: &nia_comptime_ir::ResolvedComptimeStmt,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeArmType> {
-        match &stmt.kind {
+        match stmt.kind() {
             ResolvedComptimeStmtKind::Expr(expr) => self
                 .resolved_comptime_expr_type(expr, expected)
                 .map(ComptimeArmType::Value),
@@ -3242,15 +3241,15 @@ impl Analyzer<'_> {
         block: &ResolvedComptimeBlock,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
-        if block.stmts.is_empty() {
-            return self.resolved_comptime_expr_type(block.tail.as_deref()?, expected);
+        if block.is_empty() {
+            return self.resolved_comptime_expr_type(block.tail()?, expected);
         }
         self.push_typed_comptime_scope();
         let result = (|| {
-            for stmt in &block.stmts {
+            for stmt in block.stmts() {
                 self.bind_typed_resolved_comptime_stmt(stmt)?;
             }
-            self.resolved_comptime_expr_type(block.tail.as_deref()?, expected)
+            self.resolved_comptime_expr_type(block.tail()?, expected)
         })();
         self.pop_typed_comptime_scope();
         result
@@ -3260,14 +3259,14 @@ impl Analyzer<'_> {
         &mut self,
         stmt: &nia_comptime_ir::ResolvedComptimeStmt,
     ) -> Option<()> {
-        match &stmt.kind {
+        match stmt.kind() {
             ResolvedComptimeStmtKind::Binding(binding) => {
                 let ty = binding
-                    .explicit_type
+                    .explicit_type()
                     .map(|ty| self.substitute_ty_generics(ty))
                     .map(ComptimeValueType::Runtime)
-                    .or_else(|| self.resolved_comptime_expr_type(&binding.value, None))?;
-                self.bind_comptime_local_type(binding.local_id, ty);
+                    .or_else(|| self.resolved_comptime_expr_type(binding.value(), None))?;
+                self.bind_comptime_local_type(binding.local_id(), ty);
                 Some(())
             }
             ResolvedComptimeStmtKind::Expr(_) => Some(()),
@@ -3300,10 +3299,10 @@ impl Analyzer<'_> {
     fn check_resolved_comptime_block(&mut self, block: &ResolvedComptimeBlock) -> Option<()> {
         self.push_typed_comptime_scope();
         let result = (|| {
-            for stmt in &block.stmts {
+            for stmt in block.stmts() {
                 self.check_resolved_comptime_stmt(stmt)?;
             }
-            if let Some(tail) = block.tail.as_deref() {
+            if let Some(tail) = block.tail() {
                 self.resolved_comptime_expr_type(tail, None)?;
             }
             Some(())
@@ -3316,7 +3315,7 @@ impl Analyzer<'_> {
         &mut self,
         stmt: &nia_comptime_ir::ResolvedComptimeStmt,
     ) -> Option<()> {
-        match &stmt.kind {
+        match stmt.kind() {
             ResolvedComptimeStmtKind::Binding(_)
             | ResolvedComptimeStmtKind::If { .. }
             | ResolvedComptimeStmtKind::ForIn(_)
@@ -3337,15 +3336,15 @@ impl Analyzer<'_> {
         &mut self,
         for_in: &nia_comptime_ir::ResolvedComptimeForIn,
     ) -> Option<()> {
-        let iter_ty = self.resolved_comptime_expr_type(&for_in.iter, None)?;
+        let iter_ty = self.resolved_comptime_expr_type(for_in.iter(), None)?;
         let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
         self.push_typed_comptime_scope();
         let result = (|| {
-            self.bind_comptime_local_type(for_in.binding.local_id, binding_ty);
-            for stmt in &for_in.body.stmts {
+            self.bind_comptime_local_type(for_in.binding().local_id(), binding_ty);
+            for stmt in for_in.body().stmts() {
                 self.check_resolved_comptime_stmt(stmt)?;
             }
-            if let Some(tail) = for_in.body.tail.as_deref() {
+            if let Some(tail) = for_in.body().tail() {
                 self.resolved_comptime_expr_type(tail, None)?;
             }
             Some(())
@@ -4450,10 +4449,10 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let ty = binding
-            .explicit_type
+            .explicit_type()
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)))
-            .or_else(|| self.resolved_comptime_expr_type(&binding.value, None));
-        self.bind_local_value(span, binding.local_id, binding.is_mutable, value, ty)
+            .or_else(|| self.resolved_comptime_expr_type(binding.value(), None));
+        self.bind_local_value(span, binding.local_id(), binding.is_mutable(), value, ty)
     }
 
     fn bind_resolved_pattern_local(

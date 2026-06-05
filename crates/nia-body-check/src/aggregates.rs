@@ -880,14 +880,20 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let ty = binding
-            .explicit_type
+            .explicit_type()
             .map(|ty| {
                 nia_comptime_check::ComptimeValueType::Runtime(
                     self.substitute_current_comptime_generics(ty),
                 )
             })
-            .or_else(|| self.comptime_expr_type_for_ir_with_expected(&binding.value, None));
-        self.bind_comptime_call_local_value(span, binding.local_id, binding.is_mutable, value, ty)
+            .or_else(|| self.comptime_expr_type_for_ir_with_expected(binding.value(), None));
+        self.bind_comptime_call_local_value(
+            span,
+            binding.local_id(),
+            binding.is_mutable(),
+            value,
+            ty,
+        )
     }
 
     fn bind_resolved_pattern_local(
