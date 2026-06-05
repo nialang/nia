@@ -36,7 +36,7 @@ use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
     ComptimeIfSelection, FunctionReference, GenericInstantiation, ResolvedCall, SemanticFacts,
-    TraitObjectCoercion, TraitObjectUpcast,
+    SemanticUseTable, TraitObjectCoercion, TraitObjectUpcast,
 };
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -95,6 +95,7 @@ pub struct BodyCheckInput<'a> {
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
+    pub semantic_uses: &'a SemanticUseTable,
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
@@ -117,6 +118,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub defs: &'a DefCollection,
     pub values: &'a ValueResolution,
     pub locals: &'a LocalResolution,
+    pub semantic_uses: &'a SemanticUseTable,
     pub lowered: &'a TypeLowering,
     pub signatures: &'a ItemSignatures,
     pub normalization: &'a TypeNormalization,
@@ -167,6 +169,7 @@ pub fn check_module_bodies(
     let empty_extensions = VisibleExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
     let target = TargetConfig::host();
+    let semantic_uses = semantic_use_table_for_body_input(defs.module_id, values, locals, lowered);
     let mut checked = check_module_bodies_with_layouts(BodyCheckInput {
         source_version: None,
         origins: &NodeOriginTable::default(),
@@ -174,6 +177,7 @@ pub fn check_module_bodies(
         defs,
         values,
         locals,
+        semantic_uses: &semantic_uses,
         lowered,
         signatures,
         normalization: &empty_normalization,
@@ -225,6 +229,7 @@ pub fn check_module_bodies_with_program_signatures(
         defs: input.defs,
         values: input.values,
         locals: input.locals,
+        semantic_uses: input.semantic_uses,
         lowered: input.lowered,
         signatures: input.signatures,
         normalization: input.normalization,
@@ -245,6 +250,50 @@ pub fn check_module_bodies_with_program_signatures(
     checked
 }
 
+fn semantic_use_table_for_body_input(
+    module_id: ModuleId,
+    values: &ValueResolution,
+    locals: &LocalResolution,
+    lowered: &TypeLowering,
+) -> SemanticUseTable {
+    let mut builder = SemanticUseTable::builder();
+    for (span, local_use) in &locals.uses {
+        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
+            builder.insert_local_value_use(*span, *local_id);
+        }
+    }
+    for (span, global_id) in &values.qualified_values {
+        builder.insert_global_value_use(*span, *global_id);
+    }
+    for (span, resolution) in &values.names {
+        match resolution {
+            nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                builder.insert_global_value_use(
+                    *span,
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                );
+            }
+            nia_value_resolve::ValueNameResolution::External(global_id) => {
+                builder.insert_global_value_use(*span, *global_id);
+            }
+            nia_value_resolve::ValueNameResolution::ImportAlias
+            | nia_value_resolve::ValueNameResolution::LocalDeferred
+            | nia_value_resolve::ValueNameResolution::Error => {}
+        }
+    }
+    builder.extend_local_defs(
+        locals
+            .local_defs
+            .iter()
+            .map(|(span, local_id)| (*span, *local_id)),
+    );
+    builder.extend_type_uses(lowered.type_uses.iter().map(|(span, ty)| (*span, *ty)));
+    builder.finish()
+}
+
 pub fn check_module_bodies_with_program_signatures_and_layouts(
     input: BodyCheckInput<'_>,
 ) -> BodyCheck {
@@ -256,6 +305,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         program: input.program,
         values: input.values,
         locals: input.locals,
+        semantic_uses: input.semantic_uses,
         interner: input
             .extension_interner
             .cloned()
@@ -357,6 +407,7 @@ struct BodyChecker<'a> {
     program: BodyProgramContext<'a>,
     values: &'a ValueResolution,
     locals: &'a LocalResolution,
+    semantic_uses: &'a SemanticUseTable,
     interner: TyInterner,
     type_uses: &'a HashMap<Span, InternedTyId>,
     signatures: &'a ItemSignatures,

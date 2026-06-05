@@ -16,7 +16,7 @@ use nia_item_signatures::{EnumSignature, StructSignature};
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
-use nia_sema_ir::SemanticUseTable;
+use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
@@ -948,50 +948,37 @@ impl<'a> BodyChecker<'a> {
 
     fn comptime_semantic_uses(&self) -> SemanticUseTable {
         let mut builder = SemanticUseTable::builder();
-        for (span, local_use) in &self.locals.uses {
-            let nia_local_resolve::LocalUse::Local(local_id) = local_use else {
-                continue;
-            };
-            if self
-                .comptime_call_locals
-                .iter()
-                .rev()
-                .any(|frame| frame.locals.contains_key(local_id))
-                || self.local_comptime_use(*span).is_some()
-            {
-                builder.insert_local_value_use(*span, *local_id);
-            }
-        }
-        for span in self
-            .values
-            .qualified_values
-            .keys()
-            .chain(self.values.names.keys())
-        {
-            if let Some(global_id) = self.global_comptime_value_use(*span) {
-                builder.insert_global_value_use(*span, global_id);
+        for (span, value_use) in &self.semantic_uses.value_uses {
+            match value_use {
+                SemanticValueUse::Local(local_id)
+                    if self
+                        .comptime_call_locals
+                        .iter()
+                        .rev()
+                        .any(|frame| frame.locals.contains_key(local_id))
+                        || self.local_comptime_use(*span).is_some() =>
+                {
+                    builder.insert_local_value_use(*span, *local_id);
+                }
+                SemanticValueUse::Global(global_id) => {
+                    builder.insert_global_value_use(*span, *global_id);
+                }
+                SemanticValueUse::Local(_) => {}
             }
         }
         builder.extend_local_defs(
-            self.locals
+            self.semantic_uses
                 .local_defs
                 .iter()
                 .map(|(span, local_id)| (*span, *local_id)),
         );
-        builder.extend_type_uses(self.type_uses.iter().map(|(span, ty)| (*span, *ty)));
+        builder.extend_type_uses(
+            self.semantic_uses
+                .type_uses
+                .iter()
+                .map(|(span, ty)| (*span, *ty)),
+        );
         builder.finish()
-    }
-
-    fn global_comptime_value_use(&self, span: Span) -> Option<GlobalDefId> {
-        if let Some(global_id) = self.values.qualified_values.get(&span).copied() {
-            return Some(global_id);
-        }
-        let Some(nia_value_resolve::ValueNameResolution::Def(def_id)) =
-            self.values.names.get(&span)
-        else {
-            return None;
-        };
-        Some(self.global_def_id(*def_id))
     }
 
     fn eval_array_repeat_count(&mut self, count: &Expr) -> Result<u64, ComptimeError> {

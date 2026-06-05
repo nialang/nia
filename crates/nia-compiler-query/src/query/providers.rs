@@ -674,6 +674,7 @@ pub(super) fn provide_body_check(
     let program_defs = defs_by_module_id(db);
     let values = db.query(ValueResolutionQuery(module_id));
     let locals = db.query(LocalResolutionQuery(module_id));
+    let semantic_uses = db.query(SemanticUseTableQuery(module_id));
     let lowered = db.query(TypeLoweringQuery(module_id));
     let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
     let signatures = db.query(ItemSignaturesQuery(module_id));
@@ -701,6 +702,7 @@ pub(super) fn provide_body_check(
             defs: &defs,
             values: &values,
             locals: &locals,
+            semantic_uses: &semantic_uses,
             lowered: &lowered,
             signatures: &signatures,
             normalization: &normalization,
