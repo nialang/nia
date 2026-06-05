@@ -1808,22 +1808,14 @@ impl Analyzer<'_> {
                 self.compute_program_layout(def_id.module_id, &layout_array_lengths)
             && let Some(layout) = layouts.nominal_type_layout(def_id, &args)
         {
-            let value = match builtin {
-                LayoutBuiltin::Size => layout.size,
-                LayoutBuiltin::Align => layout.align,
-            };
-            return Ok(ComptimeValue::Int(value as i128));
+            return Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128));
         }
         if ty.interner_id != module_id
             && let Some(layouts) =
                 self.compute_program_layout(ty.interner_id, &layout_array_lengths)
             && let Some(layout) = layouts.types.get(&ty)
         {
-            let value = match builtin {
-                LayoutBuiltin::Size => layout.size,
-                LayoutBuiltin::Align => layout.align,
-            };
-            return Ok(ComptimeValue::Int(value as i128));
+            return Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128));
         }
         let Some(layout) = layouts.types.get(&ty) else {
             return Err(ComptimeError {
@@ -1834,11 +1826,7 @@ impl Analyzer<'_> {
                 ),
             });
         };
-        let value = match builtin {
-            LayoutBuiltin::Size => layout.size,
-            LayoutBuiltin::Align => layout.align,
-        };
-        Ok(ComptimeValue::Int(value as i128))
+        Ok(ComptimeValue::Int(layout.builtin_value(builtin) as i128))
     }
 
     fn program_array_lengths_for_layout(

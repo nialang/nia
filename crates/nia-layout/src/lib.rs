@@ -27,6 +27,15 @@ pub struct TypeLayout {
     pub align: u64,
 }
 
+impl TypeLayout {
+    pub fn builtin_value(&self, builtin: LayoutBuiltin) -> u64 {
+        match builtin {
+            LayoutBuiltin::Size => self.size,
+            LayoutBuiltin::Align => self.align,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructLayout {
     pub layout: TypeLayout,
@@ -368,10 +377,7 @@ impl<'a> LayoutComputer<'a> {
                     ));
                     return None;
                 };
-                match builtin {
-                    LayoutBuiltin::Size => layout.size,
-                    LayoutBuiltin::Align => layout.align,
-                }
+                layout.builtin_value(builtin)
             }
         };
         Some(TypeLayout {
