@@ -445,6 +445,31 @@ impl<'a> BodyChecker<'a> {
                 },
             };
         }
+        if forced_ty.is_none()
+            && let Some(coercion) = self
+                .node_value_trait_object_coercions
+                .get(&expr.node_key)
+                .copied()
+        {
+            let value = self.lower_expr_with_ty(expr, Some(coercion.value_ty));
+            let pointer = TypedExpr {
+                span: expr.span,
+                ty: coercion.pointer_ty,
+                kind: TypedExprKind::Unary {
+                    op: UnaryOp::RefReadOnly,
+                    expr: Box::new(value),
+                },
+            };
+            return TypedExpr {
+                span: expr.span,
+                ty: coercion.target_ty,
+                kind: TypedExprKind::TraitObjectCoercion {
+                    expr: Box::new(pointer),
+                    target_ty: coercion.target_ty,
+                    self_ty: coercion.value_ty,
+                },
+            };
+        }
         let ty = forced_ty
             .or_else(|| self.expr_ty(expr))
             .unwrap_or_else(|| self.error());

@@ -107,6 +107,121 @@ fn main() i32 {
 }
 
 #[test]
+fn array_literal_elements_coerce_to_trait_objects() {
+    let root = temp_dir("array_literal_elements_coerce_to_trait_objects");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    fn get(& self) i32;
+}
+
+extend i32 : Source {
+    fn get(& self) i32 {
+        self.*
+    }
+}
+
+fn read_all(sources: & [ & Source]) i32 {
+    sources[0].get()
+}
+
+fn main() i32 {
+    read_all([8])
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        !module
+            .semantic_facts
+            .node_value_trait_object_coercions
+            .is_empty()
+    }));
+}
+
+#[test]
+fn value_coerces_to_readonly_trait_object_argument() {
+    let root = temp_dir("value_coerces_to_readonly_trait_object_argument");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    fn get(& self) i32;
+}
+
+extend i32 : Source {
+    fn get(& self) i32 {
+        self.*
+    }
+}
+
+fn read(source: & Source) i32 {
+    source.get()
+}
+
+fn main() i32 {
+    read(8)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        !module
+            .semantic_facts
+            .node_value_trait_object_coercions
+            .is_empty()
+    }));
+}
+
+#[test]
+fn value_trait_object_coercion_does_not_create_mutable_objects() {
+    let root = temp_dir("value_trait_object_coercion_does_not_create_mutable_objects");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    fn get(& self) i32;
+}
+
+extend i32 : Source {
+    fn get(& self) i32 {
+        self.*
+    }
+}
+
+fn read(source: &mut Source) i32 {
+    source.get()
+}
+
+fn main() i32 {
+    read(8)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.message.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(program.modules.iter().all(|module| {
+        module
+            .semantic_facts
+            .node_value_trait_object_coercions
+            .is_empty()
+    }));
+}
+
+#[test]
 fn trait_object_methods_may_return_bound_associated_types() {
     let root = temp_dir("trait_object_methods_may_return_bound_associated_types");
     write(

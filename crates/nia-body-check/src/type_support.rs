@@ -249,6 +249,10 @@ impl<'a> BodyChecker<'a> {
             self.record_expr_node_type(expr, coerced);
             return;
         }
+        if let Some(coerced) = self.coerce_value_to_trait_object(expr, expected, actual) {
+            self.record_expr_node_type(expr, coerced);
+            return;
+        }
         if !has_numeric_literal_suffix(expr)
             && self.check_integer_literal_range(expr, expected, context)
         {
@@ -673,6 +677,7 @@ impl<'a> BodyChecker<'a> {
             node_array_to_slice_coercions: HashMap::new(),
             node_c_string_pointer_coercions: HashMap::new(),
             node_trait_object_coercions: HashMap::new(),
+            node_value_trait_object_coercions: HashMap::new(),
             node_trait_object_upcasts: HashMap::new(),
             node_comptime_if_selections: HashMap::new(),
             node_builtin_values: HashMap::new(),

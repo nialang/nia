@@ -157,6 +157,45 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_rvalue_array_element_trait_object_coercions() {
+    let root = temp_dir("emits_rvalue_array_element_trait_object_coercions");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+trait Source {
+    fn get(& self) i32;
+}
+
+extend i32 : Source {
+    fn get(& self) i32 {
+        self.*
+    }
+}
+
+fn read_all(sources: & [ & Source]) i32 {
+    sources[0].get()
+}
+
+fn main() i32 {
+    read_all([8])
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("fir.tmp."), "{ir}");
+    assert!(ir.contains("nia__vtable__"), "{ir}");
+    assert!(ir.contains("call i32 %vtable.fn"), "{ir}");
+}
+
+#[test]
 fn size_levels_deduplicate_repeated_trait_object_vtables() {
     let root = temp_dir("size_levels_deduplicate_repeated_trait_object_vtables");
     let main = root.join("main.nia");

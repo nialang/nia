@@ -36,7 +36,7 @@ use nia_node_id::{NodeKey, NodeOriginTable};
 use nia_sema_ir::{
     ArrayToSliceCoercion, BracketSuffixResolution, BuiltinValue, CStringPointerCoercion,
     ComptimeIfSelection, FunctionReference, GenericInstantiation, ResolvedCall, SemanticFacts,
-    SemanticUseTable, TraitObjectCoercion, TraitObjectUpcast,
+    SemanticUseTable, TraitObjectCoercion, TraitObjectUpcast, ValueTraitObjectCoercion,
 };
 use nia_source::SourceVersion;
 use nia_span::Span;
@@ -339,6 +339,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         node_array_to_slice_coercions: HashMap::new(),
         node_c_string_pointer_coercions: HashMap::new(),
         node_trait_object_coercions: HashMap::new(),
+        node_value_trait_object_coercions: HashMap::new(),
         node_trait_object_upcasts: HashMap::new(),
         node_comptime_if_selections: HashMap::new(),
         node_builtin_values: HashMap::new(),
@@ -375,6 +376,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             node_array_to_slice_coercions: checker.node_array_to_slice_coercions,
             node_c_string_pointer_coercions: checker.node_c_string_pointer_coercions,
             node_trait_object_coercions: checker.node_trait_object_coercions,
+            node_value_trait_object_coercions: checker.node_value_trait_object_coercions,
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
             node_comptime_if_selections: checker.node_comptime_if_selections,
             node_builtin_values: checker.node_builtin_values,
@@ -418,6 +420,7 @@ struct BodyChecker<'a> {
     node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
+    node_value_trait_object_coercions: HashMap<NodeKey, ValueTraitObjectCoercion>,
     node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     node_builtin_values: HashMap<NodeKey, BuiltinValue>,
@@ -491,6 +494,15 @@ impl<'a> BodyChecker<'a> {
 
     fn record_trait_object_node_coercion(&mut self, expr: &Expr, coercion: TraitObjectCoercion) {
         self.node_trait_object_coercions
+            .insert(expr.node_key.clone(), coercion);
+    }
+
+    fn record_value_trait_object_node_coercion(
+        &mut self,
+        expr: &Expr,
+        coercion: ValueTraitObjectCoercion,
+    ) {
+        self.node_value_trait_object_coercions
             .insert(expr.node_key.clone(), coercion);
     }
 
