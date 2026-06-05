@@ -874,7 +874,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                 self.substitute_current_comptime_generics(ty),
             )
         });
-        self.bind_comptime_call_local_value(span, param.local_id, &param.name, false, value, ty)
+        self.bind_comptime_call_local_value(span, param.local_id, false, value, ty)
     }
 
     fn bind_resolved_function_local(
@@ -891,20 +891,13 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                 )
             })
             .or_else(|| self.comptime_expr_type_for_ir_with_expected(&binding.value, None));
-        self.bind_comptime_call_local_value(
-            span,
-            binding.local_id,
-            &binding.name,
-            binding.is_mutable,
-            value,
-            ty,
-        )
+        self.bind_comptime_call_local_value(span, binding.local_id, binding.is_mutable, value, ty)
     }
 
     fn bind_resolved_pattern_local(
         &mut self,
         span: Span,
-        name: &str,
+        _name: &str,
         local_id: LocalId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
@@ -913,7 +906,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
             .get(&local_id)
             .copied()
             .map(nia_comptime_check::ComptimeValueType::Runtime);
-        self.bind_comptime_call_local_value(span, local_id, name, false, value, ty)
+        self.bind_comptime_call_local_value(span, local_id, false, value, ty)
     }
 
     fn assign_resolved_local(
@@ -954,14 +947,11 @@ impl<'a> BodyChecker<'a> {
             return Some(nia_comptime_ir::ComptimeNameResolution::Local(local_id));
         }
         if let Some(local_id) = self.local_use(span)
-            && self.comptime_call_locals.iter().rev().any(|frame| {
-                frame.locals.contains_key(&local_id)
-                    || self
-                        .locals
-                        .locals
-                        .get(local_id)
-                        .is_some_and(|local| frame.names.contains_key(&local.name))
-            })
+            && self
+                .comptime_call_locals
+                .iter()
+                .rev()
+                .any(|frame| frame.locals.contains_key(&local_id))
         {
             return Some(nia_comptime_ir::ComptimeNameResolution::Local(local_id));
         }
@@ -1064,7 +1054,6 @@ impl<'a> BodyChecker<'a> {
             .map(|frame| nia_comptime_check::TypedComptimeFrame {
                 module_id: frame.module_id,
                 local_types: frame.local_types.clone(),
-                name_types: frame.name_types.clone(),
                 type_substitutions: frame.type_substitutions.clone(),
             })
             .collect()
@@ -1117,7 +1106,6 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         span: Span,
         local_id: LocalId,
-        name: &str,
         is_mutable: bool,
         value: ComptimeValue,
         ty: Option<nia_comptime_check::ComptimeValueType>,
@@ -1131,11 +1119,9 @@ impl<'a> BodyChecker<'a> {
         if is_mutable {
             frame.mutable_locals.insert(local_id);
         }
-        frame.locals.insert(local_id, value.clone());
-        frame.names.insert(name.to_string(), value);
+        frame.locals.insert(local_id, value);
         if let Some(ty) = ty {
-            frame.local_types.insert(local_id, ty.clone());
-            frame.name_types.insert(name.to_string(), ty);
+            frame.local_types.insert(local_id, ty);
         }
         Ok(())
     }
@@ -1155,8 +1141,7 @@ impl<'a> BodyChecker<'a> {
                         message: format!("cannot assign to immutable comptime local `{name}`"),
                     });
                 }
-                frame.locals.insert(local_id, value.clone());
-                frame.names.insert(name.to_string(), value);
+                frame.locals.insert(local_id, value);
                 return Ok(());
             }
         }

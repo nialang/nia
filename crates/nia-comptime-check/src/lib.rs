@@ -4,16 +4,14 @@ use std::collections::{HashMap, HashSet};
 use nia_ast::{Expr, ItemKind, Module};
 use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, RawComptimeEnv, ResolvedComptimeEnv};
 use nia_comptime_ir::{
-    ComptimeArrayElements, ComptimeAssignTarget, ComptimeBinaryOp, ComptimeBinding, ComptimeBlock,
-    ComptimeExpr, ComptimeExprKind, ComptimeFieldInit, ComptimeNameResolution, ComptimeParam,
-    ComptimeRange, ComptimeSliceRange, ComptimeStmtKind, ComptimeStringLiteral, ComptimeSwitch,
-    ComptimeSwitchArm, ComptimeSwitchArmBody, ComptimeSwitchPattern, ComptimeTypeArg,
-    ComptimeUnaryOp, ResolvedComptimeArrayElements, ResolvedComptimeAssignTarget,
-    ResolvedComptimeBinding, ResolvedComptimeBlock, ResolvedComptimeEnum,
-    ResolvedComptimeEnumVariant, ResolvedComptimeExpr, ResolvedComptimeExprKind,
-    ResolvedComptimeFieldInit, ResolvedComptimeLocalInitializer, ResolvedComptimeModule,
-    ResolvedComptimeParam, ResolvedComptimeStmtKind, ResolvedComptimeSwitch,
-    ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchPattern, ResolvedComptimeTypeArg,
+    ComptimeAssignTarget, ComptimeBinaryOp, ComptimeBinding, ComptimeExpr, ComptimeNameResolution,
+    ComptimeParam, ComptimeStringLiteral, ComptimeTypeArg, ComptimeUnaryOp,
+    ResolvedComptimeArrayElements, ResolvedComptimeAssignTarget, ResolvedComptimeBinding,
+    ResolvedComptimeBlock, ResolvedComptimeEnum, ResolvedComptimeEnumVariant, ResolvedComptimeExpr,
+    ResolvedComptimeExprKind, ResolvedComptimeFieldInit, ResolvedComptimeLocalInitializer,
+    ResolvedComptimeModule, ResolvedComptimeParam, ResolvedComptimeStmtKind,
+    ResolvedComptimeSwitch, ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchPattern,
+    ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
@@ -247,7 +245,6 @@ pub fn lower_module_comptime(input: ComptimeModuleInput<'_>) -> ComptimeModuleLo
 pub struct TypedComptimeFrame {
     pub module_id: Option<ModuleId>,
     pub local_types: HashMap<LocalId, ComptimeValueType>,
-    pub name_types: HashMap<String, ComptimeValueType>,
     pub type_substitutions: HashMap<String, InternedTyId>,
 }
 
@@ -804,8 +801,6 @@ struct ComptimeCallFrame {
     locals: HashMap<LocalId, ComptimeValue>,
     local_types: HashMap<LocalId, ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
-    names: HashMap<String, ComptimeValue>,
-    name_types: HashMap<String, ComptimeValueType>,
     type_substitutions: HashMap<String, InternedTyId>,
 }
 
@@ -816,8 +811,6 @@ impl From<TypedComptimeFrame> for ComptimeCallFrame {
             locals: HashMap::new(),
             local_types: frame.local_types,
             mutable_locals: HashSet::new(),
-            names: HashMap::new(),
-            name_types: frame.name_types,
             type_substitutions: frame.type_substitutions,
         }
     }
@@ -1678,13 +1671,6 @@ impl Analyzer<'_> {
             .find_map(|frame| frame.locals.get(&local_id).cloned())
     }
 
-    fn call_local_name_value(&self, name: &str) -> Option<ComptimeValue> {
-        self.call_locals
-            .iter()
-            .rev()
-            .find_map(|frame| frame.names.get(name).cloned())
-    }
-
     fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
         if let Some(global_id) = self.input.values.qualified_values.get(&span).copied() {
             let def = self.def_kind_of(global_id)?;
@@ -2137,15 +2123,6 @@ impl Analyzer<'_> {
         ))
     }
 
-    fn comptime_arg_runtime_type(
-        &mut self,
-        expr: &ComptimeExpr,
-        expected: Option<InternedTyId>,
-    ) -> Option<InternedTyId> {
-        self.comptime_expr_type(expr, expected)
-            .and_then(|ty| ty.runtime())
-    }
-
     fn resolved_comptime_arg_runtime_type(
         &mut self,
         expr: &ResolvedComptimeExpr,
@@ -2153,14 +2130,6 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.resolved_comptime_expr_type(expr, expected)
             .and_then(|ty| ty.runtime())
-    }
-
-    fn probe_comptime_int_expr(&mut self, expr: &ComptimeExpr) -> Option<i128> {
-        nia_comptime_engine::eval_raw_comptime_body_int_expr(expr, self).ok()
-    }
-
-    fn probe_comptime_array_len_expr(&mut self, expr: &ComptimeExpr) -> Option<u64> {
-        nia_comptime_engine::eval_raw_comptime_body_array_len_expr(expr, self).ok()
     }
 
     fn probe_resolved_comptime_int_expr(&mut self, expr: &ResolvedComptimeExpr) -> Option<i128> {
@@ -2196,168 +2165,8 @@ impl Analyzer<'_> {
         expr: &ComptimeExpr,
         expected: Option<InternedTyId>,
     ) -> Option<ComptimeValueType> {
-        if let Some((name, resolution)) = match &expr.kind {
-            ComptimeExprKind::Ident {
-                name,
-                resolution: Some(resolution),
-            }
-            | ComptimeExprKind::Qualified {
-                name,
-                resolution: Some(resolution),
-            } => Some((name.as_str(), *resolution)),
-            ComptimeExprKind::Ident {
-                resolution: None, ..
-            }
-            | ComptimeExprKind::Qualified {
-                resolution: None, ..
-            } => return None,
-            _ => None,
-        } {
-            return self
-                .comptime_name_resolution_type(resolution)
-                .or_else(|| match resolution {
-                    ComptimeNameResolution::Local(local_id) => self
-                        .call_local_name_type(name)
-                        .or_else(|| self.call_local_type(local_id)),
-                    ComptimeNameResolution::Global(_) => None,
-                });
-        }
-        match &expr.kind {
-            ComptimeExprKind::Integer(text) => integer_literal_suffix_ty(text).map(|primitive| {
-                ComptimeValueType::Runtime(
-                    self.source_interner_for_module(self.current_execution_module_id())
-                        .unwrap_or(self.input.interner)
-                        .primitive(primitive),
-                )
-            }),
-            ComptimeExprKind::Float(text) => {
-                let primitive = float_literal_suffix_ty(text).unwrap_or(PrimitiveTy::F64);
-                Some(ComptimeValueType::Runtime(
-                    self.current_runtime_primitive_type(primitive),
-                ))
-            }
-            ComptimeExprKind::Char(_) => Some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Char),
-            )),
-            ComptimeExprKind::ByteChar(_) => Some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::U8),
-            )),
-            ComptimeExprKind::String(literal) => self.comptime_string_literal_type(literal),
-            ComptimeExprKind::ByteString(literal) => self.comptime_byte_string_literal_type(
-                nia_comptime_engine::eval_byte_string_literal(literal)?.len() as u64,
-            ),
-            ComptimeExprKind::CString(literal) => self.comptime_byte_string_literal_type(
-                nia_comptime_engine::eval_c_string_literal(literal)?.len() as u64,
-            ),
-            ComptimeExprKind::Bool(_) => Some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Bool),
-            )),
-            ComptimeExprKind::ArrayLiteral { ty: Some(ty), .. }
-            | ComptimeExprKind::StructLiteral { ty: Some(ty), .. } => {
-                Some(ComptimeValueType::Runtime(*ty))
-            }
-            ComptimeExprKind::ArrayLiteral { ty: None, elems } => {
-                self.comptime_array_literal_type(elems, expected)
-            }
-            ComptimeExprKind::StructLiteral { ty: None, fields } => {
-                self.comptime_struct_literal_type(expr.span, fields, expected)
-            }
-            ComptimeExprKind::OptionalSome { expr: inner } => {
-                let expected_elem = expected.and_then(|expected| match self.ty_kind(expected) {
-                    Some(TyKind::Optional { elem }) => Some(elem),
-                    _ => None,
-                });
-                let elem = self.comptime_arg_runtime_type(inner, expected_elem)?;
-                self.comptime_runtime_type(
-                    elem,
-                    |elem| TyKind::Optional { elem },
-                    self.current_execution_module_id(),
-                )
-                .map(ComptimeValueType::Runtime)
-            }
-            ComptimeExprKind::Null => {
-                let expected = expected?;
-                matches!(self.ty_kind(expected), Some(TyKind::Optional { .. }))
-                    .then_some(ComptimeValueType::Runtime(expected))
-            }
-            ComptimeExprKind::ErrorOk { expr: inner } => {
-                let (error, value) = self.expected_error_union_parts(expected?)?;
-                let actual_value = self.comptime_arg_runtime_type(inner, Some(value))?;
-                self.comptime_error_union_type(error, actual_value)
-                    .map(ComptimeValueType::Runtime)
-            }
-            ComptimeExprKind::ErrorErr { expr: inner } => {
-                let (error, value) = self.expected_error_union_parts(expected?)?;
-                let actual_error = self.comptime_arg_runtime_type(inner, Some(error))?;
-                self.comptime_error_union_type(actual_error, value)
-                    .map(ComptimeValueType::Runtime)
-            }
-            ComptimeExprKind::Try { expr: inner } => {
-                let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
-                let payload = match self.ty_kind(inner_ty)? {
-                    TyKind::Optional { elem } => elem,
-                    TyKind::ErrorUnion { value, .. } => value,
-                    _ => return None,
-                };
-                self.import_ty_into_module_or_none(payload, self.current_execution_module_id())
-                    .map(ComptimeValueType::Runtime)
-            }
-            ComptimeExprKind::Binary { lhs, op, rhs } => {
-                self.comptime_binary_expr_type(lhs, *op, rhs)
-            }
-            ComptimeExprKind::Unary { op, expr: inner } => {
-                self.comptime_unary_expr_type(*op, inner)
-            }
-            ComptimeExprKind::Range(range) => self.comptime_range_type(range, expected),
-            ComptimeExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => self.comptime_if_expr_type(cond, then_branch, else_branch.as_deref(), expected),
-            ComptimeExprKind::Switch(switch) => self.comptime_switch_expr_type(switch, expected),
-            ComptimeExprKind::BuiltinValue(ValueBuiltin::Builtin) => {
-                Some(self.builtin_comptime_type())
-            }
-            ComptimeExprKind::Call { callee, args, .. }
-                if args.is_empty()
-                    && self.is_builtin_value_callee(callee, ValueBuiltin::Builtin) =>
-            {
-                Some(self.builtin_comptime_type())
-            }
-            ComptimeExprKind::Call {
-                callee,
-                type_args,
-                args,
-            } => self
-                .comptime_call_return_type(expr.span, callee, type_args, args)
-                .map(ComptimeValueType::Runtime),
-            ComptimeExprKind::Field { lhs, name } => {
-                let lhs_ty = self.comptime_expr_type(lhs, None)?;
-                self.comptime_field_type(lhs_ty, name)
-            }
-            ComptimeExprKind::Len { lhs } => {
-                let lhs_ty = self.comptime_expr_type(lhs, None)?;
-                self.comptime_len_type(lhs_ty)
-            }
-            ComptimeExprKind::RangeIter { lhs } => {
-                let lhs_ty = self.comptime_expr_type(lhs, None)?;
-                self.comptime_range_iter_type(lhs_ty)
-            }
-            ComptimeExprKind::Cast {
-                expr: inner,
-                ty: Some(ty),
-            } => self.comptime_cast_type(inner, *ty),
-            ComptimeExprKind::Index { lhs, index } => {
-                let lhs_ty = self.comptime_expr_type(lhs, None)?;
-                self.comptime_index_type(expr.span, lhs_ty, index)
-            }
-            ComptimeExprKind::Slice { lhs, range } => {
-                let lhs_ty = self.comptime_expr_type(lhs, None)?;
-                self.comptime_slice_type(lhs_ty, range, expected)
-            }
-            ComptimeExprKind::Block(block) => self.comptime_block_tail_type(block, expected),
-            _ => None,
-        }
+        let expr = nia_comptime_ir::resolve_expr(expr.clone()).ok()?;
+        self.resolved_comptime_expr_type(&expr, expected)
     }
 
     fn comptime_name_resolution_type(
@@ -2650,56 +2459,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_index_type(
-        &mut self,
-        span: Span,
-        lhs: ComptimeValueType,
-        index: &ComptimeExpr,
-    ) -> Option<ComptimeValueType> {
-        match lhs {
-            ComptimeValueType::Array { .. } => {
-                let (elem, len) = lhs.array_elem()?;
-                if let Some(len) = len {
-                    let index = self.probe_comptime_array_len_expr(index)?;
-                    if index >= len {
-                        return None;
-                    }
-                } else {
-                    self.probe_comptime_int_expr(index)?;
-                }
-                Some(elem.clone())
-            }
-            ComptimeValueType::Runtime(ty) => self.comptime_runtime_index_type(span, ty, index),
-            ComptimeValueType::Struct(_)
-            | ComptimeValueType::Int
-            | ComptimeValueType::Bool
-            | ComptimeValueType::String => None,
-        }
-    }
-
-    fn comptime_runtime_index_type(
-        &mut self,
-        _span: Span,
-        lhs: InternedTyId,
-        index: &ComptimeExpr,
-    ) -> Option<ComptimeValueType> {
-        let (len, elem) = match self.ty_kind(lhs)? {
-            TyKind::Array { len, elem } => (Some(len), elem),
-            TyKind::Slice { elem, .. } => (None, elem),
-            _ => return None,
-        };
-        if let Some(ArrayLenTy::ConstValue(len)) = len {
-            let index = self.probe_comptime_array_len_expr(index)?;
-            if index >= len {
-                return None;
-            }
-        } else {
-            self.probe_comptime_int_expr(index)?;
-        }
-        self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
-            .map(ComptimeValueType::Runtime)
-    }
-
     fn resolved_comptime_index_type(
         &mut self,
         span: Span,
@@ -2749,45 +2508,6 @@ impl Analyzer<'_> {
         }
         self.import_ty_into_module_or_none(elem, self.current_execution_module_id())
             .map(ComptimeValueType::Runtime)
-    }
-
-    fn comptime_slice_type(
-        &mut self,
-        lhs: ComptimeValueType,
-        range: &ComptimeSliceRange,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        match lhs {
-            ComptimeValueType::Array { .. } => {
-                let (elem, len) = lhs.array_elem()?;
-                let expected_len = self.expected_const_array_len(expected);
-                let actual_len = self.comptime_slice_len(len, expected_len, range)?;
-                self.comptime_slice_result_type(elem.clone(), actual_len, expected)
-            }
-            ComptimeValueType::Runtime(ty) => self.comptime_runtime_slice_type(ty, range, expected),
-            ComptimeValueType::Struct(_)
-            | ComptimeValueType::Int
-            | ComptimeValueType::Bool
-            | ComptimeValueType::String => None,
-        }
-    }
-
-    fn comptime_runtime_slice_type(
-        &mut self,
-        lhs: InternedTyId,
-        range: &ComptimeSliceRange,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        let (len, elem) = match self.ty_kind(lhs)? {
-            TyKind::Array { len, elem } => (Some(len), elem),
-            TyKind::Slice { elem, .. } => (None, elem),
-            _ => return None,
-        };
-        let known_len = len.and_then(|len| self.array_len_const_value(len));
-        let expected_len = self.expected_const_array_len(expected);
-        let actual_len = self.comptime_slice_len(known_len, expected_len, range)?;
-        let elem = self.import_ty_into_module_or_none(elem, self.current_execution_module_id())?;
-        self.comptime_slice_result_type(ComptimeValueType::Runtime(elem), actual_len, expected)
     }
 
     fn resolved_comptime_slice_type(
@@ -2856,34 +2576,6 @@ impl Analyzer<'_> {
             elem: Box::new(elem),
             len: Some(actual_len),
         })
-    }
-
-    fn comptime_slice_len(
-        &mut self,
-        source_len: Option<u64>,
-        expected_len: Option<u64>,
-        range: &ComptimeSliceRange,
-    ) -> Option<u64> {
-        let start = match range.start.as_deref() {
-            Some(start) => self.probe_comptime_array_len_expr(start)?,
-            None => 0,
-        };
-        let mut end = match range.end.as_deref() {
-            Some(end) => self.probe_comptime_array_len_expr(end)?,
-            None => source_len.or_else(|| expected_len.and_then(|len| start.checked_add(len)))?,
-        };
-        if range.inclusive {
-            end = end.checked_add(1)?;
-        }
-        if start > end {
-            return None;
-        }
-        if let Some(source_len) = source_len
-            && end > source_len
-        {
-            return None;
-        }
-        Some(end - start)
     }
 
     fn resolved_comptime_slice_len(
@@ -2982,66 +2674,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_array_literal_type(
-        &mut self,
-        elems: &ComptimeArrayElements,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        let expected_parts = expected.and_then(|expected| self.expected_array_parts(expected));
-        if expected_parts.is_none()
-            && let Some(ty) = self.structural_comptime_array_literal_type(elems)
-        {
-            return Some(ty);
-        }
-        let (elem_ty, actual_len) = match elems {
-            ComptimeArrayElements::List(elems) => {
-                let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
-                let elem_ty = self.comptime_array_list_elem_type(elems, expected_elem)?;
-                (elem_ty, Some(elems.len() as u64))
-            }
-            ComptimeArrayElements::Repeat { value, count } => {
-                let expected_elem = expected_parts.as_ref().map(|(_, elem)| *elem);
-                let elem_ty = self.comptime_arg_runtime_type(value, expected_elem)?;
-                let actual_len = Some(self.probe_comptime_array_len_expr(count)?);
-                (elem_ty, actual_len)
-            }
-        };
-        let len = self.comptime_array_literal_len(expected_parts, actual_len)?;
-        self.comptime_runtime_type(
-            elem_ty,
-            |elem| TyKind::Array { len, elem },
-            self.current_execution_module_id(),
-        )
-        .map(ComptimeValueType::Runtime)
-    }
-
-    fn structural_comptime_array_literal_type(
-        &mut self,
-        elems: &ComptimeArrayElements,
-    ) -> Option<ComptimeValueType> {
-        let (elem_ty, len) = match elems {
-            ComptimeArrayElements::List(elems) => {
-                let first = elems.first()?;
-                let elem_ty = self.comptime_expr_type(first, None)?;
-                for elem in &elems[1..] {
-                    if self.comptime_expr_type(elem, None)? != elem_ty {
-                        return None;
-                    }
-                }
-                (elem_ty, Some(elems.len() as u64))
-            }
-            ComptimeArrayElements::Repeat { value, count } => {
-                let elem_ty = self.comptime_expr_type(value, None)?;
-                let len = self.probe_comptime_array_len_expr(count)?;
-                (elem_ty, Some(len))
-            }
-        };
-        Some(ComptimeValueType::Array {
-            elem: Box::new(elem_ty),
-            len,
-        })
-    }
-
     fn resolved_comptime_array_literal_type(
         &mut self,
         elems: &ResolvedComptimeArrayElements,
@@ -3109,25 +2741,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_array_list_elem_type(
-        &mut self,
-        elems: &[ComptimeExpr],
-        expected_elem: Option<InternedTyId>,
-    ) -> Option<InternedTyId> {
-        let (anchor_index, elem_ty) =
-            self.comptime_array_list_anchor_elem_type(elems, expected_elem)?;
-        for (index, elem) in elems.iter().enumerate() {
-            if index == anchor_index {
-                continue;
-            }
-            let actual = self.comptime_arg_runtime_type(elem, Some(elem_ty))?;
-            if actual != elem_ty {
-                return None;
-            }
-        }
-        Some(elem_ty)
-    }
-
     fn resolved_comptime_array_list_elem_type(
         &mut self,
         elems: &[ResolvedComptimeExpr],
@@ -3158,24 +2771,6 @@ impl Analyzer<'_> {
                 .filter(|ty| !self.type_contains_generic(*ty));
             if let Some(ty) =
                 expected_ty.or_else(|| self.resolved_comptime_arg_runtime_type(elem, None))
-                && !self.type_contains_generic(ty)
-            {
-                return Some((index, ty));
-            }
-        }
-        None
-    }
-
-    fn comptime_array_list_anchor_elem_type(
-        &mut self,
-        elems: &[ComptimeExpr],
-        expected_elem: Option<InternedTyId>,
-    ) -> Option<(usize, InternedTyId)> {
-        for (index, elem) in elems.iter().enumerate() {
-            let expected_ty = expected_elem
-                .and_then(|expected| self.comptime_arg_runtime_type(elem, Some(expected)))
-                .filter(|ty| !self.type_contains_generic(*ty));
-            if let Some(ty) = expected_ty.or_else(|| self.comptime_arg_runtime_type(elem, None))
                 && !self.type_contains_generic(ty)
             {
                 return Some((index, ty));
@@ -3264,79 +2859,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_struct_literal_type(
-        &mut self,
-        span: Span,
-        fields: &[ComptimeFieldInit],
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        let Some(expected) = expected else {
-            return self.structural_comptime_struct_literal_type(fields);
-        };
-        let (def_id, expected_args) = self.expected_nominal_parts(expected)?;
-        if self.def_kind_of(def_id) != Some(DefKind::Struct) {
-            return None;
-        }
-        let signature = self.struct_signature_for(def_id)?;
-        let field_tys = self.comptime_struct_field_types(&signature, &expected_args)?;
-        let mut seen = HashSet::new();
-        let mut substitutions = HashMap::new();
-        for field in fields {
-            if !seen.insert(field.name.as_str()) {
-                return None;
-            }
-            let expected_field = *field_tys.get(field.name.as_str())?;
-            if let Some(actual_field) =
-                self.comptime_struct_field_actual_type(&field.value, expected_field)
-            {
-                self.probe_type_generic_inference(
-                    span,
-                    expected_field,
-                    actual_field,
-                    &mut substitutions,
-                )?;
-            }
-        }
-        if signature
-            .fields
-            .iter()
-            .any(|field| !seen.contains(field.name.as_str()))
-        {
-            return None;
-        }
-        for field in fields {
-            let expected_field = self.substitute_current_ty_generics(
-                *field_tys.get(field.name.as_str())?,
-                &substitutions,
-            )?;
-            let actual_field =
-                self.comptime_arg_runtime_type(&field.value, Some(expected_field))?;
-            if actual_field != expected_field {
-                return None;
-            }
-        }
-        self.substitute_nominal_args(def_id, expected_args, &substitutions)
-            .map(ComptimeValueType::Runtime)
-    }
-
-    fn structural_comptime_struct_literal_type(
-        &mut self,
-        fields: &[ComptimeFieldInit],
-    ) -> Option<ComptimeValueType> {
-        let mut seen = HashSet::new();
-        let mut typed_fields = Vec::with_capacity(fields.len());
-        for field in fields {
-            if !seen.insert(field.name.as_str()) {
-                return None;
-            }
-            typed_fields.push(ComptimeValueFieldType {
-                name: field.name.clone(),
-                ty: self.comptime_expr_type(&field.value, None)?,
-            });
-        }
-        Some(ComptimeValueType::Struct(typed_fields))
-    }
-
     fn resolved_comptime_struct_literal_type(
         &mut self,
         span: Span,
@@ -3423,16 +2945,6 @@ impl Analyzer<'_> {
         self.comptime_struct_field_types(&signature, &args)?
             .get(name)
             .copied()
-    }
-
-    fn comptime_struct_field_actual_type(
-        &mut self,
-        value: &ComptimeExpr,
-        expected: InternedTyId,
-    ) -> Option<InternedTyId> {
-        self.comptime_arg_runtime_type(value, Some(expected))
-            .filter(|ty| !self.type_contains_generic(*ty))
-            .or_else(|| self.comptime_arg_runtime_type(value, None))
     }
 
     fn resolved_comptime_struct_field_actual_type(
@@ -3532,40 +3044,6 @@ impl Analyzer<'_> {
             .map(|interner| interner.intern(TyKind::Nominal { def_id, args }))
     }
 
-    fn comptime_switch_expr_type(
-        &mut self,
-        switch: &ComptimeSwitch,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        let target_ty = self.comptime_arg_runtime_type(&switch.target, None);
-        let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
-        let mut result_ty = expected.map(ComptimeValueType::Runtime);
-        let mut saw_value_arm = false;
-        for arm in &switch.arms {
-            let arm_ty = result_ty
-                .clone()
-                .and_then(|expected| {
-                    let runtime_expected = expected.runtime();
-                    let arm_ty = self.comptime_switch_arm_type(arm, target_ty, runtime_expected)?;
-                    (arm_ty == ComptimeArmType::Value(expected)).then_some(arm_ty)
-                })
-                .or_else(|| {
-                    self.comptime_switch_arm_type(arm, target_ty, result_ty.as_ref()?.runtime())
-                })
-                .or_else(|| self.comptime_switch_arm_type(arm, target_ty, None))?;
-            let ComptimeArmType::Value(arm_ty) = arm_ty else {
-                continue;
-            };
-            saw_value_arm = true;
-            match &result_ty {
-                Some(result_ty) if *result_ty != arm_ty => return None,
-                Some(_) => {}
-                None => result_ty = Some(arm_ty),
-            }
-        }
-        saw_value_arm.then_some(result_ty).flatten()
-    }
-
     fn resolved_comptime_switch_expr_type(
         &mut self,
         switch: &ResolvedComptimeSwitch,
@@ -3605,37 +3083,6 @@ impl Analyzer<'_> {
         saw_value_arm.then_some(result_ty).flatten()
     }
 
-    fn comptime_switch_arm_type(
-        &mut self,
-        arm: &ComptimeSwitchArm,
-        target_ty: Option<InternedTyId>,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeArmType> {
-        let target_ty = target_ty?;
-        self.check_comptime_switch_patterns(&arm.patterns, target_ty)?;
-        if !self.comptime_switch_arm_binds_pattern_locals(arm) {
-            return self.comptime_switch_arm_body_type(&arm.body, expected);
-        }
-        self.push_typed_comptime_scope();
-        let result = (|| {
-            self.bind_typed_comptime_switch_patterns(&arm.patterns, target_ty)?;
-            self.comptime_switch_arm_body_type(&arm.body, expected)
-        })();
-        self.pop_typed_comptime_scope();
-        result
-    }
-
-    fn comptime_switch_arm_binds_pattern_locals(&self, arm: &ComptimeSwitchArm) -> bool {
-        arm.patterns.iter().any(|pattern| {
-            matches!(
-                pattern,
-                ComptimeSwitchPattern::OptionalSome { .. }
-                    | ComptimeSwitchPattern::ErrorOk { .. }
-                    | ComptimeSwitchPattern::ErrorErr { .. }
-            )
-        })
-    }
-
     fn resolved_comptime_switch_arm_type(
         &mut self,
         arm: &nia_comptime_ir::ResolvedComptimeSwitchArm,
@@ -3668,86 +3115,6 @@ impl Analyzer<'_> {
                     | ResolvedComptimeSwitchPattern::ErrorErr { .. }
             )
         })
-    }
-
-    fn check_comptime_switch_patterns(
-        &mut self,
-        patterns: &[ComptimeSwitchPattern],
-        target_ty: InternedTyId,
-    ) -> Option<()> {
-        for pattern in patterns {
-            match pattern {
-                ComptimeSwitchPattern::Default => {}
-                ComptimeSwitchPattern::Expr(expr) => {
-                    let target_ty = ComptimeValueType::Runtime(target_ty);
-                    let pattern_ty = self
-                        .comptime_expr_type(expr, Some(target_ty.runtime()?))
-                        .or_else(|| self.comptime_expr_type(expr, None))?;
-                    if pattern_ty != target_ty
-                        && !self.comptime_equality_types_are_compatible(&target_ty, &pattern_ty)
-                    {
-                        return None;
-                    }
-                }
-                ComptimeSwitchPattern::Range { start, end, .. } => {
-                    if !self.is_integer_runtime_type(target_ty) {
-                        return None;
-                    }
-                    let start_ty = self.comptime_arg_runtime_type(start, Some(target_ty))?;
-                    let end_ty = self.comptime_arg_runtime_type(end, Some(target_ty))?;
-                    if start_ty != target_ty || end_ty != target_ty {
-                        return None;
-                    }
-                }
-                ComptimeSwitchPattern::OptionalSome { .. }
-                | ComptimeSwitchPattern::OptionalNull { .. } => {
-                    if !matches!(self.ty_kind(target_ty), Some(TyKind::Optional { .. })) {
-                        return None;
-                    }
-                }
-                ComptimeSwitchPattern::ErrorOk { .. } | ComptimeSwitchPattern::ErrorErr { .. } => {
-                    if !matches!(self.ty_kind(target_ty), Some(TyKind::ErrorUnion { .. })) {
-                        return None;
-                    }
-                }
-            }
-        }
-        Some(())
-    }
-
-    fn bind_typed_comptime_switch_patterns(
-        &mut self,
-        patterns: &[ComptimeSwitchPattern],
-        target_ty: InternedTyId,
-    ) -> Option<()> {
-        for pattern in patterns {
-            let (name, local_id, ty) = match pattern {
-                ComptimeSwitchPattern::OptionalSome { name, local_id, .. } => {
-                    let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
-                        return None;
-                    };
-                    (name, (*local_id)?, elem)
-                }
-                ComptimeSwitchPattern::ErrorOk { name, local_id, .. } => {
-                    let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
-                        return None;
-                    };
-                    (name, (*local_id)?, value)
-                }
-                ComptimeSwitchPattern::ErrorErr { name, local_id, .. } => {
-                    let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
-                        return None;
-                    };
-                    (name, (*local_id)?, error)
-                }
-                ComptimeSwitchPattern::Default
-                | ComptimeSwitchPattern::OptionalNull { .. }
-                | ComptimeSwitchPattern::Expr(_)
-                | ComptimeSwitchPattern::Range { .. } => continue,
-            };
-            self.bind_comptime_local_type(local_id, name, ComptimeValueType::Runtime(ty));
-        }
-        Some(())
     }
 
     fn check_resolved_comptime_switch_patterns(
@@ -3803,78 +3170,33 @@ impl Analyzer<'_> {
         target_ty: InternedTyId,
     ) -> Option<()> {
         for pattern in patterns {
-            let (name, local_id, ty) = match pattern {
-                ResolvedComptimeSwitchPattern::OptionalSome { name, local_id, .. } => {
+            let (local_id, ty) = match pattern {
+                ResolvedComptimeSwitchPattern::OptionalSome { local_id, .. } => {
                     let Some(TyKind::Optional { elem }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, *local_id, elem)
+                    (*local_id, elem)
                 }
-                ResolvedComptimeSwitchPattern::ErrorOk { name, local_id, .. } => {
+                ResolvedComptimeSwitchPattern::ErrorOk { local_id, .. } => {
                     let Some(TyKind::ErrorUnion { value, .. }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, *local_id, value)
+                    (*local_id, value)
                 }
-                ResolvedComptimeSwitchPattern::ErrorErr { name, local_id, .. } => {
+                ResolvedComptimeSwitchPattern::ErrorErr { local_id, .. } => {
                     let Some(TyKind::ErrorUnion { error, .. }) = self.ty_kind(target_ty) else {
                         return None;
                     };
-                    (name, *local_id, error)
+                    (*local_id, error)
                 }
                 ResolvedComptimeSwitchPattern::Default
                 | ResolvedComptimeSwitchPattern::OptionalNull { .. }
                 | ResolvedComptimeSwitchPattern::Expr(_)
                 | ResolvedComptimeSwitchPattern::Range { .. } => continue,
             };
-            self.bind_comptime_local_type(local_id, name, ComptimeValueType::Runtime(ty));
+            self.bind_comptime_local_type(local_id, ComptimeValueType::Runtime(ty));
         }
         Some(())
-    }
-
-    fn comptime_switch_arm_body_type(
-        &mut self,
-        body: &ComptimeSwitchArmBody,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeArmType> {
-        match body {
-            ComptimeSwitchArmBody::Expr(expr) => self
-                .comptime_expr_type(expr, expected)
-                .map(ComptimeArmType::Value),
-            ComptimeSwitchArmBody::Block(block) => {
-                self.comptime_switch_block_arm_type(block, expected)
-            }
-            ComptimeSwitchArmBody::Stmt(stmt) => self.comptime_stmt_arm_type(stmt, expected),
-        }
-    }
-
-    fn comptime_switch_block_arm_type(
-        &mut self,
-        block: &ComptimeBlock,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeArmType> {
-        self.comptime_block_tail_type(block, expected)
-            .map(ComptimeArmType::Value)
-    }
-
-    fn comptime_stmt_arm_type(
-        &mut self,
-        stmt: &nia_comptime_ir::ComptimeStmt,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeArmType> {
-        match &stmt.kind {
-            ComptimeStmtKind::Expr(expr) => self
-                .comptime_expr_type(expr, expected)
-                .map(ComptimeArmType::Value),
-            ComptimeStmtKind::Return(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
-                Some(ComptimeArmType::ControlFlow)
-            }
-            ComptimeStmtKind::Binding(_)
-            | ComptimeStmtKind::If { .. }
-            | ComptimeStmtKind::ForIn(_)
-            | ComptimeStmtKind::While { .. }
-            | ComptimeStmtKind::Loop { .. } => None,
-        }
     }
 
     fn resolved_comptime_switch_arm_body_type(
@@ -3924,35 +3246,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_if_expr_type(
-        &mut self,
-        cond: &ComptimeExpr,
-        then_branch: &ComptimeBlock,
-        else_branch: Option<&ComptimeExpr>,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
-        let cond_ty = self.comptime_arg_runtime_type(cond, Some(bool_ty))?;
-        if cond_ty != bool_ty {
-            return None;
-        }
-        let expected = expected.and_then(|expected| self.usable_comptime_expected_type(expected));
-        let else_branch = else_branch?;
-        if let Some(expected) = expected {
-            let then_ty = self
-                .comptime_block_tail_runtime_type(then_branch, Some(expected))
-                .or_else(|| self.comptime_block_tail_runtime_type(then_branch, None))?;
-            let else_ty = self
-                .comptime_arg_runtime_type(else_branch, Some(expected))
-                .filter(|else_ty| *else_ty == then_ty)
-                .or_else(|| self.comptime_arg_runtime_type(else_branch, Some(then_ty)))?;
-            return (then_ty == else_ty).then_some(ComptimeValueType::Runtime(then_ty));
-        }
-        let then_ty = self.comptime_block_tail_type(then_branch, None)?;
-        let else_ty = self.comptime_expr_type(else_branch, None)?;
-        (then_ty == else_ty).then_some(then_ty)
-    }
-
     fn resolved_comptime_if_expr_type(
         &mut self,
         cond: &ResolvedComptimeExpr,
@@ -3989,15 +3282,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_block_tail_runtime_type(
-        &mut self,
-        block: &ComptimeBlock,
-        expected: Option<InternedTyId>,
-    ) -> Option<InternedTyId> {
-        self.comptime_block_tail_type(block, expected)
-            .and_then(|ty| ty.runtime())
-    }
-
     fn resolved_comptime_block_tail_runtime_type(
         &mut self,
         block: &ResolvedComptimeBlock,
@@ -4005,25 +3289,6 @@ impl Analyzer<'_> {
     ) -> Option<InternedTyId> {
         self.resolved_comptime_block_tail_type(block, expected)
             .and_then(|ty| ty.runtime())
-    }
-
-    fn comptime_block_tail_type(
-        &mut self,
-        block: &ComptimeBlock,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        if block.stmts.is_empty() {
-            return self.comptime_expr_type(block.tail.as_deref()?, expected);
-        }
-        self.push_typed_comptime_scope();
-        let result = (|| {
-            for stmt in &block.stmts {
-                self.bind_typed_comptime_stmt(stmt)?;
-            }
-            self.comptime_expr_type(block.tail.as_deref()?, expected)
-        })();
-        self.pop_typed_comptime_scope();
-        result
     }
 
     fn resolved_comptime_block_tail_type(
@@ -4045,43 +3310,6 @@ impl Analyzer<'_> {
         result
     }
 
-    fn bind_typed_comptime_stmt(&mut self, stmt: &nia_comptime_ir::ComptimeStmt) -> Option<()> {
-        match &stmt.kind {
-            ComptimeStmtKind::Binding(binding) => {
-                let ty = binding
-                    .explicit_type
-                    .map(|ty| self.substitute_ty_generics(ty))
-                    .map(ComptimeValueType::Runtime)
-                    .or_else(|| self.comptime_expr_type(&binding.value, None))?;
-                let local_id = binding.local_id?;
-                self.bind_comptime_local_type(local_id, &binding.name, ty);
-                Some(())
-            }
-            ComptimeStmtKind::Expr(_) => Some(()),
-            ComptimeStmtKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                self.check_comptime_bool_condition(cond)?;
-                self.check_comptime_block(then_branch)?;
-                if let Some(else_branch) = else_branch {
-                    self.check_comptime_block(else_branch)?;
-                }
-                Some(())
-            }
-            ComptimeStmtKind::ForIn(for_in) => self.check_comptime_for_in_stmt(for_in),
-            ComptimeStmtKind::While { cond, body } => {
-                self.check_comptime_bool_condition(cond)?;
-                self.check_comptime_block(body)
-            }
-            ComptimeStmtKind::Loop { body } => self.check_comptime_block(body),
-            ComptimeStmtKind::Return(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
-                None
-            }
-        }
-    }
-
     fn bind_typed_resolved_comptime_stmt(
         &mut self,
         stmt: &nia_comptime_ir::ResolvedComptimeStmt,
@@ -4093,7 +3321,7 @@ impl Analyzer<'_> {
                     .map(|ty| self.substitute_ty_generics(ty))
                     .map(ComptimeValueType::Runtime)
                     .or_else(|| self.resolved_comptime_expr_type(&binding.value, None))?;
-                self.bind_comptime_local_type(binding.local_id, &binding.name, ty);
+                self.bind_comptime_local_type(binding.local_id, ty);
                 Some(())
             }
             ResolvedComptimeStmtKind::Expr(_) => Some(()),
@@ -4120,39 +3348,6 @@ impl Analyzer<'_> {
             ResolvedComptimeStmtKind::Return(_)
             | ResolvedComptimeStmtKind::Break
             | ResolvedComptimeStmtKind::Continue => None,
-        }
-    }
-
-    fn check_comptime_block(&mut self, block: &ComptimeBlock) -> Option<()> {
-        self.push_typed_comptime_scope();
-        let result = (|| {
-            for stmt in &block.stmts {
-                self.check_comptime_stmt(stmt)?;
-            }
-            if let Some(tail) = block.tail.as_deref() {
-                self.comptime_expr_type(tail, None)?;
-            }
-            Some(())
-        })();
-        self.pop_typed_comptime_scope();
-        result
-    }
-
-    fn check_comptime_stmt(&mut self, stmt: &nia_comptime_ir::ComptimeStmt) -> Option<()> {
-        match &stmt.kind {
-            ComptimeStmtKind::Binding(_)
-            | ComptimeStmtKind::If { .. }
-            | ComptimeStmtKind::ForIn(_)
-            | ComptimeStmtKind::While { .. }
-            | ComptimeStmtKind::Loop { .. } => self.bind_typed_comptime_stmt(stmt),
-            ComptimeStmtKind::Expr(_) | ComptimeStmtKind::Break | ComptimeStmtKind::Continue => {
-                Some(())
-            }
-            ComptimeStmtKind::Return(Some(expr)) => {
-                self.comptime_expr_type(expr, None)?;
-                Some(())
-            }
-            ComptimeStmtKind::Return(None) => Some(()),
         }
     }
 
@@ -4192,28 +3387,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn check_comptime_for_in_stmt(
-        &mut self,
-        for_in: &nia_comptime_ir::ComptimeForIn,
-    ) -> Option<()> {
-        let iter_ty = self.comptime_expr_type(&for_in.iter, None)?;
-        let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
-        self.push_typed_comptime_scope();
-        let result = (|| {
-            let local_id = for_in.binding.local_id?;
-            self.bind_comptime_local_type(local_id, &for_in.binding.name, binding_ty);
-            for stmt in &for_in.body.stmts {
-                self.check_comptime_stmt(stmt)?;
-            }
-            if let Some(tail) = for_in.body.tail.as_deref() {
-                self.comptime_expr_type(tail, None)?;
-            }
-            Some(())
-        })();
-        self.pop_typed_comptime_scope();
-        result
-    }
-
     fn check_resolved_comptime_for_in_stmt(
         &mut self,
         for_in: &nia_comptime_ir::ResolvedComptimeForIn,
@@ -4222,11 +3395,7 @@ impl Analyzer<'_> {
         let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
         self.push_typed_comptime_scope();
         let result = (|| {
-            self.bind_comptime_local_type(
-                for_in.binding.local_id,
-                &for_in.binding.name,
-                binding_ty,
-            );
+            self.bind_comptime_local_type(for_in.binding.local_id, binding_ty);
             for stmt in &for_in.body.stmts {
                 self.check_resolved_comptime_stmt(stmt)?;
             }
@@ -4262,12 +3431,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn check_comptime_bool_condition(&mut self, cond: &ComptimeExpr) -> Option<()> {
-        let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
-        let cond_ty = self.comptime_arg_runtime_type(cond, Some(bool_ty))?;
-        (cond_ty == bool_ty).then_some(())
-    }
-
     fn check_resolved_comptime_bool_condition(
         &mut self,
         cond: &ResolvedComptimeExpr,
@@ -4285,37 +3448,11 @@ impl Analyzer<'_> {
         self.call_locals.pop();
     }
 
-    fn bind_comptime_local_type(&mut self, local_id: LocalId, name: &str, ty: ComptimeValueType) {
+    fn bind_comptime_local_type(&mut self, local_id: LocalId, ty: ComptimeValueType) {
         let Some(frame) = self.call_locals.last_mut() else {
             return;
         };
-        frame.local_types.insert(local_id, ty.clone());
-        frame.name_types.insert(name.to_string(), ty);
-    }
-
-    fn comptime_unary_expr_type(
-        &mut self,
-        op: ComptimeUnaryOp,
-        inner: &ComptimeExpr,
-    ) -> Option<ComptimeValueType> {
-        match op {
-            ComptimeUnaryOp::Not => {
-                let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
-                let inner_ty = self.comptime_arg_runtime_type(inner, Some(bool_ty))?;
-                (inner_ty == bool_ty).then_some(ComptimeValueType::Runtime(bool_ty))
-            }
-            ComptimeUnaryOp::Neg => {
-                let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
-                (self.is_integer_runtime_type(inner_ty) || self.is_float_runtime_type(inner_ty))
-                    .then_some(ComptimeValueType::Runtime(inner_ty))
-            }
-            ComptimeUnaryOp::BitNot => {
-                let inner_ty = self.comptime_arg_runtime_type(inner, None)?;
-                self.is_integer_runtime_type(inner_ty)
-                    .then_some(ComptimeValueType::Runtime(inner_ty))
-            }
-            ComptimeUnaryOp::RefReadOnly | ComptimeUnaryOp::Ref | ComptimeUnaryOp::Deref => None,
-        }
+        frame.local_types.insert(local_id, ty);
     }
 
     fn resolved_comptime_unary_expr_type(
@@ -4341,53 +3478,6 @@ impl Analyzer<'_> {
             }
             ComptimeUnaryOp::RefReadOnly | ComptimeUnaryOp::Ref | ComptimeUnaryOp::Deref => None,
         }
-    }
-
-    fn comptime_range_type(
-        &mut self,
-        range: &ComptimeRange,
-        expected: Option<InternedTyId>,
-    ) -> Option<ComptimeValueType> {
-        let kind = match (range.start.is_some(), range.end.is_some(), range.inclusive) {
-            (true, true, false) => RangeTyKind::Exclusive,
-            (true, true, true) => RangeTyKind::Inclusive,
-            (true, false, false) => RangeTyKind::From,
-            (false, true, false) => RangeTyKind::To,
-            (false, true, true) => RangeTyKind::ToInclusive,
-            (false, false, false) => RangeTyKind::Full,
-            (true, false, true) | (false, false, true) => return None,
-        };
-        let expected_bound = expected.and_then(|expected| match self.ty_kind(expected) {
-            Some(TyKind::Range {
-                kind: expected_kind,
-                bound,
-            }) if expected_kind == kind => bound,
-            _ => None,
-        });
-        let start_ty = match range.start.as_deref() {
-            Some(start) => Some(self.comptime_arg_runtime_type(start, expected_bound)?),
-            None => None,
-        };
-        let end_ty = match range.end.as_deref() {
-            Some(end) => Some(self.comptime_arg_runtime_type(end, expected_bound.or(start_ty))?),
-            None => None,
-        };
-        let bound = match (start_ty, end_ty) {
-            (Some(start_ty), Some(end_ty)) if start_ty == end_ty => Some(start_ty),
-            (Some(bound), None) | (None, Some(bound)) => Some(bound),
-            (None, None) => expected_bound,
-            (Some(_), Some(_)) => return None,
-        };
-        let module_id = self.current_execution_module_id();
-        let bound = match bound {
-            Some(bound) => Some(self.import_ty_into_module_or_none(bound, module_id)?),
-            None => None,
-        };
-        let ty = self
-            .working_interners
-            .get_mut(&module_id)?
-            .intern(TyKind::Range { kind, bound });
-        Some(ComptimeValueType::Runtime(ty))
     }
 
     fn resolved_comptime_range_type(
@@ -4437,56 +3527,6 @@ impl Analyzer<'_> {
             .get_mut(&module_id)?
             .intern(TyKind::Range { kind, bound });
         Some(ComptimeValueType::Runtime(ty))
-    }
-
-    fn comptime_binary_expr_type(
-        &mut self,
-        lhs: &ComptimeExpr,
-        op: ComptimeBinaryOp,
-        rhs: &ComptimeExpr,
-    ) -> Option<ComptimeValueType> {
-        match op {
-            ComptimeBinaryOp::And | ComptimeBinaryOp::Or => {
-                self.comptime_bool_binary_expr_type(lhs, rhs)
-            }
-            ComptimeBinaryOp::Eq | ComptimeBinaryOp::Ne => {
-                self.comptime_equality_expr_type(lhs, rhs)
-            }
-            ComptimeBinaryOp::Lt
-            | ComptimeBinaryOp::Le
-            | ComptimeBinaryOp::Gt
-            | ComptimeBinaryOp::Ge => {
-                let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
-                let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
-                (lhs_ty == rhs_ty
-                    && (self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty)))
-                .then_some(ComptimeValueType::Runtime(
-                    self.current_runtime_primitive_type(PrimitiveTy::Bool),
-                ))
-            }
-            ComptimeBinaryOp::Mul
-            | ComptimeBinaryOp::Div
-            | ComptimeBinaryOp::Rem
-            | ComptimeBinaryOp::Add
-            | ComptimeBinaryOp::Sub
-            | ComptimeBinaryOp::Shl
-            | ComptimeBinaryOp::Shr
-            | ComptimeBinaryOp::BitAnd
-            | ComptimeBinaryOp::BitXor
-            | ComptimeBinaryOp::BitOr => {
-                let lhs_ty = self.comptime_arg_runtime_type(lhs, None)?;
-                let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(lhs_ty))?;
-                let allowed = match op {
-                    ComptimeBinaryOp::Shl
-                    | ComptimeBinaryOp::Shr
-                    | ComptimeBinaryOp::BitAnd
-                    | ComptimeBinaryOp::BitXor
-                    | ComptimeBinaryOp::BitOr => self.is_integer_runtime_type(lhs_ty),
-                    _ => self.is_integer_runtime_type(lhs_ty) || self.is_float_runtime_type(lhs_ty),
-                };
-                (lhs_ty == rhs_ty && allowed).then_some(ComptimeValueType::Runtime(lhs_ty))
-            }
-        }
     }
 
     fn resolved_comptime_binary_expr_type(
@@ -4539,18 +3579,6 @@ impl Analyzer<'_> {
         }
     }
 
-    fn comptime_cast_type(
-        &mut self,
-        expr: &ComptimeExpr,
-        target: InternedTyId,
-    ) -> Option<ComptimeValueType> {
-        let source = self.comptime_arg_runtime_type(expr, None)?;
-        let target =
-            self.import_ty_into_module_or_none(target, self.current_execution_module_id())?;
-        self.comptime_runtime_cast_is_supported(source, target)
-            .then_some(ComptimeValueType::Runtime(target))
-    }
-
     fn resolved_comptime_cast_type(
         &mut self,
         expr: &ResolvedComptimeExpr,
@@ -4583,17 +3611,6 @@ impl Analyzer<'_> {
         source_numeric && target_numeric
     }
 
-    fn comptime_bool_binary_expr_type(
-        &mut self,
-        lhs: &ComptimeExpr,
-        rhs: &ComptimeExpr,
-    ) -> Option<ComptimeValueType> {
-        let bool_ty = self.current_runtime_primitive_type(PrimitiveTy::Bool);
-        let lhs_ty = self.comptime_arg_runtime_type(lhs, Some(bool_ty))?;
-        let rhs_ty = self.comptime_arg_runtime_type(rhs, Some(bool_ty))?;
-        (lhs_ty == bool_ty && rhs_ty == bool_ty).then_some(ComptimeValueType::Runtime(bool_ty))
-    }
-
     fn resolved_comptime_bool_binary_expr_type(
         &mut self,
         lhs: &ResolvedComptimeExpr,
@@ -4603,21 +3620,6 @@ impl Analyzer<'_> {
         let lhs_ty = self.resolved_comptime_arg_runtime_type(lhs, Some(bool_ty))?;
         let rhs_ty = self.resolved_comptime_arg_runtime_type(rhs, Some(bool_ty))?;
         (lhs_ty == bool_ty && rhs_ty == bool_ty).then_some(ComptimeValueType::Runtime(bool_ty))
-    }
-
-    fn comptime_equality_expr_type(
-        &mut self,
-        lhs: &ComptimeExpr,
-        rhs: &ComptimeExpr,
-    ) -> Option<ComptimeValueType> {
-        let lhs_ty = self.comptime_expr_type(lhs, None)?;
-        let rhs_ty = self
-            .comptime_expr_type(rhs, lhs_ty.runtime())
-            .or_else(|| self.comptime_expr_type(rhs, None))?;
-        (lhs_ty == rhs_ty || self.comptime_equality_types_are_compatible(&lhs_ty, &rhs_ty))
-            .then_some(ComptimeValueType::Runtime(
-                self.current_runtime_primitive_type(PrimitiveTy::Bool),
-            ))
     }
 
     fn resolved_comptime_equality_expr_type(
@@ -4721,29 +3723,6 @@ impl Analyzer<'_> {
         )
     }
 
-    fn comptime_call_return_type(
-        &mut self,
-        span: Span,
-        callee: &ComptimeExpr,
-        type_args: &[ComptimeTypeArg],
-        args: &[ComptimeExpr],
-    ) -> Option<InternedTyId> {
-        let callee = nia_comptime_ir::resolve_expr(callee.clone()).ok()?;
-        let type_args = type_args
-            .iter()
-            .cloned()
-            .map(nia_comptime_ir::resolve_type_arg)
-            .collect::<Result<Vec<_>, _>>()
-            .ok()?;
-        let args = args
-            .iter()
-            .cloned()
-            .map(nia_comptime_ir::resolve_expr)
-            .collect::<Result<Vec<_>, _>>()
-            .ok()?;
-        self.resolved_comptime_call_return_type(span, &callee, &type_args, &args)
-    }
-
     fn resolved_comptime_call_return_type(
         &mut self,
         span: Span,
@@ -4824,25 +3803,11 @@ impl Analyzer<'_> {
             .map(|interner| interner.intern(TyKind::ErrorUnion { error, value }))
     }
 
-    fn is_builtin_value_callee(&self, callee: &ComptimeExpr, expected: ValueBuiltin) -> bool {
-        matches!(
-            &callee.kind,
-            ComptimeExprKind::BuiltinValue(builtin) if *builtin == expected
-        )
-    }
-
     fn call_local_type(&self, local_id: LocalId) -> Option<ComptimeValueType> {
         self.call_locals
             .iter()
             .rev()
             .find_map(|frame| frame.local_types.get(&local_id).cloned())
-    }
-
-    fn call_local_name_type(&self, name: &str) -> Option<ComptimeValueType> {
-        self.call_locals
-            .iter()
-            .rev()
-            .find_map(|frame| frame.name_types.get(name).cloned())
     }
 
     fn builtin_comptime_type(&self) -> ComptimeValueType {
@@ -5402,9 +4367,6 @@ impl ComptimeCommonEnv for Analyzer<'_> {
 
 impl RawComptimeEnv for Analyzer<'_> {
     fn resolve_ident(&mut self, span: Span, name: &str) -> Result<ComptimeValue, ComptimeError> {
-        if let Some(value) = self.call_local_name_value(name) {
-            return Ok(value);
-        }
         if let Some(local_id) = self.local_use(span)
             && let Some(value) = self.call_local_value(local_id)
         {
@@ -5552,7 +4514,7 @@ impl RawComptimeEnv for Analyzer<'_> {
         let ty = param
             .ty
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
-        self.bind_local_value(span, local_id, &param.name, false, value, ty)
+        self.bind_local_value(span, local_id, false, value, ty)
     }
 
     fn bind_function_local(
@@ -5571,13 +4533,13 @@ impl RawComptimeEnv for Analyzer<'_> {
             .explicit_type
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)))
             .or_else(|| self.comptime_expr_type(&binding.value, None));
-        self.bind_local_value(span, local_id, &binding.name, binding.is_mutable, value, ty)
+        self.bind_local_value(span, local_id, binding.is_mutable, value, ty)
     }
 
     fn bind_pattern_local(
         &mut self,
         span: Span,
-        name: &str,
+        _name: &str,
         local_id: Option<LocalId>,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
@@ -5585,7 +4547,7 @@ impl RawComptimeEnv for Analyzer<'_> {
         let ty = self
             .find_local_binding_type(local_id)
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
-        self.bind_local_value(span, local_id, name, false, value, ty)
+        self.bind_local_value(span, local_id, false, value, ty)
     }
 
     fn assign_local(
@@ -5737,7 +4699,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         let ty = param
             .ty
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
-        self.bind_local_value(span, param.local_id, &param.name, false, value, ty)
+        self.bind_local_value(span, param.local_id, false, value, ty)
     }
 
     fn bind_resolved_function_local(
@@ -5750,27 +4712,20 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
             .explicit_type
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)))
             .or_else(|| self.resolved_comptime_expr_type(&binding.value, None));
-        self.bind_local_value(
-            span,
-            binding.local_id,
-            &binding.name,
-            binding.is_mutable,
-            value,
-            ty,
-        )
+        self.bind_local_value(span, binding.local_id, binding.is_mutable, value, ty)
     }
 
     fn bind_resolved_pattern_local(
         &mut self,
         span: Span,
-        name: &str,
+        _name: &str,
         local_id: LocalId,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         let ty = self
             .find_local_binding_type(local_id)
             .map(|ty| ComptimeValueType::Runtime(self.substitute_ty_generics(ty)));
-        self.bind_local_value(span, local_id, name, false, value, ty)
+        self.bind_local_value(span, local_id, false, value, ty)
     }
 
     fn assign_resolved_local(
@@ -5792,7 +4747,6 @@ impl Analyzer<'_> {
         &mut self,
         span: Span,
         local_id: LocalId,
-        name: &str,
         is_mutable: bool,
         value: ComptimeValue,
         ty: Option<ComptimeValueType>,
@@ -5814,11 +4768,9 @@ impl Analyzer<'_> {
             frame.mutable_locals.insert(local_id);
         }
         frame.locals.insert(local_id, value.clone());
-        frame.names.insert(name.to_string(), value.clone());
         if let Some(ty) = ty {
             let typed = TypedComptimeValue { value, ty };
             frame.local_types.insert(local_id, typed.ty.clone());
-            frame.name_types.insert(name.to_string(), typed.ty);
         }
         Ok(())
     }
@@ -5854,10 +4806,6 @@ impl Analyzer<'_> {
             }
             let frame = &mut self.call_locals[index];
             frame.locals.insert(local_id, value.clone());
-            frame.names.insert(name.to_string(), value.clone());
-            if let Some(previous_ty) = previous_ty {
-                frame.name_types.insert(name.to_string(), previous_ty);
-            }
             return Ok(());
         }
         Err(ComptimeError {

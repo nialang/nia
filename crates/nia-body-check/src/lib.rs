@@ -416,8 +416,6 @@ struct ComptimeCallFrame {
     locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
     local_types: HashMap<LocalId, nia_comptime_check::ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
-    names: HashMap<String, nia_comptime_check::ComptimeValue>,
-    name_types: HashMap<String, nia_comptime_check::ComptimeValueType>,
     type_substitutions: HashMap<String, InternedTyId>,
 }
 
