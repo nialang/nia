@@ -104,6 +104,13 @@ pub struct ComptimeParam {
     pub ty: Option<InternedTyId>,
 }
 
+impl ComptimeParam {
+    pub fn resolved_local_id(&self) -> LocalId {
+        self.local_id
+            .expect("resolved comptime parameter must have a local id")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeBlock {
     pub span: Span,
@@ -149,6 +156,13 @@ pub struct ComptimeBinding {
     pub value: ComptimeExpr,
 }
 
+impl ComptimeBinding {
+    pub fn resolved_local_id(&self) -> LocalId {
+        self.local_id
+            .expect("resolved comptime binding must have a local id")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComptimeAssign {
     pub lhs: ComptimeAssignTarget,
@@ -164,6 +178,16 @@ pub enum ComptimeAssignTarget {
         local_id: Option<LocalId>,
         path: Vec<ComptimeAssignPathElem>,
     },
+}
+
+impl ComptimeAssignTarget {
+    pub fn resolved_local_id(&self) -> LocalId {
+        match self {
+            ComptimeAssignTarget::Local { local_id, .. } => {
+                local_id.expect("resolved comptime assignment target must have a local id")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -184,6 +208,13 @@ pub struct ComptimeForBinding {
     pub span: Span,
     pub name: String,
     pub local_id: Option<LocalId>,
+}
+
+impl ComptimeForBinding {
+    pub fn resolved_local_id(&self) -> LocalId {
+        self.local_id
+            .expect("resolved comptime for binding must have a local id")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -430,6 +461,11 @@ pub struct ComptimeTypeArg {
 }
 
 impl ComptimeTypeArg {
+    pub fn resolved_ty(&self) -> InternedTyId {
+        self.ty
+            .expect("resolved comptime type argument must have a type id")
+    }
+
     fn from_type_ref(
         ty: &nia_ast::TypeRef,
         context: &ComptimeLowerInputs<'_>,

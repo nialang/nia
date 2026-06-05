@@ -871,7 +871,7 @@ impl ComptimeEnv for BodyChecker<'_> {
                 message: "comptime expression can only call `comptime fn`".to_string(),
             });
         };
-        nia_comptime_engine::eval_comptime_function_call(
+        nia_comptime_engine::eval_resolved_comptime_function_call(
             span,
             function_id.module_id,
             &function,
@@ -914,12 +914,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         param: &ComptimeParam,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = param.local_id else {
-            return Err(ComptimeError {
-                span,
-                message: "failed to bind comptime function parameter".to_string(),
-            });
-        };
+        let local_id = param.resolved_local_id();
         let ty = param.ty.map(|ty| {
             nia_comptime_check::ComptimeValueType::Runtime(
                 self.substitute_current_comptime_generics(ty),
@@ -934,12 +929,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         binding: &ComptimeBinding,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = binding.local_id else {
-            return Err(ComptimeError {
-                span,
-                message: "failed to bind comptime function local".to_string(),
-            });
-        };
+        let local_id = binding.resolved_local_id();
         let ty = binding
             .explicit_type
             .map(|ty| {
@@ -965,12 +955,7 @@ impl ComptimeEnv for BodyChecker<'_> {
         local_id: Option<LocalId>,
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
-        let Some(local_id) = local_id else {
-            return Err(ComptimeError {
-                span,
-                message: "failed to bind comptime switch pattern local".to_string(),
-            });
-        };
+        let local_id = local_id.expect("resolved comptime switch pattern must have a local id");
         let ty = self
             .local_types
             .get(&local_id)
@@ -986,14 +971,9 @@ impl ComptimeEnv for BodyChecker<'_> {
         value: ComptimeValue,
     ) -> Result<(), ComptimeError> {
         match target {
-            ComptimeAssignTarget::Local { name, local_id, .. } => {
-                let Some(local_id) = local_id else {
-                    return Err(ComptimeError {
-                        span,
-                        message: format!("failed to resolve comptime assignment target `{name}`"),
-                    });
-                };
-                self.assign_comptime_call_local_value(span, *local_id, name, value)
+            ComptimeAssignTarget::Local { name, .. } => {
+                let local_id = target.resolved_local_id();
+                self.assign_comptime_call_local_value(span, local_id, name, value)
             }
         }
     }
@@ -1159,7 +1139,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn comptime_type_arg(&mut self, arg: &ComptimeTypeArg) -> Option<InternedTyId> {
-        let ty = arg.ty?;
+        let ty = arg.resolved_ty();
         Some(self.substitute_current_comptime_generics(ty))
     }
 
@@ -1298,19 +1278,14 @@ impl<'a> BodyChecker<'a> {
     fn comptime_function_body(
         &self,
         def_id: GlobalDefId,
-    ) -> Option<&nia_comptime_ir::ComptimeFunction> {
+    ) -> Option<&nia_comptime_ir::ResolvedComptimeFunction> {
         if def_id.module_id == self.defs.module_id {
-            return self
-                .comptime_module
-                .functions
-                .get(&def_id)
-                .map(nia_comptime_ir::ResolvedComptimeFunction::as_function);
+            return self.comptime_module.functions.get(&def_id);
         }
         self.program_comptime_modules
             .get(&def_id.module_id)?
             .functions
             .get(&def_id)
-            .map(nia_comptime_ir::ResolvedComptimeFunction::as_function)
     }
 }
 
