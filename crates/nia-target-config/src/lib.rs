@@ -5,7 +5,7 @@ use nia_ast::{
 };
 use nia_comptime_ir::{
     EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeExpr, EarlyComptimeExprKind,
-    EarlyComptimeParam, EarlyComptimeTypeArg,
+    EarlyComptimeName, EarlyComptimeParam, EarlyComptimeTypeArg,
 };
 use nia_diagnostic::Diagnostic;
 use nia_item_tree::ActiveModuleItemTree;
@@ -191,10 +191,17 @@ impl nia_comptime_engine::EarlyComptimeEnv for TargetComptimeEnv<'_> {
             });
         }
         let _ = arg_exprs;
-        let EarlyComptimeExprKind::Ident { name, .. } = &callee.kind else {
+        let EarlyComptimeExprKind::Ident(name) = &callee.kind else {
             return Err(nia_comptime_engine::ComptimeError {
                 span,
                 message: "target condition can only call same-module `comptime fn`".to_string(),
+            });
+        };
+        let EarlyComptimeName::Unresolved(name) = name else {
+            return Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: "target condition cannot call resolved semantic comptime functions"
+                    .to_string(),
             });
         };
         let Some(function) = self.functions.get(name) else {

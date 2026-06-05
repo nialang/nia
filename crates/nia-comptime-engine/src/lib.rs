@@ -760,18 +760,11 @@ fn eval_comptime_expr_flow(
                 span: expr.span,
                 message: format!("invalid byte char literal `{text}` in comptime expression"),
             })?,
-        EarlyComptimeExprKind::Ident { .. } | EarlyComptimeExprKind::Qualified { .. } => {
-            let (name, resolution) = match &expr.kind {
-                EarlyComptimeExprKind::Ident { name, resolution }
-                | EarlyComptimeExprKind::Qualified { name, resolution } => {
-                    (name.as_str(), *resolution)
-                }
-                _ => unreachable!("comptime name expression must have name shape"),
-            };
-            if let Some(resolution) = resolution {
-                env.resolve_name_resolution(expr.span, resolution, name)?
+        EarlyComptimeExprKind::Ident(name) | EarlyComptimeExprKind::Qualified(name) => {
+            if let Some(resolution) = name.resolution() {
+                env.resolve_name_resolution(expr.span, resolution, name.display())?
             } else {
-                env.resolve_ident(expr.span, name)?
+                env.resolve_ident(expr.span, name.display())?
             }
         }
         EarlyComptimeExprKind::Field { lhs, name } => match eval_value_or_return_flow!(lhs, env) {
@@ -4098,10 +4091,10 @@ fn main() bool {
     fn resolved_names_do_not_fall_back_to_ident_lookup() {
         let expr = EarlyComptimeExpr {
             span: Span::new(0, 1),
-            kind: EarlyComptimeExprKind::Ident {
-                name: "x".to_string(),
-                resolution: Some(ComptimeNameResolution::Local(nia_ids::LocalId(0))),
-            },
+            kind: EarlyComptimeExprKind::Ident(nia_comptime_ir::EarlyComptimeName::resolved(
+                "x".to_string(),
+                ComptimeNameResolution::Local(nia_ids::LocalId(0)),
+            )),
         };
         let err = eval_early_comptime_expr(&expr, &mut EmptyEnv)
             .expect_err("resolved names must be handled explicitly");
