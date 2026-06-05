@@ -189,7 +189,7 @@ impl nia_comptime_engine::ComptimeEnv for TargetComptimeEnv<'_> {
                 message: format!("unknown target comptime function `{name}`"),
             });
         };
-        nia_comptime_engine::eval_comptime_function_call(
+        nia_comptime_engine::eval_early_comptime_function_call(
             span,
             nia_ids::ModuleId(0),
             function,
