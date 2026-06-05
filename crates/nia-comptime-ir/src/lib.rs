@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ValueBuiltin};
+use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -1398,6 +1399,15 @@ pub enum ComptimeNameResolution {
     Global(GlobalDefId),
 }
 
+impl From<SemanticValueUse> for ComptimeNameResolution {
+    fn from(value: SemanticValueUse) -> Self {
+        match value {
+            SemanticValueUse::Local(local_id) => Self::Local(local_id),
+            SemanticValueUse::Global(global_id) => Self::Global(global_id),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct EarlyComptimeFieldInit {
     pub span: Span,
@@ -1444,9 +1454,7 @@ pub fn lower_expr_early_with_context(
 
 #[derive(Clone, Copy, Default)]
 pub struct EarlyComptimeLowerInputs<'a> {
-    pub name_resolution: Option<&'a dyn Fn(Span) -> Option<ComptimeNameResolution>>,
-    pub local_id: Option<&'a dyn Fn(Span) -> Option<LocalId>>,
-    pub type_id: Option<&'a dyn Fn(Span) -> Option<InternedTyId>>,
+    pub semantic_uses: Option<&'a SemanticUseTable>,
 }
 
 impl<'a> EarlyComptimeLowerInputs<'a> {
@@ -1454,43 +1462,20 @@ impl<'a> EarlyComptimeLowerInputs<'a> {
         Self::default()
     }
 
-    pub fn with_name_resolution(
-        mut self,
-        name_resolution: &'a dyn Fn(Span) -> Option<ComptimeNameResolution>,
-    ) -> Self {
-        self.name_resolution = Some(name_resolution);
-        self
-    }
-
-    pub fn with_local_id(mut self, local_id: &'a dyn Fn(Span) -> Option<LocalId>) -> Self {
-        self.local_id = Some(local_id);
-        self
-    }
-
-    pub fn with_type_id(mut self, type_id: &'a dyn Fn(Span) -> Option<InternedTyId>) -> Self {
-        self.type_id = Some(type_id);
+    pub fn with_semantic_uses(mut self, semantic_uses: &'a SemanticUseTable) -> Self {
+        self.semantic_uses = Some(semantic_uses);
         self
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct ResolvedComptimeLowerInputs<'a> {
-    pub name_resolution: &'a dyn Fn(Span) -> Option<ComptimeNameResolution>,
-    pub local_id: &'a dyn Fn(Span) -> Option<LocalId>,
-    pub type_id: &'a dyn Fn(Span) -> Option<InternedTyId>,
+    pub semantic_uses: &'a SemanticUseTable,
 }
 
 impl<'a> ResolvedComptimeLowerInputs<'a> {
-    pub fn new(
-        name_resolution: &'a dyn Fn(Span) -> Option<ComptimeNameResolution>,
-        local_id: &'a dyn Fn(Span) -> Option<LocalId>,
-        type_id: &'a dyn Fn(Span) -> Option<InternedTyId>,
-    ) -> Self {
-        Self {
-            name_resolution,
-            local_id,
-            type_id,
-        }
+    pub fn new(semantic_uses: &'a SemanticUseTable) -> Self {
+        Self { semantic_uses }
     }
 }
 
@@ -1510,15 +1495,22 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
         &self,
         span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
-        Ok(self.name_resolution.and_then(|resolve| resolve(span)))
+        Ok(self
+            .semantic_uses
+            .and_then(|semantic_uses| semantic_uses.value_use(span))
+            .map(ComptimeNameResolution::from))
     }
 
     fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError> {
-        Ok(self.local_id.and_then(|local_id| local_id(span)))
+        Ok(self
+            .semantic_uses
+            .and_then(|semantic_uses| semantic_uses.local_def(span)))
     }
 
     fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError> {
-        Ok(self.type_id.and_then(|type_id| type_id(span)))
+        Ok(self
+            .semantic_uses
+            .and_then(|semantic_uses| semantic_uses.type_use(span)))
     }
 }
 
@@ -1527,19 +1519,23 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
         &self,
         span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
-        (self.name_resolution)(span)
+        self.semantic_uses
+            .value_use(span)
+            .map(ComptimeNameResolution::from)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "comptime name"))
     }
 
     fn lower_local_id(&self, span: Span) -> Result<Option<LocalId>, ComptimeLowerError> {
-        (self.local_id)(span)
+        self.semantic_uses
+            .local_def(span)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "comptime local binding"))
     }
 
     fn lower_type_id(&self, span: Span) -> Result<Option<InternedTyId>, ComptimeLowerError> {
-        (self.type_id)(span)
+        self.semantic_uses
+            .type_use(span)
             .map(Some)
             .ok_or_else(|| unresolved_error(span, "comptime type"))
     }
@@ -2794,18 +2790,6 @@ mod tests {
         }
     }
 
-    fn missing_name(_: Span) -> Option<ComptimeNameResolution> {
-        None
-    }
-
-    fn missing_local(_: Span) -> Option<LocalId> {
-        None
-    }
-
-    fn missing_type(_: Span) -> Option<InternedTyId> {
-        None
-    }
-
     #[test]
     fn resolved_expr_rejects_unresolved_names() {
         let expr = EarlyComptimeExpr {
@@ -2884,8 +2868,8 @@ mod tests {
 
     #[test]
     fn resolved_lowering_requires_name_resolution() {
-        let context =
-            ResolvedComptimeLowerInputs::new(&missing_name, &missing_local, &missing_type);
+        let semantic_uses = SemanticUseTable::default();
+        let context = ResolvedComptimeLowerInputs::new(&semantic_uses);
         let err = lower_expr_resolved_with_context(&ast_ident("x"), &context)
             .expect_err("resolved lowering must reject unresolved names");
         assert_eq!(err.message, "failed to resolve comptime name");
@@ -2901,8 +2885,11 @@ mod tests {
         assert_eq!(name.display(), "x");
         assert_eq!(name.resolution(), None);
 
-        let name_resolution = |_| Some(ComptimeNameResolution::Local(LocalId(0)));
-        let context = EarlyComptimeLowerInputs::default().with_name_resolution(&name_resolution);
+        let mut semantic_uses = SemanticUseTable::default();
+        semantic_uses
+            .value_uses
+            .insert(span(), SemanticValueUse::Local(LocalId(0)));
+        let context = EarlyComptimeLowerInputs::default().with_semantic_uses(&semantic_uses);
         let early = lower_expr_early_with_context(&ast_ident("x"), &context)
             .expect("early lowering with semantic inputs should resolve names");
         let EarlyComptimeExprKind::Ident(name) = early.kind else {
@@ -2935,9 +2922,11 @@ mod tests {
             span: span(),
             kind: nia_ast::ExprKind::Block(block),
         };
-        let name_resolution = |_| Some(ComptimeNameResolution::Local(LocalId(0)));
-        let context =
-            ResolvedComptimeLowerInputs::new(&name_resolution, &missing_local, &missing_type);
+        let mut semantic_uses = SemanticUseTable::default();
+        semantic_uses
+            .value_uses
+            .insert(span(), SemanticValueUse::Local(LocalId(0)));
+        let context = ResolvedComptimeLowerInputs::new(&semantic_uses);
         let err = lower_expr_resolved_with_context(&expr, &context)
             .expect_err("resolved lowering must reject unresolved local bindings");
         assert_eq!(err.message, "failed to resolve comptime local binding");
@@ -2964,9 +2953,12 @@ mod tests {
                 },
             },
         };
-        let name_resolution = |_| Some(ComptimeNameResolution::Local(LocalId(0)));
-        let local_id = |_| Some(LocalId(0));
-        let context = ResolvedComptimeLowerInputs::new(&name_resolution, &local_id, &missing_type);
+        let mut semantic_uses = SemanticUseTable::default();
+        semantic_uses
+            .value_uses
+            .insert(span(), SemanticValueUse::Local(LocalId(0)));
+        semantic_uses.local_defs.insert(span(), LocalId(0));
+        let context = ResolvedComptimeLowerInputs::new(&semantic_uses);
         let err = lower_expr_resolved_with_context(&expr, &context)
             .expect_err("resolved lowering must reject unresolved types");
         assert_eq!(err.message, "failed to resolve comptime type");

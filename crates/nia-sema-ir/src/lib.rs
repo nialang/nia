@@ -8,6 +8,33 @@ use nia_span::Span;
 use nia_ty::{BuiltinTrait, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
+pub struct SemanticUseTable {
+    pub value_uses: HashMap<Span, SemanticValueUse>,
+    pub local_defs: HashMap<Span, LocalId>,
+    pub type_uses: HashMap<Span, InternedTyId>,
+}
+
+impl SemanticUseTable {
+    pub fn value_use(&self, span: Span) -> Option<SemanticValueUse> {
+        self.value_uses.get(&span).copied()
+    }
+
+    pub fn local_def(&self, span: Span) -> Option<LocalId> {
+        self.local_defs.get(&span).copied()
+    }
+
+    pub fn type_use(&self, span: Span) -> Option<InternedTyId> {
+        self.type_uses.get(&span).copied()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SemanticValueUse {
+    Local(LocalId),
+    Global(GlobalDefId),
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFacts {
     pub expr_types: HashMap<Span, InternedTyId>,
     pub bracket_suffix_resolutions: HashMap<Span, BracketSuffixResolution>,

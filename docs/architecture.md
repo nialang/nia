@@ -555,6 +555,15 @@ boundary for ordinary comptime values such as `@builtin()` structs, user
 comptime structs, imported `comptime fn` calls, array length expressions, and
 branch conditions.
 
+Comptime lowering consumes `SemanticUseTable` from `nia-sema-ir` for source
+positions that already have semantic identity: value uses, local definitions,
+and type uses. The table is a shared semantic input surface, not a comptime
+resolver. Callers such as `nia-comptime-check`, `nia-body-check`, and
+`nia-static-check` decide which resolved locals and globals are valid in their
+context, then pass one table to `nia-comptime-ir`. This prevents compile-time
+lowering from reinterpreting bare names or carrying a parallel set of name,
+local, and type lookup closures.
+
 ### 8.2 `nia-comptime-engine`
 
 Evaluates the pure expression subset used by current compile-time values. It

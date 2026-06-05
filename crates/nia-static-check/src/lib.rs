@@ -7,9 +7,10 @@ use nia_comptime_engine::{ComptimeCommonEnv, ComptimeError, ComptimeValue, Resol
 use nia_comptime_ir::{ResolvedComptimeExpr, ResolvedComptimeTypeArg};
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalResolution, LocalUse};
+use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
@@ -301,14 +302,8 @@ impl StaticChecker<'_> {
             &mut StaticComptimeEnv<'_>,
         ) -> Result<T, nia_comptime_engine::ComptimeError>,
     ) -> Result<T, nia_comptime_engine::ComptimeError> {
-        let name_resolution = |span| self.comptime_name_resolution(span);
-        let local_id = |span| self.local_id(span);
-        let type_id = |span| self.type_uses.get(&span).copied();
-        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(
-            &name_resolution,
-            &local_id,
-            &type_id,
-        );
+        let semantic_uses = self.comptime_semantic_uses();
+        let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
         let mut env = StaticComptimeEnv {
             defs: self.defs,
             comptime: self.comptime,
@@ -325,28 +320,39 @@ impl StaticChecker<'_> {
         eval(&expr, &mut env)
     }
 
-    fn local_id(&self, span: Span) -> Option<LocalId> {
-        match self.locals.uses.get(&span) {
-            Some(LocalUse::Local(local_id)) => Some(*local_id),
-            _ => None,
+    fn comptime_semantic_uses(&self) -> SemanticUseTable {
+        let mut value_uses = self
+            .locals
+            .uses
+            .iter()
+            .filter_map(|(span, local_use)| {
+                let LocalUse::Local(local_id) = local_use else {
+                    return None;
+                };
+                self.comptime
+                    .values
+                    .contains_key(&ComptimeKey::Local(*local_id))
+                    .then_some((*span, SemanticValueUse::Local(*local_id)))
+            })
+            .collect::<HashMap<_, _>>();
+        for span in self
+            .values
+            .qualified_values
+            .keys()
+            .chain(self.values.names.keys())
+        {
+            if value_uses.contains_key(span) {
+                continue;
+            }
+            if let Some(global_id) = self.global_comptime_use(*span) {
+                value_uses.insert(*span, SemanticValueUse::Global(global_id));
+            }
         }
-    }
-
-    fn comptime_name_resolution(
-        &self,
-        span: Span,
-    ) -> Option<nia_comptime_ir::ComptimeNameResolution> {
-        if let Some(LocalUse::Local(local_id)) = self.locals.uses.get(&span) {
-            return self
-                .comptime
-                .values
-                .contains_key(&ComptimeKey::Local(*local_id))
-                .then_some(nia_comptime_ir::ComptimeNameResolution::Local(*local_id));
+        SemanticUseTable {
+            value_uses,
+            local_defs: self.locals.local_defs.clone(),
+            type_uses: self.type_uses.clone(),
         }
-        if let Some(global_id) = self.global_comptime_use(span) {
-            return Some(nia_comptime_ir::ComptimeNameResolution::Global(global_id));
-        }
-        None
     }
 
     fn global_comptime_use(&self, span: Span) -> Option<GlobalDefId> {
