@@ -30,6 +30,8 @@ pub(super) struct CompilerQueryProviders {
         fn(&QueryDb<DriverContext>, ModuleId) -> VisibleExtensionsForModule,
     pub(super) value_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> ValueResolution,
     pub(super) local_resolution: fn(&QueryDb<DriverContext>, ModuleId) -> LocalResolution,
+    pub(super) semantic_use_table:
+        fn(&QueryDb<DriverContext>, ModuleId) -> nia_sema_ir::SemanticUseTable,
     pub(super) comptime_module: fn(&QueryDb<DriverContext>, ModuleId) -> ComptimeModuleLowering,
     pub(super) program_comptime_modules:
         fn(&QueryDb<DriverContext>) -> HashMap<ModuleId, ResolvedComptimeModule>,
@@ -81,6 +83,7 @@ impl Default for CompilerQueryProviders {
             visible_extensions: provide_visible_extensions,
             value_resolution: provide_value_resolution,
             local_resolution: provide_local_resolution,
+            semantic_use_table: provide_semantic_use_table,
             comptime_module: provide_comptime_module,
             program_comptime_modules: provide_program_comptime_modules,
             comptime: provide_comptime,
@@ -423,6 +426,57 @@ pub(super) fn provide_local_resolution(
     )
 }
 
+pub(super) fn provide_semantic_use_table(
+    db: &QueryDb<DriverContext>,
+    module_id: ModuleId,
+) -> nia_sema_ir::SemanticUseTable {
+    let values = db.query(ValueResolutionQuery(module_id));
+    let locals = db.query(LocalResolutionQuery(module_id));
+    let type_lowering = db.query(TypeLoweringQuery(module_id));
+    let mut builder = nia_sema_ir::SemanticUseTable::builder();
+
+    for (span, local_use) in &locals.uses {
+        if let nia_local_resolve::LocalUse::Local(local_id) = local_use {
+            builder.insert_local_value_use(*span, *local_id);
+        }
+    }
+    for (span, global_id) in &values.qualified_values {
+        builder.insert_global_value_use(*span, *global_id);
+    }
+    for (span, resolution) in &values.names {
+        match resolution {
+            nia_value_resolve::ValueNameResolution::Def(def_id) => {
+                builder.insert_global_value_use(
+                    *span,
+                    GlobalDefId {
+                        module_id,
+                        def_id: *def_id,
+                    },
+                );
+            }
+            nia_value_resolve::ValueNameResolution::External(global_id) => {
+                builder.insert_global_value_use(*span, *global_id);
+            }
+            nia_value_resolve::ValueNameResolution::ImportAlias
+            | nia_value_resolve::ValueNameResolution::LocalDeferred
+            | nia_value_resolve::ValueNameResolution::Error => {}
+        }
+    }
+    builder.extend_local_defs(
+        locals
+            .local_defs
+            .iter()
+            .map(|(span, local_id)| (*span, *local_id)),
+    );
+    builder.extend_type_uses(
+        type_lowering
+            .type_uses
+            .iter()
+            .map(|(span, ty)| (*span, *ty)),
+    );
+    builder.finish()
+}
+
 pub(super) fn provide_comptime_module(
     db: &QueryDb<DriverContext>,
     module_id: ModuleId,
@@ -729,6 +783,7 @@ pub(super) fn provide_checked_module(
         abi_check: db.query(AbiCheckQuery(module_id)),
         flow_check: db.query(FlowCheckQuery(module_id)),
         body_ir: db.query(BodyIrQuery(module_id)),
+        semantic_uses: db.query(SemanticUseTableQuery(module_id)),
         semantic_facts: db.query(SemanticFactsQuery(module_id)),
         body_diagnostics: db.query(BodyDiagnosticsQuery(module_id)),
     }

@@ -178,6 +178,7 @@ fn index_loaded_modules(loaded: &LoadedProgram) -> HashMap<ModuleId, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_sema_ir::SemanticValueUse;
     use nia_source::{SourceId, SourceRevision};
 
     fn loaded_program_with_modules(modules: Vec<LoadedModule>) -> LoadedProgram {
@@ -474,6 +475,64 @@ fn main() i32 {
         assert!(trace.dependencies.iter().any(|dependency| {
             dependency.from.name == "program_defs_by_id" && dependency.to.name == "module_defs"
         }));
+    }
+
+    #[test]
+    fn semantic_use_table_query_combines_value_local_and_type_resolution() {
+        let source = "let VALUE = 1; fn main() i32 { var local: i32 = VALUE; local }";
+        let loaded =
+            loaded_program_with_modules(vec![loaded_module(ModuleId(0), "main.nia", source)]);
+        let db = query_db(loaded);
+
+        let table = db.query(SemanticUseTableQuery(ModuleId(0)));
+        let trace = db.query_trace();
+
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "semantic_use_table" && dependency.to.name == "value_resolution"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "semantic_use_table" && dependency.to.name == "local_resolution"
+        }));
+        assert!(trace.dependencies.iter().any(|dependency| {
+            dependency.from.name == "semantic_use_table" && dependency.to.name == "type_lowering"
+        }));
+
+        let value_start = source.rfind("VALUE").expect("value use");
+        let value_span = Span::new(value_start, value_start + "VALUE".len());
+        assert!(matches!(
+            table.value_use(value_span),
+            Some(SemanticValueUse::Global(_))
+        ));
+
+        let local_start = source.rfind("local").expect("local use");
+        let local_span = Span::new(local_start, local_start + "local".len());
+        assert!(matches!(
+            table.value_use(local_span),
+            Some(SemanticValueUse::Local(_))
+        ));
+
+        let type_start = source.find("i32").expect("return type use");
+        let type_span = Span::new(type_start, type_start + "i32".len());
+        assert!(table.type_use(type_span).is_some());
+    }
+
+    #[test]
+    fn checked_module_exposes_semantic_use_table_product() {
+        let source = "fn main() i32 { var local: i32 = 1; local }";
+        let checked = check_loaded_program(loaded_program_with_modules(vec![loaded_module(
+            ModuleId(0),
+            "main.nia",
+            source,
+        )]));
+
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let module = checked.modules.first().expect("checked module");
+        let local_start = source.rfind("local").expect("local use");
+        let local_span = Span::new(local_start, local_start + "local".len());
+        assert!(matches!(
+            module.semantic_uses.value_use(local_span),
+            Some(SemanticValueUse::Local(_))
+        ));
     }
 
     #[test]

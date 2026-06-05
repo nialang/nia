@@ -21,7 +21,7 @@ use nia_monomorphize::Monomorphization;
 use nia_node_id::NodeOriginTable;
 use nia_opt::OptimizationPolicy;
 use nia_parser::ParseError;
-use nia_sema_ir::SemanticFacts;
+use nia_sema_ir::{SemanticFacts, SemanticUseTable};
 use nia_source::{SourcePath, SourceVersion};
 use nia_static_check::StaticCheck;
 use nia_target_config::TargetConfig;
@@ -91,6 +91,7 @@ pub struct CheckedModule {
     pub abi_check: AbiCheck,
     pub flow_check: FlowCheck,
     pub body_ir: BodyIr,
+    pub semantic_uses: SemanticUseTable,
     pub semantic_facts: SemanticFacts,
     pub body_diagnostics: Vec<Diagnostic>,
 }
