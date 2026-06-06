@@ -458,10 +458,7 @@ impl Parser {
             TokenKind::Semicolon,
             "expected `;` after associated type declaration",
         )?;
-        Some(TraitAssociatedType {
-            name,
-            span: Span::new(start, self.previous_end()),
-        })
+        Some(self.make_trait_associated_type(name, Span::new(start, self.previous_end())))
     }
 
     fn parse_extend(&mut self) -> Option<ExtendItem> {
@@ -528,11 +525,7 @@ impl Parser {
             TokenKind::Semicolon,
             "expected `;` after associated type definition",
         )?;
-        Some(nia_ast::ExtendAssociatedType {
-            name,
-            ty,
-            span: Span::new(start, self.previous_end()),
-        })
+        Some(self.make_extend_associated_type(name, ty, Span::new(start, self.previous_end())))
     }
 
     fn parse_field(&mut self) -> Option<Field> {
@@ -544,12 +537,7 @@ impl Parser {
         self.expect(TokenKind::Colon, "expected `:` after field name")?;
         let ty = self.parse_type_until(&[TokenKind::Comma, TokenKind::RBrace])?;
         self.eat(TokenKind::Comma);
-        Some(Field {
-            name,
-            span: Span::new(start, ty.span.end),
-            ty,
-            attributes,
-        })
+        Some(self.make_field(name, ty.clone(), attributes, Span::new(start, ty.span.end)))
     }
 
     fn parse_enum(&mut self) -> Option<EnumItem> {
@@ -590,11 +578,7 @@ impl Parser {
             let end = value
                 .as_ref()
                 .map_or_else(|| self.previous_end(), |expr| expr.span.end);
-            variants.push(EnumVariant {
-                name,
-                value,
-                span: Span::new(start, end),
-            });
+            variants.push(self.make_enum_variant(name, value, Span::new(start, end)));
             self.eat(TokenKind::Comma);
         }
         self.expect(TokenKind::RBrace, "expected `}` after enum body")?;
@@ -658,7 +642,7 @@ impl Parser {
         let end = body
             .as_ref()
             .map_or_else(|| self.previous_end(), |body| body.span.end);
-        Some(FunctionItem {
+        Some(self.make_function(
             name,
             generics,
             where_clause,
@@ -668,8 +652,8 @@ impl Parser {
             is_extern,
             is_comptime,
             is_variadic,
-            span: Span::new(start, end),
-        })
+            Span::new(start, end),
+        ))
     }
 
     fn parse_params(&mut self) -> (Vec<Param>, bool) {
@@ -727,6 +711,7 @@ impl Parser {
     }
 
     fn parse_binding(&mut self, is_extern: bool) -> Option<BindingItem> {
+        let start = self.peek().span.start;
         let is_comptime = if self.eat(TokenKind::Comptime).is_some() {
             if is_extern {
                 self.error_here("extern binding cannot be `comptime`");
@@ -777,13 +762,14 @@ impl Parser {
             .or_else(|| ty.as_ref().map(|ty| ty.span))
             .unwrap_or_else(|| Span::new(self.previous_end(), self.previous_end()));
         self.expect_semicolon_after(anchor, "expected `;` after binding")?;
-        Some(BindingItem {
+        Some(self.make_binding(
             name,
             ty,
             value,
             is_let,
             is_comptime,
             is_extern,
-        })
+            Span::new(start, self.previous_end()),
+        ))
     }
 }

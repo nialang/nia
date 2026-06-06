@@ -22,15 +22,15 @@ use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
 use nia_item_signatures::{
     ItemSignatures, ProgramEnumSignature, ProgramFunctionSignature, ProgramTraitImplSignature,
-    ProgramTraitSignature,
+    ProgramTraitSignature, WherePredicateSignature,
 };
 use nia_layout::{Layouts, StructLayoutKey};
 use nia_local_resolve::LocalResolution;
 use nia_mangle::{mangle_instance_symbol, sanitize_symbol_part};
 use nia_monomorphize::Monomorphization;
+use nia_node_id::NodeKey;
 use nia_opt::{InlineThreshold, OptimizationDepth, OptimizationPolicy};
 use nia_sema_ir::SemanticFacts;
-use nia_span::Span;
 use nia_trait_solve::TraitResolution;
 use nia_ty::TyKind;
 use nia_type_lower::TypeLowering;
@@ -86,6 +86,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub comptime: &'a nia_comptime_check::ComptimeCheck,
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
+    pub program_function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
     pub program_extension_methods: &'a ExtensionMethods,
     pub program_extensions: &'a std::collections::HashMap<
@@ -187,6 +188,8 @@ pub(crate) struct ModuleLowerer<'a> {
     instance_extension_interner: Option<&'a nia_ty::TyInterner>,
     known_type_interners: HashMap<ModuleId, &'a nia_ty::TyInterner>,
     current_instantiated_function: Option<GlobalDefId>,
+    current_instantiated_body_interner: Option<&'a nia_ty::TyInterner>,
+    current_type_substitutions: Option<TypeSubstitutionId>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     builtin_trait_resolutions: HashMap<BuiltinTraitGoalKey, TraitResolution>,
@@ -195,7 +198,6 @@ pub(crate) struct ModuleLowerer<'a> {
     type_substitutions: Vec<HashMap<String, InternedTyId>>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
-    generic_param_presence: HashMap<InternedTyId, bool>,
     def_names: HashMap<GlobalDefId, String>,
     method_names_by_def: HashMap<GlobalDefId, String>,
     trait_object_vtables: trait_object_vtables::TraitObjectVtableCache,
@@ -220,6 +222,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     target_ty: InternedTyId,
     method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
+    where_predicates: Vec<WherePredicateSignature>,
     impl_generics: Vec<String>,
     source_interner: nia_ty::TyInterner,
 }
@@ -265,6 +268,8 @@ impl<'a> ModuleLowerer<'a> {
             instance_extension_interner: None,
             known_type_interners: index_known_type_interners(input, monomorphization),
             current_instantiated_function: None,
+            current_instantiated_body_interner: None,
+            current_type_substitutions: None,
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
             ),
@@ -277,7 +282,6 @@ impl<'a> ModuleLowerer<'a> {
             type_substitutions: Vec::new(),
             type_substitution_ids: HashMap::new(),
             effective_generics: HashMap::new(),
-            generic_param_presence: HashMap::new(),
             def_names: HashMap::new(),
             method_names_by_def: index_method_names_by_def(input),
             trait_object_vtables: trait_object_vtables::TraitObjectVtableCache::default(),
@@ -299,19 +303,28 @@ impl<'a> ModuleLowerer<'a> {
             match &item.kind {
                 ItemKind::Struct(item_struct) => {
                     if item_struct.generics.is_empty()
-                        && let Some(item) = self.lower_struct(item.span, item_struct)
+                        && let Some(item) =
+                            self.lower_struct(&item.node_key, item.span, item_struct)
                     {
                         structs.push(item);
                     }
-                    struct_instances.extend(self.lower_struct_instances(item.span, item_struct));
+                    struct_instances.extend(self.lower_struct_instances(
+                        &item.node_key,
+                        item.span,
+                        item_struct,
+                    ));
                 }
                 ItemKind::Union(item_union) => {
                     if item_union.generics.is_empty()
-                        && let Some(item) = self.lower_union(item.span, item_union)
+                        && let Some(item) = self.lower_union(&item.node_key, item.span, item_union)
                     {
                         unions.push(item);
                     }
-                    union_instances.extend(self.lower_union_instances(item.span, item_union));
+                    union_instances.extend(self.lower_union_instances(
+                        &item.node_key,
+                        item.span,
+                        item_union,
+                    ));
                 }
                 ItemKind::Trait(item_trait) => {
                     for method in &item_trait.methods {
@@ -339,7 +352,7 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 ItemKind::Enum(item_enum) => {
-                    if let Some(item) = self.lower_enum(item.span, item_enum) {
+                    if let Some(item) = self.lower_enum(&item.node_key, item.span, item_enum) {
                         enums.push(item);
                     }
                 }
@@ -358,7 +371,7 @@ impl<'a> ModuleLowerer<'a> {
                     if binding.is_comptime {
                         continue;
                     }
-                    if let Some(global) = self.lower_global(item.span, binding) {
+                    if let Some(global) = self.lower_global(&item.node_key, item.span, binding) {
                         globals.push(global);
                     }
                 }
@@ -471,8 +484,8 @@ impl<'a> ModuleLowerer<'a> {
             .and_then(|param| param.receiver)
     }
 
-    fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {
-        let def_id = self.input.defs.def_spans.get(span)?;
+    fn def_id_for_node(&mut self, node_key: &NodeKey, expected: DefKind) -> Option<DefId> {
+        let def_id = self.input.defs.def_nodes.get(node_key)?;
         let def = self.input.defs.defs.get(def_id)?;
         if def.kind == expected {
             Some(def_id)
@@ -481,8 +494,8 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn def_id_for_span_any_function(&mut self, span: Span) -> Option<DefId> {
-        let def_id = self.input.defs.def_spans.get(span)?;
+    fn def_id_for_node_any_function(&mut self, node_key: &NodeKey) -> Option<DefId> {
+        let def_id = self.input.defs.def_nodes.get(node_key)?;
         let def = self.input.defs.defs.get(def_id)?;
         matches!(
             def.kind,
@@ -572,6 +585,9 @@ impl<'a> ModuleLowerer<'a> {
         {
             return extension_interner.get(ty);
         }
+        if let Some(interner) = self.known_type_interners.get(&ty.interner_id) {
+            return interner.get(ty);
+        }
         None
     }
 }
@@ -659,6 +675,7 @@ fn index_extension_trait_method_candidates(
                     target_ty: target.target_ty,
                     method_def_id: method.def_id,
                     trait_args: method.trait_args.clone(),
+                    where_predicates: method.where_predicates.clone(),
                     impl_generics: method.impl_generics.clone(),
                     source_interner: source_interner.clone(),
                 });
@@ -693,6 +710,7 @@ fn index_program_extension_trait_method_candidates(
                 target_ty: method.target_ty,
                 method_def_id: method.def_id,
                 trait_args: method.trait_args.clone(),
+                where_predicates: method.where_predicates.clone(),
                 impl_generics: method.impl_generics.clone(),
                 source_interner: impl_signature.interner.clone(),
             });

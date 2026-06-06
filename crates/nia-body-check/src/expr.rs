@@ -428,13 +428,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn error_union_parts(&self, ty: InternedTyId) -> Option<(InternedTyId, InternedTyId)> {
-        match self.interner.get(self.normalization.normalize(ty)) {
-            Some(TyKind::ErrorUnion { error, value }) => Some((*error, *value)),
-            _ => None,
-        }
-    }
-
     fn check_range_expr(
         &mut self,
         span: Span,

@@ -79,6 +79,218 @@ impl<'a> ModuleLowerer<'a> {
         Some((candidate.method_def_id, args))
     }
 
+    pub(super) fn candidate_where_predicates_hold(
+        &mut self,
+        candidate: &ExtensionTraitMethodCandidate,
+        substitutions: &std::collections::HashMap<String, InternedTyId>,
+    ) -> bool {
+        let predicates =
+            self.import_where_predicates(&candidate.where_predicates, &candidate.source_interner);
+        let predicates = predicates
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, substitutions))
+            .collect::<Vec<_>>();
+        self.where_predicates_hold(&predicates)
+    }
+
+    fn where_predicates_hold(
+        &mut self,
+        predicates: &[nia_item_signatures::WherePredicateSignature],
+    ) -> bool {
+        let mut checks = Vec::new();
+        for predicate in predicates {
+            for bound in &predicate.bounds {
+                let Some((trait_id, trait_args)) = self.trait_id_and_args(bound.trait_ty) else {
+                    return false;
+                };
+                checks.push((
+                    predicate.ty,
+                    trait_id,
+                    trait_args,
+                    bound.associated_type_bindings.clone(),
+                ));
+            }
+        }
+        let assumptions = self.current_trait_assumptions();
+        let associated_type_assumptions =
+            self.current_associated_type_assumptions_without_active_projections();
+        let context = TraitSolverContext {
+            normalization: self.input.type_normalization,
+            trait_impls: self.input.trait_impls,
+            layouts: Some(self.input.layouts),
+            local_module_id: self.input.module_id,
+            local_enums: &self.input.signatures.enums,
+            program_enums: Some(self.input.program_enums),
+        };
+        let mut solver = context.solver_with_associated_type_assumptions(
+            &mut self.interner,
+            &assumptions,
+            &associated_type_assumptions,
+        );
+        for (self_ty, trait_id, trait_args, associated_type_bindings) in checks {
+            if !solver.proves(TraitGoal {
+                self_ty,
+                trait_id,
+                trait_args: trait_args.clone(),
+            }) {
+                return false;
+            }
+            for binding in associated_type_bindings {
+                let Some(actual_ty) =
+                    solver.resolve_associated_type(self_ty, trait_id, &trait_args, &binding.name)
+                else {
+                    return false;
+                };
+                if !solver.types_equivalent(actual_ty, binding.ty) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    pub(super) fn current_trait_assumptions(&mut self) -> Vec<TraitGoal> {
+        let Some(current) = self.current_instantiated_function else {
+            return Vec::new();
+        };
+        let Some(substitutions) = self.current_type_substitutions else {
+            return Vec::new();
+        };
+        let mut assumptions = self.current_method_owner_trait_assumptions(current);
+        let Some((predicates, source_interner)) = self.current_function_where_predicates(current)
+        else {
+            return assumptions;
+        };
+        let predicates = self.import_where_predicates(&predicates, &source_interner);
+        let substitutions = self
+            .type_substitutions
+            .get(substitutions.0)
+            .cloned()
+            .unwrap_or_default();
+        let predicates = predicates
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .collect::<Vec<_>>();
+        for predicate in predicates {
+            for bound in predicate.bounds {
+                if let Some((trait_id, trait_args)) = Self::trait_id_and_args_from(
+                    &self.interner,
+                    self.input.type_normalization,
+                    self.input.program_traits,
+                    bound.trait_ty,
+                ) {
+                    assumptions.push(TraitGoal {
+                        self_ty: predicate.ty,
+                        trait_id,
+                        trait_args,
+                    });
+                }
+            }
+        }
+        assumptions
+    }
+
+    fn current_method_owner_trait_assumptions(&mut self, current: GlobalDefId) -> Vec<TraitGoal> {
+        if let Some(goal) = self.current_trait_method_owner_assumption(current) {
+            return vec![goal];
+        }
+        Vec::new()
+    }
+
+    fn current_trait_method_owner_assumption(&mut self, current: GlobalDefId) -> Option<TraitGoal> {
+        let (trait_def_id, generics) = if current.module_id == self.input.module_id
+            && let Some(def) = self.input.defs.defs.get(current.def_id)
+            && def.kind == nia_defs::DefKind::TraitMethod
+        {
+            let trait_def_id = GlobalDefId {
+                module_id: current.module_id,
+                def_id: def.parent?,
+            };
+            let trait_signature = self.input.signatures.traits.get(&trait_def_id.def_id)?;
+            (trait_def_id, trait_signature.generics.clone())
+        } else {
+            self.input
+                .program_traits
+                .iter()
+                .find_map(|(trait_id, signature)| {
+                    signature
+                        .signature
+                        .methods
+                        .iter()
+                        .any(|method| {
+                            GlobalDefId {
+                                module_id: trait_id.module_id,
+                                def_id: method.def_id,
+                            } == current
+                        })
+                        .then(|| (*trait_id, signature.signature.generics.clone()))
+                })?
+        };
+        let trait_args = generics
+            .iter()
+            .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
+            .collect();
+        Some(TraitGoal {
+            self_ty: self
+                .interner
+                .intern(TyKind::GenericParam("Self".to_string())),
+            trait_id: TraitId::Source(trait_def_id),
+            trait_args,
+        })
+    }
+
+    fn current_function_where_predicates(
+        &self,
+        current: GlobalDefId,
+    ) -> Option<(
+        Vec<nia_item_signatures::WherePredicateSignature>,
+        nia_ty::TyInterner,
+    )> {
+        if current.module_id == self.input.module_id
+            && let Some(signature) = self.input.signatures.functions.get(&current.def_id)
+        {
+            return Some((
+                signature.where_predicates.clone(),
+                self.input.body_ir.interner.clone(),
+            ));
+        }
+        self.input.program_functions.get(&current).map(|signature| {
+            (
+                signature.signature.where_predicates.clone(),
+                signature.interner.clone(),
+            )
+        })
+    }
+
+    fn trait_id_and_args(&self, ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
+        Self::trait_id_and_args_from(
+            &self.interner,
+            self.input.type_normalization,
+            self.input.program_traits,
+            ty,
+        )
+    }
+
+    fn trait_id_and_args_from(
+        interner: &nia_ty::TyInterner,
+        normalization: &nia_type_normalize::TypeNormalization,
+        program_traits: &std::collections::HashMap<
+            GlobalDefId,
+            nia_item_signatures::ProgramTraitSignature,
+        >,
+        ty: InternedTyId,
+    ) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match interner.get(normalization.normalize(ty)) {
+            Some(TyKind::Nominal { def_id, args }) if program_traits.contains_key(def_id) => {
+                Some((TraitId::Source(*def_id), args.clone()))
+            }
+            Some(TyKind::BuiltinTrait { trait_id, args }) => {
+                Some((TraitId::Builtin(*trait_id), args.clone()))
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn resolve_builtin_place_method_impl(
         &mut self,
         trait_id: BuiltinTrait,
@@ -266,7 +478,8 @@ impl<'a> ModuleLowerer<'a> {
             local_enums: &self.input.signatures.enums,
             program_enums: Some(self.input.program_enums),
         };
-        let mut solver = context.solver(&mut self.interner, &[]);
+        let assumptions = self.current_trait_assumptions();
+        let mut solver = context.solver(&mut self.interner, &assumptions);
         let resolution = solver.resolve(TraitGoal {
             self_ty: key.self_ty,
             trait_id: TraitId::Builtin(key.trait_id),

@@ -59,6 +59,9 @@ impl<'a> BodyChecker<'a> {
     ) -> Vec<MethodCandidate> {
         let mut receiver_ty = self.normalization.normalize(receiver_ty);
         loop {
+            if self.receiver_is_or_points_to_trait_object(receiver_ty) {
+                return Vec::new();
+            }
             let candidates = self
                 .extensions
                 .all_methods_named(name)
@@ -80,6 +83,18 @@ impl<'a> BodyChecker<'a> {
                 }
                 _ => return Vec::new(),
             }
+        }
+    }
+
+    fn receiver_is_or_points_to_trait_object(&mut self, receiver_ty: InternedTyId) -> bool {
+        let receiver_ty = self.normalization.normalize(receiver_ty);
+        match self.interner.get(receiver_ty).cloned() {
+            Some(TyKind::TraitObject { .. }) => true,
+            Some(TyKind::Pointer { elem, .. }) => {
+                let elem = self.normalization.normalize(elem);
+                matches!(self.interner.get(elem), Some(TyKind::TraitObject { .. }))
+            }
+            _ => false,
         }
     }
 

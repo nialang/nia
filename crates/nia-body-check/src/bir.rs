@@ -30,6 +30,14 @@ mod asm;
 
 impl<'a> BodyChecker<'a> {
     pub(crate) fn lower_body(&mut self, block: &Block) -> TypedBody {
+        self.lower_body_with_expected_tail(block, None)
+    }
+
+    fn lower_body_with_expected_tail(
+        &mut self,
+        block: &Block,
+        expected_tail: Option<nia_ids::InternedTyId>,
+    ) -> TypedBody {
         let stmts = block
             .stmts
             .iter()
@@ -48,10 +56,11 @@ impl<'a> BodyChecker<'a> {
         let tail = block
             .tail
             .as_ref()
-            .map(|tail| Box::new(self.lower_expr(tail)));
+            .map(|tail| Box::new(self.lower_expr_with_ty(tail, expected_tail)));
         let ty = tail
             .as_ref()
             .map(|tail| tail.ty)
+            .or_else(|| self.block_terminating_never_ty(block))
             .unwrap_or_else(|| self.void());
         TypedBody {
             span: block.span,
@@ -59,6 +68,17 @@ impl<'a> BodyChecker<'a> {
             stmts,
             tail,
             ty,
+        }
+    }
+
+    fn block_terminating_never_ty(&self, block: &Block) -> Option<nia_ids::InternedTyId> {
+        let stmt = block.stmts.last()?;
+        match &stmt.kind {
+            StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue => Some(self.never()),
+            StmtKind::Expr(expr) if self.expr_ty(expr).is_some_and(|ty| self.is_never(ty)) => {
+                Some(self.never())
+            }
+            _ => None,
         }
     }
 
@@ -107,9 +127,11 @@ impl<'a> BodyChecker<'a> {
                 .map(TypedStmtKind::Binding)
                 .unwrap_or_else(|| TypedStmtKind::Expr(self.error_expr(stmt.span))),
             StmtKind::Expr(expr) => TypedStmtKind::Expr(self.lower_expr(expr)),
-            StmtKind::Return(value) => {
-                TypedStmtKind::Return(value.as_ref().map(|value| self.lower_expr(value)))
-            }
+            StmtKind::Return(value) => TypedStmtKind::Return(
+                value
+                    .as_ref()
+                    .map(|value| self.lower_expr_with_ty(value, Some(self.current_return))),
+            ),
             StmtKind::Break => TypedStmtKind::Break,
             StmtKind::Continue => TypedStmtKind::Continue,
             StmtKind::Defer(expr) => TypedStmtKind::Defer(self.lower_expr(expr)),
@@ -683,15 +705,30 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            ExprKind::OptionalSome { expr: inner } => TypedExprKind::OptionalSome {
-                expr: Box::new(self.lower_expr(inner)),
-            },
-            ExprKind::ErrorOk { expr: inner } => TypedExprKind::ErrorOk {
-                expr: Box::new(self.lower_expr(inner)),
-            },
-            ExprKind::ErrorErr { expr: inner } => TypedExprKind::ErrorErr {
-                expr: Box::new(self.lower_expr(inner)),
-            },
+            ExprKind::OptionalSome { expr: inner } => {
+                let inner_ty = self.optional_elem_ty(ty).or_else(|| self.expr_ty(inner));
+                TypedExprKind::OptionalSome {
+                    expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                }
+            }
+            ExprKind::ErrorOk { expr: inner } => {
+                let inner_ty = self
+                    .error_union_parts(ty)
+                    .map(|(_, value)| value)
+                    .or_else(|| self.expr_ty(inner));
+                TypedExprKind::ErrorOk {
+                    expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                }
+            }
+            ExprKind::ErrorErr { expr: inner } => {
+                let inner_ty = self
+                    .error_union_parts(ty)
+                    .map(|(error, _)| error)
+                    .or_else(|| self.expr_ty(inner));
+                TypedExprKind::ErrorErr {
+                    expr: Box::new(self.lower_expr_with_ty(inner, inner_ty)),
+                }
+            }
             ExprKind::Try { expr: inner } => TypedExprKind::Try {
                 expr: Box::new(self.lower_expr(inner)),
             },
@@ -828,17 +865,26 @@ impl<'a> BodyChecker<'a> {
                     fields: Vec::new(),
                 })
                 .unwrap_or(TypedExprKind::Error),
-            ExprKind::Block(block) => TypedExprKind::Block(self.lower_body(block)),
+            ExprKind::Block(block) => TypedExprKind::Block(self.lower_body_with_expected_tail(
+                block,
+                if self.is_never(ty) { None } else { Some(ty) },
+            )),
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
             } => TypedExprKind::If {
                 cond: Box::new(self.lower_expr(cond)),
-                then_branch: self.lower_body(then_branch),
-                else_branch: else_branch
-                    .as_ref()
-                    .map(|else_branch| Box::new(self.lower_expr(else_branch))),
+                then_branch: self.lower_body_with_expected_tail(
+                    then_branch,
+                    if self.is_never(ty) { None } else { Some(ty) },
+                ),
+                else_branch: else_branch.as_ref().map(|else_branch| {
+                    Box::new(self.lower_expr_with_ty(
+                        else_branch,
+                        if self.is_never(ty) { None } else { Some(ty) },
+                    ))
+                }),
             },
             ExprKind::ComptimeIf(comptime_if) => {
                 match self
@@ -847,12 +893,21 @@ impl<'a> BodyChecker<'a> {
                     .copied()
                 {
                     Some(ComptimeIfSelection::Then) => {
-                        TypedExprKind::Block(self.lower_body(&comptime_if.then_branch))
+                        TypedExprKind::Block(self.lower_body_with_expected_tail(
+                            &comptime_if.then_branch,
+                            if self.is_never(ty) { None } else { Some(ty) },
+                        ))
                     }
                     Some(ComptimeIfSelection::Else) => comptime_if
                         .else_branch
                         .as_deref()
-                        .map(|else_branch| self.lower_expr(else_branch).kind)
+                        .map(|else_branch| {
+                            self.lower_expr_with_ty(
+                                else_branch,
+                                if self.is_never(ty) { None } else { Some(ty) },
+                            )
+                            .kind
+                        })
                         .unwrap_or_else(|| self.lower_void_block(expr.span).kind),
                     Some(ComptimeIfSelection::None) => self.lower_void_block(expr.span).kind,
                     None => TypedExprKind::Error,

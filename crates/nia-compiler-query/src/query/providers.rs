@@ -298,16 +298,25 @@ pub(super) fn provide_program_signatures(db: &QueryDb<DriverContext>) -> Program
         .copied()
         .map(|module_id| db.query(ItemSignaturesQuery(module_id)))
         .collect::<Vec<_>>();
+    let defs = module_ids
+        .iter()
+        .copied()
+        .map(|module_id| db.query(ModuleDefsQuery(module_id)))
+        .collect::<Vec<_>>();
     let modules = module_ids
         .iter()
         .copied()
         .zip(type_lowerings.iter())
         .zip(item_signatures.iter())
-        .map(|((module_id, lowering), signatures)| ModuleSignatureInput {
-            module_id,
-            lowering,
-            signatures,
-        })
+        .zip(defs.iter())
+        .map(
+            |(((module_id, lowering), signatures), defs)| ModuleSignatureInput {
+                module_id,
+                defs,
+                lowering,
+                signatures,
+            },
+        )
         .collect::<Vec<_>>();
     ProgramSignatures {
         functions: collect_program_functions(&modules),
@@ -810,6 +819,7 @@ pub(super) fn provide_monomorphization(
     db: &QueryDb<DriverContext>,
 ) -> nia_monomorphize::Monomorphization {
     let checked_modules = db.query(CheckedModulesQuery);
+    let program_signatures = db.query(ProgramSignaturesQuery);
     nia_monomorphize::collect_monomorphizations(
         &checked_modules
             .iter()
@@ -817,8 +827,13 @@ pub(super) fn provide_monomorphization(
                 module_id: module.id,
                 defs: &module.defs,
                 interner: &module.body_ir.interner,
+                normalization: &module.type_normalization,
                 comptime: &module.comptime,
                 const_exprs: &module.type_lowering.const_exprs,
+                layouts: Some(&module.layouts),
+                local_enums: &module.item_signatures.enums,
+                program_enums: &program_signatures.enums,
+                trait_impls: &program_signatures.trait_impls,
                 instantiations: &module.semantic_facts.generic_instantiations,
             })
             .collect::<Vec<_>>(),
@@ -857,6 +872,10 @@ pub(super) fn provide_backend_lowering(
         .iter()
         .map(|checked_module| db.query(FunctionBodiesQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let program_function_bodies = function_bodies
+        .iter()
+        .flat_map(|bodies| bodies.iter().map(|(def_id, body)| (*def_id, body.clone())))
+        .collect::<HashMap<_, _>>();
     let program_signatures = db.query(ProgramSignaturesQuery);
     let inputs = checked_modules
         .iter()
@@ -881,6 +900,7 @@ pub(super) fn provide_backend_lowering(
                     comptime: &checked_module.comptime,
                     layouts: &checked_module.layouts,
                     function_bodies,
+                    program_function_bodies: &program_function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
                     program_extension_methods: &extension_methods.methods,
                     program_extensions: &program_extensions,

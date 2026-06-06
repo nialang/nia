@@ -147,6 +147,7 @@ pub struct TraitItem {
 pub struct TraitAssociatedType {
     pub name: String,
     pub span: Span,
+    pub node_key: NodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -169,6 +170,7 @@ pub struct ExtendAssociatedType {
     pub name: String,
     pub ty: TypeRef,
     pub span: Span,
+    pub node_key: NodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -183,6 +185,7 @@ pub struct Field {
     pub ty: TypeRef,
     pub attributes: Vec<Attribute>,
     pub span: Span,
+    pub node_key: NodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -198,6 +201,7 @@ pub struct EnumVariant {
     pub name: String,
     pub value: Option<Expr>,
     pub span: Span,
+    pub node_key: NodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -220,6 +224,7 @@ pub struct FunctionItem {
     pub is_comptime: bool,
     pub is_variadic: bool,
     pub span: Span,
+    pub node_key: NodeKey,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -246,4 +251,5 @@ pub struct BindingItem {
     pub is_let: bool,
     pub is_comptime: bool,
     pub is_extern: bool,
+    pub node_key: NodeKey,
 }

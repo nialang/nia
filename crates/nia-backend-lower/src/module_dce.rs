@@ -473,13 +473,23 @@ fn collect_function_refs_from_callee(
         FunctionCallee::Function(def_id) => {
             refs.functions.insert(*def_id);
         }
-        FunctionCallee::FunctionInstance { def_id, args }
-        | FunctionCallee::Method { def_id, args, .. } => {
+        FunctionCallee::FunctionInstance { def_id, args } => {
             refs.instances.insert(FunctionInstanceRef {
                 def_id: *def_id,
                 arg_module_id: module_id,
                 args: args.clone(),
             });
+        }
+        FunctionCallee::Method { def_id, args, .. } => {
+            if args.is_empty() {
+                refs.functions.insert(*def_id);
+            } else {
+                refs.instances.insert(FunctionInstanceRef {
+                    def_id: *def_id,
+                    arg_module_id: module_id,
+                    args: args.clone(),
+                });
+            }
         }
         FunctionCallee::TraitMethod {
             method_id,

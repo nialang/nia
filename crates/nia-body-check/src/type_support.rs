@@ -24,6 +24,23 @@ struct ProjectionNormalizationKey {
 }
 
 impl<'a> BodyChecker<'a> {
+    pub(crate) fn optional_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::Optional { elem }) => Some(*elem),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn error_union_parts(
+        &self,
+        ty: InternedTyId,
+    ) -> Option<(InternedTyId, InternedTyId)> {
+        match self.interner.get(self.normalization.normalize(ty)) {
+            Some(TyKind::ErrorUnion { error, value }) => Some((*error, *value)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn associated_type_binding_keys_match(
         &mut self,
         left: &AssociatedTypeBindingTy,
@@ -720,8 +737,13 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(crate) fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {
-        let def_id = self.defs.def_spans.get(span)?;
+    pub(crate) fn def_id_for_node(
+        &mut self,
+        node_key: &nia_node_id::NodeKey,
+        _span: Span,
+        expected: DefKind,
+    ) -> Option<DefId> {
+        let def_id = self.defs.def_nodes.get(node_key)?;
         let def = self.defs.defs.get(def_id)?;
         if def.kind == expected {
             Some(def_id)

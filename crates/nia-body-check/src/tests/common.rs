@@ -84,7 +84,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         };
         let target_ty = normalization.normalize(target_ty);
         for method in &extend.methods {
-            let Some(method_id) = defs.def_spans.get(method.function.span) else {
+            let Some(method_id) = defs.def_nodes.get(&method.function.node_key) else {
                 continue;
             };
             let Some(method_def) = defs.defs.get(method_id) else {

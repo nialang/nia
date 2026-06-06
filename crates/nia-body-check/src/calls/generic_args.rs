@@ -64,6 +64,12 @@ impl<'a> BodyChecker<'a> {
             .flat_map(|target| target.methods.iter())
             .find(|method| method.def_id == def_id)
             .map(|method| method.impl_generics.clone())
+            .or_else(|| {
+                self.program_extension_methods
+                    .all_methods()
+                    .find(|method| method.def_id == def_id)
+                    .map(|method| method.impl_generics.clone())
+            })
             .unwrap_or_default();
         if def_id.module_id == self.defs.module_id {
             if self

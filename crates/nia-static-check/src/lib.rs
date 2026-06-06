@@ -93,7 +93,7 @@ impl StaticChecker<'_> {
     }
 
     fn check_global_binding(&mut self, span: Span, binding: &BindingItem) {
-        let Some(def_id) = self.def_id_for_span(span, DefKind::Global) else {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, span, DefKind::Global) else {
             return;
         };
         let Some(signature) = self.signatures.globals.get(&def_id) else {
@@ -421,8 +421,13 @@ impl StaticChecker<'_> {
         ) || matches!(self.local_use(lhs), Some(LocalUse::TypePrefix))
     }
 
-    fn def_id_for_span(&self, span: Span, expected: DefKind) -> Option<DefId> {
-        let def_id = self.defs.def_spans.get(span)?;
+    fn def_id_for_node(
+        &self,
+        node_key: &nia_node_id::NodeKey,
+        _span: Span,
+        expected: DefKind,
+    ) -> Option<DefId> {
+        let def_id = self.defs.def_nodes.get(node_key)?;
         let def = self.defs.defs.get(def_id)?;
         (def.kind == expected).then_some(def_id)
     }

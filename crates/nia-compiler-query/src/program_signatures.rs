@@ -21,6 +21,7 @@ use nia_type_normalize::TypeNormalization;
 
 pub(crate) struct ModuleSignatureInput<'a> {
     pub(crate) module_id: nia_ids::ModuleId,
+    pub(crate) defs: &'a DefCollection,
     pub(crate) lowering: &'a TypeLowering,
     pub(crate) signatures: &'a ItemSignatures,
 }
@@ -116,6 +117,12 @@ pub(crate) fn collect_program_functions(
                     def_id: *def_id,
                 },
                 ProgramFunctionSignature {
+                    name: module
+                        .defs
+                        .defs
+                        .get(*def_id)
+                        .map(|def| def.name.clone())
+                        .unwrap_or_else(|| format!("def{}", def_id.0)),
                     signature: signature.clone(),
                     interner: module.lowering.interner.clone(),
                 },
@@ -391,7 +398,7 @@ pub(crate) fn collect_extension_methods(
                 None => {}
             }
             for method in &extend.methods {
-                let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
+                let Some(method_id) = module.defs.def_nodes.get(&method.function.node_key) else {
                     continue;
                 };
                 extensions.insert(
@@ -446,6 +453,7 @@ fn collect_extension_trait_impls(
         .iter()
         .map(|module| ModuleSignatureInput {
             module_id: module.module.id,
+            defs: module.defs,
             lowering: module.lowering,
             signatures: module.signatures,
         })
@@ -583,7 +591,7 @@ fn validate_trait_impl(
             }
             continue;
         };
-        let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
+        let Some(method_id) = module.defs.def_nodes.get(&method.function.node_key) else {
             continue;
         };
         let Some(actual) = module.signatures.functions.get(&method_id) else {
@@ -706,7 +714,7 @@ fn validate_builtin_trait_impl(
                 ),
             )),
             [method] => {
-                let Some(method_id) = module.defs.def_spans.get(method.function.span) else {
+                let Some(method_id) = module.defs.def_nodes.get(&method.function.node_key) else {
                     return;
                 };
                 let Some(actual) = module.signatures.functions.get(&method_id) else {

@@ -246,6 +246,7 @@ fn main() i32 {
         comptime: &comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
+        program_function_bodies: &function_bodies,
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
@@ -484,6 +485,90 @@ fn main() i32 {
     assert_eq!(instance.params[0].local_ty, i32_ptr);
     assert_eq!(instance.return_type, i32_ptr);
     assert!(module.interner.get(instance.args[0]).is_some());
+}
+
+#[test]
+fn lowers_all_concrete_extension_methods_to_backend_functions() {
+    let source = r#"
+struct Args {
+    len: usize,
+    ptr: &&u8,
+}
+
+struct Env {
+    ptr: &&u8,
+}
+
+struct Init {
+    argc: usize,
+    argv: &&u8,
+    envp: &&u8,
+}
+
+extend Init {
+    fn init(argc: usize, argv: &&u8, envp: &&u8) Init {
+        { argc: argc, argv: argv, envp: envp }
+    }
+
+    fn argc(&self) usize {
+        self.argc
+    }
+
+    fn args(&self) Args {
+        { len: self.argc, ptr: self.argv }
+    }
+
+    fn env(&self) Env {
+        { ptr: self.envp }
+    }
+
+    fn argv(&self) &&u8 {
+        self.argv
+    }
+
+    fn envp(&self) &&u8 {
+        self.envp
+    }
+}
+
+extend Args {
+    fn init(len: usize, ptr: &&u8) Args {
+        { len: len, ptr: ptr }
+    }
+}
+
+extend Env {
+    fn init(ptr: &&u8) Env {
+        { ptr: ptr }
+    }
+}
+
+fn main(argc: usize, argv: &&u8, envp: &&u8) usize {
+    var init: Init = { argc: argc, argv: argv, envp: envp };
+    _ = init;
+    argc
+}
+"#;
+    let lowering = lower_source(source);
+    let module = &lowering.program.modules[0];
+    let init_methods = module
+        .functions
+        .iter()
+        .filter(|function| {
+            matches!(
+                function.name.as_str(),
+                "init" | "argc" | "args" | "env" | "argv" | "envp"
+            )
+        })
+        .map(|function| function.name.as_str())
+        .collect::<Vec<_>>();
+
+    for name in ["init", "argc", "args", "env", "argv", "envp"] {
+        assert!(
+            init_methods.contains(&name),
+            "missing concrete extension method `{name}` from backend functions: {init_methods:?}"
+        );
+    }
 }
 
 #[test]
@@ -4453,8 +4538,13 @@ fn lower_source_with_body_check_mutation_and_optimization(
             module_id: ModuleId(0),
             defs: &defs,
             interner: &body_check.ir.interner,
+            normalization: &normalization,
             comptime: &comptime,
             const_exprs: &type_lowering.const_exprs,
+            layouts: Some(&layouts),
+            local_enums: &signatures.enums,
+            program_enums: &HashMap::new(),
+            trait_impls: &[],
             instantiations: &body_check.facts.generic_instantiations,
         }]);
     assert!(
@@ -4481,6 +4571,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         comptime: &comptime,
         layouts: &layouts,
         function_bodies: &function_bodies,
+        program_function_bodies: &function_bodies,
         extension_interner: None,
         program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),

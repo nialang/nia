@@ -155,6 +155,108 @@ impl Parser {
         }
     }
 
+    fn make_function(
+        &mut self,
+        name: String,
+        generics: Vec<String>,
+        where_clause: WhereClause,
+        params: Vec<Param>,
+        return_type: Option<TypeRef>,
+        body: Option<Block>,
+        is_extern: bool,
+        is_comptime: bool,
+        is_variadic: bool,
+        span: Span,
+    ) -> FunctionItem {
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+        FunctionItem {
+            name,
+            generics,
+            where_clause,
+            params,
+            return_type,
+            body,
+            is_extern,
+            is_comptime,
+            is_variadic,
+            span,
+            node_key,
+        }
+    }
+
+    fn make_field(
+        &mut self,
+        name: String,
+        ty: TypeRef,
+        attributes: Vec<Attribute>,
+        span: Span,
+    ) -> Field {
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+        Field {
+            name,
+            ty,
+            attributes,
+            span,
+            node_key,
+        }
+    }
+
+    fn make_trait_associated_type(&mut self, name: String, span: Span) -> TraitAssociatedType {
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+        TraitAssociatedType {
+            name,
+            span,
+            node_key,
+        }
+    }
+
+    fn make_extend_associated_type(
+        &mut self,
+        name: String,
+        ty: TypeRef,
+        span: Span,
+    ) -> nia_ast::ExtendAssociatedType {
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+        nia_ast::ExtendAssociatedType {
+            name,
+            ty,
+            span,
+            node_key,
+        }
+    }
+
+    fn make_enum_variant(&mut self, name: String, value: Option<Expr>, span: Span) -> EnumVariant {
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+        EnumVariant {
+            name,
+            value,
+            span,
+            node_key,
+        }
+    }
+
+    fn make_binding(
+        &mut self,
+        name: String,
+        ty: Option<TypeRef>,
+        value: Option<Expr>,
+        is_let: bool,
+        is_comptime: bool,
+        is_extern: bool,
+        span: Span,
+    ) -> BindingItem {
+        let node_key = self.node_key(NodeSyntaxKind::Item, span);
+        BindingItem {
+            name,
+            ty,
+            value,
+            is_let,
+            is_comptime,
+            is_extern,
+            node_key,
+        }
+    }
+
     fn make_type_ref(&mut self, span: Span, kind: TypeKind) -> TypeRef {
         let node_key = self.node_key(NodeSyntaxKind::Type, span);
         TypeRef {

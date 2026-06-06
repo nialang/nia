@@ -8,6 +8,7 @@ use nia_backend_ir::{
 use nia_comptime_check::ComptimeValue;
 use nia_defs::DefKind;
 use nia_item_signatures::FunctionAttribute;
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_static_ir::StaticInit;
 use nia_ty::TyKind;
@@ -17,10 +18,11 @@ pub(crate) const SIMPLIFY_STATIC_INIT_PASS: &str = "simplify-static-init";
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct(
         &mut self,
+        node_key: &NodeKey,
         span: Span,
         item: &nia_ast::StructItem,
     ) -> Option<BackendStruct> {
-        let def_id = self.def_id_for_span(span, DefKind::Struct)?;
+        let def_id = self.def_id_for_node(node_key, DefKind::Struct)?;
         let signature = self.input.signatures.structs.get(&def_id)?;
         Some(BackendStruct {
             def_id: self.global_def_id(def_id),
@@ -43,10 +45,11 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_union(
         &mut self,
+        node_key: &NodeKey,
         span: Span,
         item: &nia_ast::UnionItem,
     ) -> Option<BackendUnion> {
-        let def_id = self.def_id_for_span(span, DefKind::Union)?;
+        let def_id = self.def_id_for_node(node_key, DefKind::Union)?;
         let signature = self.input.signatures.unions.get(&def_id)?;
         Some(BackendUnion {
             def_id: self.global_def_id(def_id),
@@ -69,10 +72,11 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_enum(
         &mut self,
+        node_key: &NodeKey,
         span: Span,
         item: &nia_ast::EnumItem,
     ) -> Option<BackendEnum> {
-        let def_id = self.def_id_for_span(span, DefKind::Enum)?;
+        let def_id = self.def_id_for_node(node_key, DefKind::Enum)?;
         let signature = self.input.signatures.enums.get(&def_id)?;
         Some(BackendEnum {
             def_id: self.global_def_id(def_id),
@@ -102,10 +106,11 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_global(
         &mut self,
+        node_key: &NodeKey,
         span: Span,
         binding: &BindingItem,
     ) -> Option<BackendGlobal> {
-        let def_id = self.def_id_for_span(span, DefKind::Global)?;
+        let def_id = self.def_id_for_node(node_key, DefKind::Global)?;
         let global_def_id = self.global_def_id(def_id);
         let signature = self.input.signatures.globals.get(&def_id)?;
         let ty = signature
@@ -160,24 +165,44 @@ impl<'a> ModuleLowerer<'a> {
         span: Span,
         function: &FunctionItem,
     ) -> Option<BackendFunction> {
-        let def_id = self.def_id_for_span_any_function(span)?;
+        let def_id = self.def_id_for_node_any_function(&function.node_key)?;
         let signature = self.input.signatures.functions.get(&def_id)?;
         if signature.is_comptime {
             return None;
         }
         let global_def_id = self.global_def_id(def_id);
         let previous_function = self.current_instantiated_function.replace(global_def_id);
+        let previous_substitutions = self.current_type_substitutions.take();
+        let effective_generics = self
+            .effective_generics(global_def_id, &signature.generics)
+            .to_vec();
+        let identity_substitutions = effective_generics
+            .iter()
+            .map(|generic| {
+                (
+                    generic.clone(),
+                    self.interner.intern(TyKind::GenericParam(generic.clone())),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
         let function_body = self
             .input
             .function_bodies
             .get(&global_def_id)
             .cloned()
-            .map(|body| self.resolve_builtin_operator_calls_in_body(body))
-            .map(|body| self.optimize_function_body(global_def_id, false, 0, body));
+            .map(|body| {
+                self.instantiate_function_body(
+                    global_def_id,
+                    self.input.module_id,
+                    0,
+                    body,
+                    &identity_substitutions,
+                )
+            });
         let backend_function = Some(BackendFunction {
             def_id: global_def_id,
             name: function.name.clone(),
-            generics: signature.generics.clone(),
+            generics: effective_generics,
             params: function
                 .params
                 .iter()
@@ -232,10 +257,11 @@ impl<'a> ModuleLowerer<'a> {
             span,
         });
         self.current_instantiated_function = previous_function;
+        self.current_type_substitutions = previous_substitutions;
         backend_function
     }
 
-    fn receiver_passing_ty(
+    pub(crate) fn receiver_passing_ty(
         &mut self,
         receiver: ReceiverKind,
         local_ty: nia_ids::InternedTyId,

@@ -10,6 +10,7 @@ use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::PrimitiveTy;
 use nia_type_lower::TypeLowering;
@@ -30,6 +31,7 @@ pub struct ItemSignatures {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProgramFunctionSignature {
+    pub name: String,
     pub signature: FunctionSignature,
     pub interner: nia_ty::TyInterner,
 }
@@ -306,31 +308,31 @@ impl<'a> SignatureCollector<'a> {
             | ItemTreeNodeKind::Using(_)
             | ItemTreeNodeKind::ComptimeIf(_) => {}
             ItemTreeNodeKind::Struct(item_struct) => {
-                self.collect_struct(signatures, item.span, item_struct);
+                self.collect_struct(signatures, item, item_struct);
             }
             ItemTreeNodeKind::Union(item_union) => {
-                self.collect_union(signatures, item.span, item_union);
+                self.collect_union(signatures, item, item_union);
             }
             ItemTreeNodeKind::Trait(item_trait) => {
-                self.collect_trait(signatures, item.span, item_trait);
+                self.collect_trait(signatures, item, item_trait);
             }
             ItemTreeNodeKind::Extend(extend) => {
                 self.collect_extend(signatures, extend);
             }
             ItemTreeNodeKind::Enum(item_enum) => {
-                self.collect_enum(signatures, item.span, item_enum);
+                self.collect_enum(signatures, item, item_enum);
             }
             ItemTreeNodeKind::TypeAlias(alias) => {
-                self.collect_type_alias(signatures, item.span, alias);
+                self.collect_type_alias(signatures, item, alias);
             }
             ItemTreeNodeKind::Function(_) => {
                 self.collect_function(signatures, item);
             }
             ItemTreeNodeKind::Binding(binding) => {
                 if binding.is_comptime {
-                    self.collect_comptime(signatures, item.span, binding);
+                    self.collect_comptime(signatures, item, binding);
                 } else {
-                    self.collect_global(signatures, item.span, binding);
+                    self.collect_global(signatures, item, binding);
                 }
             }
         }
@@ -339,15 +341,17 @@ impl<'a> SignatureCollector<'a> {
     fn collect_struct(
         &mut self,
         signatures: &mut ItemSignatures,
-        item_span: Span,
+        item: &ItemTreeNode,
         item_struct: &StructItem,
     ) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Struct) else {
+        let Some(def_id) = self.def_id_for_node(&item.node_key, item.span, DefKind::Struct) else {
             return;
         };
         let mut fields = Vec::new();
         for field in &item_struct.fields {
-            let Some(field_id) = self.def_id_for_span(field.span, DefKind::StructField) else {
+            let Some(field_id) =
+                self.def_id_for_node(&field.node_key, field.span, DefKind::StructField)
+            else {
                 continue;
             };
             fields.push(FieldSignature {
@@ -364,7 +368,7 @@ impl<'a> SignatureCollector<'a> {
                 where_predicates: self.where_predicate_signatures(&item_struct.where_clause),
                 fields,
                 is_extern: item_struct.is_extern,
-                span: item_span,
+                span: item.span,
             },
         );
     }
@@ -372,15 +376,17 @@ impl<'a> SignatureCollector<'a> {
     fn collect_union(
         &mut self,
         signatures: &mut ItemSignatures,
-        item_span: Span,
+        item: &ItemTreeNode,
         item_union: &UnionItem,
     ) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Union) else {
+        let Some(def_id) = self.def_id_for_node(&item.node_key, item.span, DefKind::Union) else {
             return;
         };
         let mut fields = Vec::new();
         for field in &item_union.fields {
-            let Some(field_id) = self.def_id_for_span(field.span, DefKind::UnionField) else {
+            let Some(field_id) =
+                self.def_id_for_node(&field.node_key, field.span, DefKind::UnionField)
+            else {
                 continue;
             };
             fields.push(FieldSignature {
@@ -397,7 +403,7 @@ impl<'a> SignatureCollector<'a> {
                 where_predicates: self.where_predicate_signatures(&item_union.where_clause),
                 fields,
                 is_extern: item_union.is_extern,
-                span: item_span,
+                span: item.span,
             },
         );
     }
@@ -430,17 +436,19 @@ impl<'a> SignatureCollector<'a> {
     fn collect_trait(
         &mut self,
         signatures: &mut ItemSignatures,
-        item_span: Span,
+        item: &ItemTreeNode,
         item_trait: &TraitItem,
     ) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Trait) else {
+        let Some(def_id) = self.def_id_for_node(&item.node_key, item.span, DefKind::Trait) else {
             return;
         };
         let mut associated_types = Vec::new();
         for associated_type in &item_trait.associated_types {
-            let Some(associated_type_id) =
-                self.def_id_for_span(associated_type.span, DefKind::TraitAssociatedType)
-            else {
+            let Some(associated_type_id) = self.def_id_for_node(
+                &associated_type.node_key,
+                associated_type.span,
+                DefKind::TraitAssociatedType,
+            ) else {
                 continue;
             };
             associated_types.push(TraitAssociatedTypeSignature {
@@ -451,8 +459,11 @@ impl<'a> SignatureCollector<'a> {
         }
         let mut methods = Vec::new();
         for method in &item_trait.methods {
-            let Some(method_id) = self.def_id_for_span(method.function.span, DefKind::TraitMethod)
-            else {
+            let Some(method_id) = self.def_id_for_node(
+                &method.function.node_key,
+                method.function.span,
+                DefKind::TraitMethod,
+            ) else {
                 continue;
             };
             let signature = self.function_signature(&method.function);
@@ -477,13 +488,14 @@ impl<'a> SignatureCollector<'a> {
                     .collect(),
                 associated_types,
                 methods,
-                span: item_span,
+                span: item.span,
             },
         );
     }
 
     fn collect_method(&mut self, signatures: &mut ItemSignatures, method: &FunctionItem) {
-        let Some(def_id) = self.def_id_for_span(method.span, DefKind::Method) else {
+        let Some(def_id) = self.def_id_for_node(&method.node_key, method.span, DefKind::Method)
+        else {
             return;
         };
         signatures
@@ -494,10 +506,10 @@ impl<'a> SignatureCollector<'a> {
     fn collect_enum(
         &mut self,
         signatures: &mut ItemSignatures,
-        item_span: Span,
+        item: &ItemTreeNode,
         item_enum: &EnumItem,
     ) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Enum) else {
+        let Some(def_id) = self.def_id_for_node(&item.node_key, item.span, DefKind::Enum) else {
             return;
         };
         let backing_type = match &item_enum.backing_type {
@@ -506,7 +518,9 @@ impl<'a> SignatureCollector<'a> {
         };
         let mut variants = Vec::new();
         for variant in &item_enum.variants {
-            let Some(variant_id) = self.def_id_for_span(variant.span, DefKind::EnumVariant) else {
+            let Some(variant_id) =
+                self.def_id_for_node(&variant.node_key, variant.span, DefKind::EnumVariant)
+            else {
                 continue;
             };
             variants.push(EnumVariantSignature {
@@ -521,7 +535,7 @@ impl<'a> SignatureCollector<'a> {
                 backing_type,
                 is_open: item_enum.is_open,
                 variants,
-                span: item_span,
+                span: item.span,
             },
         );
     }
@@ -529,10 +543,11 @@ impl<'a> SignatureCollector<'a> {
     fn collect_type_alias(
         &mut self,
         signatures: &mut ItemSignatures,
-        item_span: Span,
+        item: &ItemTreeNode,
         alias: &TypeAliasItem,
     ) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::TypeAlias) else {
+        let Some(def_id) = self.def_id_for_node(&item.node_key, item.span, DefKind::TypeAlias)
+        else {
             return;
         };
         signatures.type_aliases.insert(
@@ -540,17 +555,18 @@ impl<'a> SignatureCollector<'a> {
             TypeAliasSignature {
                 generics: alias.generics.clone(),
                 target: self.ty_for_type(&alias.ty),
-                span: item_span,
+                span: item.span,
             },
         );
     }
 
     fn collect_function(&mut self, signatures: &mut ItemSignatures, item: &ItemTreeNode) {
-        let item_span = item.span;
         let ItemTreeNodeKind::Function(function) = &item.kind else {
             return;
         };
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Function) else {
+        let Some(def_id) =
+            self.def_id_for_node(&function.node_key, function.span, DefKind::Function)
+        else {
             return;
         };
         let attributes = self.function_attributes(&item.attributes, function);
@@ -563,10 +579,11 @@ impl<'a> SignatureCollector<'a> {
     fn collect_global(
         &mut self,
         signatures: &mut ItemSignatures,
-        item_span: Span,
+        item: &ItemTreeNode,
         binding: &BindingItem,
     ) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Global) else {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item.span, DefKind::Global)
+        else {
             return;
         };
         signatures.globals.insert(
@@ -575,7 +592,7 @@ impl<'a> SignatureCollector<'a> {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
                 is_let: binding.is_let,
                 is_extern: binding.is_extern,
-                span: item_span,
+                span: item.span,
             },
         );
     }
@@ -583,17 +600,18 @@ impl<'a> SignatureCollector<'a> {
     fn collect_comptime(
         &mut self,
         signatures: &mut ItemSignatures,
-        item_span: Span,
+        item: &ItemTreeNode,
         binding: &BindingItem,
     ) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Comptime) else {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item.span, DefKind::Comptime)
+        else {
             return;
         };
         signatures.comptimes.insert(
             def_id,
             ComptimeSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
-                span: item_span,
+                span: item.span,
             },
         );
     }
@@ -745,24 +763,29 @@ impl<'a> SignatureCollector<'a> {
             .collect()
     }
 
-    fn def_id_for_span(&mut self, span: Span, expected: DefKind) -> Option<DefId> {
-        let Some(def_id) = self.defs.def_spans.get(span) else {
+    fn def_id_for_node(
+        &mut self,
+        node_key: &NodeKey,
+        diagnostic_span: Span,
+        expected: DefKind,
+    ) -> Option<DefId> {
+        let Some(def_id) = self.defs.def_nodes.get(node_key) else {
             self.diagnostics.push(Diagnostic::error(
-                span,
-                format!("missing definition id for {:?}", expected),
+                diagnostic_span,
+                format!("missing definition id for {:?} node {node_key:?}", expected),
             ));
             return None;
         };
         let Some(def) = self.defs.defs.get(def_id) else {
             self.diagnostics.push(Diagnostic::error(
-                span,
+                diagnostic_span,
                 "definition id does not exist in definition map",
             ));
             return None;
         };
         if def.kind != expected {
             self.diagnostics.push(Diagnostic::error(
-                span,
+                def.span,
                 format!("definition kind mismatch: expected {:?}", expected),
             ));
             return None;

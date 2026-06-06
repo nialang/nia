@@ -11,6 +11,7 @@ use nia_ast::{
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::{DefId, ModuleId};
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 
 pub use extensions::{
@@ -28,7 +29,7 @@ pub struct DefCollection {
     pub defs: DefMap,
     pub module_scope: ModuleScope,
     pub scopes: DefScopes,
-    pub def_spans: DefSpanMap,
+    pub def_nodes: DefNodeMap,
     pub module_usings: Vec<ModuleUsing>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -184,21 +185,23 @@ pub struct DefScopes {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct DefSpanMap {
-    spans: HashMap<Span, DefId>,
+pub struct DefNodeMap {
+    nodes: HashMap<NodeKey, DefId>,
 }
 
-impl DefSpanMap {
-    pub fn get(&self, span: Span) -> Option<DefId> {
-        self.spans.get(&span).copied()
+impl DefNodeMap {
+    pub fn get(&self, node_key: &NodeKey) -> Option<DefId> {
+        self.nodes.get(node_key).copied()
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (Span, DefId)> + '_ {
-        self.spans.iter().map(|(span, def_id)| (*span, *def_id))
+    pub fn entries(&self) -> impl Iterator<Item = (&NodeKey, DefId)> + '_ {
+        self.nodes
+            .iter()
+            .map(|(node_key, def_id)| (node_key, *def_id))
     }
 
-    fn insert(&mut self, span: Span, def_id: DefId) {
-        self.spans.insert(span, def_id);
+    fn insert(&mut self, node_key: NodeKey, def_id: DefId) {
+        self.nodes.insert(node_key, def_id);
     }
 }
 
@@ -215,7 +218,7 @@ struct Collector {
     struct_members: HashMap<DefId, MemberScope>,
     union_members: HashMap<DefId, MemberScope>,
     enum_members: HashMap<DefId, EnumScope>,
-    def_spans: DefSpanMap,
+    def_nodes: DefNodeMap,
     module_usings: Vec<ModuleUsing>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -229,7 +232,7 @@ impl Collector {
             struct_members: HashMap::new(),
             union_members: HashMap::new(),
             enum_members: HashMap::new(),
-            def_spans: DefSpanMap::default(),
+            def_nodes: DefNodeMap::default(),
             module_usings: Vec::new(),
             diagnostics: Vec::new(),
         }
@@ -248,7 +251,7 @@ impl Collector {
                 union_members: self.union_members,
                 enum_members: self.enum_members,
             },
-            def_spans: self.def_spans,
+            def_nodes: self.def_nodes,
             module_usings: self.module_usings,
             diagnostics: self.diagnostics,
         }
@@ -261,7 +264,13 @@ impl Collector {
                     .alias
                     .clone()
                     .unwrap_or_else(|| import_default_alias(&import.path));
-                self.add_module_def(name, DefKind::Import, item.visibility, item.span);
+                self.add_module_def(
+                    name,
+                    DefKind::Import,
+                    item.visibility,
+                    item.span,
+                    item.node_key.clone(),
+                );
             }
             ItemTreeNodeKind::Using(using) => {
                 self.collect_using(item, using);
@@ -280,6 +289,7 @@ impl Collector {
                     DefKind::Function,
                     item.visibility,
                     item.span,
+                    function.node_key.clone(),
                     function.generics.clone(),
                 );
             }
@@ -293,6 +303,7 @@ impl Collector {
                     },
                     item.visibility,
                     item.span,
+                    item.node_key.clone(),
                     Vec::new(),
                 );
             }
@@ -315,6 +326,7 @@ impl Collector {
             DefKind::Struct,
             item.visibility,
             item.span,
+            item.node_key.clone(),
             item_struct.generics.clone(),
         );
         let mut members = MemberScope::default();
@@ -328,7 +340,7 @@ impl Collector {
                 visibility: Visibility::Private,
                 span: field.span,
             });
-            self.def_spans.insert(field.span, field_id);
+            self.def_nodes.insert(field.node_key.clone(), field_id);
             self.insert_member(
                 &mut members.fields,
                 field.name.clone(),
@@ -347,6 +359,7 @@ impl Collector {
             DefKind::Union,
             item.visibility,
             item.span,
+            item.node_key.clone(),
             item_union.generics.clone(),
         );
         let mut members = MemberScope::default();
@@ -360,7 +373,7 @@ impl Collector {
                 visibility: Visibility::Private,
                 span: field.span,
             });
-            self.def_spans.insert(field.span, field_id);
+            self.def_nodes.insert(field.node_key.clone(), field_id);
             self.insert_member(
                 &mut members.fields,
                 field.name.clone(),
@@ -390,6 +403,7 @@ impl Collector {
             DefKind::Trait,
             item.visibility,
             item.span,
+            item.node_key.clone(),
             item_trait.generics.clone(),
         );
         let mut members = MemberScope::default();
@@ -417,8 +431,8 @@ impl Collector {
             visibility: Visibility::Public,
             span: associated_type.span,
         });
-        self.def_spans
-            .insert(associated_type.span, associated_type_id);
+        self.def_nodes
+            .insert(associated_type.node_key.clone(), associated_type_id);
         self.insert_member(
             &mut members.fields,
             associated_type.name.clone(),
@@ -443,8 +457,8 @@ impl Collector {
             visibility: Visibility::Private,
             span: associated_type.span,
         });
-        self.def_spans
-            .insert(associated_type.span, associated_type_id);
+        self.def_nodes
+            .insert(associated_type.node_key.clone(), associated_type_id);
         self.insert_member(
             &mut members.fields,
             associated_type.name.clone(),
@@ -470,7 +484,7 @@ impl Collector {
             visibility: Visibility::Public,
             span: method.span,
         });
-        self.def_spans.insert(method.span, method_id);
+        self.def_nodes.insert(method.node_key.clone(), method_id);
         self.insert_member(
             &mut members.methods,
             method.name.clone(),
@@ -497,7 +511,7 @@ impl Collector {
             visibility,
             span: method.span,
         });
-        self.def_spans.insert(method.span, method_id);
+        self.def_nodes.insert(method.node_key.clone(), method_id);
         self.insert_member(
             &mut members.methods,
             method.name.clone(),
@@ -513,6 +527,7 @@ impl Collector {
             DefKind::Enum,
             item.visibility,
             item.span,
+            item.node_key.clone(),
             Vec::new(),
         );
         let mut members = EnumScope::default();
@@ -526,7 +541,7 @@ impl Collector {
                 visibility: Visibility::Public,
                 span: variant.span,
             });
-            self.def_spans.insert(variant.span, variant_id);
+            self.def_nodes.insert(variant.node_key.clone(), variant_id);
             self.insert_member(
                 &mut members.variants,
                 variant.name.clone(),
@@ -545,6 +560,7 @@ impl Collector {
             DefKind::TypeAlias,
             item.visibility,
             item.span,
+            item.node_key.clone(),
             alias.generics.clone(),
         );
     }
@@ -555,8 +571,10 @@ impl Collector {
         kind: DefKind,
         visibility: Visibility,
         span: Span,
+        node_key: NodeKey,
     ) -> DefId {
         let def_id = self.push_top_def(name.clone(), kind, visibility, span, Vec::new());
+        self.def_nodes.insert(node_key, def_id);
         Self::insert_top(
             &mut self.module_scope.modules,
             &mut self.diagnostics,
@@ -574,9 +592,11 @@ impl Collector {
         kind: DefKind,
         visibility: Visibility,
         span: Span,
+        node_key: NodeKey,
         generics: Vec<String>,
     ) -> DefId {
         let def_id = self.push_top_def(name.clone(), kind, visibility, span, generics);
+        self.def_nodes.insert(node_key, def_id);
         Self::insert_top(
             &mut self.module_scope.types,
             &mut self.diagnostics,
@@ -594,9 +614,11 @@ impl Collector {
         kind: DefKind,
         visibility: Visibility,
         span: Span,
+        node_key: NodeKey,
         generics: Vec<String>,
     ) -> DefId {
         let def_id = self.push_top_def(name.clone(), kind, visibility, span, generics);
+        self.def_nodes.insert(node_key, def_id);
         Self::insert_top(
             &mut self.module_scope.values,
             &mut self.diagnostics,
@@ -625,7 +647,6 @@ impl Collector {
             visibility,
             span,
         });
-        self.def_spans.insert(span, def_id);
         def_id
     }
 
@@ -715,7 +736,7 @@ var counter = 0;
         assert!(collection.module_scope.types.get("Byte").is_some());
         assert!(collection.module_scope.values.get("Point").is_some());
         assert!(collection.module_scope.values.get("counter").is_some());
-        assert!(collection.def_spans.entries().count() >= collection.defs.len());
+        assert!(collection.def_nodes.entries().count() >= collection.defs.len());
     }
 
     #[test]

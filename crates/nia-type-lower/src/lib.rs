@@ -197,7 +197,7 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                         .interner
                         .intern(TyKind::GenericParam("Self".to_string()));
                     lowerer.with_self_type(self_ty, |lowerer| {
-                        if let Some(trait_id) = lowerer.local_trait_id(item.span) {
+                        if let Some(trait_id) = lowerer.local_trait_id(&item.node_key) {
                             let trait_args = item_trait
                                 .generics
                                 .iter()
@@ -387,7 +387,7 @@ impl TypeLowerer<'_> {
                         .interner
                         .intern(TyKind::GenericParam("Self".to_string()));
                     lowerer.with_self_type(self_ty, |lowerer| {
-                        if let Some(trait_id) = lowerer.local_trait_id(item.span) {
+                        if let Some(trait_id) = lowerer.local_trait_id(&item.node_key) {
                             let trait_args = item_trait
                                 .generics
                                 .iter()
@@ -1194,9 +1194,9 @@ impl<'a> TypeLowerer<'a> {
         })
     }
 
-    fn local_trait_id(&self, span: Span) -> Option<GlobalDefId> {
+    fn local_trait_id(&self, node_key: &nia_node_id::NodeKey) -> Option<GlobalDefId> {
         let defs = self.defs_for_module(self.module_id)?;
-        let def_id = defs.def_spans.get(span)?;
+        let def_id = defs.def_nodes.get(node_key)?;
         Some(GlobalDefId {
             module_id: self.module_id,
             def_id,

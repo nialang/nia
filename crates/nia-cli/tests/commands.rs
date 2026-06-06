@@ -1140,7 +1140,7 @@ import std;
 pub fn main(init: std::process::Init) std::process::ExitCode!void {
     _ = init;
     var stdout = std::os::File::stdout();
-    switch std::fmt::print_unchecked(&mut stdout, b"hello, {}\n", [10]) {
+    switch stdout.print(b"hello, {}\n", [10]) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
     }
@@ -1178,30 +1178,29 @@ fn emit_exe_can_use_std_io_fixed_buffers() {
     std::fs::write(
         &main,
         r#"
-import std.io;
-import std.process;
+import std;
 
-pub fn main(init: process::Init) process::ExitCode!void {
+pub fn main(init: std::process::Init) std::process::ExitCode!void {
     _ = init;
     var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
-    var writer = io::FixedBufferWriter::init(&mut storage[..]);
-    switch writer.write_all(b"nia") {
+    var writer = std::io::FixedBufferWriter::init(&mut storage[..]);
+    switch writer.print(b"nia {}", [7]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(1)!,
+        error! => return std::process::ExitCode::init(1)!,
     }
-    if writer.len() != 3 {
-        return process::ExitCode::init(2)!;
+    if writer.len() != 5 {
+        return std::process::ExitCode::init(2)!;
     }
 
-    var copied: [3]u8 = [0, 0, 0];
-    var reader = io::FixedBufferReader::init(writer.written());
+    var copied: [5]u8 = [0, 0, 0, 0, 0];
+    var reader = std::io::FixedBufferReader::init(writer.written());
     switch reader.read_exact(&mut copied[..]) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(3)!,
+        error! => return std::process::ExitCode::init(3)!,
     }
-    var expected = b"nia";
-    if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] {
-        return process::ExitCode::init(4)!;
+    var expected = b"nia 7";
+    if copied[0] != expected[0] or copied[1] != expected[1] or copied[2] != expected[2] or copied[3] != expected[3] or copied[4] != expected[4] {
+        return std::process::ExitCode::init(4)!;
     }
     !{}
 }
