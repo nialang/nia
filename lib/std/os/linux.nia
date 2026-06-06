@@ -21,6 +21,13 @@ pub enum Error: i32 {
     _,
 }
 
+pub enum OpenMode: i32 {
+    ReadOnly = 0,
+    WriteOnly = 1,
+    ReadWrite = 2,
+    _,
+}
+
 pub struct FileDescriptor {
     fd: i32,
 }
@@ -72,6 +79,53 @@ extend FileDescriptor {
         } else {
             !(ret as usize)
         }
+    }
+
+    pub fn close(&self) Error!void {
+        var ret = syscall::syscall1(3, self.fd as usize);
+        if ret < 0 {
+            syscall_error(ret)!
+        } else {
+            !{}
+        }
+    }
+}
+
+pub fn cwd() FileDescriptor {
+    FileDescriptor::init(-100)
+}
+
+pub fn open_at(
+    dir: FileDescriptor,
+    path: &u8,
+    mode: OpenMode,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+) Error!FileDescriptor {
+    var flags = mode as i32;
+    if create {
+        flags = flags + 0o100;
+    }
+    if exclusive {
+        flags = flags + 0o200;
+    }
+    if truncate {
+        flags = flags + 0o1000;
+    }
+
+    var ret = syscall::syscall4(
+        257,
+        dir.raw() as usize,
+        path as usize,
+        flags as usize,
+        permissions as usize,
+    );
+    if ret < 0 {
+        syscall_error(ret)!
+    } else {
+        !FileDescriptor::init(ret as i32)
     }
 }
 
