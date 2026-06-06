@@ -25,6 +25,13 @@ pub trait Allocator {
 
     fn free(&mut self, block: Block) Error!void;
 
+    fn realloc(&mut self, block: Block, new_layout: Layout) Error!Block {
+        var new_block = self.alloc(new_layout).?;
+        copy_block_prefix(block, new_block);
+        self.free(block).?;
+        !new_block
+    }
+
     fn alloc_bytes(&mut self, len: usize, align: usize) Error!Block {
         var layout = Layout::init(len, align).?;
         self.alloc(layout)
@@ -60,6 +67,22 @@ where T: Sized
 
 fn dangling_block(layout: Layout) Block {
     Block::init(layout.align() as &mut u8, layout)
+}
+
+fn copy_block_prefix(from: Block, to: Block) void {
+    var count = from.size();
+    if count > to.size() {
+        count = to.size();
+    }
+    copy_bytes(&mut to.ptr()[0..count], &from.ptr()[0..count]);
+}
+
+fn copy_bytes(to: &mut [u8], from: &[u8]) void {
+    var index = 0usize;
+    while index < to.len() {
+        to[index] = from[index];
+        index += 1usize;
+    }
 }
 
 fn is_power_of_two(value: usize) bool {
