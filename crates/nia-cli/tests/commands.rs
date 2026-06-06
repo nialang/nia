@@ -1271,7 +1271,7 @@ import std;
 pub fn main(init: std::process::Init) std::process::ExitCode!void {
     _ = init;
     var stdout = std::fs::File::stdout();
-    switch stdout.print("A¢€😀, {}\n", ['λ']) {
+    switch stdout.print("A¢€😀, {}\n", [&'λ']) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
     }
@@ -1315,7 +1315,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
     _ = init;
     var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
     var writer = std::io::FixedBufferWriter::init(&mut storage[..]);
-    switch writer.print("nia {}", [7]) {
+    switch writer.print("nia {}", [&7]) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
     }
@@ -2557,11 +2557,12 @@ import std.process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var allocator = mem::PageAllocator::init();
-    var list = array_list::ArrayList[i32]::init(&mut allocator);
+    let page = &mut allocator;
+    var list = array_list::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
         return process::ExitCode::init(1)!;
     }
-    switch list.reserve(5) {
+    switch list.reserve(page, 5) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(2)!,
     }
@@ -2570,7 +2571,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     }
     var index = 0;
     while index < 6 {
-        switch list.push(index * 10) {
+        switch list.push(page, index * 10) {
             !ok => _ = ok,
             error! => return process::ExitCode::init(4)!,
         }
@@ -2603,7 +2604,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
     if not list.is_empty() {
         return process::ExitCode::init(11)!;
     }
-    switch list.deinit() {
+    switch list.deinit(page) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(12)!,
     }
