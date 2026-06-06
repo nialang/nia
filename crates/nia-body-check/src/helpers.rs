@@ -103,13 +103,26 @@ impl<'a> BodyChecker<'a> {
             .collect()
     }
 
-    pub(crate) fn struct_generic_substitutions(
+    pub(crate) fn nominal_type_generics(&mut self, def_id: GlobalDefId) -> Option<Vec<String>> {
+        if let Some(resolved) = self.resolved_struct_signature(def_id) {
+            return Some(resolved.signature.generics);
+        }
+        if let Some(resolved) = self.resolved_union_signature(def_id) {
+            return Some(resolved.signature.generics);
+        }
+        if self.resolved_enum_signature(def_id).is_some() {
+            return Some(Vec::new());
+        }
+        None
+    }
+
+    pub(crate) fn nominal_type_generic_substitutions(
         &mut self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> HashMap<String, InternedTyId> {
-        self.resolved_struct_signature(def_id)
-            .map(|resolved| self.generic_substitutions(&resolved.signature.generics, args))
+        self.nominal_type_generics(def_id)
+            .map(|generics| self.generic_substitutions(&generics, args))
             .unwrap_or_default()
     }
 

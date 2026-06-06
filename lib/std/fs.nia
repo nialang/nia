@@ -123,15 +123,15 @@ extend File {
     }
 
     pub fn close(&self) Error!void {
-        self.handle.close().map_err[Error](&[os::Error]::as_fs_error)
+        self.handle.close().map_err[Error](&os::Error::as_fs_error)
     }
 
     pub fn write_some(&self, bytes: &[u8]) Error!usize {
-        self.handle.write_some(bytes).map_err[Error](&[os::Error]::as_fs_error)
+        self.handle.write_some(bytes).map_err[Error](&os::Error::as_fs_error)
     }
 
     pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
-        self.handle.read_some(bytes).map_err[Error](&[os::Error]::as_fs_error)
+        self.handle.read_some(bytes).map_err[Error](&os::Error::as_fs_error)
     }
 }
 
@@ -194,7 +194,7 @@ fn open_encoded_file(dir: os::FileDescriptor, path: EncodedPath, options: OpenOp
         false,
         false,
         0,
-    ).map_err[Error](&[os::Error]::as_fs_error).?;
+    ).map_err[Error](&os::Error::as_fs_error).?;
     !File::init(handle)
 }
 
@@ -211,7 +211,7 @@ fn create_encoded_file(
         options.truncate(),
         options.is_exclusive(),
         options.permissions(),
-    ).map_err[Error](&[os::Error]::as_fs_error).?;
+    ).map_err[Error](&os::Error::as_fs_error).?;
     !File::init(handle)
 }
 
@@ -233,7 +233,7 @@ fn create_options_mode(options: CreateOptions) os::OpenMode {
 }
 
 fn encode_path(path: Path, storage: &mut [u8]) Error!EncodedPath {
-    encode_path_bytes(path.text(), storage).map_err[Error](&[PathError]::as_fs_error)
+    encode_path_bytes(path.text(), storage).map_err[Error](&PathError::as_fs_error)
 }
 
 fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!EncodedPath {
