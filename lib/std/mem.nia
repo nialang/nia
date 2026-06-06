@@ -38,7 +38,7 @@ pub trait Allocator {
         if self.resize(block, new_layout) {
             ?Block::init(block.ptr(), new_layout)
         } else if block.is_empty() and new_layout.is_empty() {
-            ?dangling_block(new_layout)
+            ?new_layout.dangling_block()
         } else {
             null
         }
@@ -50,7 +50,7 @@ pub trait Allocator {
             null => {},
         }
         let new_block = self.alloc(new_layout).?;
-        copy_block_prefix(block, new_block);
+        block.copy_prefix_to(new_block);
         self.free(block).?;
         !new_block
     }
@@ -88,38 +88,20 @@ where T: Sized
     &mut ptr[0..len]
 }
 
-fn dangling_block(layout: Layout) Block {
-    Block::init(layout.align() as &mut u8, layout)
-}
-
-fn copy_block_prefix(from: Block, to: Block) void {
-    var count = from.size();
-    if count > to.size() {
-        count = to.size();
-    }
-    copy_bytes(&mut to.ptr()[0..count], &from.ptr()[0..count]);
-}
-
-fn copy_bytes(to: &mut [u8], from: &[u8]) void {
-    var index = 0usize;
-    while index < to.len() {
-        to[index] = from[index];
-        index += 1usize;
-    }
-}
-
-fn is_power_of_two(value: usize) bool {
-    if value == 0 {
-        false
-    } else {
-        var n = value;
-        while n > 1usize {
-            if n % 2usize != 0usize {
-                return false;
+extend usize {
+    fn is_power_of_two(self) bool {
+        if self == 0 {
+            false
+        } else {
+            var n = self;
+            while n > 1usize {
+                if n % 2usize != 0usize {
+                    return false;
+                }
+                n = n / 2usize;
             }
-            n = n / 2usize;
+            true
         }
-        true
     }
 }
 
@@ -127,7 +109,7 @@ extend Layout {
     pub fn init(size: usize, align: usize) Error!Layout {
         if align == 0 {
             Error::InvalidAlignment!
-        } else if not is_power_of_two(align) {
+        } else if not align.is_power_of_two() {
             Error::InvalidAlignment!
         } else {
             !{ size: size, align: align }
@@ -166,6 +148,10 @@ extend Layout {
     pub fn is_empty(&self) bool {
         self.size == 0
     }
+
+    fn dangling_block(&self) Block {
+        Block::init(self.align() as &mut u8, self.*)
+    }
 }
 
 extend Block {
@@ -203,6 +189,20 @@ extend Block {
         var ptr = self.ptr as &mut T;
         &mut ptr[0..(self.size() / @size[T]())]
     }
+
+    fn copy_prefix_to(&self, to: Block) void {
+        var count = self.size();
+        if count > to.size() {
+            count = to.size();
+        }
+        let from_bytes = self.bytes();
+        var to_bytes = to.bytes();
+        var index = 0usize;
+        while index < count {
+            to_bytes[index] = from_bytes[index];
+            index += 1usize;
+        }
+    }
 }
 
 extend PageAllocator {
@@ -215,7 +215,7 @@ extend PageAllocator : Allocator {
     pub fn alloc(&mut self, layout: Layout) Error!Block {
         _ = self;
         if layout.is_empty() {
-            !dangling_block(layout)
+            !layout.dangling_block()
         } else {
             let ptr = os::map_pages(layout.size(), layout.align()).map_err[Error](&os::Error::as_mem_error).?;
             !Block::init(ptr, layout)
@@ -248,7 +248,7 @@ extend PageAllocator : Allocator {
         if self.resize(block, new_layout) {
             ?Block::init(block.ptr(), new_layout)
         } else if block.is_empty() and new_layout.is_empty() {
-            ?dangling_block(new_layout)
+            ?new_layout.dangling_block()
         } else {
             null
         }

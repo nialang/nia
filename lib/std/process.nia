@@ -51,16 +51,18 @@ extend Init {
     }
 }
 
-fn c_string_len(ptr: &u8) usize {
-    var len = 0usize;
-    while ptr[len] != 0u8 {
-        len += 1;
+extend &u8 {
+    fn c_string_len(self) usize {
+        var len = 0usize;
+        while self[len] != 0u8 {
+            len += 1;
+        }
+        len
     }
-    len
-}
 
-fn c_string_bytes(ptr: &u8) &[u8] {
-    & ptr[0..c_string_len(ptr)]
+    fn c_string_bytes(self) &[u8] {
+        & self[0..self.c_string_len()]
+    }
 }
 
 extend Arg {
@@ -73,11 +75,11 @@ extend Arg {
     }
 
     pub fn raw_bytes(&self) &[u8] {
-        c_string_bytes(self.ptr)
+        self.ptr.c_string_bytes()
     }
 
     pub fn raw_len(&self) usize {
-        c_string_len(self.ptr)
+        self.ptr.c_string_len()
     }
 
     pub fn is_empty(&self) bool {
@@ -121,11 +123,11 @@ extend EnvVar {
     }
 
     pub fn raw_bytes(&self) &[u8] {
-        c_string_bytes(self.ptr)
+        self.ptr.c_string_bytes()
     }
 
     pub fn raw_len(&self) usize {
-        c_string_len(self.ptr)
+        self.ptr.c_string_len()
     }
 
     pub fn is_empty(&self) bool {

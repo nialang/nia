@@ -71,6 +71,38 @@ extend Path {
     pub fn text(&self) &[char] {
         self.text
     }
+
+    fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
+        self.encode_bytes(storage).map_err[Error](&PathError::as_fs_error)
+    }
+
+    fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
+        var out = 0usize;
+        var index = 0usize;
+        while index < self.text.len() {
+            let ch = self.text[index];
+            if ch as u32 == 0u32 {
+                return PathError::Invalid!;
+            }
+            let encoded = ch.encode_utf8();
+            if out + encoded.len() >= storage.len() {
+                return PathError::TooLong!;
+            }
+            let bytes = encoded.bytes();
+            var byte_index = 0usize;
+            while byte_index < bytes.len() {
+                storage[out] = bytes[byte_index];
+                out += 1usize;
+                byte_index += 1usize;
+            }
+            index += 1usize;
+        }
+        if out >= storage.len() {
+            return PathError::TooLong!;
+        }
+        storage[out] = 0u8;
+        !EncodedPath::init(storage.get_ptr_read())
+    }
 }
 
 extend EncodedPath {
@@ -94,14 +126,40 @@ extend Dir {
 
     pub fn open_file(&self, path: Path, options: OpenOptions) Error!File {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
-        let encoded = encode_path(path, &mut storage[..]).?;
-        open_encoded_file(self.handle, encoded, options)
+        let encoded = path.encode(&mut storage[..]).?;
+        self.open_encoded_file(encoded, options)
     }
 
     pub fn create_file(&self, path: Path, options: CreateOptions) Error!File {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
-        let encoded = encode_path(path, &mut storage[..]).?;
-        create_encoded_file(self.handle, encoded, options)
+        let encoded = path.encode(&mut storage[..]).?;
+        self.create_encoded_file(encoded, options)
+    }
+
+    fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {
+        let handle = os::open_at(
+            self.handle,
+            path.ptr(),
+            options.os_mode(),
+            false,
+            false,
+            false,
+            0,
+        ).map_err[Error](&os::Error::as_fs_error).?;
+        !File::init(handle)
+    }
+
+    fn create_encoded_file(&self, path: EncodedPath, options: CreateOptions) Error!File {
+        let handle = os::open_at(
+            self.handle,
+            path.ptr(),
+            options.os_mode(),
+            true,
+            options.truncate(),
+            options.is_exclusive(),
+            options.permissions(),
+        ).map_err[Error](&os::Error::as_fs_error).?;
+        !File::init(handle)
     }
 }
 
@@ -152,6 +210,14 @@ extend OpenOptions {
         self.mode
     }
 
+    fn os_mode(&self) os::OpenMode {
+        switch self.mode() {
+            OpenMode::ReadOnly => os::OpenMode::ReadOnly,
+            OpenMode::WriteOnly => os::OpenMode::WriteOnly,
+            OpenMode::ReadWrite => os::OpenMode::ReadWrite,
+            _ => os::OpenMode::ReadOnly,
+        }
+    }
 }
 
 extend CreateOptions {
@@ -183,85 +249,13 @@ extend CreateOptions {
         self.permissions
     }
 
-}
-
-fn open_encoded_file(dir: os::FileDescriptor, path: EncodedPath, options: OpenOptions) Error!File {
-    let handle = os::open_at(
-        dir,
-        path.ptr(),
-        open_options_mode(options),
-        false,
-        false,
-        false,
-        0,
-    ).map_err[Error](&os::Error::as_fs_error).?;
-    !File::init(handle)
-}
-
-fn create_encoded_file(
-    dir: os::FileDescriptor,
-    path: EncodedPath,
-    options: CreateOptions,
-) Error!File {
-    let handle = os::open_at(
-        dir,
-        path.ptr(),
-        create_options_mode(options),
-        true,
-        options.truncate(),
-        options.is_exclusive(),
-        options.permissions(),
-    ).map_err[Error](&os::Error::as_fs_error).?;
-    !File::init(handle)
-}
-
-fn open_options_mode(options: OpenOptions) os::OpenMode {
-    switch options.mode() {
-        OpenMode::ReadOnly => os::OpenMode::ReadOnly,
-        OpenMode::WriteOnly => os::OpenMode::WriteOnly,
-        OpenMode::ReadWrite => os::OpenMode::ReadWrite,
-        _ => os::OpenMode::ReadOnly,
-    }
-}
-
-fn create_options_mode(options: CreateOptions) os::OpenMode {
-    if options.read() {
-        os::OpenMode::ReadWrite
-    } else {
-        os::OpenMode::WriteOnly
-    }
-}
-
-fn encode_path(path: Path, storage: &mut [u8]) Error!EncodedPath {
-    encode_path_bytes(path.text(), storage).map_err[Error](&PathError::as_fs_error)
-}
-
-fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!EncodedPath {
-    var out = 0usize;
-    var index = 0usize;
-    while index < text.len() {
-        let ch = text[index];
-        if ch as u32 == 0u32 {
-            return PathError::Invalid!;
+    fn os_mode(&self) os::OpenMode {
+        if self.read() {
+            os::OpenMode::ReadWrite
+        } else {
+            os::OpenMode::WriteOnly
         }
-        let encoded = unicode::encode_utf8(ch);
-        if out + encoded.len() >= storage.len() {
-            return PathError::TooLong!;
-        }
-        let bytes = encoded.bytes();
-        var byte_index = 0usize;
-        while byte_index < bytes.len() {
-            storage[out] = bytes[byte_index];
-            out += 1usize;
-            byte_index += 1usize;
-        }
-        index += 1usize;
     }
-    if out >= storage.len() {
-        return PathError::TooLong!;
-    }
-    storage[out] = 0u8;
-    !EncodedPath::init(storage.get_ptr_read())
 }
 
 extend PathError {
