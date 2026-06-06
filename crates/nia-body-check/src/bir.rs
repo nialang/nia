@@ -350,10 +350,12 @@ impl<'a> BodyChecker<'a> {
                     span: expr.span,
                 };
             }
-            self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-                expr.span,
-                "missing checked switch pattern value during body IR lowering",
-            ));
+            self.diagnostics
+                .push(nia_diagnostic::Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    "missing checked switch pattern value during body IR lowering",
+                ));
         }
         TypedSwitchPattern::Expr(self.lower_expr(expr))
     }
@@ -381,10 +383,12 @@ impl<'a> BodyChecker<'a> {
                     span,
                 };
             }
-            self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-                span,
-                "missing checked switch range pattern values during body IR lowering",
-            ));
+            self.diagnostics
+                .push(nia_diagnostic::Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    "missing checked switch range pattern values during body IR lowering",
+                ));
         }
         TypedSwitchPattern::Range {
             start: Box::new(self.lower_expr(start)),
@@ -1174,10 +1178,12 @@ impl<'a> BodyChecker<'a> {
         if let Some(value) = self.node_array_repeat_counts.get(&count.node_key).copied() {
             return value;
         }
-        self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-            count.span,
-            "missing checked array repeat count during body IR lowering",
-        ));
+        self.diagnostics
+            .push(nia_diagnostic::Diagnostic::user_error_at(
+                "E0301",
+                count.span,
+                "missing checked array repeat count during body IR lowering",
+            ));
         0
     }
 

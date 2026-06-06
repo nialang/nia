@@ -51,7 +51,7 @@ fn reports_missing_imported_modules() {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("failed to read"))
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("failed to read"))
     );
 }
 
@@ -70,7 +70,7 @@ fn checks_each_loaded_module() {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("function body"))
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("function body"))
     );
 }
 
@@ -205,7 +205,7 @@ fn value() i32 {
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("value `b::value` is private")
     }));
 }
@@ -622,7 +622,7 @@ where T: Marker {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("unknown struct field `tag`")),
         "{:?}",
         program.diagnostics
@@ -845,7 +845,7 @@ extend math::Point {
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("unknown struct field `len2`")
     }));
 }
@@ -874,13 +874,13 @@ fn add(a: i32, b: i32) i32 { a + b }
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("type `math::Point` is private")
     }));
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("value `math::add` is private")
     }));
 }

@@ -7,12 +7,15 @@ fn codegen_ice_boundary_converts_panic_to_diagnostic() {
 
     assert!(output.modules.is_empty());
     assert_eq!(output.diagnostics.len(), 1);
+    let diagnostic = &output.diagnostics[0];
+    assert_eq!(diagnostic.category, DiagnosticCategory::Internal);
+    assert_eq!(diagnostic.code.as_str(), "I0001");
+    assert!(diagnostic.summary.contains("invalid value kind"));
     assert!(
-        output.diagnostics[0]
-            .message
-            .contains("internal compiler error: invalid value kind"),
-        "{:?}",
-        output.diagnostics
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("compiler bug"))
     );
 }
 

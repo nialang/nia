@@ -409,14 +409,30 @@ impl<'a> ModuleLowerer<'a> {
                                     },
                                 };
                             }
-                            TraitResolution::Assumed(_)
-                            | TraitResolution::Unsatisfied
-                            | TraitResolution::Ambiguous => {}
+                            TraitResolution::Assumed(_) => {
+                                return FunctionExpr {
+                                    span: expr.span,
+                                    ty: expr.ty,
+                                    kind: FunctionExprKind::Call {
+                                        callee: FunctionCallee::BuiltinPlaceMethod {
+                                            trait_id,
+                                            method,
+                                            self_ty,
+                                            trait_args,
+                                            receiver,
+                                        },
+                                        args,
+                                    },
+                                };
+                            }
+                            TraitResolution::Unsatisfied | TraitResolution::Ambiguous => {}
                         }
-                        self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-                            receiver.span,
-                            "no visible implementation found for builtin place method call",
-                        ));
+                        self.diagnostics
+                            .push(nia_diagnostic::Diagnostic::user_error_at(
+                                "E0601",
+                                receiver.span,
+                                "no visible implementation found for builtin place method call",
+                            ));
                         return FunctionExpr {
                             span: expr.span,
                             ty: expr.ty,
@@ -538,13 +554,15 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 } else {
                     if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
-                        self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-                            receiver.span,
-                            format!(
-                                "no visible implementation found for trait method call `{}`",
-                                method_name
-                            ),
-                        ));
+                        self.diagnostics
+                            .push(nia_diagnostic::Diagnostic::user_error_at(
+                                "E0601",
+                                receiver.span,
+                                format!(
+                                    "no visible implementation found for trait method call `{}`",
+                                    method_name
+                                ),
+                            ));
                     }
                     FunctionCallee::TraitMethod {
                         trait_id,

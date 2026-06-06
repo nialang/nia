@@ -34,7 +34,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("requires explicit implementation of supertrait `Same`")),
         "{:?}",
         program.diagnostics

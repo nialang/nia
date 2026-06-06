@@ -44,7 +44,8 @@ impl<'a> BodyChecker<'a> {
             ArityRequirement::Exact(expected) => expected.to_string(),
             ArityRequirement::AtLeast(expected) => format!("at least {expected}"),
         };
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
             span,
             format!("argument count mismatch: expected {expected}, got {actual}"),
         ));

@@ -8,8 +8,11 @@ use super::BackendValidator;
 impl BackendValidator<'_> {
     pub(super) fn validate_function_ref(&mut self, def_id: GlobalDefId, span: Span, message: &str) {
         if !self.index.functions.contains_key(&def_id) {
-            self.diagnostics
-                .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                span,
+                format!("{message} {def_id:?}"),
+            ));
         }
     }
 
@@ -45,8 +48,11 @@ impl BackendValidator<'_> {
             exists
         };
         if !exists {
-            self.diagnostics
-                .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                span,
+                format!("{message} {def_id:?}"),
+            ));
         }
     }
 }

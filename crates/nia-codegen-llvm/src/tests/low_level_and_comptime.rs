@@ -23,7 +23,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("global initializer")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("global initializer")),
         "{:?}",
         checked.diagnostics
     );

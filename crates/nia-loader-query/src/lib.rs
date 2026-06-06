@@ -155,7 +155,10 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             add_resolved_imports(&mut graph, root, [runtime_import]).unwrap_or_else(|diagnostic| {
                 db.invalid_input(
                     self,
-                    format!("failed to add entry runtime import: {}", diagnostic.message),
+                    format!(
+                        "failed to add entry runtime import: [{}] {}",
+                        diagnostic.code, diagnostic.summary
+                    ),
                 )
             });
         }
@@ -168,7 +171,10 @@ impl QueryKey<LoaderContext> for ModuleGraphQuery {
             if let Err(diagnostic) = add_resolved_imports(&mut graph, node.id, imports.imports) {
                 db.invalid_input(
                     self,
-                    format!("failed to add resolved imports: {}", diagnostic.message),
+                    format!(
+                        "failed to add resolved imports: [{}] {}",
+                        diagnostic.code, diagnostic.summary
+                    ),
                 );
             }
             index += 1;
@@ -230,7 +236,9 @@ impl QueryKey<LoaderContext> for LoadDiagnosticsQuery {
                 &parsed
                     .parse_errors
                     .iter()
-                    .map(|error| Diagnostic::error(error.span, error.message.clone()))
+                    .map(|error| {
+                        Diagnostic::user_error_at("E0102", error.span, error.message.clone())
+                    })
                     .collect::<Vec<_>>(),
             ));
             diagnostics.extend(module_diagnostics(&node.path, &parsed.prune_diagnostics));
@@ -387,7 +395,8 @@ impl QueryKey<LoaderContext> for SourceTextQuery {
             },
             Err(err) => SourceText {
                 file: None,
-                diagnostic: Some(Diagnostic::error(
+                diagnostic: Some(Diagnostic::user_error_at(
+                    "E0102",
                     Span::default(),
                     format!("failed to read `{}`: {err}", self.0.as_str()),
                 )),
@@ -515,7 +524,7 @@ mod tests {
             program
                 .diagnostics
                 .iter()
-                .any(|diagnostic| { diagnostic.diagnostic.message.contains("failed to read") })
+                .any(|diagnostic| { diagnostic.diagnostic.summary.contains("failed to read") })
         );
     }
 

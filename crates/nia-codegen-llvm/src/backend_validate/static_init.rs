@@ -20,7 +20,8 @@ impl BackendValidator<'_> {
             | StaticInit::NullPtr => {}
             StaticInit::Array(elems) => {
                 let Some(elem_ty) = self.array_elem_ty(ty) else {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         span,
                         "backend IR array static initializer target is not array",
                     ));
@@ -32,7 +33,8 @@ impl BackendValidator<'_> {
             }
             StaticInit::Repeat { value, .. } => {
                 let Some(elem_ty) = self.array_elem_ty(ty) else {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         span,
                         "backend IR repeat static initializer target is not array",
                     ));
@@ -43,7 +45,8 @@ impl BackendValidator<'_> {
             StaticInit::Struct(fields) => self.validate_static_struct_init(ty, fields, span),
             StaticInit::AddrOfGlobal { global, path } => {
                 let Some(global_item) = self.index.globals.get(global) else {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         span,
                         format!(
                             "backend IR static initializer references missing global {global:?}"
@@ -80,14 +83,16 @@ impl BackendValidator<'_> {
         span: Span,
     ) {
         let Some((def_id, args)) = self.field_base_type(ty) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 "backend IR struct static initializer target is not nominal",
             ));
             return;
         };
         let Some(target_fields) = self.aggregate_fields(def_id, &args) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 format!(
                     "backend IR struct static initializer references missing aggregate {def_id:?}"
@@ -101,7 +106,8 @@ impl BackendValidator<'_> {
             .collect::<Vec<_>>();
         for init in fields {
             let Some(field_id) = init.field else {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    "I0300",
                     span,
                     "backend IR static initializer has invalid field",
                 ));
@@ -111,7 +117,8 @@ impl BackendValidator<'_> {
                 .iter()
                 .find(|(candidate, _)| *candidate == field_id)
             else {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    "I0300",
                     span,
                     format!("backend IR static initializer references missing field {field_id:?}"),
                 ));
@@ -141,7 +148,8 @@ impl BackendValidator<'_> {
                 }
                 StaticAddressElem::Index(_) => {
                     let Some(elem_ty) = self.array_elem_ty(current_ty) else {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::internal_error_at(
+                            "I0300",
                             span,
                             "backend IR static address path indexes non-array type",
                         ));
@@ -150,7 +158,8 @@ impl BackendValidator<'_> {
                     current_ty = elem_ty;
                 }
                 StaticAddressElem::Error => {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         span,
                         "backend IR static address path contains invalid element",
                     ));

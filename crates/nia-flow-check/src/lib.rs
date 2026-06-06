@@ -80,7 +80,8 @@ impl FlowChecker<'_> {
             .as_deref()
             .is_some_and(|tail| self.tail_expr_returns_on_all_paths(tail));
         if self.function_requires_return(function) && flow.falls_through && !tail_returns {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
                 body.span,
                 "non-void function does not return on all reachable paths",
             ));
@@ -108,8 +109,11 @@ impl FlowChecker<'_> {
         let mut falls_through = true;
         for stmt in &block.stmts {
             if !falls_through {
-                self.diagnostics
-                    .push(Diagnostic::error(stmt.span, "unreachable statement"));
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0501",
+                    stmt.span,
+                    "unreachable statement",
+                ));
                 self.check_stmt(stmt);
                 continue;
             }
@@ -190,7 +194,8 @@ impl FlowChecker<'_> {
             },
             StmtKind::Break | StmtKind::Continue => {
                 if self.loop_depth == 0 {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0501",
                         stmt.span,
                         "`break` and `continue` can only appear inside loops",
                     ));
@@ -473,7 +478,8 @@ impl FlowChecker<'_> {
             }
             ExprKind::Try { expr } => {
                 self.check_no_deferred_control_flow(expr);
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0501",
                     expr.span,
                     "`.?` propagation is not allowed inside deferred expressions",
                 ));
@@ -578,15 +584,18 @@ impl FlowChecker<'_> {
                     self.check_no_deferred_control_flow(expr);
                 }
                 StmtKind::Using(_) => {}
-                StmtKind::Return(_) => self.diagnostics.push(Diagnostic::error(
+                StmtKind::Return(_) => self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0501",
                     stmt.span,
                     "`return` is not allowed inside deferred expressions",
                 )),
-                StmtKind::Break => self.diagnostics.push(Diagnostic::error(
+                StmtKind::Break => self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0501",
                     stmt.span,
                     "`break` is not allowed inside deferred expressions",
                 )),
-                StmtKind::Continue => self.diagnostics.push(Diagnostic::error(
+                StmtKind::Continue => self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0501",
                     stmt.span,
                     "`continue` is not allowed inside deferred expressions",
                 )),
@@ -616,40 +625,58 @@ impl FlowChecker<'_> {
                 match pattern {
                     SwitchPattern::Default => {
                         if has_default {
-                            self.diagnostics
-                                .push(Diagnostic::error(arm.span, "duplicate switch default"));
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0501",
+                                arm.span,
+                                "duplicate switch default",
+                            ));
                         }
                         has_default = true;
                     }
                     SwitchPattern::OptionalSome { .. } => {
                         if !seen_patterns.insert("optional:some".to_string()) {
-                            self.diagnostics
-                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0501",
+                                arm.span,
+                                "duplicate switch pattern",
+                            ));
                         }
                     }
                     SwitchPattern::OptionalNull { .. } => {
                         if !seen_patterns.insert("optional:null".to_string()) {
-                            self.diagnostics
-                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0501",
+                                arm.span,
+                                "duplicate switch pattern",
+                            ));
                         }
                     }
                     SwitchPattern::ErrorOk { .. } => {
                         if !seen_patterns.insert("error:ok".to_string()) {
-                            self.diagnostics
-                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0501",
+                                arm.span,
+                                "duplicate switch pattern",
+                            ));
                         }
                     }
                     SwitchPattern::ErrorErr { .. } => {
                         if !seen_patterns.insert("error:err".to_string()) {
-                            self.diagnostics
-                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0501",
+                                arm.span,
+                                "duplicate switch pattern",
+                            ));
                         }
                     }
                     SwitchPattern::Expr(expr) => {
                         let key = format!("{:?}", expr.kind);
                         if !seen_patterns.insert(key) {
-                            self.diagnostics
-                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0501",
+                                arm.span,
+                                "duplicate switch pattern",
+                            ));
                         }
                     }
                     SwitchPattern::Range {
@@ -660,8 +687,11 @@ impl FlowChecker<'_> {
                     } => {
                         let key = format!("range:{:?}:{:?}:{}", start.kind, end.kind, inclusive);
                         if !seen_patterns.insert(key) {
-                            self.diagnostics
-                                .push(Diagnostic::error(arm.span, "duplicate switch pattern"));
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0501",
+                                arm.span,
+                                "duplicate switch pattern",
+                            ));
                         }
                     }
                 }
@@ -703,7 +733,7 @@ fn main() {
             checked
                 .diagnostics
                 .iter()
-                .filter(|diagnostic| diagnostic.message.contains("inside loops"))
+                .filter(|diagnostic| diagnostic.summary.contains("inside loops"))
                 .count(),
             2
         );
@@ -727,14 +757,14 @@ fn b() i32 {
         );
         assert!(checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
-                .message
+                .summary
                 .contains("does not return on all reachable paths")
         }));
         assert!(
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("unreachable statement"))
+                .any(|diagnostic| diagnostic.summary.contains("unreachable statement"))
         );
     }
 
@@ -756,13 +786,13 @@ fn main(x: i32) {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate switch pattern"))
+                .any(|diagnostic| diagnostic.summary.contains("duplicate switch pattern"))
         );
         assert!(
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate switch default"))
+                .any(|diagnostic| diagnostic.summary.contains("duplicate switch default"))
         );
     }
 
@@ -794,7 +824,7 @@ fn name(x: u32) &u8 {
         );
         assert!(
             !checked.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("does not return on all reachable paths")),
             "{:?}",
             checked.diagnostics
@@ -815,7 +845,7 @@ fn name(x: u32) &u8 {
         );
         assert!(
             !checked.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("does not return on all reachable paths")),
             "{:?}",
             checked.diagnostics
@@ -841,7 +871,7 @@ fn name(mode: Mode) u32 {
         );
         assert!(
             !checked.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("does not return on all reachable paths")),
             "{:?}",
             checked.diagnostics
@@ -868,7 +898,7 @@ fn main() {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("`return` is not allowed")),
+                .any(|diagnostic| diagnostic.summary.contains("`return` is not allowed")),
             "{:?}",
             checked.diagnostics
         );
@@ -876,7 +906,7 @@ fn main() {
             !checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("requires a call")),
+                .any(|diagnostic| diagnostic.summary.contains("requires a call")),
             "{:?}",
             checked.diagnostics
         );
@@ -916,7 +946,7 @@ fn main() {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("`return` is not allowed")),
+                .any(|diagnostic| diagnostic.summary.contains("`return` is not allowed")),
             "{:?}",
             checked.diagnostics
         );
@@ -924,7 +954,7 @@ fn main() {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("`break` is not allowed")),
+                .any(|diagnostic| diagnostic.summary.contains("`break` is not allowed")),
             "{:?}",
             checked.diagnostics
         );
@@ -932,7 +962,7 @@ fn main() {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("`continue` is not allowed")),
+                .any(|diagnostic| diagnostic.summary.contains("`continue` is not allowed")),
             "{:?}",
             checked.diagnostics
         );
@@ -970,7 +1000,7 @@ fn main(flag: bool) {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("`continue` is not allowed")),
+                .any(|diagnostic| diagnostic.summary.contains("`continue` is not allowed")),
             "{:?}",
             checked.diagnostics
         );
@@ -978,7 +1008,7 @@ fn main(flag: bool) {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("`break` is not allowed")),
+                .any(|diagnostic| diagnostic.summary.contains("`break` is not allowed")),
             "{:?}",
             checked.diagnostics
         );
@@ -1004,7 +1034,7 @@ fn main(limit: i32) {
             checked
                 .diagnostics
                 .iter()
-                .all(|diagnostic| !diagnostic.message.contains("inside loops")),
+                .all(|diagnostic| !diagnostic.summary.contains("inside loops")),
             "{:?}",
             checked.diagnostics
         );
@@ -1029,7 +1059,7 @@ fn main(kind: i32) {
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("unreachable statement")),
+                .any(|diagnostic| diagnostic.summary.contains("unreachable statement")),
             "{:?}",
             checked.diagnostics
         );

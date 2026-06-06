@@ -23,7 +23,8 @@ impl<'a> BodyChecker<'a> {
             return self.interner.intern(TyKind::ComptimeOnly);
         }
         let Some(type_arg) = type_arg else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!("builtin `@{name}` requires a type argument"),
             ));
@@ -41,7 +42,8 @@ impl<'a> BodyChecker<'a> {
                 LayoutBuiltin::Align
             }
             BuiltinResolution::Asm => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     span,
                     format!("builtin `@{name}` must be called with value arguments"),
                 ));
@@ -75,7 +77,8 @@ impl<'a> BodyChecker<'a> {
         match resolution {
             BuiltinResolution::Builtin => {
                 if !args.is_empty() {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         call_span,
                         "builtin `@builtin` does not take value arguments",
                     ));
@@ -87,7 +90,8 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
                 if !args.is_empty() {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         call_span,
                         format!("builtin `@{name}` does not take value arguments"),
                     ));
@@ -110,7 +114,8 @@ impl<'a> BodyChecker<'a> {
         ) {
             return;
         }
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
             span,
             format!(
                 "builtin `@{builtin_name}` requires {}: Sized",

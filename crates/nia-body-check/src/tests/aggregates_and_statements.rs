@@ -21,25 +21,25 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("struct literal field"))
+            .any(|diagnostic| diagnostic.summary.contains("struct literal field"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("unknown struct field"))
+            .any(|diagnostic| diagnostic.summary.contains("unknown struct field"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("duplicate struct field"))
+            .any(|diagnostic| diagnostic.summary.contains("duplicate struct field"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("missing struct field"))
+            .any(|diagnostic| diagnostic.summary.contains("missing struct field"))
     );
 }
 
@@ -64,19 +64,19 @@ fn main(pair: Pair[i32], ptr: & Pair[i32]) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("unknown struct field"))
+            .any(|diagnostic| diagnostic.summary.contains("unknown struct field"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("function body"))
+            .any(|diagnostic| diagnostic.summary.contains("function body"))
     );
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
 }
 
@@ -136,7 +136,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("non-void expression result"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-void expression result"))
             .count(),
         1
     );
@@ -174,7 +174,7 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("while condition"))
+            .filter(|diagnostic| diagnostic.summary.contains("while condition"))
             .count(),
         1,
         "{:?}",
@@ -184,7 +184,7 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .all(|diagnostic| !diagnostic.message.contains("non-void expression result")),
+            .all(|diagnostic| !diagnostic.summary.contains("non-void expression result")),
         "{:?}",
         checked.diagnostics
     );
@@ -210,7 +210,7 @@ fn main() i32 {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("for-in range iterator requires a start bound"))
             .count(),
         2,
@@ -268,7 +268,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("out of range for u8")),
+            .any(|diagnostic| diagnostic.summary.contains("out of range for u8")),
         "{:?}",
         checked.diagnostics
     );
@@ -306,7 +306,7 @@ fn main() i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
-                .message
+                .summary
                 .contains("range.iter() requires a start bound")
         }),
         "{:?}",
@@ -354,7 +354,7 @@ fn main(flag: bool) {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("`defer` expression must have type `void`"))
             .count(),
         2,

@@ -922,7 +922,7 @@ pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<Pr
         for error in &loaded_module.parse_errors {
             diagnostics.push(ProgramDiagnostic {
                 path: loaded_module.path.clone(),
-                diagnostic: Diagnostic::error(error.span, error.message.clone()),
+                diagnostic: Diagnostic::user_error_at("E0201", error.span, error.message.clone()),
             });
         }
     }
@@ -1005,7 +1005,10 @@ pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<Pr
             .iter()
             .cloned()
             .map(|diagnostic| ProgramDiagnostic {
-                path: path_for_diagnostic_span(&checked_modules, diagnostic.span),
+                path: path_for_diagnostic_span(
+                    &checked_modules,
+                    diagnostic.primary_span().unwrap_or_default(),
+                ),
                 diagnostic,
             }),
     );
@@ -1016,7 +1019,10 @@ pub(super) fn provide_program_diagnostics(db: &QueryDb<DriverContext>) -> Vec<Pr
             .iter()
             .cloned()
             .map(|diagnostic| ProgramDiagnostic {
-                path: path_for_diagnostic_span(&checked_modules, diagnostic.span),
+                path: path_for_diagnostic_span(
+                    &checked_modules,
+                    diagnostic.primary_span().unwrap_or_default(),
+                ),
                 diagnostic,
             }),
     );

@@ -547,7 +547,8 @@ impl<'a> ModuleLowerer<'a> {
                         .get(&id)
                         .map(|expr| expr.span)
                         .unwrap_or_default();
-                    diagnostics.push(Diagnostic::error(
+                    diagnostics.push(Diagnostic::user_error_at(
+                        "E0601",
                         span,
                         format!(
                             "array length {id:?} was not evaluated before backend symbol generation"

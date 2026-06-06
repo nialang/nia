@@ -57,7 +57,8 @@ impl<'a> BodyChecker<'a> {
             return Some(return_ty);
         }
         let Some(method_id) = self.single_method_candidate(span, name, candidates) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!("unknown associated function `{name}`"),
             ));
@@ -67,7 +68,8 @@ impl<'a> BodyChecker<'a> {
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)
         else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 "associated function signature not found",
             ));
@@ -83,7 +85,7 @@ impl<'a> BodyChecker<'a> {
         };
         let method_arg_count = method_instantiation_args.len();
         if method_type_args.is_some() && signature.generics.len() != method_arg_count {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at("E0301", 
                 span,
                 format!(
                     "generic argument count mismatch for method: expected {}, got {method_arg_count}",
@@ -112,7 +114,8 @@ impl<'a> BodyChecker<'a> {
             .first()
             .is_some_and(|param| param.receiver.is_some());
         if is_receiver_method && args.is_empty() {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!("receiver method `{name}` requires a receiver argument"),
             ));
@@ -306,7 +309,8 @@ impl<'a> BodyChecker<'a> {
             })
             .map(|def| def.name.as_str())
             .unwrap_or("<unknown>");
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
             span,
             format!(
                 "generic argument count mismatch for `{name}`: expected {expected}, got {actual}"

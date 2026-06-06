@@ -381,7 +381,7 @@ fn main() i32 { 0 }
         program.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("could not be resolved")
         }),
         "{:?}",
@@ -408,7 +408,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("`pub` cannot be applied")),
         "{:?}",
         program.diagnostics
@@ -528,7 +528,7 @@ fn main() Color { Red }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("unknown enum variant")),
         "{:?}",
         program.diagnostics
@@ -694,7 +694,7 @@ fn main() i32 { pick(palette::Color::Red) }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("non-exhaustive enum switch")),
         "{:?}",
         program.diagnostics
@@ -756,7 +756,7 @@ pub enum Color: u8 { Red }
             program
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.diagnostic.message.contains(expected)),
+                .any(|diagnostic| diagnostic.diagnostic.summary.contains(expected)),
             "{expected}: {:?}",
             program.diagnostics
         );

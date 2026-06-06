@@ -51,7 +51,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied")),
         "{:?}",
         program.diagnostics
@@ -162,7 +162,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied")),
         "{:?}",
         program.diagnostics
@@ -213,7 +213,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied")),
         "{:?}",
         program.diagnostics
@@ -290,7 +290,7 @@ fn main() usize {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("requires T: Sized")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("requires T: Sized")),
         "{:?}",
         program.diagnostics
     );
@@ -494,7 +494,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("field access base is not a struct or union value or pointer")),
         "{:?}",
         program.diagnostics
@@ -527,7 +527,7 @@ fn main() i32 { 0 }
     let messages = program
         .diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.diagnostic.message.as_str())
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert!(
         messages.iter().any(|message| message.contains("DerefRead")),
@@ -663,7 +663,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("ambiguous index literal type")),
         "{:?}",
         program.diagnostics
@@ -704,7 +704,7 @@ fn main() i32 { 0 }
     let messages = program
         .diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.diagnostic.message.as_str())
+        .map(|diagnostic| diagnostic.diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert!(
         messages
@@ -789,7 +789,7 @@ fn main() i32 { 0 }
         .filter(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("overlaps a compiler-proven implementation")
         })
         .count();
@@ -819,7 +819,7 @@ fn main() usize {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| { diagnostic.diagnostic.message.contains("unknown type `Len`") }),
+            .any(|diagnostic| { diagnostic.diagnostic.summary.contains("unknown type `Len`") }),
         "{:?}",
         program.diagnostics
     );
@@ -863,7 +863,7 @@ fn main() i32 {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("slice range end")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("slice range end")),
         "{:?}",
         program.diagnostics
     );
@@ -906,7 +906,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("overlaps a compiler-proven implementation")),
         "{:?}",
         program.diagnostics

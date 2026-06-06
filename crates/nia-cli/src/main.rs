@@ -972,7 +972,7 @@ impl Drop for TempDir {
 fn print_parse_errors(path: &str, source: &str, errors: &[ParseError]) {
     eprintln!("parse errors:");
     for error in errors {
-        let diagnostic = Diagnostic::error(error.span, error.message.clone());
+        let diagnostic = Diagnostic::user_error_at("E0103", error.span, error.message.clone());
         eprintln!("{}", render_diagnostic(path, source, &diagnostic));
     }
 }

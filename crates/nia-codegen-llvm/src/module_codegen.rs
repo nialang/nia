@@ -401,7 +401,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
     }
 
     pub(super) fn error(&self, span: Span, message: impl Into<String>) -> Diagnostic {
-        Diagnostic::error(span, message)
+        Diagnostic::user_error_at("E0601", span, message)
     }
 
     pub(super) fn diagnostic_from_llvm_error(error: LlvmError) -> Diagnostic {

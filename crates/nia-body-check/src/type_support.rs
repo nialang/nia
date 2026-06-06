@@ -233,7 +233,8 @@ impl<'a> BodyChecker<'a> {
         {
             return;
         }
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
             span,
             format!(
                 "type mismatch in {context}: expected {}, got {}",
@@ -417,7 +418,8 @@ impl<'a> BodyChecker<'a> {
             return false;
         };
         if value < min || value > max {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 expr.span,
                 format!(
                     "integer literal {value} is out of range for {} in {context}",
@@ -455,7 +457,8 @@ impl<'a> BodyChecker<'a> {
             return false;
         };
         if value < min || value > max {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 expr.span,
                 format!(
                     "integer literal {value} is out of range for {} backing type in {context}",
@@ -482,7 +485,8 @@ impl<'a> BodyChecker<'a> {
         match primitive {
             PrimitiveTy::F32 => {
                 if !parse_float_literal::<f32>(text) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         format!("float literal `{text}` is out of range for F32 in {context}"),
                     ));
@@ -491,7 +495,8 @@ impl<'a> BodyChecker<'a> {
             }
             PrimitiveTy::F64 => {
                 if !parse_float_literal::<f64>(text) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         format!("float literal `{text}` is out of range for F64 in {context}"),
                     ));
@@ -508,7 +513,8 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn report_invalid_numeric_literal_suffix(&mut self, expr: &Expr, kind: &str) {
         let suffix = numeric_literal_suffix_for_expr(expr).unwrap_or("<unknown>");
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
             expr.span,
             format!("invalid {kind} literal suffix `{suffix}`"),
         ));
@@ -518,7 +524,8 @@ impl<'a> BodyChecker<'a> {
         if actual == self.error() || self.is_integer(actual) {
             return;
         }
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
             span,
             format!(
                 "type mismatch in {context}: expected integer, got {}",

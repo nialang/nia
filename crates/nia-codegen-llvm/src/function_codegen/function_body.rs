@@ -920,10 +920,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
 }
 
 fn function_ir_diagnostic(error: FunctionIrError) -> Diagnostic {
-    Diagnostic::error(
-        error.span,
-        format!("invalid function IR: {}", error.message),
-    )
+    Diagnostic::internal_error("I0201", "invalid function IR before LLVM codegen")
+        .primary(error.span, "function IR validation failed here")
+        .debug("function_ir_error", error.message)
+        .finish()
 }
 
 fn is_aggregate_literal(value: &FunctionExpr) -> bool {

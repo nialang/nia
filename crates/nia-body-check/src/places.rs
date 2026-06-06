@@ -118,7 +118,8 @@ impl<'a> BodyChecker<'a> {
 
     pub(crate) fn check_assignable(&mut self, expr: &Expr, context: &str) {
         if let Some(reason) = self.not_assignable_reason(expr) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 expr.span,
                 format!("{context} is not assignable: {reason}"),
             ));
@@ -152,7 +153,8 @@ impl<'a> BodyChecker<'a> {
             } else {
                 "assignable"
             };
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 expr.span,
                 format!("{context} is not {property}: {reason}"),
             ));
@@ -410,7 +412,8 @@ impl<'a> BodyChecker<'a> {
                 return self.normalize_projection(output);
             }
             if span != Span::default() {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     span,
                     format!(
                         "trait bound not satisfied: {}: {}",
@@ -435,7 +438,8 @@ impl<'a> BodyChecker<'a> {
             return self.normalize_projection(output);
         }
         if span != Span::default() {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -462,7 +466,8 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::IndexRead),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -496,7 +501,8 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(BuiltinTrait::Index),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -529,7 +535,7 @@ impl<'a> BodyChecker<'a> {
             }
             IndexLiteralExpectedType::Ambiguous => {
                 self.check_expr(index);
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at("E0301", 
                     index.span,
                     format!(
                         "ambiguous index literal type for {}; add a literal suffix or type annotation",
@@ -612,8 +618,11 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Pointer { elem, .. })
                 if self.normalization.normalize(*elem) == self.void() =>
             {
-                self.diagnostics
-                    .push(Diagnostic::error(span, "cannot dereference `&void`"));
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    "cannot dereference `&void`",
+                ));
                 self.error()
             }
             Some(TyKind::Error) | None => self.error(),
@@ -627,7 +636,8 @@ impl<'a> BodyChecker<'a> {
                 self.normalize_projection(target)
             }
             _ => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     span,
                     format!(
                         "trait bound not satisfied: {}: {}",
@@ -654,8 +664,11 @@ impl<'a> BodyChecker<'a> {
             Some(TyKind::Pointer { elem, .. })
                 if self.normalization.normalize(*elem) == self.void() =>
             {
-                self.diagnostics
-                    .push(Diagnostic::error(span, "cannot dereference `&void`"));
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    "cannot dereference `&void`",
+                ));
                 self.error()
             }
             Some(TyKind::Error) | None => self.error(),

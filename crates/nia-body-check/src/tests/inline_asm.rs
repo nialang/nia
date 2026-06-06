@@ -35,35 +35,35 @@ fn main() void {
     assert!(
         bad.diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("field `code`")),
+            .any(|diagnostic| diagnostic.summary.contains("field `code`")),
         "{:?}",
         bad.diagnostics
     );
     assert!(
         bad.diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("inline assembly output")),
+            .any(|diagnostic| diagnostic.summary.contains("inline assembly output")),
         "{:?}",
         bad.diagnostics
     );
     assert!(
         bad.diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("clobbers")),
+            .any(|diagnostic| diagnostic.summary.contains("clobbers")),
         "{:?}",
         bad.diagnostics
     );
     assert!(
         bad.diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("unknown `@asm` option")),
+            .any(|diagnostic| diagnostic.summary.contains("unknown `@asm` option")),
         "{:?}",
         bad.diagnostics
     );
     assert!(
         bad.diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("unknown `@asm` field")),
+            .any(|diagnostic| diagnostic.summary.contains("unknown `@asm` field")),
         "{:?}",
         bad.diagnostics
     );
@@ -83,7 +83,7 @@ fn main() void {
         bare_option
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("string literals")),
+            .any(|diagnostic| diagnostic.summary.contains("string literals")),
         "{:?}",
         bare_option.diagnostics
     );
@@ -106,8 +106,8 @@ fn main() void {
         aggregate_operand
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("inline assembly")
-                && diagnostic.message.contains("aggregate type"))
+            .filter(|diagnostic| diagnostic.summary.contains("inline assembly")
+                && diagnostic.summary.contains("aggregate type"))
             .count()
             >= 2,
         "{:?}",

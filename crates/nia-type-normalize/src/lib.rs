@@ -188,7 +188,8 @@ impl<'a> TypeNormalizer<'a> {
             return self.interner.error();
         }
         if alias.generics.len() != args.len() {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0202",
                 alias.span,
                 format!(
                     "type alias argument count mismatch: expected {}, got {}",
@@ -352,7 +353,8 @@ impl<'a> TypeNormalizer<'a> {
                 cycle.push(format!("#{}", def_id.0));
             }
         }
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0202",
             span,
             format!("recursive type alias detected: {}", cycle.join(" -> ")),
         ));
@@ -559,7 +561,7 @@ type B = A;
             normalization
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("recursive type alias"))
+                .any(|diagnostic| diagnostic.summary.contains("recursive type alias"))
         );
     }
 

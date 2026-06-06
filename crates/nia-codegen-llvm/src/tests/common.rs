@@ -10,6 +10,7 @@ pub(super) use nia_backend_ir::{
 };
 pub(super) use nia_body_ir::{TypedBody, TypedExpr, TypedExprKind, TypedLocal, TypedLocalKind};
 pub(super) use nia_comptime_check::ComptimeCheck;
+pub(super) use nia_diagnostic::{Diagnostic, DiagnosticCategory};
 pub(super) use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee, FunctionExpr, FunctionExprKind,
     FunctionFieldInit, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionScope,
@@ -22,6 +23,15 @@ pub(super) use nia_layout::{FieldLayout, StructLayout, TypeLayout};
 pub(super) use nia_span::Span;
 pub(super) use nia_static_ir::{StaticFieldInit, StaticInit};
 pub(super) use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, TraitId, TyKind};
+
+pub(super) fn has_internal_diagnostic(diagnostics: &[Diagnostic], code: &str, text: &str) -> bool {
+    diagnostics.iter().any(|diagnostic| {
+        diagnostic.category == DiagnosticCategory::Internal
+            && diagnostic.code.as_str() == code
+            && diagnostic.summary.contains(text)
+            && diagnostic.primary_span().is_some()
+    })
+}
 
 pub(super) struct EmitSmokeCase {
     pub(super) name: &'static str,

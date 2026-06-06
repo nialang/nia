@@ -106,7 +106,8 @@ impl StaticChecker<'_> {
             return;
         };
         if let Some(reason) = self.static_init_reject_reason(value) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
                 value.span,
                 format!("global initializer is not static data: {reason}"),
             ));
@@ -650,19 +651,19 @@ var bad_bare_ptr: &i32 = base;
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("block expressions"))
+                .any(|diagnostic| diagnostic.summary.contains("block expressions"))
         );
         assert!(
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("function calls"))
+                .any(|diagnostic| diagnostic.summary.contains("function calls"))
         );
         assert!(
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("bare global value"))
+                .any(|diagnostic| diagnostic.summary.contains("bare global value"))
         );
     }
 
@@ -729,7 +730,7 @@ var values: [3]i32 = [1; n];
 
         assert!(
             checked.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("array repeat count is not a static usize constant")),
             "{:?}",
             checked.diagnostics
@@ -750,7 +751,7 @@ var bad: &i32 = &target[idx];
             checked
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("static integer constant")),
+                .any(|diagnostic| diagnostic.summary.contains("static integer constant")),
             "{:?}",
             checked.diagnostics
         );
