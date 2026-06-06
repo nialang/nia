@@ -1299,6 +1299,93 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_use_std_io_buffered_writer() {
+    let root = temp_dir("emit_exe_can_use_std_io_buffered_writer");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var storage: [16]u8 = [0; 16];
+    var backing = io::FixedBufferWriter::init(&mut storage[..]);
+    var buffer_storage: [4]u8 = [0; 4];
+    var writer = io::BufferedWriter[io::FixedBufferWriter]::init(
+        &mut backing,
+        &mut buffer_storage[..],
+    );
+
+    switch writer.write_all(b"abc") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    if writer.len() != 3 or backing.len() != 0 {
+        return process::ExitCode::init(2)!;
+    }
+
+    switch writer.write_byte(b'd') {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    if writer.len() != 4 or backing.len() != 0 {
+        return process::ExitCode::init(4)!;
+    }
+
+    switch writer.write_all(b"efghij") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(5)!,
+    }
+    if writer.len() != 0 or backing.len() != 10 {
+        return process::ExitCode::init(6)!;
+    }
+
+    switch writer.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(7)!,
+    }
+    if backing.len() != 10 {
+        return process::ExitCode::init(8)!;
+    }
+
+    var expected = b"abcdefghij";
+    var written = backing.written();
+    var index = 0usize;
+    while index < written.len() {
+        if written[index] != expected[index] {
+            return process::ExitCode::init(9)!;
+        }
+        index += 1usize;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");
     let data_path = root.join("data.txt");

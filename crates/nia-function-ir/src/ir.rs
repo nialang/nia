@@ -172,6 +172,7 @@ pub enum FunctionExprKind {
     Function(nia_ids::GlobalDefId),
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
+        arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
     },
     EnumVariant(nia_ids::GlobalDefId),
@@ -344,10 +345,12 @@ pub enum FunctionCallee {
     Function(nia_ids::GlobalDefId),
     FunctionInstance {
         def_id: nia_ids::GlobalDefId,
+        arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
     },
     Method {
         def_id: nia_ids::GlobalDefId,
+        arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
         receiver_kind: ReceiverKind,
         receiver: Box<FunctionExpr>,

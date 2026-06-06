@@ -8,7 +8,7 @@ use nia_function_ir::{
     FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionLocalKind,
     FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_opt::OptimizationDepth;
 
 pub(crate) const PROPAGATE_CROSS_FUNCTION_CONSTANTS_PASS: &str =
@@ -17,6 +17,7 @@ pub(crate) const PROPAGATE_CROSS_FUNCTION_CONSTANTS_PASS: &str =
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FunctionInstanceKey {
     def_id: GlobalDefId,
+    arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
 }
 
@@ -44,6 +45,7 @@ impl<'a> ModuleLowerer<'a> {
                     (
                         FunctionInstanceKey {
                             def_id: instance.def_id,
+                            arg_module_id: instance.arg_module_id,
                             args: instance.args.clone(),
                         },
                         value.clone(),
@@ -556,12 +558,15 @@ fn cross_function_constant_for_callee<'a>(
 ) -> Option<&'a FunctionExpr> {
     match callee {
         FunctionCallee::Function(def_id) => function_constants.get(def_id),
-        FunctionCallee::FunctionInstance { def_id, args } => {
-            instance_constants.get(&FunctionInstanceKey {
-                def_id: *def_id,
-                args: args.clone(),
-            })
-        }
+        FunctionCallee::FunctionInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => instance_constants.get(&FunctionInstanceKey {
+            def_id: *def_id,
+            arg_module_id: *arg_module_id,
+            args: args.clone(),
+        }),
         FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::DynamicTraitMethod { .. }

@@ -121,10 +121,14 @@ fn collect_function_refs_from_expr(
         FunctionExprKind::Function(def_id) => {
             refs.functions.insert(*def_id);
         }
-        FunctionExprKind::FunctionInstance { def_id, args } => {
+        FunctionExprKind::FunctionInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => {
             refs.instances.insert(FunctionInstanceRef {
                 def_id: *def_id,
-                arg_module_id: module_id,
+                arg_module_id: *arg_module_id,
                 args: args.clone(),
             });
         }
@@ -228,20 +232,29 @@ fn collect_function_refs_from_callee(
         FunctionCallee::Function(def_id) => {
             refs.functions.insert(*def_id);
         }
-        FunctionCallee::FunctionInstance { def_id, args } => {
+        FunctionCallee::FunctionInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => {
             refs.instances.insert(FunctionInstanceRef {
                 def_id: *def_id,
-                arg_module_id: module_id,
+                arg_module_id: *arg_module_id,
                 args: args.clone(),
             });
         }
-        FunctionCallee::Method { def_id, args, .. } => {
+        FunctionCallee::Method {
+            def_id,
+            arg_module_id,
+            args,
+            ..
+        } => {
             if args.is_empty() {
                 refs.functions.insert(*def_id);
             } else {
                 refs.instances.insert(FunctionInstanceRef {
                     def_id: *def_id,
-                    arg_module_id: module_id,
+                    arg_module_id: *arg_module_id,
                     args: args.clone(),
                 });
             }

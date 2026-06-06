@@ -649,6 +649,7 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
                                 kind: FunctionExprKind::Call {
                                     callee: FunctionCallee::FunctionInstance {
                                         def_id: callee_id,
+                                        arg_module_id: ModuleId(0),
                                         args: vec![i32_ty],
                                     },
                                     args: Vec::new(),
@@ -772,6 +773,7 @@ fn validates_indexed_function_instances_with_equivalent_type_args() {
                                 kind: FunctionExprKind::Call {
                                     callee: FunctionCallee::FunctionInstance {
                                         def_id: callee_id,
+                                        arg_module_id: ModuleId(0),
                                         args: vec![equivalent_struct_ty],
                                     },
                                     args: Vec::new(),

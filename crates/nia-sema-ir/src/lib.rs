@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use nia_ast::{BinaryOp, ReceiverKind, UnaryOp};
-use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId};
+use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId};
 use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::{BuiltinTrait, TraitId};
@@ -184,6 +184,7 @@ pub struct GenericInstantiation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionReference {
     pub def_id: GlobalDefId,
+    pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
 }
 
@@ -192,6 +193,7 @@ pub enum ResolvedCall {
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
+        arg_module_id: ModuleId,
         args: Vec<InternedTyId>,
     },
     Method {

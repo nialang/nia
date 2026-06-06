@@ -7,7 +7,7 @@ use nia_body_ir::{
     TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
     TypedSwitchPattern, TypedWhile,
 };
-use nia_ids::{InternedTyId, LocalId};
+use nia_ids::{InternedTyId, LocalId, ModuleId};
 use nia_span::Span;
 use nia_ty::{TyInterner, TyKind};
 
@@ -29,17 +29,18 @@ mod support;
 mod tests;
 
 pub fn lower_function_body(body: &TypedBody) -> FunctionBody {
-    FunctionLowerer::new(None).lower_body(body)
+    FunctionLowerer::new(ModuleId(0), None).lower_body(body)
 }
 
 pub fn lower_function_body_with_interner(body: &TypedBody, interner: &TyInterner) -> FunctionBody {
-    FunctionLowerer::new(Some(interner)).lower_body(body)
+    FunctionLowerer::new(interner.interner_id(), Some(interner)).lower_body(body)
 }
 
 struct FunctionLowerer {
     next_block: u32,
     next_scope: u32,
     next_temp_local: u32,
+    module_id: ModuleId,
     temp_locals: Vec<FunctionLocal>,
     scopes: Vec<FunctionScope>,
     loop_targets: Vec<LoopTargetIds>,
@@ -69,11 +70,12 @@ struct StatementIf<'a> {
 }
 
 impl FunctionLowerer {
-    fn new(interner: Option<&TyInterner>) -> Self {
+    fn new(module_id: ModuleId, interner: Option<&TyInterner>) -> Self {
         Self {
             next_block: 0,
             next_scope: 0,
             next_temp_local: 0,
+            module_id,
             temp_locals: Vec::new(),
             scopes: Vec::new(),
             loop_targets: Vec::new(),

@@ -8,7 +8,7 @@ use nia_function_ir::{
     FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionLocalKind,
     FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_opt::{InlineThreshold, SpecializationPolicy};
 
 pub(crate) const INLINE_LEAF_FUNCTIONS_PASS: &str = "inline-leaf-functions";
@@ -16,6 +16,7 @@ pub(crate) const INLINE_LEAF_FUNCTIONS_PASS: &str = "inline-leaf-functions";
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FunctionInstanceKey {
     def_id: GlobalDefId,
+    arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
 }
 
@@ -135,6 +136,7 @@ impl<'a> ModuleLowerer<'a> {
                     (
                         FunctionInstanceKey {
                             def_id: instance.def_id,
+                            arg_module_id: instance.arg_module_id,
                             args: instance.args.clone(),
                         },
                         InlineCandidate::Instance {
@@ -463,12 +465,15 @@ fn inline_candidate_for_callee<'a>(
 ) -> Option<&'a InlineCandidate> {
     match callee {
         FunctionCallee::Function(def_id) => function_candidates.get(def_id),
-        FunctionCallee::FunctionInstance { def_id, args } => {
-            instance_candidates.get(&FunctionInstanceKey {
-                def_id: *def_id,
-                args: args.clone(),
-            })
-        }
+        FunctionCallee::FunctionInstance {
+            def_id,
+            arg_module_id,
+            args,
+        } => instance_candidates.get(&FunctionInstanceKey {
+            def_id: *def_id,
+            arg_module_id: *arg_module_id,
+            args: args.clone(),
+        }),
         FunctionCallee::Method { .. }
         | FunctionCallee::TraitMethod { .. }
         | FunctionCallee::DynamicTraitMethod { .. }

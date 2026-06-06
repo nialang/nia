@@ -196,6 +196,7 @@ impl<'a> BodyChecker<'a> {
             &expr.node_key,
             FunctionReference {
                 def_id,
+                arg_module_id: self.defs.module_id,
                 args: type_args.to_vec(),
             },
         );
@@ -377,6 +378,7 @@ impl<'a> BodyChecker<'a> {
             &expr.node_key,
             ResolvedCall::FunctionInstance {
                 def_id,
+                arg_module_id: self.defs.module_id,
                 args: lowered_args.clone(),
             },
         );
@@ -452,6 +454,7 @@ impl<'a> BodyChecker<'a> {
             &expr.node_key,
             ResolvedCall::FunctionInstance {
                 def_id,
+                arg_module_id: self.defs.module_id,
                 args: instance_args,
             },
         );

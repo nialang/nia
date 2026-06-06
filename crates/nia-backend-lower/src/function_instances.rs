@@ -36,6 +36,17 @@ impl<'a> ModuleLowerer<'a> {
                 args: instance.args.clone(),
             })
             .collect::<VecDeque<_>>();
+
+        let mut root_refs = FunctionRefs::default();
+        for function in functions {
+            collect_function_refs_from_optional_body(
+                self.input.module_id,
+                &function.function_body,
+                &mut root_refs,
+            );
+        }
+        pending.extend(root_refs.instances);
+
         let mut planned_symbols = self
             .monomorphization
             .instances

@@ -39,8 +39,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 };
                 Ok(function.as_global_value().as_pointer_value().into())
             }
-            FunctionExprKind::FunctionInstance { def_id, args } => {
-                let Some(instance) = self.module.function_instance_item(*def_id, args) else {
+            FunctionExprKind::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => {
+                let Some(instance) = self.module.function_instance_item_with_arg_module(
+                    *def_id,
+                    *arg_module_id,
+                    args,
+                ) else {
                     return Err(self.error(span, "missing function instance item"));
                 };
                 let Some(function) = self.module.function_instance_value(
@@ -237,9 +245,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionCallee::FunctionInstance {
                 def_id,
+                arg_module_id,
                 args: type_args,
             } => {
-                let Some(instance) = self.module.function_instance_item(*def_id, type_args) else {
+                let Some(instance) = self.module.function_instance_item_with_arg_module(
+                    *def_id,
+                    *arg_module_id,
+                    type_args,
+                ) else {
                     return Err(self.error(expr.span, "missing callee function instance"));
                 };
                 let llvm_args = if instance.is_extern {
@@ -266,6 +279,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionCallee::Method {
                 def_id,
+                arg_module_id,
                 args: type_args,
                 receiver_kind,
                 receiver,
@@ -283,7 +297,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                         }),
                     )
                 } else {
-                    let instance = self.module.function_instance_item(*def_id, type_args);
+                    let instance = self.module.function_instance_item_with_arg_module(
+                        *def_id,
+                        *arg_module_id,
+                        type_args,
+                    );
                     (
                         instance.and_then(|instance| {
                             self.module.function_instance_value(

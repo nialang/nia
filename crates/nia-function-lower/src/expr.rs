@@ -175,12 +175,15 @@ impl FunctionLowerer {
             TypedExprKind::Local(local_id) => FunctionExprKind::Local(*local_id),
             TypedExprKind::Global(def_id) => FunctionExprKind::Global(*def_id),
             TypedExprKind::Function(def_id) => FunctionExprKind::Function(*def_id),
-            TypedExprKind::FunctionInstance { def_id, args } => {
-                FunctionExprKind::FunctionInstance {
-                    def_id: *def_id,
-                    args: args.clone(),
-                }
-            }
+            TypedExprKind::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => FunctionExprKind::FunctionInstance {
+                def_id: *def_id,
+                arg_module_id: *arg_module_id,
+                args: args.clone(),
+            },
             TypedExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(*def_id),
             TypedExprKind::BuiltinValue(value) => {
                 FunctionExprKind::BuiltinValue(Self::lower_builtin_value(value))
@@ -769,8 +772,13 @@ impl FunctionLowerer {
     ) -> FunctionCallee {
         match callee {
             TypedCallee::Function(def_id) => FunctionCallee::Function(*def_id),
-            TypedCallee::FunctionInstance { def_id, args } => FunctionCallee::FunctionInstance {
+            TypedCallee::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => FunctionCallee::FunctionInstance {
                 def_id: *def_id,
+                arg_module_id: *arg_module_id,
                 args: args.clone(),
             },
             TypedCallee::Method {
@@ -780,6 +788,7 @@ impl FunctionLowerer {
                 receiver,
             } => FunctionCallee::Method {
                 def_id: *def_id,
+                arg_module_id: self.module_id,
                 args: args.clone(),
                 receiver_kind: *receiver_kind,
                 receiver: Box::new(self.lower_value_expr(receiver, scope, current, ops, blocks)),

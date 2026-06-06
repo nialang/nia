@@ -209,9 +209,15 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Local(local) => FunctionExprKind::Local(local),
                 FunctionExprKind::Global(def_id) => FunctionExprKind::Global(def_id),
                 FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
-                FunctionExprKind::FunctionInstance { def_id, args } => {
-                    FunctionExprKind::FunctionInstance { def_id, args }
-                }
+                FunctionExprKind::FunctionInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                } => FunctionExprKind::FunctionInstance {
+                    def_id,
+                    arg_module_id,
+                    args,
+                },
                 FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(value),
                 FunctionExprKind::Range(range) => {
@@ -391,16 +397,24 @@ impl<'a> ModuleLowerer<'a> {
     ) -> FunctionCallee {
         match callee {
             FunctionCallee::Function(def_id) => FunctionCallee::Function(def_id),
-            FunctionCallee::FunctionInstance { def_id, args } => {
-                FunctionCallee::FunctionInstance { def_id, args }
-            }
+            FunctionCallee::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => FunctionCallee::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            },
             FunctionCallee::Method {
                 def_id,
+                arg_module_id,
                 args,
                 receiver_kind,
                 receiver,
             } => FunctionCallee::Method {
                 def_id,
+                arg_module_id,
                 args,
                 receiver_kind,
                 receiver: Box::new(self.resolve_builtin_operator_calls_in_expr(*receiver)),
@@ -428,6 +442,7 @@ impl<'a> ModuleLowerer<'a> {
                         instance_args.extend(args);
                         FunctionCallee::Method {
                             def_id,
+                            arg_module_id: self.input.module_id,
                             args: instance_args,
                             receiver_kind,
                             receiver,
@@ -438,6 +453,7 @@ impl<'a> ModuleLowerer<'a> {
                         instance_args.extend(args);
                         FunctionCallee::Method {
                             def_id: method_id,
+                            arg_module_id: self.input.module_id,
                             args: instance_args,
                             receiver_kind,
                             receiver,
@@ -631,6 +647,7 @@ impl<'a> ModuleLowerer<'a> {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
+                    arg_module_id: self.input.module_id,
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -672,6 +689,7 @@ impl<'a> ModuleLowerer<'a> {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
+                    arg_module_id: self.input.module_id,
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -702,6 +720,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
+                    arg_module_id: self.input.module_id,
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)

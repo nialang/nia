@@ -204,6 +204,7 @@ pub enum TypedExprKind {
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
+        arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
     },
     EnumVariant(GlobalDefId),
@@ -363,6 +364,7 @@ pub enum TypedCallee {
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
+        arg_module_id: nia_ids::ModuleId,
         args: Vec<InternedTyId>,
     },
     Method {
