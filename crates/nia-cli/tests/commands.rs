@@ -1029,14 +1029,16 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
     if args.len() != 3 {
         return std::process::ExitCode::init(1)!;
     }
-    var first: &[u8] = switch args.get(1) {
+    var first_arg = switch args.get(1) {
         ?value => value,
         null => return std::process::ExitCode::init(2)!,
     };
-    var second: &[u8] = switch args.get(2) {
+    var second_arg = switch args.get(2) {
         ?value => value,
         null => return std::process::ExitCode::init(3)!,
     };
+    var first = first_arg.raw_bytes();
+    var second = second_arg.raw_bytes();
     if first.len() != 3 {
         return std::process::ExitCode::init(4)!;
     }
@@ -1077,6 +1079,72 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
     let status = Command::new(&exe)
         .arg("nia")
         .arg("lang")
+        .status()
+        .expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_exposes_process_env_as_values() {
+    let root = temp_dir("emit_exe_exposes_process_env_as_values");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+
+fn starts_with_needle(bytes: &[u8]) bool {
+    var needle = b"NIA_TEST_ENV=ok";
+    if bytes.len() < needle.len() {
+        return false;
+    }
+    var index = 0usize;
+    while index < needle.len() {
+        if bytes[index] != needle[index] {
+            return false;
+        }
+        index += 1usize;
+    }
+    true
+}
+
+pub fn main(init: std::process::Init) std::process::ExitCode!void {
+    var env = init.env();
+    var index = 0usize;
+    while index < env.len() {
+        var item = switch env.get(index) {
+            ?value => value,
+            null => return std::process::ExitCode::init(1)!,
+        };
+        if starts_with_needle(item.raw_bytes()) {
+            return !{};
+        }
+        index += 1usize;
+    }
+    return std::process::ExitCode::init(2)!;
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .env("NIA_TEST_ENV", "ok")
         .status()
         .expect("run emitted executable");
     assert_eq!(status.code(), Some(0));
