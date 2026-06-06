@@ -160,14 +160,6 @@ extend OpenOptions {
         self.mode
     }
 
-    pub fn os_mode(&self) os::OpenMode {
-        switch self.mode {
-            OpenMode::ReadOnly => os::OpenMode::ReadOnly,
-            OpenMode::WriteOnly => os::OpenMode::WriteOnly,
-            OpenMode::ReadWrite => os::OpenMode::ReadWrite,
-            _ => os::OpenMode::ReadOnly,
-        }
-    }
 }
 
 extend CreateOptions {
@@ -199,20 +191,13 @@ extend CreateOptions {
         self.permissions
     }
 
-    pub fn os_mode(&self) os::OpenMode {
-        if self.read {
-            os::OpenMode::ReadWrite
-        } else {
-            os::OpenMode::WriteOnly
-        }
-    }
 }
 
 fn open_encoded_file(dir: os::FileDescriptor, path: EncodedPath, options: OpenOptions) Error!File {
     switch os::open_at(
         dir,
         path.ptr(),
-        options.os_mode(),
+        open_options_mode(options),
         false,
         false,
         false,
@@ -231,7 +216,7 @@ fn create_encoded_file(
     switch os::open_at(
         dir,
         path.ptr(),
-        options.os_mode(),
+        create_options_mode(options),
         true,
         options.truncate(),
         options.is_exclusive(),
@@ -239,6 +224,23 @@ fn create_encoded_file(
     ) {
         !handle => !File::init(handle),
         err! => map_os_error(err)!,
+    }
+}
+
+fn open_options_mode(options: OpenOptions) os::OpenMode {
+    switch options.mode() {
+        OpenMode::ReadOnly => os::OpenMode::ReadOnly,
+        OpenMode::WriteOnly => os::OpenMode::WriteOnly,
+        OpenMode::ReadWrite => os::OpenMode::ReadWrite,
+        _ => os::OpenMode::ReadOnly,
+    }
+}
+
+fn create_options_mode(options: CreateOptions) os::OpenMode {
+    if options.read() {
+        os::OpenMode::ReadWrite
+    } else {
+        os::OpenMode::WriteOnly
     }
 }
 
