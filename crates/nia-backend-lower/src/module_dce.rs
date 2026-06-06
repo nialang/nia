@@ -2,8 +2,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::function_refs::{
-    FunctionInstanceRef, FunctionRefs, collect_function_refs_from_optional_body,
-    collect_function_refs_from_static_init,
+    FunctionInstanceKey, FunctionInstanceRef, FunctionRefs,
+    collect_function_refs_from_optional_body, collect_function_refs_from_static_init,
 };
 use crate::{BackendOptimizationChange, ModuleLowerer};
 use nia_ast::Visibility;
@@ -42,7 +42,7 @@ impl<'a> ModuleLowerer<'a> {
         let removable_instances = function_instances
             .iter()
             .filter(|instance| self.is_removable_private_function_instance(instance))
-            .map(FunctionInstanceRef::from)
+            .map(FunctionInstanceKey::from)
             .collect::<HashSet<_>>();
         if removable_functions.is_empty() && removable_instances.is_empty() {
             return;
@@ -59,7 +59,7 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
         for instance in function_instances.iter() {
-            if !removable_instances.contains(&FunctionInstanceRef::from(instance)) {
+            if !removable_instances.contains(&FunctionInstanceKey::from(instance)) {
                 collect_function_refs_from_optional_body(
                     self.input.module_id,
                     &instance.function_body,
@@ -83,10 +83,11 @@ impl<'a> ModuleLowerer<'a> {
                         arg_module_id,
                         args,
                     } => {
-                        refs.instances.insert(FunctionInstanceRef {
+                        refs.instances.push(FunctionInstanceRef {
                             def_id: *def_id,
                             arg_module_id: *arg_module_id,
                             args: args.clone(),
+                            span: vtable.span,
                         });
                     }
                 }
@@ -116,9 +117,14 @@ impl<'a> ModuleLowerer<'a> {
         }
 
         let mut removed_instances = Vec::new();
+        let live_instance_keys = refs
+            .instances
+            .iter()
+            .map(FunctionInstanceRef::key)
+            .collect::<HashSet<_>>();
         function_instances.retain(|instance| {
-            let key = FunctionInstanceRef::from(instance);
-            let remove = removable_instances.contains(&key) && !refs.instances.contains(&key);
+            let key = FunctionInstanceKey::from(instance);
+            let remove = removable_instances.contains(&key) && !live_instance_keys.contains(&key);
             if remove {
                 removed_instances.push((instance.def_id, instance.args.len()));
             }
@@ -167,6 +173,17 @@ impl From<&BackendFunctionInstance> for FunctionInstanceRef {
             def_id: instance.def_id,
             arg_module_id: instance.arg_module_id,
             args: instance.args.clone(),
+            span: instance.span,
+        }
+    }
+}
+
+impl From<&BackendFunctionInstance> for FunctionInstanceKey {
+    fn from(instance: &BackendFunctionInstance) -> Self {
+        Self {
+            def_id: instance.def_id,
+            arg_module_id: instance.arg_module_id,
+            args: instance.args.clone(),
         }
     }
 }
@@ -182,12 +199,17 @@ fn collect_transitive_refs(
         .collect::<HashMap<_, _>>();
     let instances_by_ref = instances
         .iter()
-        .map(|instance| (FunctionInstanceRef::from(instance), instance))
+        .map(|instance| (FunctionInstanceKey::from(instance), instance))
         .collect::<HashMap<_, _>>();
     let mut visited_functions = HashSet::new();
     let mut visited_instances = HashSet::new();
     let mut pending_functions = refs.functions.iter().copied().collect::<VecDeque<_>>();
     let mut pending_instances = refs.instances.iter().cloned().collect::<VecDeque<_>>();
+    let mut known_instances = refs
+        .instances
+        .iter()
+        .map(FunctionInstanceRef::key)
+        .collect::<HashSet<_>>();
 
     while !pending_functions.is_empty() || !pending_instances.is_empty() {
         while let Some(function_id) = pending_functions.pop_front() {
@@ -206,16 +228,18 @@ fn collect_transitive_refs(
             enqueue_new_refs(
                 refs,
                 discovered,
+                &mut known_instances,
                 &mut pending_functions,
                 &mut pending_instances,
             );
         }
 
         while let Some(instance_ref) = pending_instances.pop_front() {
-            if !visited_instances.insert(instance_ref.clone()) {
+            let instance_key = instance_ref.key();
+            if !visited_instances.insert(instance_key.clone()) {
                 continue;
             }
-            let Some(instance) = instances_by_ref.get(&instance_ref) else {
+            let Some(instance) = instances_by_ref.get(&instance_key) else {
                 continue;
             };
             let mut discovered = FunctionRefs::default();
@@ -227,6 +251,7 @@ fn collect_transitive_refs(
             enqueue_new_refs(
                 refs,
                 discovered,
+                &mut known_instances,
                 &mut pending_functions,
                 &mut pending_instances,
             );
@@ -237,6 +262,7 @@ fn collect_transitive_refs(
 fn enqueue_new_refs(
     refs: &mut FunctionRefs,
     discovered: FunctionRefs,
+    known_instances: &mut HashSet<FunctionInstanceKey>,
     pending_functions: &mut VecDeque<GlobalDefId>,
     pending_instances: &mut VecDeque<FunctionInstanceRef>,
 ) {
@@ -246,7 +272,8 @@ fn enqueue_new_refs(
         }
     }
     for instance in discovered.instances {
-        if refs.instances.insert(instance.clone()) {
+        if known_instances.insert(instance.key()) {
+            refs.instances.push(instance.clone());
             pending_instances.push_back(instance);
         }
     }

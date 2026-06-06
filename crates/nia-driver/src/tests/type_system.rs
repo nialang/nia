@@ -522,8 +522,8 @@ fn main() i32 {
 }
 
 #[test]
-fn reports_recursive_generic_instantiations() {
-    let root = temp_dir("reports_recursive_generic_instantiations");
+fn allows_recursive_generic_instantiations_with_same_type_args() {
+    let root = temp_dir("allows_recursive_generic_instantiations_with_same_type_args");
     write(
         &root.join("main.nia"),
         r#"
@@ -538,17 +538,12 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .diagnostic
-            .summary
-            .contains("recursive generic instantiation")
-    }));
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
 
 #[test]
-fn reports_indirect_recursive_generic_instantiations() {
-    let root = temp_dir("reports_indirect_recursive_generic_instantiations");
+fn allows_indirect_recursive_generic_instantiations_with_same_type_args() {
+    let root = temp_dir("allows_indirect_recursive_generic_instantiations_with_same_type_args");
     write(
         &root.join("main.nia"),
         r#"
@@ -567,12 +562,55 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.iter().any(|diagnostic| {
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn reports_polymorphic_recursive_generic_instantiations() {
+    let root = temp_dir("reports_polymorphic_recursive_generic_instantiations");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn grow[T](value: &T) i32 {
+    grow[&T](&value)
+}
+
+fn main() i32 {
+    var value = 1;
+    grow[i32](&value)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    let diagnostic = program
+        .diagnostics
+        .iter()
+        .map(|diagnostic| &diagnostic.diagnostic)
+        .find(|diagnostic| {
+            diagnostic
+                .summary
+                .contains("generic instantiation did not converge")
+        })
+        .expect("generic instantiation convergence diagnostic");
+    assert_eq!(diagnostic.code.as_str(), "E0601");
+    assert!(
         diagnostic
-            .diagnostic
-            .summary
-            .contains("recursive generic instantiation")
-    }));
+            .primary_message()
+            .is_some_and(|message| message.contains("limit"))
+    );
+    assert!(
+        diagnostic
+            .notes
+            .iter()
+            .any(|note| note.contains("already-seen concrete generic instance"))
+    );
+    assert!(
+        diagnostic
+            .help
+            .iter()
+            .any(|help| help.contains("finite set of concrete type arguments"))
+    );
 }
 
 #[test]
