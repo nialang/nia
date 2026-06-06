@@ -1386,6 +1386,104 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_use_std_io_buffered_reader() {
+    let root = temp_dir("emit_exe_can_use_std_io_buffered_reader");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var source = io::FixedBufferReader::init(b"abcdefghij");
+    var buffer_storage: [4]u8 = [0; 4];
+    var reader = io::BufferedReader[io::FixedBufferReader]::init(
+        &mut source,
+        &mut buffer_storage[..],
+    );
+
+    var first: [2]u8 = [0; 2];
+    var n: usize;
+    switch reader.read(&mut first[..]) {
+        !value => n = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    if n != 2 or first[0] != b'a' or first[1] != b'b' {
+        return process::ExitCode::init(2)!;
+    }
+    if reader.len() != 2 {
+        return process::ExitCode::init(3)!;
+    }
+
+    var second: [3]u8 = [0; 3];
+    switch reader.read(&mut second[..]) {
+        !value => n = value,
+        error! => return process::ExitCode::init(4)!,
+    }
+    if n != 2 or second[0] != b'c' or second[1] != b'd' {
+        return process::ExitCode::init(5)!;
+    }
+    if reader.len() != 0 {
+        return process::ExitCode::init(6)!;
+    }
+
+    var third: [5]u8 = [0; 5];
+    switch reader.read(&mut third[..]) {
+        !value => n = value,
+        error! => return process::ExitCode::init(7)!,
+    }
+    if n != 5 {
+        return process::ExitCode::init(8)!;
+    }
+    if third[0] != b'e' or third[1] != b'f' or third[2] != b'g' or third[3] != b'h' or third[4] != b'i' {
+        return process::ExitCode::init(9)!;
+    }
+
+    var fourth: [2]u8 = [0; 2];
+    switch reader.read(&mut fourth[..]) {
+        !value => n = value,
+        error! => return process::ExitCode::init(10)!,
+    }
+    if n != 1 or fourth[0] != b'j' {
+        return process::ExitCode::init(11)!;
+    }
+
+    switch reader.read(&mut fourth[..]) {
+        !value => n = value,
+        error! => return process::ExitCode::init(12)!,
+    }
+    if n != 0 {
+        return process::ExitCode::init(13)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");
     let data_path = root.join("data.txt");

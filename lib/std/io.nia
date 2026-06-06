@@ -81,6 +81,13 @@ pub struct LimitedReader[R] {
     limit: Limit,
 }
 
+pub struct BufferedReader[R] {
+    reader: &mut R,
+    buffer: &mut [u8],
+    start: usize,
+    end: usize,
+}
+
 pub struct BufferedWriter[W] {
     writer: &mut W,
     buffer: &mut [u8],
@@ -184,6 +191,77 @@ extend DiscardingWriter : Writer {
     pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
         self.len += bytes.len();
         !bytes.len()
+    }
+}
+
+extend[R] BufferedReader[R]
+where R: Reader
+{
+    pub fn init(reader: &mut R, buffer: &mut [u8]) BufferedReader[R] {
+        { reader: reader, buffer: buffer, start: 0, end: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.end - self.start
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn buffered(&self) &[u8] {
+        & self.buffer[self.start..self.end]
+    }
+
+    pub fn discard_buffered(&mut self) void {
+        self.start = 0;
+        self.end = 0;
+    }
+
+    fn read_buffered(&mut self, bytes: &mut [u8]) usize {
+        var count = bytes.len();
+        if count > self.len() {
+            count = self.len();
+        }
+
+        var index = 0usize;
+        while index < count {
+            bytes[index] = self.buffer[self.start + index];
+            index += 1usize;
+        }
+        self.start += count;
+        if self.start == self.end {
+            self.discard_buffered();
+        }
+        count
+    }
+}
+
+extend[R] BufferedReader[R] : Reader
+where R: Reader
+{
+    type Error = [R as Reader]::Error;
+
+    pub fn end_of_stream(&self) Error {
+        self.reader.end_of_stream()
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        if bytes.len() == 0 {
+            !0
+        } else if self.len() != 0 {
+            !self.read_buffered(bytes)
+        } else if bytes.len() >= self.buffer.len() {
+            self.reader.read(bytes)
+        } else {
+            self.start = 0;
+            self.end = self.reader.read(self.buffer).?;
+            if self.end == 0 {
+                !0
+            } else {
+                !self.read_buffered(bytes)
+            }
+        }
     }
 }
 
