@@ -2,7 +2,23 @@ comptime if @builtin().target.os == "linux" {
     import std.os.linux as platform;
 }
 
-pub using platform::{Error, FileDescriptor};
+pub using platform::{Error, FileDescriptor, OpenMode};
+
+pub fn cwd() FileDescriptor {
+    platform::cwd()
+}
+
+pub fn open_at(
+    dir: FileDescriptor,
+    path: &u8,
+    mode: OpenMode,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+) Error!FileDescriptor {
+    platform::open_at(dir, path, mode, create, truncate, exclusive, permissions)
+}
 
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
     platform::map_pages(len, align)

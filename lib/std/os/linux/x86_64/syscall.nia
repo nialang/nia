@@ -17,6 +17,26 @@ pub fn syscall1(number: usize, arg0: usize) isize {
     ret
 }
 
+pub fn syscall2(number: usize, arg0: usize, arg1: usize) isize {
+    var ret: isize = 0;
+    @asm({
+        code:
+            b\\syscall
+        ,
+        outputs: {
+            rax: ret,
+        },
+        inputs: {
+            rax: number,
+            rdi: arg0,
+            rsi: arg1,
+        },
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
 pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
     var ret: isize = 0;
     @asm({
@@ -31,6 +51,28 @@ pub fn syscall3(number: usize, arg0: usize, arg1: usize, arg2: usize) isize {
             rdi: arg0,
             rsi: arg1,
             rdx: arg2,
+        },
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize) isize {
+    var ret: isize = 0;
+    @asm({
+        code:
+            b\\syscall
+        ,
+        outputs: {
+            rax: ret,
+        },
+        inputs: {
+            rax: number,
+            rdi: arg0,
+            rsi: arg1,
+            rdx: arg2,
+            r10: arg3,
         },
         clobbers: [b"rcx", b"r11", b"memory"],
         options: [b"volatile"],
