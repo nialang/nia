@@ -636,6 +636,7 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
         for relative in [
             "lib/std/fmt.nia",
+            "lib/std/fs.nia",
             "lib/std/io.nia",
             "lib/std/mem.nia",
             "lib/std/os.nia",

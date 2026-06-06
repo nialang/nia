@@ -4,10 +4,11 @@
 // import `std` as the stable facade.
 
 import std.io;
+import std.fs;
 import std.fmt;
 import std.mem;
 import std.os;
 import std.process;
 import std.unicode;
 
-pub using {fmt, io, mem, os, process, unicode};
+pub using {fmt, fs, io, mem, os, process, unicode};

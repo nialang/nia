@@ -381,7 +381,7 @@ fn cross_module_generic_trait_method_dispatch_finds_impl_in_generic_module_for_f
     write(
         &root.join("os.nia"),
         r#"
-pub struct File {
+pub struct FileDescriptor {
     raw: i32,
 }
 
@@ -390,9 +390,27 @@ pub enum Error: i32 {
     _,
 }
 
+extend FileDescriptor {
+    pub fn stdout() FileDescriptor {
+        { raw: 1 }
+    }
+}
+"#,
+    );
+    write(
+        &root.join("fs.nia"),
+        r#"
+import .os;
+
+pub using os::{Error};
+
+pub struct File {
+    handle: os::FileDescriptor,
+}
+
 extend File {
     pub fn stdout() File {
-        { raw: 1 }
+        { handle: os::FileDescriptor::stdout() }
     }
 }
 "#,
@@ -400,7 +418,7 @@ extend File {
     write(
         &root.join("io.nia"),
         r#"
-import .os;
+import .fs;
 
 pub trait Writer {
     type Error;
@@ -417,15 +435,15 @@ where W: Writer
     !{}
 }
 
-extend os::File : Writer {
-    type Error = os::Error;
+extend fs::File : Writer {
+    type Error = fs::Error;
 
-    fn write(& self, bytes: &[u8]) os::Error!usize {
+    fn write(& self, bytes: &[u8]) fs::Error!usize {
         _ = self;
         !(bytes.len())
     }
 
-    fn write_all(& self, bytes: &[u8]) os::Error!void {
+    fn write_all(& self, bytes: &[u8]) fs::Error!void {
         var written = 0usize;
         while written < bytes.len() {
             var chunk = & bytes[written..];
@@ -440,12 +458,12 @@ extend os::File : Writer {
     write(
         &root.join("main.nia"),
         r#"
+import .fs;
 import .io;
-import .os;
 
 fn main() void {
-    var stdout = os::File::stdout();
-    switch io::write_fully_with[os::File](& stdout, b"nia\n") {
+    var stdout = fs::File::stdout();
+    switch io::write_fully_with[fs::File](& stdout, b"nia\n") {
         !ok => _ = ok,
         error! => {},
     }

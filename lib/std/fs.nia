@@ -1,0 +1,37 @@
+import std.os;
+
+pub using os::{Error};
+
+pub struct File {
+    handle: os::FileDescriptor,
+}
+
+extend File {
+    pub fn init(handle: os::FileDescriptor) File {
+        { handle: handle }
+    }
+
+    pub fn stdin() File {
+        File::init(os::FileDescriptor::stdin())
+    }
+
+    pub fn stdout() File {
+        File::init(os::FileDescriptor::stdout())
+    }
+
+    pub fn stderr() File {
+        File::init(os::FileDescriptor::stderr())
+    }
+
+    pub fn handle(&self) os::FileDescriptor {
+        self.handle
+    }
+
+    pub fn write_some(&self, bytes: &[u8]) Error!usize {
+        self.handle.write_some(bytes)
+    }
+
+    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
+        self.handle.read_some(bytes)
+    }
+}

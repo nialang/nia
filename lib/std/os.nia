@@ -2,7 +2,7 @@ comptime if @builtin().target.os == "linux" {
     import std.os.linux as platform;
 }
 
-pub using platform::{Error, File};
+pub using platform::{Error, FileDescriptor};
 
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
     platform::map_pages(len, align)
