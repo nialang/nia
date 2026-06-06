@@ -40,6 +40,11 @@ impl FunctionLowerer {
             TypedExprKind::Range(range) => {
                 FunctionExprKind::Range(self.lower_range(range, scope, current, ops, blocks))
             }
+            TypedExprKind::MemoryIntrinsic(memory) => {
+                let op = self.lower_memory_intrinsic_op(memory, scope, current, ops, blocks);
+                ops.push(op);
+                FunctionExprKind::Error
+            }
             TypedExprKind::CStringPointer { array, is_readonly } => {
                 FunctionExprKind::CStringPointer {
                     array: Box::new(self.lower_value_expr(array, scope, current, ops, blocks)),
@@ -312,11 +317,50 @@ impl FunctionLowerer {
             TypedExprKind::Switch(switch) => {
                 self.lower_switch_expr_stmt(expr.span, switch, scope, current, ops, blocks);
             }
+            TypedExprKind::MemoryIntrinsic(memory) => {
+                let op = self.lower_memory_intrinsic_op(memory, scope, current, ops, blocks);
+                ops.push(op);
+            }
             _ => {
                 let expr = self.lower_value_expr(expr, scope, current, ops, blocks);
                 ops.push(FunctionOp::Expr(expr));
             }
         }
+    }
+
+    pub(super) fn lower_memory_intrinsic_op(
+        &mut self,
+        memory: &nia_body_ir::TypedMemoryIntrinsic,
+        scope: FunctionScopeId,
+        current: &mut FunctionBlockId,
+        ops: &mut Vec<FunctionOp>,
+        blocks: &mut Vec<FunctionBlock>,
+    ) -> FunctionOp {
+        let op = match memory.op {
+            nia_body_ir::MemoryIntrinsicOp::Copy => FunctionMemoryIntrinsicOp::Copy,
+            nia_body_ir::MemoryIntrinsicOp::Move => FunctionMemoryIntrinsicOp::Move,
+            nia_body_ir::MemoryIntrinsicOp::Set => FunctionMemoryIntrinsicOp::Set,
+        };
+        let dest = self.lower_value_expr(&memory.dest, scope, current, ops, blocks);
+        let source = match &memory.source {
+            nia_body_ir::TypedMemoryIntrinsicSource::Slice(source) => {
+                FunctionMemoryIntrinsicSource::Slice(
+                    self.lower_value_expr(source, scope, current, ops, blocks),
+                )
+            }
+            nia_body_ir::TypedMemoryIntrinsicSource::Byte(value) => {
+                FunctionMemoryIntrinsicSource::Byte(
+                    self.lower_value_expr(value, scope, current, ops, blocks),
+                )
+            }
+        };
+        FunctionOp::MemoryIntrinsic(FunctionMemoryIntrinsic {
+            span: memory.dest.span,
+            op,
+            elem_ty: memory.elem_ty,
+            dest,
+            source,
+        })
     }
 
     pub(super) fn lower_value_block_expr(

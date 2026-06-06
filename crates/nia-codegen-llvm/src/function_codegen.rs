@@ -5,6 +5,7 @@ mod call;
 mod defer;
 mod function_body;
 mod literals;
+mod memory;
 mod ops;
 mod place;
 

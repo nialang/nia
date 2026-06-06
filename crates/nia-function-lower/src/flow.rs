@@ -162,6 +162,10 @@ impl FunctionLowerer {
             TypedExprKind::Switch(switch) => {
                 self.lower_switch_expr_stmt(span, switch, scope, current, ops, blocks);
             }
+            TypedExprKind::MemoryIntrinsic(memory) => {
+                let op = self.lower_memory_intrinsic_op(memory, scope, current, ops, blocks);
+                ops.push(op);
+            }
             _ => {
                 let expr = self.lower_value_expr(expr, scope, current, ops, blocks);
                 ops.push(FunctionOp::Expr(expr));
@@ -881,28 +885,36 @@ impl FunctionLowerer {
             .map(|tail| tail.span)
             .unwrap_or(body.span);
         let terminator = match fallthrough {
-            Fallthrough::Tail => FunctionTerminator::Tail {
-                value: body
-                    .tail
-                    .as_ref()
-                    .map(|tail| self.lower_value_expr(tail, scope, &mut current, &mut ops, blocks)),
-                span,
-            },
+            Fallthrough::Tail => {
+                let value = body.tail.as_ref().and_then(|tail| {
+                    if matches!(tail.kind, TypedExprKind::MemoryIntrinsic(_)) {
+                        self.lower_effect_expr(tail, scope, &mut current, &mut ops, blocks);
+                        None
+                    } else {
+                        Some(self.lower_value_expr(tail, scope, &mut current, &mut ops, blocks))
+                    }
+                });
+                FunctionTerminator::Tail { value, span }
+            }
             Fallthrough::Branch(target) => {
                 if let Some(tail) = &body.tail {
-                    let tail = self.lower_value_expr(tail, scope, &mut current, &mut ops, blocks);
-                    ops.push(FunctionOp::Expr(tail));
+                    self.lower_effect_expr(tail, scope, &mut current, &mut ops, blocks);
                 }
                 FunctionTerminator::Branch { target, span }
             }
             Fallthrough::StoreThenBranch { local_id, target } => {
                 if let Some(tail) = &body.tail {
-                    let value = self.lower_value_expr(tail, scope, &mut current, &mut ops, blocks);
-                    ops.push(FunctionOp::StoreLocal {
-                        local_id,
-                        value,
-                        span: tail.span,
-                    });
+                    if matches!(tail.kind, TypedExprKind::MemoryIntrinsic(_)) {
+                        self.lower_effect_expr(tail, scope, &mut current, &mut ops, blocks);
+                    } else {
+                        let value =
+                            self.lower_value_expr(tail, scope, &mut current, &mut ops, blocks);
+                        ops.push(FunctionOp::StoreLocal {
+                            local_id,
+                            value,
+                            span: tail.span,
+                        });
+                    }
                 }
                 FunctionTerminator::Branch { target, span }
             }

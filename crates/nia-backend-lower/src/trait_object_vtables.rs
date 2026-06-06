@@ -8,7 +8,7 @@ use nia_backend_ir::{
 };
 use nia_function_ir::{
     FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
-    FunctionForHeader, FunctionOp, FunctionTerminator,
+    FunctionForHeader, FunctionMemoryIntrinsicSource, FunctionOp, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_ty::TyKind;
@@ -110,6 +110,15 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
                 self.collect_trait_object_vtables_from_expr(value, out, seen);
+            }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                self.collect_trait_object_vtables_from_expr(&memory.dest, out, seen);
+                match &memory.source {
+                    FunctionMemoryIntrinsicSource::Slice(source)
+                    | FunctionMemoryIntrinsicSource::Byte(source) => {
+                        self.collect_trait_object_vtables_from_expr(source, out, seen);
+                    }
+                }
             }
             FunctionOp::Defer(defer) => {
                 self.collect_trait_object_vtables_from_defer_body(defer, out, seen);

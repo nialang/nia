@@ -7,8 +7,8 @@ use nia_span::Span;
 use crate::{
     FunctionArrayElements, FunctionBinding, FunctionBlock, FunctionBlockId, FunctionBody,
     FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionForHeader,
-    FunctionLocal, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionScope,
-    FunctionScopeId, FunctionTerminator,
+    FunctionLocal, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace, FunctionPlaceBase,
+    FunctionPlaceElem, FunctionScope, FunctionScopeId, FunctionTerminator,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,6 +204,13 @@ impl<'a> FunctionIrValidator<'a> {
             } => {
                 self.require_local(*local_id, *span, "store local")?;
                 self.validate_expr(value)?;
+            }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                self.validate_expr(&memory.dest)?;
+                match &memory.source {
+                    FunctionMemoryIntrinsicSource::Slice(source)
+                    | FunctionMemoryIntrinsicSource::Byte(source) => self.validate_expr(source)?,
+                }
             }
             FunctionOp::Expr(expr) => self.validate_expr(expr)?,
             FunctionOp::Defer(_) => {}

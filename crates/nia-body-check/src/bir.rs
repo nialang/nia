@@ -5,9 +5,10 @@ use nia_ast::{
     StmtKind, SwitchArmBody, SwitchPattern, UnaryOp,
 };
 use nia_body_ir::{
-    BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, PlaceBase, PlaceElem, TypedArrayElements,
-    TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedFieldInit, TypedForIn,
-    TypedForIterator, TypedLocal, TypedLocalKind, TypedLoop, TypedPlace, TypedRange,
+    BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, MemoryIntrinsicOp, PlaceBase, PlaceElem,
+    TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind,
+    TypedFieldInit, TypedForIn, TypedForIterator, TypedLocal, TypedLocalKind, TypedLoop,
+    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPlace, TypedRange,
     TypedRangeIteratorKind, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
     TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
 };
@@ -749,6 +750,36 @@ impl<'a> BodyChecker<'a> {
                     match (name.as_str(), args.as_slice()) {
                         (_, []) => self.lower_expr(callee).kind,
                         ("asm", [arg]) => self.lower_inline_asm(arg),
+                        ("memcpy", [dest, source]) => {
+                            TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                                op: MemoryIntrinsicOp::Copy,
+                                elem_ty: self.memory_intrinsic_elem_ty(expr),
+                                dest: Box::new(self.lower_expr(dest)),
+                                source: TypedMemoryIntrinsicSource::Slice(Box::new(
+                                    self.lower_expr(source),
+                                )),
+                            })
+                        }
+                        ("memmove", [dest, source]) => {
+                            TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                                op: MemoryIntrinsicOp::Move,
+                                elem_ty: self.memory_intrinsic_elem_ty(expr),
+                                dest: Box::new(self.lower_expr(dest)),
+                                source: TypedMemoryIntrinsicSource::Slice(Box::new(
+                                    self.lower_expr(source),
+                                )),
+                            })
+                        }
+                        ("memset", [dest, value]) => {
+                            TypedExprKind::MemoryIntrinsic(TypedMemoryIntrinsic {
+                                op: MemoryIntrinsicOp::Set,
+                                elem_ty: self.memory_intrinsic_elem_ty(expr),
+                                dest: Box::new(self.lower_expr(dest)),
+                                source: TypedMemoryIntrinsicSource::Byte(Box::new(
+                                    self.lower_expr(value),
+                                )),
+                            })
+                        }
                         _ => TypedExprKind::Call {
                             callee: self.lower_callee(expr, callee),
                             args: args.iter().map(|arg| self.lower_expr(arg)).collect(),
@@ -899,6 +930,22 @@ impl<'a> BodyChecker<'a> {
             span: expr.span,
             ty,
             kind,
+        }
+    }
+
+    fn memory_intrinsic_elem_ty(&self, expr: &Expr) -> nia_ids::InternedTyId {
+        let ExprKind::Call { args, .. } = &expr.kind else {
+            return self.error();
+        };
+        let Some(dest) = args.first() else {
+            return self.error();
+        };
+        let Some(dest_ty) = self.expr_ty(dest) else {
+            return self.error();
+        };
+        match self.interner.get(self.normalization.normalize(dest_ty)) {
+            Some(TyKind::Slice { elem, .. }) | Some(TyKind::Array { elem, .. }) => *elem,
+            _ => self.error(),
         }
     }
 

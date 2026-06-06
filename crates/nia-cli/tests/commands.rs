@@ -2617,6 +2617,70 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_memory_intrinsic_builtins() {
+    let root = temp_dir("emit_exe_memory_intrinsic_builtins");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+
+    var ints: [3]i32 = [0, 0, 0];
+    let source_ints: [3]i32 = [7, 8, 9];
+    @memcpy(&mut ints[..], &source_ints[..]);
+    if ints[0] != 7 or ints[1] != 8 or ints[2] != 9 {
+        return process::ExitCode::init(1)!;
+    }
+
+    var wide: [5]i32 = [0, 0, 0, 44, 55];
+    let short: [3]i32 = [11, 22, 33];
+    @memcpy(&mut wide[..], &short[..]);
+    if wide[0] != 11 or wide[1] != 22 or wide[2] != 33 or wide[3] != 44 or wide[4] != 55 {
+        return process::ExitCode::init(4)!;
+    }
+
+    var overlap: [5]u8 = [1, 2, 3, 4, 5];
+    @memmove(&mut overlap[1..], &overlap[0..4]);
+    if overlap[0] != 1 or overlap[1] != 1 or overlap[2] != 2 or overlap[3] != 3 or overlap[4] != 4 {
+        return process::ExitCode::init(2)!;
+    }
+
+    var bytes: [4]u8 = [1, 2, 3, 4];
+    @memset(&mut bytes[1..3], 9);
+    if bytes[0] != 1 or bytes[1] != 9 or bytes[2] != 9 or bytes[3] != 4 {
+        return process::ExitCode::init(3)!;
+    }
+
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_array_list_push_pop_and_deinit() {
     let root = temp_dir("emit_exe_std_array_list_push_pop_and_deinit");
     let main = root.join("main.nia");

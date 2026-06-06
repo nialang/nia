@@ -169,6 +169,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 value,
                 span,
             } => self.emit_store_local(*span, *local_id, value),
+            FunctionOp::MemoryIntrinsic(memory) => self.emit_memory_intrinsic(memory),
             FunctionOp::Expr(expr) => self.emit_effect_expr(expr),
             FunctionOp::Defer(expr) => self.register_defer(span, expr),
         }

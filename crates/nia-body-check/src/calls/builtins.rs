@@ -49,6 +49,14 @@ impl<'a> BodyChecker<'a> {
                 ));
                 return self.error();
             }
+            BuiltinResolution::MemCopy | BuiltinResolution::MemMove | BuiltinResolution::MemSet => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    span,
+                    format!("builtin `@{name}` must be called with value arguments"),
+                ));
+                return self.error();
+            }
             BuiltinResolution::Reserved => return self.error(),
         };
         if let Some(layout) = self.layout_of(ty) {
@@ -102,6 +110,15 @@ impl<'a> BodyChecker<'a> {
                 self.check_builtin(builtin, name, type_arg)
             }
             BuiltinResolution::Asm => self.check_asm_builtin_call(call_span, builtin_span, args),
+            BuiltinResolution::MemCopy => {
+                self.check_memory_copy_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::MemMove => {
+                self.check_memory_copy_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
+            BuiltinResolution::MemSet => {
+                self.check_memory_set_builtin_call(call_span, builtin_span, name, type_arg, args)
+            }
             BuiltinResolution::Reserved => self.error(),
         }
     }
@@ -122,5 +139,160 @@ impl<'a> BodyChecker<'a> {
                 self.ty_name(ty)
             ),
         ));
+    }
+
+    fn check_memory_copy_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
+        if args.len() != 2 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                format!("builtin `@{name}` requires exactly two arguments"),
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.void();
+        }
+
+        let dest_actual = self.check_expr(&args[0]);
+        let Some((elem_ty, dest_expected)) = self.memory_dest_slice_expected(&args[0], dest_actual)
+        else {
+            let src_expected = self.interner.intern(TyKind::Slice {
+                is_readonly: true,
+                elem: self.error(),
+            });
+            self.check_expr_with_expected(&args[1], Some(src_expected));
+            return self.void();
+        };
+        self.expect_expr_type(
+            &args[0],
+            dest_expected,
+            dest_actual,
+            "memory intrinsic destination",
+        );
+        self.require_sized_type(args[0].span, elem_ty, name);
+
+        let src_expected = self.interner.intern(TyKind::Slice {
+            is_readonly: true,
+            elem: elem_ty,
+        });
+        let src_actual = self.check_expr_with_expected(&args[1], Some(src_expected));
+        self.expect_expr_type(
+            &args[1],
+            src_expected,
+            src_actual,
+            "memory intrinsic source",
+        );
+        self.void()
+    }
+
+    fn check_memory_set_builtin_call(
+        &mut self,
+        call_span: Span,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+        args: &[Expr],
+    ) -> InternedTyId {
+        self.reject_memory_builtin_type_arg(builtin_span, name, type_arg);
+        if args.len() != 2 {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call_span,
+                "builtin `@memset` requires exactly two arguments",
+            ));
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return self.void();
+        }
+
+        let u8_ty = self.primitive(PrimitiveTy::U8);
+        let dest_actual = self.check_expr(&args[0]);
+        let Some((elem_ty, dest_expected)) = self.memory_dest_slice_expected(&args[0], dest_actual)
+        else {
+            self.check_expr_with_expected(&args[1], Some(u8_ty));
+            return self.void();
+        };
+        self.expect_expr_type(
+            &args[0],
+            dest_expected,
+            dest_actual,
+            "memory intrinsic destination",
+        );
+        self.expect_type(
+            args[0].span,
+            u8_ty,
+            elem_ty,
+            "memory intrinsic destination element",
+        );
+
+        let value_actual = self.check_expr_with_expected(&args[1], Some(u8_ty));
+        self.expect_expr_type(&args[1], u8_ty, value_actual, "memory intrinsic byte value");
+        self.void()
+    }
+
+    fn reject_memory_builtin_type_arg(
+        &mut self,
+        builtin_span: Span,
+        name: &str,
+        type_arg: &Option<TypeRef>,
+    ) {
+        if type_arg.is_none() {
+            return;
+        }
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
+            builtin_span,
+            format!("builtin `@{name}` does not take a type argument"),
+        ));
+    }
+
+    fn memory_dest_slice_expected(
+        &mut self,
+        expr: &Expr,
+        actual: InternedTyId,
+    ) -> Option<(InternedTyId, InternedTyId)> {
+        let actual = self.normalization.normalize(actual);
+        match self.interner.get(actual).cloned() {
+            Some(TyKind::Slice {
+                is_readonly: false,
+                elem,
+            }) => Some((elem, actual)),
+            Some(TyKind::Slice {
+                is_readonly: true, ..
+            }) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    "memory intrinsic destination must be mutable",
+                ));
+                None
+            }
+            Some(TyKind::Array { elem, .. }) => {
+                let expected = self.interner.intern(TyKind::Slice {
+                    is_readonly: false,
+                    elem,
+                });
+                Some((elem, expected))
+            }
+            Some(TyKind::Error) => None,
+            _ => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
+                    expr.span,
+                    "memory intrinsic destination must be `&mut [T]`",
+                ));
+                None
+            }
+        }
     }
 }

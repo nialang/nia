@@ -224,6 +224,24 @@ fn propagate_cross_function_constants_in_op(
                 instance_constants,
             )
         }
+        FunctionOp::MemoryIntrinsic(memory) => {
+            let mut changed = propagate_cross_function_constants_in_expr(
+                &mut memory.dest,
+                function_constants,
+                instance_constants,
+            );
+            changed |= match &mut memory.source {
+                nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source)
+                | nia_function_ir::FunctionMemoryIntrinsicSource::Byte(source) => {
+                    propagate_cross_function_constants_in_expr(
+                        source,
+                        function_constants,
+                        instance_constants,
+                    )
+                }
+            };
+            changed
+        }
         FunctionOp::Defer(body) => propagate_cross_function_constants_in_defer_body(
             body,
             function_constants,

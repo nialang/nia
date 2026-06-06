@@ -3,9 +3,9 @@ use nia_ast::{BinaryOp, UnaryOp};
 use nia_body_ir::{
     AsmOption, BuiltinConst, BuiltinMethod, BuiltinPlaceMethod, PlaceBase, PlaceElem,
     TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIn,
-    TypedForIterator, TypedInlineAsm, TypedLocal, TypedLocalKind, TypedLoop, TypedPlace,
-    TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArmBody,
-    TypedSwitchPattern, TypedWhile,
+    TypedForIterator, TypedInlineAsm, TypedLocal, TypedLocalKind, TypedLoop,
+    TypedMemoryIntrinsicSource, TypedPlace, TypedRange, TypedSliceRange, TypedStmt, TypedStmtKind,
+    TypedSwitch, TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
 };
 use nia_ids::{InternedTyId, LocalId, ModuleId};
 use nia_span::Span;
@@ -16,9 +16,10 @@ use nia_function_ir::{
     FunctionBlock, FunctionBlockId, FunctionBody, FunctionBuiltinMethod, FunctionBuiltinOperator,
     FunctionBuiltinOperatorOp, FunctionBuiltinValue, FunctionCallee, FunctionDeferBody,
     FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader, FunctionInlineAsm,
-    FunctionLocal, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
-    FunctionPlaceElem, FunctionRange, FunctionRangeBound, FunctionScope, FunctionScopeId,
-    FunctionSliceRange, FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
+    FunctionLocal, FunctionLocalKind, FunctionMemoryIntrinsic, FunctionMemoryIntrinsicOp,
+    FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace, FunctionPlaceBase, FunctionPlaceElem,
+    FunctionRange, FunctionRangeBound, FunctionScope, FunctionScopeId, FunctionSliceRange,
+    FunctionSwitchArm, FunctionTerminator, FunctionTryKind,
 };
 
 mod expr;

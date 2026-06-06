@@ -92,6 +92,15 @@ fn collect_function_refs_from_op(module_id: ModuleId, op: &FunctionOp, refs: &mu
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
             collect_function_refs_from_expr(module_id, value, refs);
         }
+        FunctionOp::MemoryIntrinsic(memory) => {
+            collect_function_refs_from_expr(module_id, &memory.dest, refs);
+            match &memory.source {
+                nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source)
+                | nia_function_ir::FunctionMemoryIntrinsicSource::Byte(source) => {
+                    collect_function_refs_from_expr(module_id, source, refs);
+                }
+            }
+        }
         FunctionOp::Defer(body) => collect_function_refs_from_defer_body(module_id, body, refs),
     }
 }

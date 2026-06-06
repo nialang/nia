@@ -735,6 +735,15 @@ impl FunctionLowerer {
                         visit_place(&output.place, max_id);
                     }
                 }
+                TypedExprKind::MemoryIntrinsic(memory) => {
+                    visit_expr(&memory.dest, max_id);
+                    match &memory.source {
+                        TypedMemoryIntrinsicSource::Slice(source)
+                        | TypedMemoryIntrinsicSource::Byte(source) => {
+                            visit_expr(source, max_id);
+                        }
+                    }
+                }
                 TypedExprKind::Error
                 | TypedExprKind::Integer(_)
                 | TypedExprKind::Float(_)

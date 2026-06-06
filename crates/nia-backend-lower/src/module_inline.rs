@@ -219,6 +219,22 @@ impl<'a> ModuleLowerer<'a> {
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
                 self.inline_leaf_calls_in_expr(value, function_candidates, instance_candidates);
             }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                self.inline_leaf_calls_in_expr(
+                    &mut memory.dest,
+                    function_candidates,
+                    instance_candidates,
+                );
+                match &mut memory.source {
+                    nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source)
+                    | nia_function_ir::FunctionMemoryIntrinsicSource::Byte(source) => self
+                        .inline_leaf_calls_in_expr(
+                            source,
+                            function_candidates,
+                            instance_candidates,
+                        ),
+                }
+            }
             FunctionOp::Defer(body) => {
                 self.inline_leaf_calls_in_defer_body(body, function_candidates, instance_candidates)
             }
