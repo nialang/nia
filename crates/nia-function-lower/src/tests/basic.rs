@@ -240,6 +240,66 @@ fn address_of_rvalue_materializes_temp_place() {
 }
 
 #[test]
+fn address_of_slice_lowers_to_slice_value_not_place() {
+    let span = Span::default();
+    let ty = test_ty();
+    let body = TypedBody {
+        span,
+        locals: vec![TypedLocal {
+            id: LocalId(0),
+            name: "ptr".to_string(),
+            kind: TypedLocalKind::Binding,
+            ty,
+            span,
+        }],
+        stmts: Vec::new(),
+        tail: Some(Box::new(TypedExpr {
+            span,
+            ty,
+            kind: TypedExprKind::Unary {
+                op: nia_ast::UnaryOp::Ref,
+                expr: Box::new(TypedExpr {
+                    span,
+                    ty,
+                    kind: TypedExprKind::Slice {
+                        lhs: Box::new(TypedExpr {
+                            span,
+                            ty,
+                            kind: TypedExprKind::Local(LocalId(0)),
+                        }),
+                        range: nia_body_ir::TypedSliceRange {
+                            start: Some(Box::new(int_expr(0))),
+                            end: None,
+                            inclusive: false,
+                        },
+                        is_readonly: false,
+                    },
+                }),
+            },
+        })),
+        ty,
+    };
+
+    let function_body = lower_function_body(&body);
+
+    let tail_block = function_body
+        .blocks
+        .iter()
+        .find(|block| matches!(block.terminator, FunctionTerminator::Tail { .. }))
+        .expect("expected tail block");
+    let FunctionTerminator::Tail {
+        value: Some(value), ..
+    } = &tail_block.terminator
+    else {
+        panic!("expected slice tail value");
+    };
+    assert!(
+        matches!(value.kind, FunctionExprKind::Slice { .. }),
+        "{value:?}"
+    );
+}
+
+#[test]
 fn return_terminates_block_before_later_statements() {
     let span = Span::default();
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));

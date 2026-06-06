@@ -3214,20 +3214,25 @@ fn main() i32 {
 fn o1_removes_noop_backend_local_stores() {
     let source = r#"
 fn main() i32 {
-    0
+    var value = 0;
+    value
 }
 "#;
     let lowering = lower_source_with_body_mutation_and_optimization(
         source,
         |body| {
             let span = body.blocks[0].span;
-            let ty = body.ty;
+            let local = body
+                .locals
+                .iter()
+                .find(|local| local.kind == nia_function_ir::FunctionLocalKind::Binding)
+                .expect("binding local");
             body.blocks[0].ops.push(FunctionOp::StoreLocal {
-                local_id: LocalId(0),
+                local_id: local.id,
                 value: nia_function_ir::FunctionExpr {
                     span,
-                    ty,
-                    kind: FunctionExprKind::Local(LocalId(0)),
+                    ty: local.ty,
+                    kind: FunctionExprKind::Local(local.id),
                 },
                 span,
             });
@@ -3241,7 +3246,12 @@ fn main() i32 {
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
-    assert!(body.blocks.iter().all(|block| block.ops.is_empty()));
+    assert!(body.blocks.iter().all(|block| {
+        block
+            .ops
+            .iter()
+            .all(|op| !matches!(op, FunctionOp::StoreLocal { .. }))
+    }));
     assert!(
         lowering
             .optimization_report
@@ -3263,20 +3273,25 @@ fn main() i32 {
 fn o0_preserves_noop_backend_local_stores() {
     let source = r#"
 fn main() i32 {
-    0
+    var value = 0;
+    value
 }
 "#;
     let lowering = lower_source_with_body_mutation_and_optimization(
         source,
         |body| {
             let span = body.blocks[0].span;
-            let ty = body.ty;
+            let local = body
+                .locals
+                .iter()
+                .find(|local| local.kind == nia_function_ir::FunctionLocalKind::Binding)
+                .expect("binding local");
             body.blocks[0].ops.push(FunctionOp::StoreLocal {
-                local_id: LocalId(0),
+                local_id: local.id,
                 value: nia_function_ir::FunctionExpr {
                     span,
-                    ty,
-                    kind: FunctionExprKind::Local(LocalId(0)),
+                    ty: local.ty,
+                    kind: FunctionExprKind::Local(local.id),
                 },
                 span,
             });
@@ -3290,7 +3305,12 @@ fn main() i32 {
         .expect("main function");
     let body = main.function_body.as_ref().expect("main function body");
 
-    assert!(body.blocks.iter().any(|block| !block.ops.is_empty()));
+    assert!(body.blocks.iter().any(|block| {
+        block
+            .ops
+            .iter()
+            .any(|op| matches!(op, FunctionOp::StoreLocal { .. }))
+    }));
     assert!(lowering.optimization_report.changed_passes.is_empty());
 }
 

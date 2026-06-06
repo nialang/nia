@@ -303,7 +303,7 @@ impl Collector {
                     },
                     item.visibility,
                     item.span,
-                    item.node_key.clone(),
+                    binding.node_key.clone(),
                     Vec::new(),
                 );
             }
@@ -803,5 +803,43 @@ extend[T, T] Methods[T] {
             .filter(|diagnostic| diagnostic.message.contains("duplicate generic parameter"))
             .count();
         assert_eq!(duplicate_count, 5, "{:?}", collection.diagnostics);
+    }
+
+    #[test]
+    fn maps_top_level_bindings_by_binding_node_key() {
+        let (module, errors) = parse_module(
+            r#"
+let global: i32 = 1;
+comptime let answer: i32 = 42;
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let collection = collect_module_defs(ModuleId(0), &module);
+        assert!(
+            collection.diagnostics.is_empty(),
+            "{:?}",
+            collection.diagnostics
+        );
+
+        for item in &module.items {
+            let nia_ast::ItemKind::Binding(binding) = &item.kind else {
+                continue;
+            };
+            let expected_kind = if binding.is_comptime {
+                DefKind::Comptime
+            } else {
+                DefKind::Global
+            };
+            let def_id = collection
+                .def_nodes
+                .get(&binding.node_key)
+                .expect("binding node key should map to its definition");
+            let def = collection
+                .defs
+                .get(def_id)
+                .expect("binding definition should exist");
+            assert_eq!(def.kind, expected_kind);
+            assert_eq!(def.name, binding.name);
+        }
     }
 }

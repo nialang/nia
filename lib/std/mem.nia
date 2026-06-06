@@ -1,5 +1,13 @@
 import std.os;
 
+pub enum Error: i32 {
+    Invalid = 1,
+    InvalidAlignment = 2,
+    OutOfMemory = 3,
+    System = 4,
+    _,
+}
+
 pub struct Layout {
     len: usize,
     align: usize,
@@ -13,18 +21,80 @@ pub struct Block {
 pub struct PageAllocator {}
 
 pub trait Allocator {
-    type Error;
+    fn alloc(&self, layout: Layout) Error!?Block;
 
-    fn alloc(&self, layout: Layout) [Self as Allocator]::Error!?Block;
-    fn free(&self, block: Block) [Self as Allocator]::Error!void;
+    fn free(&self, block: Block) Error!void;
+
+    fn alloc_bytes(&self, len: usize, align: usize) Error!?Block {
+        var layout = Layout::init(len, align).?;
+        self.alloc(layout)
+    }
+
+    fn alloc_slice[T](&self, len: usize) Error!?&mut [T]
+    where T: Sized
+    {
+        var layout = Layout::array[T](len).?;
+        switch self.alloc(layout) {
+            !maybe_block => switch maybe_block {
+                ?block => !?block.as_slice[T](),
+                null => !null,
+            },
+            err! => err!,
+        }
+    }
+
+    fn free_slice[T](&self, slice: &mut [T]) Error!void
+    where T: Sized
+    {
+        var layout = Layout::array[T](slice.len()).?;
+        self.free(Block::init(slice.get_ptr() as &mut u8, layout))
+    }
+}
+
+fn is_power_of_two(value: usize) bool {
+    if value == 0 {
+        false
+    } else {
+        var n = value;
+        while n > 1usize {
+            if n % 2usize != 0usize {
+                return false;
+            }
+            n = n / 2usize;
+        }
+        true
+    }
 }
 
 extend Layout {
-    pub fn init(len: usize, align: usize) os::Error!Layout {
+    pub fn init(len: usize, align: usize) Error!Layout {
         if align == 0 {
-            os::Error::Invalid!
+            Error::InvalidAlignment!
+        } else if not is_power_of_two(align) {
+            Error::InvalidAlignment!
         } else {
             !{ len: len, align: align }
+        }
+    }
+
+    pub fn of[T]() Error!Layout
+    where T: Sized
+    {
+        Layout::init(@size[T](), @align[T]())
+    }
+
+    pub fn array[T](count: usize) Error!Layout
+    where T: Sized
+    {
+        var elem_len = @size[T]();
+        if elem_len != 0usize and count != 0usize {
+            var len = elem_len * count;
+            if len / elem_len != count {
+                return Error::OutOfMemory!;
+            }
+            Layout::init(len, @align[T]())
+        } else {
+            Layout::init(0, @align[T]())
         }
     }
 
@@ -34,6 +104,10 @@ extend Layout {
 
     pub fn align(&self) usize {
         self.align
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len == 0
     }
 }
 
@@ -57,6 +131,17 @@ extend Block {
     pub fn align(&self) usize {
         self.layout.align()
     }
+
+    pub fn bytes(&self) &mut [u8] {
+        &mut self.ptr[0..self.len()]
+    }
+
+    pub fn as_slice[T](&self) &mut [T]
+    where T: Sized
+    {
+        var ptr = self.ptr as &mut T;
+        &mut ptr[0..(self.len() / @size[T]())]
+    }
 }
 
 extend PageAllocator {
@@ -66,21 +151,38 @@ extend PageAllocator {
 }
 
 extend PageAllocator : Allocator {
-    type Error = os::Error;
-
-    pub fn alloc(&self, layout: Layout) os::Error!?Block {
+    pub fn alloc(&self, layout: Layout) Error!?Block {
         _ = self;
-        if layout.len() == 0 {
+        if layout.is_empty() {
             !null
         } else {
-            var ptr = os::map_pages(layout.len(), layout.align()).?;
-            !(?Block::init(ptr, layout))
+            switch os::map_pages(layout.len(), layout.align()) {
+                !ptr => !(?Block::init(ptr, layout)),
+                err! => map_os_error(err)!,
+            }
         }
     }
 
-    pub fn free(&self, block: Block) os::Error!void {
+    pub fn free(&self, block: Block) Error!void {
         _ = self;
-        os::unmap_pages(block.ptr(), block.len()).?;
-        !{}
+        if block.layout().is_empty() {
+            !{}
+        } else {
+            switch os::unmap_pages(block.ptr(), block.len()) {
+                !ok => {
+                    _ = ok;
+                    !{}
+                },
+                err! => map_os_error(err)!,
+            }
+        }
+    }
+}
+
+fn map_os_error(error: os::Error) Error {
+    switch error {
+        os::Error::Invalid => Error::Invalid,
+        os::Error::NoMemory => Error::OutOfMemory,
+        _ => Error::System,
     }
 }

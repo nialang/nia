@@ -192,6 +192,77 @@ pub fn take(value: Box[i32]) i32 {
 }
 
 #[test]
+fn emits_error_union_void_success_values() {
+    let root = temp_dir("emits_error_union_void_success_values");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+enum Error: i32 {
+    Fail = 1,
+}
+
+fn ok() Error!void {
+    !{}
+}
+
+fn main() i32 {
+    switch ok() {
+        !value => {
+            _ = value;
+            0
+        },
+        error! => 1,
+    }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
+fn emits_ref_receiver_method_call_on_aggregate_rvalue() {
+    let root = temp_dir("emits_ref_receiver_method_call_on_aggregate_rvalue");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+struct Pair {
+    left: i32,
+    right: i32,
+}
+
+extend Pair {
+    fn sum(&self) i32 {
+        self.left + self.right
+    }
+}
+
+fn make() Pair {
+    { left: 20, right: 22 }
+}
+
+fn main() i32 {
+    make().sum()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn emits_discarded_void_calls() {
     let root = temp_dir("emits_discarded_void_calls");
     let main = root.join("main.nia");
