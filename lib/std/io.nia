@@ -1,4 +1,5 @@
 import std.fs;
+import std.mem;
 
 pub enum BufferError: i32 {
     EndOfStream = 1,
@@ -126,11 +127,7 @@ extend FixedBufferWriter : Writer {
             count = remaining;
         }
 
-        var index = 0usize;
-        while index < count {
-            self.buffer[self.len + index] = bytes[index];
-            index += 1;
-        }
+        mem::copy_forwards[u8](&mut self.buffer[self.len..(self.len + count)], &bytes[0..count]);
         self.len += count;
         !count
     }
@@ -160,11 +157,7 @@ extend FixedBufferReader : Reader {
             count = remaining;
         }
 
-        var index = 0usize;
-        while index < count {
-            bytes[index] = self.buffer[self.cursor + index];
-            index += 1;
-        }
+        mem::copy_forwards[u8](&mut bytes[0..count], &self.buffer[self.cursor..(self.cursor + count)]);
         self.cursor += count;
         !count
     }
@@ -224,11 +217,7 @@ where R: Reader
             count = self.len();
         }
 
-        var index = 0usize;
-        while index < count {
-            bytes[index] = self.buffer[self.start + index];
-            index += 1usize;
-        }
+        mem::copy_forwards[u8](&mut bytes[0..count], &self.buffer[self.start..(self.start + count)]);
         self.start += count;
         if self.start == self.end {
             self.discard_buffered();
@@ -306,11 +295,7 @@ where W: Writer
                 self.flush().?;
             }
 
-            var index = 0usize;
-            while index < bytes.len() {
-                self.buffer[self.len + index] = bytes[index];
-                index += 1usize;
-            }
+            mem::copy_forwards[u8](&mut self.buffer[self.len..(self.len + bytes.len())], bytes);
             self.len += bytes.len();
             !bytes.len()
         }
