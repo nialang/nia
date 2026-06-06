@@ -21,7 +21,7 @@ pub enum Error: i32 {
     _,
 }
 
-pub struct File {
+pub struct FileDescriptor {
     fd: i32,
 }
 
@@ -33,21 +33,21 @@ fn syscall_error(ret: isize) Error {
     error((0isize - ret) as i32)
 }
 
-extend File {
-    pub fn init(fd: i32) File {
+extend FileDescriptor {
+    pub fn init(fd: i32) FileDescriptor {
         { fd: fd }
     }
 
-    pub fn stdin() File {
-        File::init(0)
+    pub fn stdin() FileDescriptor {
+        FileDescriptor::init(0)
     }
 
-    pub fn stdout() File {
-        File::init(1)
+    pub fn stdout() FileDescriptor {
+        FileDescriptor::init(1)
     }
 
-    pub fn stderr() File {
-        File::init(2)
+    pub fn stderr() FileDescriptor {
+        FileDescriptor::init(2)
     }
 
     pub fn raw(&self) i32 {

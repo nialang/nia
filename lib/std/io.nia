@@ -1,4 +1,4 @@
-import std.os;
+import std.fs;
 
 pub enum BufferError: i32 {
     EndOfStream = 1,
@@ -235,11 +235,11 @@ where R: Reader
     }
 }
 
-extend os::File : Writer {
-    type Error = os::Error;
+extend fs::File : Writer {
+    type Error = fs::Error;
 
     pub fn short_write(&self) Error {
-        os::Error::Io
+        fs::Error::Io
     }
 
     pub fn write(&mut self, bytes: &[u8]) Error!usize {
@@ -247,11 +247,11 @@ extend os::File : Writer {
     }
 }
 
-extend os::File : Reader {
-    type Error = os::Error;
+extend fs::File : Reader {
+    type Error = fs::Error;
 
     pub fn end_of_stream(&self) Error {
-        os::Error::Io
+        fs::Error::Io
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) Error!usize {

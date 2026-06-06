@@ -1083,20 +1083,20 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_can_write_stdout_through_std_os() {
-    let root = temp_dir("emit_exe_can_write_stdout_through_std_os");
+fn emit_exe_can_write_stdout_through_std_fs() {
+    let root = temp_dir("emit_exe_can_write_stdout_through_std_fs");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-import std.os;
+import std.fs;
 import std.io;
 import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var stdout = os::File::stdout();
+    var stdout = fs::File::stdout();
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -1139,7 +1139,7 @@ import std;
 
 pub fn main(init: std::process::Init) std::process::ExitCode!void {
     _ = init;
-    var stdout = std::os::File::stdout();
+    var stdout = std::fs::File::stdout();
     switch stdout.print("A¢€😀, {}\n", ['λ']) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
