@@ -7,19 +7,38 @@ use nia_function_ir::{
     FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_span::Span;
 use nia_static_ir::StaticInit;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FunctionInstanceRef {
+    pub(crate) def_id: GlobalDefId,
+    pub(crate) arg_module_id: ModuleId,
+    pub(crate) args: Vec<InternedTyId>,
+    pub(crate) span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct FunctionInstanceKey {
     pub(crate) def_id: GlobalDefId,
     pub(crate) arg_module_id: ModuleId,
     pub(crate) args: Vec<InternedTyId>,
 }
 
+impl FunctionInstanceRef {
+    pub(crate) fn key(&self) -> FunctionInstanceKey {
+        FunctionInstanceKey {
+            def_id: self.def_id,
+            arg_module_id: self.arg_module_id,
+            args: self.args.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct FunctionRefs {
     pub(crate) functions: HashSet<GlobalDefId>,
-    pub(crate) instances: HashSet<FunctionInstanceRef>,
+    pub(crate) instances: Vec<FunctionInstanceRef>,
 }
 
 pub(crate) fn collect_function_refs_from_optional_body(
@@ -126,10 +145,11 @@ fn collect_function_refs_from_expr(
             arg_module_id,
             args,
         } => {
-            refs.instances.insert(FunctionInstanceRef {
+            refs.instances.push(FunctionInstanceRef {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
                 args: args.clone(),
+                span: expr.span,
             });
         }
         FunctionExprKind::Range(range) => {
@@ -186,7 +206,7 @@ fn collect_function_refs_from_expr(
             collect_function_refs_from_expr(module_id, rhs, refs);
         }
         FunctionExprKind::Call { callee, args } => {
-            collect_function_refs_from_callee(module_id, callee, refs);
+            collect_function_refs_from_callee(module_id, expr.span, callee, refs);
             for arg in args {
                 collect_function_refs_from_expr(module_id, arg, refs);
             }
@@ -225,6 +245,7 @@ fn collect_function_refs_from_expr(
 
 fn collect_function_refs_from_callee(
     module_id: ModuleId,
+    span: Span,
     callee: &FunctionCallee,
     refs: &mut FunctionRefs,
 ) {
@@ -237,10 +258,11 @@ fn collect_function_refs_from_callee(
             arg_module_id,
             args,
         } => {
-            refs.instances.insert(FunctionInstanceRef {
+            refs.instances.push(FunctionInstanceRef {
                 def_id: *def_id,
                 arg_module_id: *arg_module_id,
                 args: args.clone(),
+                span,
             });
         }
         FunctionCallee::Method {
@@ -252,10 +274,11 @@ fn collect_function_refs_from_callee(
             if args.is_empty() {
                 refs.functions.insert(*def_id);
             } else {
-                refs.instances.insert(FunctionInstanceRef {
+                refs.instances.push(FunctionInstanceRef {
                     def_id: *def_id,
                     arg_module_id: *arg_module_id,
                     args: args.clone(),
+                    span,
                 });
             }
         }
@@ -270,10 +293,11 @@ fn collect_function_refs_from_callee(
             let mut instance_args = vec![*self_ty];
             instance_args.extend(trait_args.iter().copied());
             instance_args.extend(args.iter().copied());
-            refs.instances.insert(FunctionInstanceRef {
+            refs.instances.push(FunctionInstanceRef {
                 def_id: *method_id,
                 arg_module_id: module_id,
                 args: instance_args,
+                span,
             });
             collect_function_refs_from_expr(module_id, receiver, refs);
         }
@@ -345,10 +369,11 @@ pub(crate) fn collect_function_refs_from_static_init(
             if args.is_empty() {
                 refs.functions.insert(*function);
             } else {
-                refs.instances.insert(FunctionInstanceRef {
+                refs.instances.push(FunctionInstanceRef {
                     def_id: *function,
                     arg_module_id: module_id,
                     args: args.clone(),
+                    span: Span::default(),
                 });
             }
         }

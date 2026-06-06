@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use nia_ast::Expr;
 use nia_comptime_check::ComptimeCheck;
@@ -28,6 +28,7 @@ pub struct MonoInstance {
     pub arg_module_id: ModuleId,
     pub args: Vec<InternedTyId>,
     pub symbol: String,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,7 +90,6 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
         recorded_generics_by_def: collect_recorded_generics_by_def(inputs),
         instances: Vec::new(),
         seen: HashSet::new(),
-        expanded: HashSet::new(),
         type_symbols: HashMap::new(),
         def_names: HashMap::new(),
         base_symbols: HashMap::new(),
@@ -126,7 +126,6 @@ struct MonoCollector<'a> {
     recorded_generics_by_def: HashMap<GlobalDefId, Vec<String>>,
     instances: Vec<MonoInstance>,
     seen: HashSet<MonoInstanceKey>,
-    expanded: HashSet<MonoInstanceKey>,
     type_symbols: HashMap<(ModuleId, InternedTyId), String>,
     def_names: HashMap<GlobalDefId, String>,
     base_symbols: HashMap<GlobalDefId, String>,
@@ -181,8 +180,18 @@ struct SourceInstantiationEdge {
     span: Span,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingMonoInstance {
+    key: MonoInstanceKey,
+    span: Span,
+}
+
+const MAX_MONOMORPHIZED_INSTANCES: usize = 1024;
+const MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH: usize = 256;
+
 impl MonoCollector<'_> {
     fn collect_module(&mut self, input: &MonomorphizeModuleInput<'_>) {
+        let mut pending = VecDeque::new();
         for instantiation in input.instantiations {
             if !self.is_generic_def(instantiation.def_id) {
                 continue;
@@ -199,9 +208,9 @@ impl MonoCollector<'_> {
                 arg_module_id: input.module_id,
                 args: instantiation.args.clone(),
             };
-            self.add_instance(key.clone());
-            self.expand_instance(key, instantiation.span, &mut Vec::new());
+            self.enqueue_instance(&mut pending, key, instantiation.span);
         }
+        self.expand_pending_instances(pending);
     }
 
     fn is_generic_def(&mut self, def_id: GlobalDefId) -> bool {
@@ -345,68 +354,208 @@ impl MonoCollector<'_> {
             .map(Vec::as_slice)
     }
 
-    fn expand_instance(
-        &mut self,
-        key: MonoInstanceKey,
-        span: Span,
-        stack: &mut Vec<MonoInstanceKey>,
-    ) {
-        if let Some(index) = stack.iter().position(|entry| entry == &key) {
-            let cycle = stack[index..]
-                .iter()
-                .chain([&key])
-                .map(|entry| self.instance_name(entry))
-                .collect::<Vec<_>>()
-                .join(" -> ");
-            self.diagnostics.push(Diagnostic::user_error_at(
-                "E0601",
-                span,
-                format!("recursive generic instantiation detected: {cycle}"),
-            ));
-            return;
-        }
-        if !self.expanded.insert(key.clone()) {
-            return;
-        }
-
-        let Some(edge_indices) = self.instantiations_by_source.get(&key.def_id).cloned() else {
-            return;
-        };
-        let substitutions = self.generic_substitutions_for_instance(&key);
-        let substitution_id = self.intern_ordered_type_substitutions(substitutions);
-        stack.push(key.clone());
-        for edge_index in edge_indices {
-            let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
-                continue;
-            };
-            let source_module_id = edge.source_module_id;
-            let edge_def_id = edge.def_id;
-            let edge_span = edge.span;
-            let edge_args = edge.args.clone();
-            if !self.is_generic_def(edge_def_id) {
+    fn expand_pending_instances(&mut self, mut pending: VecDeque<PendingMonoInstance>) {
+        let mut expanded = HashSet::new();
+        while let Some(pending_instance) = pending.pop_front() {
+            if !expanded.insert(pending_instance.key.clone()) {
                 continue;
             }
-            let args = self.instantiate_args(source_module_id, &edge_args, substitution_id);
-            let edge_key = MonoInstanceKey {
-                def_id: edge_def_id,
-                arg_module_id: source_module_id,
-                args,
+
+            let Some(edge_indices) = self
+                .instantiations_by_source
+                .get(&pending_instance.key.def_id)
+                .cloned()
+            else {
+                continue;
             };
-            self.add_instance(edge_key.clone());
-            self.expand_instance(edge_key, edge_span, stack);
+            let substitutions = self.generic_substitutions_for_instance(&pending_instance.key);
+            let substitution_id = self.intern_ordered_type_substitutions(substitutions);
+            for edge_index in edge_indices {
+                let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
+                    continue;
+                };
+                let source_module_id = edge.source_module_id;
+                let edge_def_id = edge.def_id;
+                let edge_span = edge.span;
+                let edge_args = edge.args.clone();
+                if !self.is_generic_def(edge_def_id) {
+                    continue;
+                }
+                let args = self.instantiate_args(source_module_id, &edge_args, substitution_id);
+                let edge_key = MonoInstanceKey {
+                    def_id: edge_def_id,
+                    arg_module_id: source_module_id,
+                    args,
+                };
+                self.enqueue_instance(&mut pending, edge_key, edge_span);
+            }
         }
-        stack.pop();
     }
 
-    fn add_instance(&mut self, key: MonoInstanceKey) {
-        if self.seen.insert(key.clone()) {
-            let symbol = self.instance_symbol(&key);
-            self.instances.push(MonoInstance {
-                def_id: key.def_id,
-                arg_module_id: key.arg_module_id,
-                args: key.args.clone(),
-                symbol,
-            });
+    fn enqueue_instance(
+        &mut self,
+        pending: &mut VecDeque<PendingMonoInstance>,
+        key: MonoInstanceKey,
+        span: Span,
+    ) {
+        if !self.seen.insert(key.clone()) {
+            return;
+        }
+        if self.instances.len() >= MAX_MONOMORPHIZED_INSTANCES {
+            self.report_instance_limit(span, &key);
+            return;
+        }
+        if key.args.iter().any(|arg| {
+            self.ty_exceeds_instance_depth(
+                key.arg_module_id,
+                *arg,
+                MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH,
+            )
+        }) {
+            self.report_instance_type_depth_limit(span, &key);
+            return;
+        }
+        let symbol = self.instance_symbol(&key);
+        self.instances.push(MonoInstance {
+            def_id: key.def_id,
+            arg_module_id: key.arg_module_id,
+            args: key.args.clone(),
+            symbol,
+            span,
+        });
+        pending.push_back(PendingMonoInstance { key, span });
+    }
+
+    fn report_instance_limit(&mut self, span: Span, key: &MonoInstanceKey) {
+        let name = self.def_name(key.def_id);
+        self.diagnostics.push(
+            Diagnostic::user_error(
+                "E0601",
+                "generic instantiation did not converge before the instance limit",
+            )
+            .primary(
+                span,
+                format!(
+                    "instantiating `{name}` would exceed the monomorphization instance limit"
+                ),
+            )
+            .note(
+                "recursive calls to an already-seen concrete generic instance are allowed and reuse the existing monomorphized function",
+            )
+            .note(
+                "this usually means a recursive generic call keeps producing new type arguments, such as T, &T, &&T, ...",
+            )
+            .help("move the recursion behind a runtime representation or make the recursive call reuse a finite set of concrete type arguments")
+            .debug("limit", MAX_MONOMORPHIZED_INSTANCES)
+            .debug("known_instances", self.instances.len())
+            .debug("def_id", key.def_id)
+            .debug("arg_module_id", key.arg_module_id)
+            .finish(),
+        );
+    }
+
+    fn report_instance_type_depth_limit(&mut self, span: Span, key: &MonoInstanceKey) {
+        let name = self.def_name(key.def_id);
+        self.diagnostics.push(
+            Diagnostic::user_error(
+                "E0601",
+                "generic instantiation did not converge before the type depth limit",
+            )
+            .primary(
+                span,
+                format!(
+                    "instantiating `{name}` would exceed the monomorphization type depth limit"
+                ),
+            )
+            .note(
+                "recursive calls to an already-seen concrete generic instance are allowed and reuse the existing monomorphized function",
+            )
+            .note(
+                "this usually means a recursive generic call keeps growing a type argument, such as T, &T, &&T, ...",
+            )
+            .help("move the recursion behind a runtime representation or make the recursive call reuse a finite set of concrete type arguments")
+            .debug("type_depth_limit", MAX_MONOMORPHIZED_INSTANCE_TYPE_DEPTH)
+            .debug("known_instances", self.instances.len())
+            .debug("def_id", key.def_id)
+            .debug("arg_module_id", key.arg_module_id)
+            .finish(),
+        );
+    }
+
+    fn ty_exceeds_instance_depth(
+        &self,
+        module_id: ModuleId,
+        ty: InternedTyId,
+        remaining: usize,
+    ) -> bool {
+        if remaining == 0 {
+            return true;
+        }
+        let Some(kind) = self
+            .working_interners_by_module
+            .get(&module_id)
+            .or_else(|| self.interners_by_module.get(&module_id).copied())
+            .and_then(|interner| interner.get(ty))
+        else {
+            return false;
+        };
+        let next = remaining - 1;
+        match kind {
+            TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. } => {
+                self.ty_exceeds_instance_depth(module_id, *elem, next)
+            }
+            TyKind::Array { elem, .. } => self.ty_exceeds_instance_depth(module_id, *elem, next),
+            TyKind::Range { bound, .. } => {
+                bound.is_some_and(|bound| self.ty_exceeds_instance_depth(module_id, bound, next))
+            }
+            TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            } => {
+                params
+                    .iter()
+                    .any(|param| self.ty_exceeds_instance_depth(module_id, *param, next))
+                    || self.ty_exceeds_instance_depth(module_id, *return_type, next)
+            }
+            TyKind::Optional { elem } => self.ty_exceeds_instance_depth(module_id, *elem, next),
+            TyKind::ErrorUnion { error, value } => {
+                self.ty_exceeds_instance_depth(module_id, *error, next)
+                    || self.ty_exceeds_instance_depth(module_id, *value, next)
+            }
+            TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => args
+                .iter()
+                .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next)),
+            TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            } => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next))
+                    || associated_type_bindings.iter().any(|binding| {
+                        binding
+                            .trait_args
+                            .iter()
+                            .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next))
+                            || self.ty_exceeds_instance_depth(module_id, binding.ty, next)
+                    })
+            }
+            TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            } => {
+                self.ty_exceeds_instance_depth(module_id, *self_ty, next)
+                    || trait_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next))
+            }
+            TyKind::GenericParam(_)
+            | TyKind::Primitive(_)
+            | TyKind::ComptimeOnly
+            | TyKind::Error => false,
         }
     }
 
@@ -890,16 +1039,6 @@ impl MonoCollector<'_> {
         }
     }
 
-    fn instance_name(&mut self, key: &MonoInstanceKey) -> String {
-        let args = key
-            .args
-            .iter()
-            .map(|arg| self.type_symbol(key.arg_module_id, *arg))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("{}[{args}]", self.def_name(key.def_id))
-    }
-
     fn base_symbol(&mut self, def_id: GlobalDefId) -> String {
         if let Some(symbol) = self.base_symbols.get(&def_id) {
             return symbol.clone();
@@ -1305,6 +1444,132 @@ fn main() i32 { 0 }
     }
 
     #[test]
+    fn recursive_generic_body_reuses_same_concrete_instance() {
+        let (module, errors) = parse_module("fn recurse[T](value: T) T { recurse[T](value) }");
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let recurse_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs
+                .module_scope
+                .values
+                .get("recurse")
+                .expect("recurse def"),
+        };
+        let mut interner = TyInterner::new(ModuleId(0));
+        let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let instantiations = vec![
+            GenericInstantiation {
+                def_id: recurse_id,
+                args: vec![generic_t],
+                generics: vec!["T".to_string()],
+                span: Span::new(1, 2),
+                source_def_id: Some(recurse_id),
+            },
+            GenericInstantiation {
+                def_id: recurse_id,
+                args: vec![i32_ty],
+                generics: vec!["T".to_string()],
+                span: Span::new(3, 4),
+                source_def_id: None,
+            },
+        ];
+
+        let normalization = normalization_for(&interner);
+        let comptime = ComptimeCheck::default();
+        let const_exprs = HashMap::new();
+        let mono = collect_monomorphizations(&[mono_input(
+            &defs,
+            &interner,
+            &normalization,
+            &comptime,
+            &const_exprs,
+            &instantiations,
+        )]);
+
+        assert!(mono.diagnostics.is_empty(), "{:?}", mono.diagnostics);
+        assert_eq!(mono.instances.len(), 1);
+        assert_eq!(mono.instances[0].def_id, recurse_id);
+        assert_eq!(mono.instances[0].args, vec![i32_ty]);
+    }
+
+    #[test]
+    fn growing_recursive_generic_body_reports_type_depth_limit() {
+        let (module, errors) = parse_module("fn grow[T](value: &T) i32 { grow[&T](&value) }");
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let grow_id = GlobalDefId {
+            module_id: ModuleId(0),
+            def_id: defs.module_scope.values.get("grow").expect("grow def"),
+        };
+        let mut interner = TyInterner::new(ModuleId(0));
+        let i32_ty = interner.primitive(PrimitiveTy::I32);
+        let i32_ptr = interner.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: i32_ty,
+        });
+        let generic_t = interner.intern(TyKind::GenericParam("T".to_string()));
+        let generic_ptr = interner.intern(TyKind::Pointer {
+            is_readonly: true,
+            elem: generic_t,
+        });
+        let instantiations = vec![
+            GenericInstantiation {
+                def_id: grow_id,
+                args: vec![generic_ptr],
+                generics: vec!["T".to_string()],
+                span: Span::new(10, 20),
+                source_def_id: Some(grow_id),
+            },
+            GenericInstantiation {
+                def_id: grow_id,
+                args: vec![i32_ty],
+                generics: vec!["T".to_string()],
+                span: Span::new(1, 2),
+                source_def_id: None,
+            },
+        ];
+
+        let normalization = normalization_for(&interner);
+        let comptime = ComptimeCheck::default();
+        let const_exprs = HashMap::new();
+        let mono = collect_monomorphizations(&[mono_input(
+            &defs,
+            &interner,
+            &normalization,
+            &comptime,
+            &const_exprs,
+            &instantiations,
+        )]);
+
+        assert!(
+            mono.instances
+                .iter()
+                .any(|instance| { instance.def_id == grow_id && instance.args == vec![i32_ptr] })
+        );
+        let diagnostic = mono
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.summary.contains("type depth limit"))
+            .expect("type depth diagnostic");
+        assert_eq!(diagnostic.code.as_str(), "E0601");
+        assert_eq!(diagnostic.primary_span(), Some(Span::new(10, 20)));
+        assert!(
+            diagnostic
+                .notes
+                .iter()
+                .any(|note| note.contains("already-seen concrete generic instance"))
+        );
+        assert!(
+            diagnostic
+                .help
+                .iter()
+                .any(|help| help.contains("finite set of concrete type arguments"))
+        );
+    }
+
+    #[test]
     fn unresolved_array_lengths_in_symbols_are_diagnostic_not_panic() {
         let (module, errors) = parse_module("fn take[T](value: T) T { value }");
         assert!(errors.is_empty(), "{errors:?}");
@@ -1495,7 +1760,6 @@ fn wrap[T](value: T) T { value }
             recorded_generics_by_def: HashMap::new(),
             instances: Vec::new(),
             seen: HashSet::new(),
-            expanded: HashSet::new(),
             type_symbols: HashMap::new(),
             def_names: HashMap::new(),
             base_symbols: HashMap::new(),

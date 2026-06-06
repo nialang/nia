@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::ModuleLowerer;
 use crate::function_refs::{
-    FunctionInstanceRef, FunctionRefs, collect_function_refs_from_optional_body,
+    FunctionInstanceKey, FunctionInstanceRef, FunctionRefs,
+    collect_function_refs_from_optional_body,
 };
 use nia_backend_ir::{
     BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
@@ -14,6 +15,9 @@ use nia_ty::TyKind;
 
 type InstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
 
+const MAX_BACKEND_FUNCTION_INSTANCES: usize = 4096;
+const MAX_BACKEND_INSTANCE_TYPE_DEPTH: usize = 256;
+
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_function_instances(
         &mut self,
@@ -21,21 +25,29 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Vec<BackendFunctionInstance> {
         let mut instances = Vec::new();
         let mut seen = HashSet::<InstanceKey>::new();
+        let mut queued = HashSet::<FunctionInstanceKey>::new();
         let mut functions_by_def = functions
             .iter()
             .map(|function| (function.def_id, function.clone()))
             .collect::<HashMap<_, _>>();
-        let mut pending = self
+        let mut pending = VecDeque::new();
+        for instance in self
             .monomorphization
             .instances
             .iter()
             .filter(|instance| instance.def_id.module_id == self.input.module_id)
-            .map(|instance| FunctionInstanceRef {
-                def_id: instance.def_id,
-                arg_module_id: instance.arg_module_id,
-                args: instance.args.clone(),
-            })
-            .collect::<VecDeque<_>>();
+        {
+            enqueue_function_instance_ref(
+                &mut pending,
+                &mut queued,
+                FunctionInstanceRef {
+                    def_id: instance.def_id,
+                    arg_module_id: instance.arg_module_id,
+                    args: instance.args.clone(),
+                    span: instance.span,
+                },
+            );
+        }
 
         let mut root_refs = FunctionRefs::default();
         for function in functions {
@@ -45,7 +57,9 @@ impl<'a> ModuleLowerer<'a> {
                 &mut root_refs,
             );
         }
-        pending.extend(root_refs.instances);
+        for instance in root_refs.instances {
+            enqueue_function_instance_ref(&mut pending, &mut queued, instance);
+        }
 
         let mut planned_symbols = self
             .monomorphization
@@ -68,10 +82,29 @@ impl<'a> ModuleLowerer<'a> {
                 continue;
             }
             let args = self.canonicalize_instance_args(&instance.args);
+            let key = (instance.def_id, instance.arg_module_id, args.clone());
+            if seen.contains(&key) {
+                continue;
+            }
             if args.iter().any(|arg| {
                 self.cached_ty_contains_generic_param(*arg)
                     || self.cached_ty_contains_unresolved_projection(*arg)
             }) {
+                continue;
+            }
+            if args.iter().any(|arg| {
+                self.ty_exceeds_backend_instance_depth(*arg, MAX_BACKEND_INSTANCE_TYPE_DEPTH)
+            }) {
+                self.report_backend_instance_type_depth_limit(instance.span, instance.def_id);
+                continue;
+            }
+            if instances.len() >= MAX_BACKEND_FUNCTION_INSTANCES {
+                self.report_backend_instance_limit(
+                    instance.span,
+                    instance.def_id,
+                    &args,
+                    instances.len(),
+                );
                 continue;
             }
             let symbol = if let Some(symbol) =
@@ -109,16 +142,178 @@ impl<'a> ModuleLowerer<'a> {
                 &mut refs,
             );
             for discovered in refs.instances {
+                let discovered_args = self.canonicalize_instance_args(&discovered.args);
                 if !seen.contains(&(
                     discovered.def_id,
                     discovered.arg_module_id,
-                    self.canonicalize_instance_args(&discovered.args),
+                    discovered_args.clone(),
                 )) {
-                    pending.push_back(discovered);
+                    enqueue_function_instance_ref(
+                        &mut pending,
+                        &mut queued,
+                        FunctionInstanceRef {
+                            def_id: discovered.def_id,
+                            arg_module_id: discovered.arg_module_id,
+                            args: discovered_args,
+                            span: discovered.span,
+                        },
+                    );
                 }
             }
         }
         instances
+    }
+
+    fn report_backend_instance_limit(
+        &mut self,
+        span: nia_span::Span,
+        def_id: GlobalDefId,
+        args: &[InternedTyId],
+        known_instances: usize,
+    ) {
+        let name = self
+            .function_instance_name(&mut HashMap::new(), def_id)
+            .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
+        let type_args = args
+            .iter()
+            .map(|arg| self.instance_arg_debug_name(*arg))
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.diagnostics.push(
+            nia_diagnostic::Diagnostic::user_error(
+                "E0601",
+                "generic instantiation did not converge before the backend instance limit",
+            )
+            .primary(
+                span,
+                format!(
+                    "lowering `{name}[{type_args}]` would exceed the backend function instance limit"
+                ),
+            )
+            .note(
+                "backend lowering may discover additional concrete instances after trait and method calls are resolved",
+            )
+            .note(
+                "recursive calls to an already-seen concrete generic instance are allowed and reuse the existing lowered function",
+            )
+            .help("make the generic recursion produce a finite set of concrete function instances")
+            .debug("limit", MAX_BACKEND_FUNCTION_INSTANCES)
+            .debug("known_instances", known_instances)
+            .debug("def_id", def_id)
+            .finish(),
+        );
+    }
+
+    fn report_backend_instance_type_depth_limit(
+        &mut self,
+        span: nia_span::Span,
+        def_id: GlobalDefId,
+    ) {
+        let name = self
+            .function_instance_name(&mut HashMap::new(), def_id)
+            .unwrap_or_else(|| format!("def{}", def_id.def_id.0));
+        self.diagnostics.push(
+            nia_diagnostic::Diagnostic::user_error(
+                "E0601",
+                "generic instantiation did not converge before the backend type depth limit",
+            )
+            .primary(
+                span,
+                format!("lowering `{name}` would exceed the backend instance type depth limit"),
+            )
+            .note(
+                "backend lowering may discover additional concrete instances after trait and method calls are resolved",
+            )
+            .note(
+                "recursive calls to an already-seen concrete generic instance are allowed and reuse the existing lowered function",
+            )
+            .help("make the generic recursion produce a finite set of concrete function instances")
+            .debug("type_depth_limit", MAX_BACKEND_INSTANCE_TYPE_DEPTH)
+            .debug("def_id", def_id)
+            .finish(),
+        );
+    }
+
+    fn instance_arg_debug_name(&self, ty: InternedTyId) -> String {
+        if ty.interner_id == self.interner.interner_id() {
+            return self
+                .interner
+                .get(ty)
+                .map(|kind| format!("{kind:?}"))
+                .unwrap_or_else(|| format!("{ty:?}"));
+        }
+        self.known_type_interners
+            .get(&ty.interner_id)
+            .and_then(|interner| interner.get(ty))
+            .map(|kind| format!("{kind:?}"))
+            .unwrap_or_else(|| format!("{ty:?}"))
+    }
+
+    fn ty_exceeds_backend_instance_depth(&self, ty: InternedTyId, remaining: usize) -> bool {
+        if remaining == 0 {
+            return true;
+        }
+        let Some(kind) = self.ty_kind(ty) else {
+            return false;
+        };
+        let next = remaining - 1;
+        match kind {
+            TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. } => {
+                self.ty_exceeds_backend_instance_depth(*elem, next)
+            }
+            TyKind::Array { elem, .. } => self.ty_exceeds_backend_instance_depth(*elem, next),
+            TyKind::Range { bound, .. } => {
+                bound.is_some_and(|bound| self.ty_exceeds_backend_instance_depth(bound, next))
+            }
+            TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            } => {
+                params
+                    .iter()
+                    .any(|param| self.ty_exceeds_backend_instance_depth(*param, next))
+                    || self.ty_exceeds_backend_instance_depth(*return_type, next)
+            }
+            TyKind::Optional { elem } => self.ty_exceeds_backend_instance_depth(*elem, next),
+            TyKind::ErrorUnion { error, value } => {
+                self.ty_exceeds_backend_instance_depth(*error, next)
+                    || self.ty_exceeds_backend_instance_depth(*value, next)
+            }
+            TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. } => args
+                .iter()
+                .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next)),
+            TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            } => {
+                trait_args
+                    .iter()
+                    .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
+                    || associated_type_bindings.iter().any(|binding| {
+                        binding
+                            .trait_args
+                            .iter()
+                            .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
+                            || self.ty_exceeds_backend_instance_depth(binding.ty, next)
+                    })
+            }
+            TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            } => {
+                self.ty_exceeds_backend_instance_depth(*self_ty, next)
+                    || trait_args
+                        .iter()
+                        .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next))
+            }
+            TyKind::GenericParam(_)
+            | TyKind::Primitive(_)
+            | TyKind::ComptimeOnly
+            | TyKind::Error => false,
+        }
     }
 
     fn function_instance_name(
@@ -350,6 +545,16 @@ impl<'a> ModuleLowerer<'a> {
                         .cloned()
                 })
         })
+    }
+}
+
+fn enqueue_function_instance_ref(
+    pending: &mut VecDeque<FunctionInstanceRef>,
+    queued: &mut HashSet<FunctionInstanceKey>,
+    instance: FunctionInstanceRef,
+) {
+    if queued.insert(instance.key()) {
+        pending.push_back(instance);
     }
 }
 
