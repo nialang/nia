@@ -2645,6 +2645,57 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(3)!,
     }
 
+    var ops = array_list::ArrayList[i32]::init();
+    switch ops.push(page, 1) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(26)!,
+    }
+    switch ops.push(page, 3) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(27)!,
+    }
+    switch ops.insert(page, 1, 2) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(28)!,
+    }
+    let inserted_tail: [2]i32 = [4, 5];
+    switch ops.insert_slice(page, 3, &inserted_tail[..]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(29)!,
+    }
+    let expected_ops: [5]i32 = [1, 2, 3, 4, 5];
+    if not mem::equal[i32](ops.as_slice(), &expected_ops[..]) {
+        return process::ExitCode::init(30)!;
+    }
+    switch ops.ordered_remove(1) {
+        ?value => {
+            if value != 2 {
+                return process::ExitCode::init(31)!;
+            }
+        },
+        null => return process::ExitCode::init(32)!,
+    }
+    let expected_ordered: [4]i32 = [1, 3, 4, 5];
+    if not mem::equal[i32](ops.as_slice(), &expected_ordered[..]) {
+        return process::ExitCode::init(33)!;
+    }
+    switch ops.swap_remove(0) {
+        ?value => {
+            if value != 1 {
+                return process::ExitCode::init(34)!;
+            }
+        },
+        null => return process::ExitCode::init(35)!,
+    }
+    let expected_swap: [3]i32 = [5, 3, 4];
+    if not mem::equal[i32](ops.as_slice(), &expected_swap[..]) {
+        return process::ExitCode::init(36)!;
+    }
+    switch ops.deinit(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(37)!,
+    }
+
     var list = array_list::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
         return process::ExitCode::init(4)!;
