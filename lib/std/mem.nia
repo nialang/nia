@@ -92,6 +92,26 @@ where T: Sized
     &mut ptr[0..len]
 }
 
+pub fn copy_forwards[T](to: &mut [T], from: &[T]) void
+where T: Sized
+{
+    var index = 0usize;
+    while index < from.len() {
+        to[index] = from[index];
+        index += 1usize;
+    }
+}
+
+pub fn copy_backwards[T](to: &mut [T], from: &[T]) void
+where T: Sized
+{
+    var index = from.len();
+    while index > 0usize {
+        index -= 1usize;
+        to[index] = from[index];
+    }
+}
+
 extend usize {
     fn is_power_of_two(self) bool {
         if self == 0 {
@@ -201,11 +221,7 @@ extend Block {
         }
         let from_bytes = self.bytes();
         var to_bytes = to.bytes();
-        var index = 0usize;
-        while index < count {
-            to_bytes[index] = from_bytes[index];
-            index += 1usize;
-        }
+        copy_forwards[u8](&mut to_bytes[0..count], &from_bytes[0..count]);
     }
 }
 

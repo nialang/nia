@@ -2543,6 +2543,62 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_mem_copy_forwards_and_backwards() {
+    let root = temp_dir("emit_exe_std_mem_copy_forwards_and_backwards");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var left: [5]i32 = [1, 2, 3, 4, 5];
+    mem::copy_forwards[i32](&mut left[0..3], &left[1..4]);
+    if left[0] != 2 or left[1] != 3 or left[2] != 4 or left[3] != 4 or left[4] != 5 {
+        return process::ExitCode::init(1)!;
+    }
+
+    var right: [5]i32 = [1, 2, 3, 4, 5];
+    mem::copy_backwards[i32](&mut right[1..4], &right[0..3]);
+    if right[0] != 1 or right[1] != 1 or right[2] != 2 or right[3] != 3 or right[4] != 5 {
+        return process::ExitCode::init(2)!;
+    }
+
+    var exact_to: [3]u8 = [0, 0, 0];
+    let exact_from: [3]u8 = [7, 8, 9];
+    mem::copy_forwards[u8](&mut exact_to[..], &exact_from[..]);
+    if exact_to[0] != 7u8 or exact_to[1] != 8u8 or exact_to[2] != 9u8 {
+        return process::ExitCode::init(3)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_array_list_push_pop_and_deinit() {
     let root = temp_dir("emit_exe_std_array_list_push_pop_and_deinit");
     let main = root.join("main.nia");

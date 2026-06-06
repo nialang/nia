@@ -126,13 +126,13 @@ where T: Sized
 
     pub fn append_slice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
         let out = self.add_many_as_slice(allocator, items.len()).?;
-        copy_items[T](out, items);
+        mem::copy_forwards[T](out, items);
         !{}
     }
 
     pub fn append_slice_assume_capacity(&mut self, items: &[T]) void {
         let out = self.add_many_as_slice_assume_capacity(items.len());
-        copy_items[T](out, items);
+        mem::copy_forwards[T](out, items);
     }
 
     pub fn add_one(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut T {
@@ -199,7 +199,7 @@ where T: Sized
 
         let new_block = allocator.alloc(layout).?;
         var new_items = block_items[T](new_block, capacity);
-        copy_items[T](new_items, self.as_slice());
+        mem::copy_forwards[T](new_items, self.as_slice());
         switch allocator.free(old_block) {
             !ok => _ = ok,
             err! => {
@@ -242,14 +242,4 @@ where T: Sized
 {
     var ptr = block.ptr() as &mut T;
     &mut ptr[0..len]
-}
-
-fn copy_items[T](to: &mut [T], from: &[T]) void
-where T: Sized
-{
-    var index = 0usize;
-    while index < from.len() {
-        to[index] = from[index];
-        index += 1usize;
-    }
 }
