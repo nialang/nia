@@ -7,8 +7,16 @@ pub struct Args {
     ptr: &&u8,
 }
 
+pub struct Arg {
+    ptr: &u8,
+}
+
 pub struct Env {
     ptr: &&u8,
+}
+
+pub struct EnvVar {
+    ptr: &u8,
 }
 
 pub struct Init {
@@ -34,11 +42,11 @@ extend Init {
         Env::init(self.envp)
     }
 
-    pub fn argv(&self) &&u8 {
+    pub fn raw_argv(&self) &&u8 {
         self.argv
     }
 
-    pub fn envp(&self) &&u8 {
+    pub fn raw_envp(&self) &&u8 {
         self.envp
     }
 }
@@ -55,6 +63,28 @@ fn c_string_bytes(ptr: &u8) &[u8] {
     & ptr[0..c_string_len(ptr)]
 }
 
+extend Arg {
+    fn init(ptr: &u8) Arg {
+        { ptr: ptr }
+    }
+
+    pub fn raw_ptr(&self) &u8 {
+        self.ptr
+    }
+
+    pub fn raw_bytes(&self) &[u8] {
+        c_string_bytes(self.ptr)
+    }
+
+    pub fn raw_len(&self) usize {
+        c_string_len(self.ptr)
+    }
+
+    pub fn is_empty(&self) bool {
+        self.raw_len() == 0
+    }
+}
+
 extend Args {
     pub fn init(len: usize, ptr: &&u8) Args {
         { len: len, ptr: ptr }
@@ -68,16 +98,38 @@ extend Args {
         self.len == 0
     }
 
-    pub fn get(&self, index: usize) ?&[u8] {
+    pub fn get(&self, index: usize) ?Arg {
         if index >= self.len {
             null
         } else {
-            ?c_string_bytes(self.ptr[index])
+            ?Arg::init(self.ptr[index])
         }
     }
 
-    pub fn raw(&self) &&u8 {
+    pub fn raw_argv(&self) &&u8 {
         self.ptr
+    }
+}
+
+extend EnvVar {
+    fn init(ptr: &u8) EnvVar {
+        { ptr: ptr }
+    }
+
+    pub fn raw_ptr(&self) &u8 {
+        self.ptr
+    }
+
+    pub fn raw_bytes(&self) &[u8] {
+        c_string_bytes(self.ptr)
+    }
+
+    pub fn raw_len(&self) usize {
+        c_string_len(self.ptr)
+    }
+
+    pub fn is_empty(&self) bool {
+        self.raw_len() == 0
     }
 }
 
@@ -94,15 +146,15 @@ extend Env {
         len
     }
 
-    pub fn get(&self, index: usize) ?&[u8] {
+    pub fn get(&self, index: usize) ?EnvVar {
         if index >= self.len() {
             null
         } else {
-            ?c_string_bytes(self.ptr[index])
+            ?EnvVar::init(self.ptr[index])
         }
     }
 
-    pub fn raw(&self) &&u8 {
+    pub fn raw_envp(&self) &&u8 {
         self.ptr
     }
 }
