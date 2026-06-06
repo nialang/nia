@@ -86,6 +86,74 @@ where T: Sized
         }
     }
 
+    pub fn swap_remove(&mut self, index: usize) ?T {
+        let len = self.len();
+        if index >= len {
+            null
+        } else {
+            let last_index = len - 1usize;
+            let value = self.items[index];
+            if index != last_index {
+                self.items[index] = self.items[last_index];
+            }
+            var ptr = self.items.get_ptr();
+            self.items = &mut ptr[0..last_index];
+            ?value
+        }
+    }
+
+    pub fn ordered_remove(&mut self, index: usize) ?T {
+        let len = self.len();
+        if index >= len {
+            null
+        } else {
+            let value = self.items[index];
+            let new_len = len - 1usize;
+            var items = self.allocated_items();
+            if index < new_len {
+                mem::copy_forwards[T](&mut items[index..new_len], &items[(index + 1usize)..len]);
+            }
+            self.items = &mut items[0..new_len];
+            ?value
+        }
+    }
+
+    pub fn insert(&mut self, allocator: &mut mem::Allocator, index: usize, value: T) mem::Error!void {
+        if index > self.len() {
+            return mem::Error::Invalid!;
+        }
+        self.ensure_unused_capacity(allocator, 1usize).?;
+
+        let len = self.len();
+        let new_len = len + 1usize;
+        var items = self.allocated_items();
+        if index < len {
+            mem::copy_backwards[T](&mut items[(index + 1usize)..new_len], &items[index..len]);
+        }
+        items[index] = value;
+        self.items = &mut items[0..new_len];
+        !{}
+    }
+
+    pub fn insert_slice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!void {
+        if index > self.len() {
+            return mem::Error::Invalid!;
+        }
+        self.ensure_unused_capacity(allocator, values.len()).?;
+
+        let len = self.len();
+        let new_len = len + values.len();
+        var items = self.allocated_items();
+        if values.len() != 0usize {
+            if index < len {
+                mem::copy_backwards[T](&mut items[(index + values.len())..new_len], &items[index..len]);
+            }
+            mem::copy_forwards[T](&mut items[index..(index + values.len())], values);
+        }
+        self.items = &mut items[0..new_len];
+        !{}
+    }
+
     pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         self.ensure_unused_capacity(allocator, additional)
     }
