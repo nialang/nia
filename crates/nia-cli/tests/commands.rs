@@ -1872,6 +1872,68 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_mem_page_allocator_supports_overaligned_layouts() {
+    let root = temp_dir("emit_exe_std_mem_page_allocator_supports_overaligned_layouts");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    var layout: mem::Layout;
+    switch mem::Layout::init(64, 8192) {
+        !value => layout = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    var block: mem::Block;
+    switch allocator.alloc(layout) {
+        !value => block = value,
+        error! => return process::ExitCode::init(2)!,
+    }
+    if block.ptr() as usize % 8192usize != 0usize {
+        return process::ExitCode::init(3)!;
+    }
+    var bytes = block.bytes();
+    bytes[0] = 17u8;
+    bytes[63] = 23u8;
+    if bytes[0] != 17u8 or bytes[63] != 23u8 {
+        return process::ExitCode::init(4)!;
+    }
+    switch allocator.free(block) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(5)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_layout_rejects_invalid_alignment() {
     let root = temp_dir("emit_exe_std_mem_layout_rejects_invalid_alignment");
     let main = root.join("main.nia");
@@ -2150,54 +2212,72 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => larger = value,
         error! => return process::ExitCode::init(4)!,
     }
-    if allocator.resize(block, larger) {
+    if not allocator.resize(block, larger) {
         return process::ExitCode::init(5)!;
     }
     switch allocator.remap(block, larger) {
-        ?moved => {
-            _ = moved;
-            return process::ExitCode::init(6)!;
+        ?same => {
+            if same.ptr() as usize != block.ptr() as usize or same.size() != 32 {
+                return process::ExitCode::init(6)!;
+            }
+            block = same;
         },
-        null => {},
+        null => return process::ExitCode::init(7)!,
     }
     switch allocator.remap(block, layout) {
         ?same => {
             if same.ptr() as usize != block.ptr() as usize or same.size() != 16 {
-                return process::ExitCode::init(7)!;
+                return process::ExitCode::init(8)!;
             }
             block = same;
         },
-        null => return process::ExitCode::init(8)!,
+        null => return process::ExitCode::init(9)!,
+    }
+
+    var next_page: mem::Layout;
+    switch mem::Layout::init(8192, 8) {
+        !value => next_page = value,
+        error! => return process::ExitCode::init(10)!,
+    }
+    if allocator.resize(block, next_page) {
+        return process::ExitCode::init(11)!;
+    }
+    switch allocator.remap(block, next_page) {
+        ?moved => {
+            _ = moved;
+            return process::ExitCode::init(12)!;
+        },
+        null => {},
     }
     switch allocator.free(block) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(9)!,
+        error! => return process::ExitCode::init(13)!,
     }
 
     var empty_a: mem::Layout;
     switch mem::Layout::init(0, 8) {
         !value => empty_a = value,
-        error! => return process::ExitCode::init(10)!,
+        error! => return process::ExitCode::init(14)!,
     }
     switch allocator.alloc(empty_a) {
         !value => block = value,
-        error! => return process::ExitCode::init(11)!,
+        error! => return process::ExitCode::init(15)!,
     }
     var empty_b: mem::Layout;
     switch mem::Layout::init(0, 16) {
         !value => empty_b = value,
-        error! => return process::ExitCode::init(12)!,
+        error! => return process::ExitCode::init(16)!,
     }
     if allocator.resize(block, empty_b) {
-        return process::ExitCode::init(13)!;
+        return process::ExitCode::init(17)!;
     }
     switch allocator.remap(block, empty_b) {
         ?moved => {
             if moved.size() != 0 or moved.align() != 16 {
-                return process::ExitCode::init(14)!;
+                return process::ExitCode::init(18)!;
             }
         },
-        null => return process::ExitCode::init(15)!,
+        null => return process::ExitCode::init(19)!,
     }
     !{}
 }
