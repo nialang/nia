@@ -1830,19 +1830,16 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(5)!,
     }
     switch allocator.alloc_bytes(4096, layout.align()) {
-        !maybe_block => switch maybe_block {
-            ?block => {
-                var ptr = block.ptr();
-                ptr.* = 42u8;
-                if ptr.* != 42u8 {
-                    return process::ExitCode::init(2)!;
-                }
-                switch allocator.free(block) {
-                    !ok => _ = ok,
-                    error! => return process::ExitCode::init(3)!,
-                }
-            },
-            null => return process::ExitCode::init(4)!,
+        !block => {
+            var ptr = block.ptr();
+            ptr.* = 42u8;
+            if ptr.* != 42u8 {
+                return process::ExitCode::init(2)!;
+            }
+            switch allocator.free(block) {
+                !ok => _ = ok,
+                error! => return process::ExitCode::init(3)!,
+            }
         },
         error! => return process::ExitCode::init(1)!,
     }
@@ -1984,24 +1981,21 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var allocator = mem::PageAllocator::init();
     switch allocator.alloc_slice[i32](4) {
-        !maybe_items => switch maybe_items {
-            ?items => {
-                items[0] = 10;
-                items[1] = 20;
-                items[2] = 30;
-                items[3] = 40;
-                if items.len() != 4 {
-                    return process::ExitCode::init(2)!;
-                }
-                if items[0] + items[1] + items[2] + items[3] != 100 {
-                    return process::ExitCode::init(3)!;
-                }
-                switch allocator.free_slice[i32](items) {
-                    !ok => _ = ok,
-                    error! => return process::ExitCode::init(4)!,
-                }
-            },
-            null => return process::ExitCode::init(5)!,
+        !items => {
+            items[0] = 10;
+            items[1] = 20;
+            items[2] = 30;
+            items[3] = 40;
+            if items.len() != 4 {
+                return process::ExitCode::init(2)!;
+            }
+            if items[0] + items[1] + items[2] + items[3] != 100 {
+                return process::ExitCode::init(3)!;
+            }
+            switch allocator.free_slice[i32](items) {
+                !ok => _ = ok,
+                error! => return process::ExitCode::init(4)!,
+            }
         },
         error! => return process::ExitCode::init(1)!,
     }
@@ -2031,8 +2025,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_std_mem_allocator_returns_null_for_empty_typed_slice() {
-    let root = temp_dir("emit_exe_std_mem_allocator_returns_null_for_empty_typed_slice");
+fn emit_exe_std_mem_allocator_preserves_empty_slice_len() {
+    let root = temp_dir("emit_exe_std_mem_allocator_preserves_empty_slice_len");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
@@ -2045,12 +2039,65 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var allocator = mem::PageAllocator::init();
     switch allocator.alloc_slice[i32](0) {
-        !maybe_items => switch maybe_items {
-            ?items => {
-                _ = items;
+        !items => {
+            if items.len() != 0 {
                 return process::ExitCode::init(2)!;
-            },
-            null => {},
+            }
+            switch allocator.free_slice[i32](items) {
+                !ok => _ = ok,
+                error! => return process::ExitCode::init(3)!,
+            }
+        },
+        error! => return process::ExitCode::init(1)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_mem_allocator_preserves_zero_sized_slice_len() {
+    let root = temp_dir("emit_exe_std_mem_allocator_preserves_zero_sized_slice_len");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    switch allocator.alloc_slice[void](4) {
+        !items => {
+            if items.len() != 4 {
+                return process::ExitCode::init(2)!;
+            }
+            switch allocator.free_slice[void](items) {
+                !ok => _ = ok,
+                error! => return process::ExitCode::init(3)!,
+            }
         },
         error! => return process::ExitCode::init(1)!,
     }

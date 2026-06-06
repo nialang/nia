@@ -9,7 +9,7 @@ pub enum Error: i32 {
 }
 
 pub struct Layout {
-    len: usize,
+    size: usize,
     align: usize,
 }
 
@@ -21,24 +21,24 @@ pub struct Block {
 pub struct PageAllocator {}
 
 pub trait Allocator {
-    fn alloc(&mut self, layout: Layout) Error!?Block;
+    fn alloc(&mut self, layout: Layout) Error!Block;
 
     fn free(&mut self, block: Block) Error!void;
 
-    fn alloc_bytes(&mut self, len: usize, align: usize) Error!?Block {
+    fn alloc_bytes(&mut self, len: usize, align: usize) Error!Block {
         var layout = Layout::init(len, align).?;
         self.alloc(layout)
     }
 
-    fn alloc_slice[T](&mut self, len: usize) Error!?&mut [T]
+    fn alloc_slice[T](&mut self, len: usize) Error!&mut [T]
     where T: Sized
     {
         var layout = Layout::array[T](len).?;
+        if layout.is_empty() {
+            return !dangling_slice[T](len);
+        }
         switch self.alloc(layout) {
-            !maybe_block => switch maybe_block {
-                ?block => !?block.as_slice[T](),
-                null => !null,
-            },
+            !block => !block.as_slice[T](),
             err! => err!,
         }
     }
@@ -49,6 +49,17 @@ pub trait Allocator {
         var layout = Layout::array[T](slice.len()).?;
         self.free(Block::init(slice.get_ptr() as &mut u8, layout))
     }
+}
+
+fn dangling_slice[T](len: usize) &mut [T]
+where T: Sized
+{
+    var ptr = @align[T]() as &mut T;
+    &mut ptr[0..len]
+}
+
+fn dangling_block(layout: Layout) Block {
+    Block::init(layout.align() as &mut u8, layout)
 }
 
 fn is_power_of_two(value: usize) bool {
@@ -67,13 +78,13 @@ fn is_power_of_two(value: usize) bool {
 }
 
 extend Layout {
-    pub fn init(len: usize, align: usize) Error!Layout {
+    pub fn init(size: usize, align: usize) Error!Layout {
         if align == 0 {
             Error::InvalidAlignment!
         } else if not is_power_of_two(align) {
             Error::InvalidAlignment!
         } else {
-            !{ len: len, align: align }
+            !{ size: size, align: align }
         }
     }
 
@@ -88,18 +99,18 @@ extend Layout {
     {
         var elem_len = @size[T]();
         if elem_len != 0usize and count != 0usize {
-            var len = elem_len * count;
-            if len / elem_len != count {
+            var size = elem_len * count;
+            if size / elem_len != count {
                 return Error::OutOfMemory!;
             }
-            Layout::init(len, @align[T]())
+            Layout::init(size, @align[T]())
         } else {
             Layout::init(0, @align[T]())
         }
     }
 
-    pub fn len(&self) usize {
-        self.len
+    pub fn size(&self) usize {
+        self.size
     }
 
     pub fn align(&self) usize {
@@ -107,7 +118,7 @@ extend Layout {
     }
 
     pub fn is_empty(&self) bool {
-        self.len == 0
+        self.size == 0
     }
 }
 
@@ -124,8 +135,8 @@ extend Block {
         self.layout
     }
 
-    pub fn len(&self) usize {
-        self.layout.len()
+    pub fn size(&self) usize {
+        self.layout.size()
     }
 
     pub fn align(&self) usize {
@@ -133,14 +144,14 @@ extend Block {
     }
 
     pub fn bytes(&self) &mut [u8] {
-        &mut self.ptr[0..self.len()]
+        &mut self.ptr[0..self.size()]
     }
 
     pub fn as_slice[T](&self) &mut [T]
     where T: Sized
     {
         var ptr = self.ptr as &mut T;
-        &mut ptr[0..(self.len() / @size[T]())]
+        &mut ptr[0..(self.size() / @size[T]())]
     }
 }
 
@@ -151,13 +162,13 @@ extend PageAllocator {
 }
 
 extend PageAllocator : Allocator {
-    pub fn alloc(&mut self, layout: Layout) Error!?Block {
+    pub fn alloc(&mut self, layout: Layout) Error!Block {
         _ = self;
         if layout.is_empty() {
-            !null
+            !dangling_block(layout)
         } else {
-            switch os::map_pages(layout.len(), layout.align()) {
-                !ptr => !(?Block::init(ptr, layout)),
+            switch os::map_pages(layout.size(), layout.align()) {
+                !ptr => !Block::init(ptr, layout),
                 err! => map_os_error(err)!,
             }
         }
@@ -168,7 +179,7 @@ extend PageAllocator : Allocator {
         if block.layout().is_empty() {
             !{}
         } else {
-            switch os::unmap_pages(block.ptr(), block.len()) {
+            switch os::unmap_pages(block.ptr(), block.size()) {
                 !ok => {
                     _ = ok;
                     !{}
