@@ -25,7 +25,29 @@ pub trait Allocator {
 
     fn free(&mut self, block: Block) Error!void;
 
+    fn resize(&mut self, block: Block, new_layout: Layout) bool {
+        _ = self;
+        if block.align() != new_layout.align() {
+            return false;
+        }
+        block.size() == new_layout.size()
+    }
+
+    fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
+        if self.resize(block, new_layout) {
+            ?Block::init(block.ptr(), new_layout)
+        } else if block.is_empty() and new_layout.is_empty() {
+            ?dangling_block(new_layout)
+        } else {
+            null
+        }
+    }
+
     fn realloc(&mut self, block: Block, new_layout: Layout) Error!Block {
+        switch self.remap(block, new_layout) {
+            ?new_block => return !new_block,
+            null => {},
+        }
         var new_block = self.alloc(new_layout).?;
         copy_block_prefix(block, new_block);
         self.free(block).?;
@@ -164,6 +186,10 @@ extend Block {
 
     pub fn align(&self) usize {
         self.layout.align()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.layout.is_empty()
     }
 
     pub fn bytes(&self) &mut [u8] {
