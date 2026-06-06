@@ -2118,6 +2118,113 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_mem_allocator_resize_and_remap_have_precise_semantics() {
+    let root = temp_dir("emit_exe_std_mem_allocator_resize_and_remap_have_precise_semantics");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    var layout: mem::Layout;
+    switch mem::Layout::init(16, 8) {
+        !value => layout = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    var block: mem::Block;
+    switch allocator.alloc(layout) {
+        !value => block = value,
+        error! => return process::ExitCode::init(2)!,
+    }
+    if not allocator.resize(block, layout) {
+        return process::ExitCode::init(3)!;
+    }
+
+    var larger: mem::Layout;
+    switch mem::Layout::init(32, 8) {
+        !value => larger = value,
+        error! => return process::ExitCode::init(4)!,
+    }
+    if allocator.resize(block, larger) {
+        return process::ExitCode::init(5)!;
+    }
+    switch allocator.remap(block, larger) {
+        ?moved => {
+            _ = moved;
+            return process::ExitCode::init(6)!;
+        },
+        null => {},
+    }
+    switch allocator.remap(block, layout) {
+        ?same => {
+            if same.ptr() as usize != block.ptr() as usize or same.size() != 16 {
+                return process::ExitCode::init(7)!;
+            }
+            block = same;
+        },
+        null => return process::ExitCode::init(8)!,
+    }
+    switch allocator.free(block) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(9)!,
+    }
+
+    var empty_a: mem::Layout;
+    switch mem::Layout::init(0, 8) {
+        !value => empty_a = value,
+        error! => return process::ExitCode::init(10)!,
+    }
+    switch allocator.alloc(empty_a) {
+        !value => block = value,
+        error! => return process::ExitCode::init(11)!,
+    }
+    var empty_b: mem::Layout;
+    switch mem::Layout::init(0, 16) {
+        !value => empty_b = value,
+        error! => return process::ExitCode::init(12)!,
+    }
+    if allocator.resize(block, empty_b) {
+        return process::ExitCode::init(13)!;
+    }
+    switch allocator.remap(block, empty_b) {
+        ?moved => {
+            if moved.size() != 0 or moved.align() != 16 {
+                return process::ExitCode::init(14)!;
+            }
+        },
+        null => return process::ExitCode::init(15)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_allocator_realloc_from_empty_block() {
     let root = temp_dir("emit_exe_std_mem_allocator_realloc_from_empty_block");
     let main = root.join("main.nia");
