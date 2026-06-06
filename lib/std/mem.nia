@@ -101,11 +101,7 @@ where T: Sized
 pub fn copy_forwards[T](to: &mut [T], from: &[T]) void
 where T: Sized
 {
-    var index = 0usize;
-    while index < from.len() {
-        to[index] = from[index];
-        index += 1usize;
-    }
+    @memcpy(to, from);
 }
 
 pub fn copy_backwards[T](to: &mut [T], from: &[T]) void

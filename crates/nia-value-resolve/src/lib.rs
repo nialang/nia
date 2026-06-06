@@ -45,6 +45,9 @@ pub enum BuiltinResolution {
     SizeOf,
     AlignOf,
     Asm,
+    MemCopy,
+    MemMove,
+    MemSet,
     Reserved,
 }
 
@@ -617,6 +620,9 @@ impl<'a> ValueResolver<'a> {
             "size" => BuiltinResolution::SizeOf,
             "align" => BuiltinResolution::AlignOf,
             "asm" => BuiltinResolution::Asm,
+            "memcpy" => BuiltinResolution::MemCopy,
+            "memmove" => BuiltinResolution::MemMove,
+            "memset" => BuiltinResolution::MemSet,
             _ => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0201",

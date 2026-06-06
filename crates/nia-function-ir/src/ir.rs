@@ -60,6 +60,7 @@ pub enum FunctionOp {
         value: FunctionExpr,
         span: Span,
     },
+    MemoryIntrinsic(FunctionMemoryIntrinsic),
     Expr(FunctionExpr),
     Defer(FunctionDeferBody),
 }
@@ -79,6 +80,28 @@ pub struct FunctionDeferBody {
     pub scopes: Vec<FunctionScope>,
     pub blocks: Vec<FunctionBlock>,
     pub entry: FunctionBlockId,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionMemoryIntrinsic {
+    pub span: Span,
+    pub op: FunctionMemoryIntrinsicOp,
+    pub elem_ty: InternedTyId,
+    pub dest: FunctionExpr,
+    pub source: FunctionMemoryIntrinsicSource,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionMemoryIntrinsicSource {
+    Slice(FunctionExpr),
+    Byte(FunctionExpr),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionMemoryIntrinsicOp {
+    Copy,
+    Move,
+    Set,
 }
 
 #[derive(Debug, Clone, PartialEq)]

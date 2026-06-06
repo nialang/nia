@@ -86,6 +86,74 @@ fn main() i32 {
 }
 
 #[test]
+fn checks_memory_intrinsic_builtins() {
+    let checked = pipeline(
+        r#"
+fn main() void {
+    var dst: [4]u8 = [0, 0, 0, 0];
+    let src: [4]u8 = [1, 2, 3, 4];
+    @memcpy(&mut dst[..], &src[..]);
+    @memmove(&mut dst[1..], &dst[0..3]);
+    @memset(&mut dst[..], 0);
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let body = checked
+        .ir
+        .function_bodies
+        .values()
+        .next()
+        .expect("main body");
+    let intrinsic_count = body
+        .stmts
+        .iter()
+        .filter(|stmt| {
+            matches!(
+                stmt.kind,
+                nia_body_ir::TypedStmtKind::Expr(nia_body_ir::TypedExpr {
+                    kind: nia_body_ir::TypedExprKind::MemoryIntrinsic(_),
+                    ..
+                })
+            )
+        })
+        .count();
+    assert_eq!(intrinsic_count, 3);
+}
+
+#[test]
+fn rejects_invalid_memory_intrinsic_builtins() {
+    let checked = pipeline(
+        r#"
+fn readonly(xs: & [u8]) void {
+    @memcpy(xs, xs);
+}
+
+fn memset_non_byte() void {
+    var xs: [2]i32 = [1, 2];
+    @memset(&mut xs[..], 0);
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("destination must be mutable")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("destination element")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn rejects_bare_range_index_and_readonly_slice_assignment() {
     let checked = pipeline(
         r#"

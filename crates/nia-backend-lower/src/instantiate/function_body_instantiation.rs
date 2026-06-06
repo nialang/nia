@@ -47,6 +47,26 @@ impl<'a> ModuleLowerer<'a> {
                 value: self.instantiate_expr(value, substitutions),
                 span,
             },
+            FunctionOp::MemoryIntrinsic(memory) => {
+                FunctionOp::MemoryIntrinsic(nia_function_ir::FunctionMemoryIntrinsic {
+                    span: memory.span,
+                    op: memory.op,
+                    elem_ty: self.instantiate_ty_with_id(memory.elem_ty, substitutions),
+                    dest: self.instantiate_expr(memory.dest, substitutions),
+                    source: match memory.source {
+                        nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source) => {
+                            nia_function_ir::FunctionMemoryIntrinsicSource::Slice(
+                                self.instantiate_expr(source, substitutions),
+                            )
+                        }
+                        nia_function_ir::FunctionMemoryIntrinsicSource::Byte(value) => {
+                            nia_function_ir::FunctionMemoryIntrinsicSource::Byte(
+                                self.instantiate_expr(value, substitutions),
+                            )
+                        }
+                    },
+                })
+            }
             FunctionOp::Expr(expr) => FunctionOp::Expr(self.instantiate_expr(expr, substitutions)),
             FunctionOp::Defer(body) => {
                 FunctionOp::Defer(self.instantiate_defer_body(body, substitutions))

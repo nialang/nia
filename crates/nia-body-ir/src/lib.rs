@@ -211,6 +211,7 @@ pub enum TypedExprKind {
     BuiltinValue(BuiltinConst),
     Range(TypedRange),
     InlineAsm(TypedInlineAsm),
+    MemoryIntrinsic(TypedMemoryIntrinsic),
     CStringPointer {
         array: Box<TypedExpr>,
         is_readonly: bool,
@@ -343,6 +344,27 @@ pub struct TypedAsmOutput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AsmOption {
     Volatile,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedMemoryIntrinsic {
+    pub op: MemoryIntrinsicOp,
+    pub elem_ty: InternedTyId,
+    pub dest: Box<TypedExpr>,
+    pub source: TypedMemoryIntrinsicSource,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedMemoryIntrinsicSource {
+    Slice(Box<TypedExpr>),
+    Byte(Box<TypedExpr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryIntrinsicOp {
+    Copy,
+    Move,
+    Set,
 }
 
 #[derive(Debug, Clone, PartialEq)]

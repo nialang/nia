@@ -68,6 +68,16 @@ impl<'a> ModuleLowerer<'a> {
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
                 self.devirtualize_direct_trait_calls_in_expr(value)
             }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                let mut changed = self.devirtualize_direct_trait_calls_in_expr(&mut memory.dest);
+                changed |= match &mut memory.source {
+                    nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source)
+                    | nia_function_ir::FunctionMemoryIntrinsicSource::Byte(source) => {
+                        self.devirtualize_direct_trait_calls_in_expr(source)
+                    }
+                };
+                changed
+            }
             FunctionOp::Defer(body) => self.devirtualize_direct_trait_calls_in_defer_body(body),
         }
     }

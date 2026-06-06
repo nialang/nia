@@ -4,7 +4,8 @@ use nia_body_ir::{
     TypedBody, TypedCallee, TypedExpr, TypedExprKind, TypedForIterator, TypedStmtKind,
 };
 use nia_function_ir::{
-    FunctionCallee, FunctionExpr, FunctionExprKind, FunctionOp, FunctionTerminator,
+    FunctionCallee, FunctionExpr, FunctionExprKind, FunctionMemoryIntrinsicSource, FunctionOp,
+    FunctionTerminator,
 };
 use std::{
     fs,
@@ -37,6 +38,15 @@ fn function_op_contains_builtin_eq(op: &FunctionOp) -> bool {
             .is_some_and(function_expr_contains_builtin_eq),
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
             function_expr_contains_builtin_eq(value)
+        }
+        FunctionOp::MemoryIntrinsic(memory) => {
+            function_expr_contains_builtin_eq(&memory.dest)
+                || match &memory.source {
+                    FunctionMemoryIntrinsicSource::Slice(source)
+                    | FunctionMemoryIntrinsicSource::Byte(source) => {
+                        function_expr_contains_builtin_eq(source)
+                    }
+                }
         }
         FunctionOp::Defer(body) => body.blocks.iter().any(|block| {
             block.ops.iter().any(function_op_contains_builtin_eq)

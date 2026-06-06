@@ -5,8 +5,8 @@ use crate::ModuleLowerer;
 use nia_function_ir::{
     FunctionArrayElements, FunctionBlock, FunctionBlockId, FunctionBody, FunctionCallee,
     FunctionDeferBody, FunctionExpr, FunctionExprKind, FunctionFieldInit, FunctionForHeader,
-    FunctionInlineAsm, FunctionLocalKind, FunctionOp, FunctionPlace, FunctionPlaceBase,
-    FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
+    FunctionInlineAsm, FunctionLocalKind, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace,
+    FunctionPlaceBase, FunctionPlaceElem, FunctionRange, FunctionSliceRange, FunctionTerminator,
 };
 use nia_ids::GlobalDefId;
 use nia_ids::InternedTyId;
@@ -822,6 +822,16 @@ fn propagate_local_copies_in_block(
                 }
                 copies.clear();
             }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                changed |= rewrite_local_copies_in_expr(&mut memory.dest, copies);
+                changed |= match &mut memory.source {
+                    FunctionMemoryIntrinsicSource::Slice(source)
+                    | FunctionMemoryIntrinsicSource::Byte(source) => {
+                        rewrite_local_copies_in_expr(source, copies)
+                    }
+                };
+                copies.clear();
+            }
         }
     }
     changed |= rewrite_local_copies_in_terminator(&mut block.terminator, copies);
@@ -1124,6 +1134,16 @@ fn propagate_local_constants_in_block(
             FunctionOp::Expr(expr) => {
                 changed |= rewrite_local_constants_in_expr(expr, constants);
             }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                changed |= rewrite_local_constants_in_expr(&mut memory.dest, constants);
+                changed |= match &mut memory.source {
+                    FunctionMemoryIntrinsicSource::Slice(source)
+                    | FunctionMemoryIntrinsicSource::Byte(source) => {
+                        rewrite_local_constants_in_expr(source, constants)
+                    }
+                };
+                constants.clear();
+            }
             FunctionOp::Defer(_) => {
                 if let FunctionOp::Defer(body) = op {
                     changed |= propagate_local_constants_in_defer_body(body, unstable_locals);
@@ -1360,6 +1380,16 @@ fn simplify_constant_logical_exprs_in_op(op: &mut FunctionOp) -> bool {
             .is_some_and(simplify_constant_logical_expr),
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
             simplify_constant_logical_expr(value)
+        }
+        FunctionOp::MemoryIntrinsic(memory) => {
+            let mut changed = simplify_constant_logical_expr(&mut memory.dest);
+            changed |= match &mut memory.source {
+                FunctionMemoryIntrinsicSource::Slice(source)
+                | FunctionMemoryIntrinsicSource::Byte(source) => {
+                    simplify_constant_logical_expr(source)
+                }
+            };
+            changed
         }
         FunctionOp::Defer(body) => simplify_constant_logical_exprs_in_blocks(&mut body.blocks),
     }
@@ -1608,6 +1638,15 @@ fn collect_place_locals_in_op(op: &FunctionOp, locals: &mut HashSet<LocalId>) {
             collect_place_locals_in_expr(value, locals);
         }
         FunctionOp::Expr(expr) => collect_place_locals_in_expr(expr, locals),
+        FunctionOp::MemoryIntrinsic(memory) => {
+            collect_place_locals_in_expr(&memory.dest, locals);
+            match &memory.source {
+                FunctionMemoryIntrinsicSource::Slice(source)
+                | FunctionMemoryIntrinsicSource::Byte(source) => {
+                    collect_place_locals_in_expr(source, locals);
+                }
+            }
+        }
         FunctionOp::Defer(body) => collect_place_locals_in_blocks(&body.blocks, locals),
     }
 }
@@ -1811,6 +1850,15 @@ fn collect_read_locals_in_op(op: &FunctionOp, locals: &mut HashSet<LocalId>) {
         }
         FunctionOp::StoreLocal { value, .. } => collect_read_locals_in_expr(value, locals),
         FunctionOp::Expr(expr) => collect_read_locals_in_expr(expr, locals),
+        FunctionOp::MemoryIntrinsic(memory) => {
+            collect_read_locals_in_expr(&memory.dest, locals);
+            match &memory.source {
+                FunctionMemoryIntrinsicSource::Slice(source)
+                | FunctionMemoryIntrinsicSource::Byte(source) => {
+                    collect_read_locals_in_expr(source, locals);
+                }
+            }
+        }
         FunctionOp::Defer(body) => collect_read_locals_in_blocks(&body.blocks, locals),
     }
 }
@@ -2021,6 +2069,15 @@ fn collect_referenced_locals_in_op(op: &FunctionOp, refs: &mut HashSet<nia_ids::
             collect_referenced_locals_in_expr(value, refs);
         }
         FunctionOp::Expr(expr) => collect_referenced_locals_in_expr(expr, refs),
+        FunctionOp::MemoryIntrinsic(memory) => {
+            collect_referenced_locals_in_expr(&memory.dest, refs);
+            match &memory.source {
+                FunctionMemoryIntrinsicSource::Slice(source)
+                | FunctionMemoryIntrinsicSource::Byte(source) => {
+                    collect_referenced_locals_in_expr(source, refs);
+                }
+            }
+        }
         FunctionOp::Defer(body) => collect_referenced_locals_in_blocks(&body.blocks, refs),
     }
 }
@@ -2258,6 +2315,16 @@ fn simplify_same_type_casts_in_op(op: &mut FunctionOp) -> bool {
         }
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
             simplify_same_type_casts_in_expr(value)
+        }
+        FunctionOp::MemoryIntrinsic(memory) => {
+            let mut changed = simplify_same_type_casts_in_expr(&mut memory.dest);
+            changed |= match &mut memory.source {
+                FunctionMemoryIntrinsicSource::Slice(source)
+                | FunctionMemoryIntrinsicSource::Byte(source) => {
+                    simplify_same_type_casts_in_expr(source)
+                }
+            };
+            changed
         }
         FunctionOp::Defer(body) => simplify_same_type_casts_in_blocks(&mut body.blocks),
     }

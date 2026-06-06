@@ -9,8 +9,8 @@ use nia_backend_ir::{
 use nia_defs::{DefId, DefKind};
 use nia_function_ir::{
     FunctionArrayElements, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr,
-    FunctionExprKind, FunctionForHeader, FunctionOp, FunctionPlace, FunctionPlaceBase,
-    FunctionPlaceElem, FunctionTerminator,
+    FunctionExprKind, FunctionForHeader, FunctionMemoryIntrinsicSource, FunctionOp, FunctionPlace,
+    FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_node_id::NodeKey;
@@ -214,6 +214,16 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
                 self.collect_struct_instances_expr(value, seen, out);
+            }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                self.collect_struct_instance_ty(memory.elem_ty, seen, out);
+                self.collect_struct_instances_expr(&memory.dest, seen, out);
+                match &memory.source {
+                    FunctionMemoryIntrinsicSource::Slice(source)
+                    | FunctionMemoryIntrinsicSource::Byte(source) => {
+                        self.collect_struct_instances_expr(source, seen, out);
+                    }
+                }
             }
             FunctionOp::Defer(body) => {
                 self.collect_struct_instances_defer_body(body, seen, out);
@@ -638,6 +648,16 @@ impl<'a> ModuleLowerer<'a> {
             }
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
                 self.collect_union_instances_expr(value, seen, out);
+            }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                self.collect_union_instance_ty(memory.elem_ty, seen, out);
+                self.collect_union_instances_expr(&memory.dest, seen, out);
+                match &memory.source {
+                    FunctionMemoryIntrinsicSource::Slice(source)
+                    | FunctionMemoryIntrinsicSource::Byte(source) => {
+                        self.collect_union_instances_expr(source, seen, out);
+                    }
+                }
             }
             FunctionOp::Defer(body) => {
                 self.collect_union_instances_defer_body(body, seen, out);

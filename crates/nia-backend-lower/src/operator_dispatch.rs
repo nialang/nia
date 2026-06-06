@@ -82,6 +82,26 @@ impl<'a> ModuleLowerer<'a> {
             FunctionOp::Expr(expr) => {
                 FunctionOp::Expr(self.resolve_builtin_operator_calls_in_expr(expr))
             }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                FunctionOp::MemoryIntrinsic(nia_function_ir::FunctionMemoryIntrinsic {
+                    span: memory.span,
+                    op: memory.op,
+                    elem_ty: memory.elem_ty,
+                    dest: self.resolve_builtin_operator_calls_in_expr(memory.dest),
+                    source: match memory.source {
+                        nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source) => {
+                            nia_function_ir::FunctionMemoryIntrinsicSource::Slice(
+                                self.resolve_builtin_operator_calls_in_expr(source),
+                            )
+                        }
+                        nia_function_ir::FunctionMemoryIntrinsicSource::Byte(value) => {
+                            nia_function_ir::FunctionMemoryIntrinsicSource::Byte(
+                                self.resolve_builtin_operator_calls_in_expr(value),
+                            )
+                        }
+                    },
+                })
+            }
             FunctionOp::Defer(body) => {
                 FunctionOp::Defer(self.resolve_builtin_operator_calls_in_defer_body(body))
             }

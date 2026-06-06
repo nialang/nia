@@ -62,6 +62,15 @@ impl BackendValidator<'_> {
             FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
                 self.validate_expr(value);
             }
+            FunctionOp::MemoryIntrinsic(memory) => {
+                self.validate_expr(&memory.dest);
+                match &memory.source {
+                    nia_function_ir::FunctionMemoryIntrinsicSource::Slice(source)
+                    | nia_function_ir::FunctionMemoryIntrinsicSource::Byte(source) => {
+                        self.validate_expr(source);
+                    }
+                }
+            }
             FunctionOp::Defer(body) => self.validate_defer_body(body),
         }
     }
