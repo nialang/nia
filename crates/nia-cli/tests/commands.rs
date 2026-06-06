@@ -2558,55 +2558,116 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var allocator = mem::PageAllocator::init();
     let page = &mut allocator;
+    var exact: array_list::ArrayList[i32];
+    switch array_list::ArrayList[i32]::init_capacity(page, 3) {
+        !value => exact = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    if exact.len() != 0 or exact.capacity() != 3 {
+        return process::ExitCode::init(2)!;
+    }
+    switch exact.deinit(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+
     var list = array_list::ArrayList[i32]::init();
     if list.len() != 0 or not list.is_empty() {
-        return process::ExitCode::init(1)!;
+        return process::ExitCode::init(4)!;
     }
-    switch list.reserve(page, 5) {
+    switch list.reserve_exact(page, 2) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(2)!,
+        error! => return process::ExitCode::init(5)!,
+    }
+    if list.capacity() != 2 {
+        return process::ExitCode::init(6)!;
+    }
+    switch list.reserve(page, 3) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(7)!,
     }
     if list.capacity() < 5 {
-        return process::ExitCode::init(3)!;
+        return process::ExitCode::init(8)!;
     }
     var index = 0;
     while index < 6 {
         switch list.push(page, index * 10) {
             !ok => _ = ok,
-            error! => return process::ExitCode::init(4)!,
+            error! => return process::ExitCode::init(9)!,
         }
         index += 1;
     }
     if list.len() != 6 or list.capacity() < 6 {
-        return process::ExitCode::init(5)!;
+        return process::ExitCode::init(10)!;
     }
     let items = list.as_slice();
     if items[0] != 0 or items[1] != 10 or items[5] != 50 {
-        return process::ExitCode::init(6)!;
+        return process::ExitCode::init(11)!;
     }
+
+    let more: [3]i32 = [60, 70, 80];
+    switch list.append_slice(page, &more[..]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(12)!,
+    }
+    if list.len() != 9 or list.as_slice()[8] != 80 {
+        return process::ExitCode::init(13)!;
+    }
+
+    switch list.add_one(page) {
+        !slot => slot.* = 90,
+        error! => return process::ExitCode::init(14)!,
+    }
+    if list.len() != 10 or list.as_slice()[9] != 90 {
+        return process::ExitCode::init(15)!;
+    }
+
+    switch list.add_many_as_slice(page, 2) {
+        !slots => {
+            slots[0] = 100;
+            slots[1] = 110;
+        },
+        error! => return process::ExitCode::init(16)!,
+    }
+    if list.len() != 12 or list.as_slice()[11] != 110 {
+        return process::ExitCode::init(17)!;
+    }
+
+    let retained_capacity = list.capacity();
+    list.shrink_retaining_capacity(10);
+    if list.len() != 10 or list.capacity() != retained_capacity {
+        return process::ExitCode::init(18)!;
+    }
+
+    let tail: [2]i32 = [100, 110];
+    list.append_slice_assume_capacity(&tail[..]);
+    if list.len() != 12 or list.as_slice()[10] != 100 or list.as_slice()[11] != 110 {
+        return process::ExitCode::init(19)!;
+    }
+
     switch list.pop() {
         ?value => {
-            if value != 50 {
-                return process::ExitCode::init(7)!;
+            if value != 110 {
+                return process::ExitCode::init(20)!;
             }
         },
-        null => return process::ExitCode::init(8)!,
+        null => return process::ExitCode::init(21)!,
     }
-    if list.len() != 5 {
-        return process::ExitCode::init(9)!;
+    if list.len() != 11 {
+        return process::ExitCode::init(22)!;
     }
     var mutable_items = list.as_mut_slice();
     mutable_items[2] = 77;
     if list.as_slice()[2] != 77 {
-        return process::ExitCode::init(10)!;
+        return process::ExitCode::init(23)!;
     }
-    list.clear();
+    list.clear_retaining_capacity();
     if not list.is_empty() {
-        return process::ExitCode::init(11)!;
+        return process::ExitCode::init(24)!;
     }
-    switch list.deinit(page) {
+    switch list.clear_and_free(page) {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(12)!,
+        error! => return process::ExitCode::init(25)!,
     }
     !{}
 }
