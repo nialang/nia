@@ -59,8 +59,12 @@ pub trait Allocator {
         let layout = Layout::init(len, align).?;
         self.alloc(layout)
     }
+}
 
-    fn alloc_slice[T](&mut self, len: usize) Error!&mut [T]
+extend[A] A
+where A: Allocator
+{
+    pub fn alloc_slice[T](&mut self, len: usize) Error!&mut [T]
     where T: Sized
     {
         let layout = Layout::array[T](len).?;
@@ -73,7 +77,7 @@ pub trait Allocator {
         }
     }
 
-    fn free_slice[T](&mut self, slice: &mut [T]) Error!void
+    pub fn free_slice[T](&mut self, slice: &mut [T]) Error!void
     where T: Sized
     {
         let layout = Layout::array[T](slice.len()).?;

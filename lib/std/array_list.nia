@@ -1,0 +1,142 @@
+import std.mem;
+
+pub struct ArrayList[T]
+where T: Sized
+{
+    allocator: &mut mem::Allocator,
+    items: &mut [T],
+    len: usize,
+}
+
+fn dangling_slice[T](len: usize) &mut [T]
+where T: Sized
+{
+    var ptr = @align[T]() as &mut T;
+    &mut ptr[0..len]
+}
+
+extend[T] ArrayList[T]
+where T: Sized
+{
+    pub fn init(allocator: &mut mem::Allocator) ArrayList[T] {
+        { allocator: allocator, items: dangling_slice[T](0), len: 0 }
+    }
+
+    pub fn deinit(&mut self) mem::Error!void {
+        self.free_items(self.items).?;
+        self.items = dangling_slice[T](0);
+        self.len = 0;
+        !{}
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn capacity(&self) usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.len == 0
+    }
+
+    pub fn as_slice(&self) &[T] {
+        & self.items[0..self.len]
+    }
+
+    pub fn as_mut_slice(&mut self) &mut [T] {
+        &mut self.items[0..self.len]
+    }
+
+    pub fn clear(&mut self) void {
+        self.len = 0;
+    }
+
+    pub fn push(&mut self, value: T) mem::Error!void {
+        self.reserve(1usize).?;
+        self.items[self.len] = value;
+        self.len += 1usize;
+        !{}
+    }
+
+    pub fn pop(&mut self) ?T {
+        if self.len == 0 {
+            null
+        } else {
+            self.len -= 1usize;
+            ?self.items[self.len]
+        }
+    }
+
+    pub fn reserve(&mut self, additional: usize) mem::Error!void {
+        let needed = self.len + additional;
+        if needed < self.len {
+            return mem::Error::OutOfMemory!;
+        }
+        self.ensure_total_capacity(needed)
+    }
+
+    fn ensure_total_capacity(&mut self, needed: usize) mem::Error!void {
+        if needed <= self.capacity() {
+            return !{};
+        }
+        let new_capacity = self.grown_capacity(needed).?;
+        let new_items = self.alloc_items(new_capacity).?;
+        self.copy_items(new_items);
+        switch self.free_items(self.items) {
+            !ok => _ = ok,
+            err! => {
+                switch self.free_items(new_items) {
+                    !ok => _ = ok,
+                    error! => {},
+                }
+                return err!;
+            },
+        }
+        self.items = new_items;
+        !{}
+    }
+
+    fn grown_capacity(&self, needed: usize) mem::Error!usize {
+        var capacity = self.capacity();
+        if capacity == 0 {
+            capacity = 4usize;
+        }
+        while capacity < needed {
+            let next = capacity * 2usize;
+            if next < capacity {
+                return mem::Error::OutOfMemory!;
+            }
+            capacity = next;
+        }
+        !capacity
+    }
+
+    fn alloc_items(&mut self, capacity: usize) mem::Error!&mut [T] {
+        let layout = mem::Layout::array[T](capacity).?;
+        if layout.is_empty() {
+            !dangling_slice[T](capacity)
+        } else {
+            let block = self.allocator.alloc(layout).?;
+            !block.as_slice[T]()
+        }
+    }
+
+    fn free_items(&mut self, items: &mut [T]) mem::Error!void {
+        let layout = mem::Layout::array[T](items.len()).?;
+        if layout.is_empty() {
+            !{}
+        } else {
+            self.allocator.free(mem::Block::init(items.get_ptr() as &mut u8, layout))
+        }
+    }
+
+    fn copy_items(&self, to: &mut [T]) void {
+        var index = 0usize;
+        while index < self.len {
+            to[index] = self.items[index];
+            index += 1usize;
+        }
+    }
+}
