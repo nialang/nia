@@ -1487,61 +1487,58 @@ pub fn main(init: process::Init) process::ExitCode!void {
 fn emit_exe_can_create_open_read_and_write_std_fs_files() {
     let root = temp_dir("emit_exe_can_create_open_read_and_write_std_fs_files");
     let data_path = root.join("data.txt");
-    let path_literal = c_string_literal("data.txt");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
-        format!(
-            r#"
+        r#"
 import std.fs;
 import std.io;
 import std.process;
 
-pub fn main(init: process::Init) process::ExitCode!void {{
+pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var path = fs::Path::from_nul_terminated_bytes({path_literal});
+    var path = fs::Path::init("data.txt");
     var cwd = fs::Dir::cwd();
     var file: fs::File;
-    switch cwd.create_file(path, fs::CreateOptions::read_write()) {{
+    switch cwd.create_file(path, fs::CreateOptions::read_write()) {
         !value => file = value,
         error! => return process::ExitCode::init(1)!,
-    }}
-    switch file.write_all(b"nia fs") {{
+    }
+    switch file.write_all(b"nia fs") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(2)!,
-    }}
-    switch file.close() {{
+    }
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
-    }}
+    }
 
     var opened: fs::File;
-    switch cwd.open_file(path, fs::OpenOptions::read_only()) {{
+    switch cwd.open_file(path, fs::OpenOptions::read_only()) {
         !value => opened = value,
         error! => return process::ExitCode::init(4)!,
-    }}
+    }
     var bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
-    switch opened.read_exact(&mut bytes[..]) {{
+    switch opened.read_exact(&mut bytes[..]) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(5)!,
-    }}
-    switch opened.close() {{
+    }
+    switch opened.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(6)!,
-    }}
+    }
     var expected = b"nia fs";
     var index = 0usize;
-    while index < bytes.len() {{
-        if bytes[index] != expected[index] {{
+    while index < bytes.len() {
+        if bytes[index] != expected[index] {
             return process::ExitCode::init(7)!;
-        }}
+        }
         index += 1usize;
-    }}
-    !{{}}
-}}
-"#
-        ),
+    }
+    !{}
+}
+"#,
     )
     .expect("write test source");
 
@@ -1569,6 +1566,120 @@ pub fn main(init: process::Init) process::ExitCode!void {{
         std::fs::read(&data_path).expect("read data file"),
         b"nia fs"
     );
+}
+
+#[test]
+fn emit_exe_can_open_std_fs_paths_from_text() {
+    let root = temp_dir("emit_exe_can_open_std_fs_paths_from_text");
+    let data_path = root.join("nia-λ.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var path = fs::Path::init("nia-λ.txt");
+    var cwd = fs::Dir::cwd();
+    var file: fs::File;
+    switch cwd.create_file(path, fs::CreateOptions::init()) {
+        !value => file = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    switch file.write_all(b"ok") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status()
+        .expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(std::fs::read(&data_path).expect("read data file"), b"ok");
+}
+
+#[test]
+fn emit_exe_std_fs_rejects_nul_in_text_path() {
+    let root = temp_dir("emit_exe_std_fs_rejects_nul_in_text_path");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var path = fs::Path::init("bad\0path");
+    var cwd = fs::Dir::cwd();
+    switch cwd.open_file(path, fs::OpenOptions::read_only()) {
+        !file => {
+            _ = file;
+            return process::ExitCode::init(1)!;
+        },
+        err! => {
+            if err == fs::Error::Invalid {
+                !{}
+            } else {
+                return process::ExitCode::init(2)!;
+            }
+        },
+    }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status()
+        .expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
 }
 
 #[test]
@@ -2214,21 +2325,4 @@ fn temp_dir(name: &str) -> std::path::PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
-}
-
-fn c_string_literal(value: &str) -> String {
-    let mut result = String::from("c\"");
-    for byte in value.bytes() {
-        match byte {
-            b'\n' => result.push_str("\\n"),
-            b'\r' => result.push_str("\\r"),
-            b'\t' => result.push_str("\\t"),
-            b'\\' => result.push_str("\\\\"),
-            b'"' => result.push_str("\\\""),
-            0x20..=0x7e => result.push(byte as char),
-            _ => result.push_str(&format!("\\x{byte:02x}")),
-        }
-    }
-    result.push('"');
-    result
 }
