@@ -2041,7 +2041,14 @@ fn collect_referenced_locals_in_terminator(
             FunctionForHeader::Condition(cond) => collect_referenced_locals_in_expr(cond, refs),
             FunctionForHeader::Infinite => {}
         },
-        FunctionTerminator::Try { value, .. } => collect_referenced_locals_in_expr(value, refs),
+        FunctionTerminator::Try {
+            value,
+            success_local,
+            ..
+        } => {
+            collect_referenced_locals_in_expr(value, refs);
+            refs.insert(*success_local);
+        }
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
                 collect_referenced_locals_in_expr(value, refs);
@@ -2886,7 +2893,8 @@ fn remove_unreachable_defer_blocks(body: &mut FunctionDeferBody) -> bool {
 mod tests {
     use super::*;
     use nia_function_ir::{
-        FunctionBlock, FunctionScope, FunctionScopeId, FunctionTerminator, validate_function_body,
+        FunctionBlock, FunctionScope, FunctionScopeId, FunctionTerminator, FunctionTryKind,
+        validate_function_body,
     };
     use nia_ids::LocalId;
     use nia_opt::NiaOptimizationLevel;
@@ -3637,6 +3645,72 @@ mod tests {
         assert!(body.locals.is_empty());
         assert!(body.blocks[0].ops.is_empty());
         validate_function_body(&body).expect("DCE body should remain valid");
+    }
+
+    #[test]
+    fn preserves_try_success_locals_as_referenced_bindings() {
+        let span = Span::default();
+        let ty = test_ty();
+        let mut body = test_body(vec![
+            FunctionBlock {
+                id: FunctionBlockId(0),
+                scope: FunctionScopeId(0),
+                span,
+                ops: vec![FunctionOp::Binding(nia_function_ir::FunctionBinding {
+                    local_id: LocalId(0),
+                    name: "ok".to_string(),
+                    ty,
+                    value: None,
+                    is_let: false,
+                })],
+                terminator: FunctionTerminator::Try {
+                    value: FunctionExpr {
+                        span,
+                        ty,
+                        kind: FunctionExprKind::Local(LocalId(1)),
+                    },
+                    kind: FunctionTryKind::ErrorUnion,
+                    success_local: LocalId(0),
+                    success_target: FunctionBlockId(1),
+                    span,
+                },
+            },
+            FunctionBlock {
+                id: FunctionBlockId(1),
+                scope: FunctionScopeId(0),
+                span,
+                ops: Vec::new(),
+                terminator: FunctionTerminator::Return { value: None, span },
+            },
+        ]);
+        body.locals = vec![
+            nia_function_ir::FunctionLocal {
+                id: LocalId(0),
+                name: "ok".to_string(),
+                kind: FunctionLocalKind::Binding,
+                ty,
+                span,
+            },
+            nia_function_ir::FunctionLocal {
+                id: LocalId(1),
+                name: "result".to_string(),
+                kind: FunctionLocalKind::Param,
+                ty,
+                span,
+            },
+        ];
+
+        assert!(!remove_unused_local_bindings(&mut body));
+
+        assert!(body.locals.iter().any(|local| local.id == LocalId(0)));
+        assert!(matches!(
+            body.blocks[0].terminator,
+            FunctionTerminator::Try {
+                success_local: LocalId(0),
+                ..
+            }
+        ));
+        validate_function_body(&body).expect("try success local should remain valid");
     }
 
     #[test]
