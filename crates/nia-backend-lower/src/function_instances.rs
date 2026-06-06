@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::ModuleLowerer;
+use crate::function_refs::{
+    FunctionInstanceRef, FunctionRefs, collect_function_refs_from_optional_body,
+};
 use nia_backend_ir::{
     BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
 };
@@ -22,12 +25,37 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .map(|function| (function.def_id, function.clone()))
             .collect::<HashMap<_, _>>();
-        for instance in self
+        let mut pending = self
             .monomorphization
             .instances
             .iter()
             .filter(|instance| instance.def_id.module_id == self.input.module_id)
-        {
+            .map(|instance| FunctionInstanceRef {
+                def_id: instance.def_id,
+                arg_module_id: instance.arg_module_id,
+                args: instance.args.clone(),
+            })
+            .collect::<VecDeque<_>>();
+        let mut planned_symbols = self
+            .monomorphization
+            .instances
+            .iter()
+            .map(|instance| {
+                (
+                    (
+                        instance.def_id,
+                        instance.arg_module_id,
+                        self.canonicalize_instance_args(&instance.args),
+                    ),
+                    instance.symbol.clone(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        while let Some(instance) = pending.pop_front() {
+            if instance.def_id.module_id != self.input.module_id {
+                continue;
+            }
             let args = self.canonicalize_instance_args(&instance.args);
             if args.iter().any(|arg| {
                 self.cached_ty_contains_generic_param(*arg)
@@ -35,17 +63,66 @@ impl<'a> ModuleLowerer<'a> {
             }) {
                 continue;
             }
-            self.lower_planned_function_instance(
+            let symbol = if let Some(symbol) =
+                planned_symbols.get(&(instance.def_id, instance.arg_module_id, args.clone()))
+            {
+                symbol.clone()
+            } else {
+                let Some(name) =
+                    self.function_instance_name(&mut functions_by_def, instance.def_id)
+                else {
+                    continue;
+                };
+                let symbol = self.mangle_instance_symbol(instance.def_id, &name, &args);
+                planned_symbols.insert(
+                    (instance.def_id, instance.arg_module_id, args.clone()),
+                    symbol.clone(),
+                );
+                symbol
+            };
+            let Some(body) = self.lower_planned_function_instance(
                 &mut functions_by_def,
                 &mut seen,
                 &mut instances,
                 instance.def_id,
                 instance.arg_module_id,
                 args,
-                instance.symbol.clone(),
+                symbol,
+            ) else {
+                continue;
+            };
+            let mut refs = FunctionRefs::default();
+            collect_function_refs_from_optional_body(
+                instance.arg_module_id,
+                &Some(body),
+                &mut refs,
             );
+            for discovered in refs.instances {
+                if !seen.contains(&(
+                    discovered.def_id,
+                    discovered.arg_module_id,
+                    self.canonicalize_instance_args(&discovered.args),
+                )) {
+                    pending.push_back(discovered);
+                }
+            }
         }
         instances
+    }
+
+    fn function_instance_name(
+        &mut self,
+        functions_by_def: &mut HashMap<GlobalDefId, BackendFunction>,
+        def_id: GlobalDefId,
+    ) -> Option<String> {
+        if !functions_by_def.contains_key(&def_id)
+            && let Some(function) = self.backend_function_template_for_program_def(def_id)
+        {
+            functions_by_def.insert(def_id, function);
+        }
+        functions_by_def
+            .get(&def_id)
+            .map(|function| function.name.clone())
     }
 
     fn lower_planned_function_instance(
@@ -57,9 +134,9 @@ impl<'a> ModuleLowerer<'a> {
         arg_module_id: ModuleId,
         args: Vec<InternedTyId>,
         symbol: String,
-    ) {
+    ) -> Option<nia_function_ir::FunctionBody> {
         if !seen.insert((def_id, arg_module_id, args.clone())) {
-            return;
+            return None;
         }
         if !functions_by_def.contains_key(&def_id)
             && let Some(function) = self.backend_function_template_for_program_def(def_id)
@@ -67,7 +144,7 @@ impl<'a> ModuleLowerer<'a> {
             functions_by_def.insert(def_id, function);
         }
         let Some(base) = functions_by_def.get(&def_id).cloned() else {
-            return;
+            return None;
         };
         let imported_args = args
             .iter()
@@ -75,8 +152,16 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>();
         let substitutions = ModuleLowerer::generic_substitutions(&base.generics, &imported_args);
         let function_body = base.function_body.clone().map(|body| {
-            self.instantiate_function_body(def_id, arg_module_id, args.len(), body, &substitutions)
+            self.instantiate_function_body(
+                def_id,
+                arg_module_id,
+                true,
+                args.len(),
+                body,
+                &substitutions,
+            )
         });
+        let discovered_body = function_body.clone();
         instances.push(BackendFunctionInstance {
             def_id,
             name: base.name.clone(),
@@ -91,6 +176,7 @@ impl<'a> ModuleLowerer<'a> {
             function_body,
             span: base.span,
         });
+        discovered_body
     }
 
     fn backend_function_template_for_program_def(
@@ -134,6 +220,7 @@ impl<'a> ModuleLowerer<'a> {
             self.instantiate_function_body(
                 def_id,
                 self.input.module_id,
+                true,
                 0,
                 body,
                 &identity_substitutions,

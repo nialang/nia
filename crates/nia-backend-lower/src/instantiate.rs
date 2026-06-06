@@ -166,6 +166,7 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         function: nia_ids::GlobalDefId,
         instantiation_module_id: ModuleId,
+        is_instance: bool,
         type_arg_count: usize,
         body: FunctionBody,
         substitutions: &HashMap<String, InternedTyId>,
@@ -226,7 +227,7 @@ impl<'a> ModuleLowerer<'a> {
             ty: self.instantiate_ty_with_id(body.ty, substitutions),
         };
         let body = self.resolve_builtin_operator_calls_in_body(body);
-        let body = self.optimize_function_body(function, true, type_arg_count, body);
+        let body = self.optimize_function_body(function, is_instance, type_arg_count, body);
         self.instance_extension_trait_method_candidates = previous_candidates;
         self.instance_extension_interner = previous_interner;
         self.current_instantiated_function = previous_function;

@@ -194,6 +194,7 @@ impl<'a> ModuleLowerer<'a> {
                 self.instantiate_function_body(
                     global_def_id,
                     self.input.module_id,
+                    false,
                     0,
                     body,
                     &identity_substitutions,

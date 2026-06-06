@@ -72,6 +72,12 @@ impl FunctionLowerer {
             },
             TypedExprKind::Unary { op, expr: inner }
                 if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
+                    && matches!(inner.kind, TypedExprKind::Slice { .. }) =>
+            {
+                return self.lower_value_expr(inner, scope, current, ops, blocks);
+            }
+            TypedExprKind::Unary { op, expr: inner }
+                if matches!(op, UnaryOp::Ref | UnaryOp::RefReadOnly)
                     && !matches!(
                         inner.kind,
                         TypedExprKind::Function(_) | TypedExprKind::FunctionInstance { .. }

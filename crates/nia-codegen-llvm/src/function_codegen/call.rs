@@ -522,7 +522,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 {
                     return self.emit_expr(receiver);
                 }
-                Ok(self.emit_addr_of(receiver)?.into())
+                if is_addressable_receiver(receiver) {
+                    return Ok(self.emit_addr_of(receiver)?.into());
+                }
+                Ok(self.emit_arg_address(receiver.span, receiver)?.into())
             }
         }
     }
@@ -612,4 +615,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             AbiReturn::IndirectOut(_)
         )
     }
+}
+
+fn is_addressable_receiver(receiver: &FunctionExpr) -> bool {
+    matches!(
+        receiver.kind,
+        FunctionExprKind::AddrOf(_)
+            | FunctionExprKind::Global(_)
+            | FunctionExprKind::Local(_)
+            | FunctionExprKind::Unary {
+                op: nia_ast::UnaryOp::Deref,
+                ..
+            }
+            | FunctionExprKind::Field { .. }
+            | FunctionExprKind::Index { .. }
+            | FunctionExprKind::CStringPointer { .. }
+    )
 }

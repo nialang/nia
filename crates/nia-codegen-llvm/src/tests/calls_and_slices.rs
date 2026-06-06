@@ -202,6 +202,39 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_get_ptr_methods_on_slice_parameters() {
+    let root = temp_dir("emits_get_ptr_methods_on_slice_parameters");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn read_ptr(xs: &[u8]) &u8 {
+    xs.get_ptr_read()
+}
+
+fn write_ptr(xs: &mut [u8]) &mut u8 {
+    xs.get_ptr()
+}
+
+fn main() usize {
+    var ro: [2]u8 = [1, 2];
+    var rw: [2]u8 = [3, 4];
+    var read = read_ptr(&ro[..]);
+    var write = write_ptr(&mut rw[..]);
+    read.* as usize + write.* as usize
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+}
+
+#[test]
 fn emits_array_to_slice_coercions() {
     let root = temp_dir("emits_array_to_slice_coercions");
     let main = root.join("main.nia");

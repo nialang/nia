@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 mod function_instances;
+mod function_refs;
 mod instantiate;
 mod items;
 mod module_const_prop;
@@ -371,7 +372,7 @@ impl<'a> ModuleLowerer<'a> {
                     if binding.is_comptime {
                         continue;
                     }
-                    if let Some(global) = self.lower_global(&item.node_key, item.span, binding) {
+                    if let Some(global) = self.lower_global(&binding.node_key, item.span, binding) {
                         globals.push(global);
                     }
                 }
