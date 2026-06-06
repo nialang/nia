@@ -10,11 +10,11 @@ fn call_user_main(init: process::Init) process::ExitCode {
 }
 
 extern fn nia_start_stack(stack: &usize) void {
-    var argc = stack.*;
-    var argv = (stack as usize + @size[usize]()) as &&u8;
-    var envp = (stack as usize + @size[usize]() * (argc + 2)) as &&u8;
-    var init = process::Init::init(argc, argv, envp);
-    var exit = call_user_main(init);
+    let argc = stack.*;
+    let argv = (stack as usize + @size[usize]()) as &&u8;
+    let envp = (stack as usize + @size[usize]() * (argc + 2)) as &&u8;
+    let init = process::Init::init(argc, argv, envp);
+    let exit = call_user_main(init);
     os::exit(exit.code());
     loop {}
 }

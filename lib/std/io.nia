@@ -19,15 +19,15 @@ pub trait Writer {
     }
 
     fn write_byte(&mut self, byte: u8) Error!void {
-        var bytes: [1]u8 = [byte];
+        let bytes: [1]u8 = [byte];
         self.write_all(&bytes[..])
     }
 
     fn write_all(&mut self, bytes: &[u8]) Error!void {
         var written = 0usize;
         while written < bytes.len() {
-            var chunk = & bytes[written..];
-            var n = self.write(chunk).?;
+            let chunk = & bytes[written..];
+            let n = self.write(chunk).?;
             if n == 0 {
                 return self.short_write()!;
             }
@@ -47,8 +47,8 @@ pub trait Reader {
     fn read_exact(&mut self, bytes: &mut [u8]) Error!void {
         var read = 0usize;
         while read < bytes.len() {
-            var chunk = &mut bytes[read..];
-            var n = self.read(chunk).?;
+            let chunk = &mut bytes[read..];
+            let n = self.read(chunk).?;
             if n == 0 {
                 return self.end_of_stream()!;
             }
@@ -120,7 +120,7 @@ extend FixedBufferWriter : Writer {
     }
 
     pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
-        var remaining = self.buffer.len() - self.len;
+        let remaining = self.buffer.len() - self.len;
         var count = bytes.len();
         if count > remaining {
             count = remaining;
@@ -154,7 +154,7 @@ extend FixedBufferReader : Reader {
     }
 
     pub fn read(&mut self, bytes: &mut [u8]) BufferError!usize {
-        var remaining = self.buffer.len() - self.cursor;
+        let remaining = self.buffer.len() - self.cursor;
         var count = bytes.len();
         if count > remaining {
             count = remaining;
@@ -301,7 +301,7 @@ where W: Writer
             self.flush().?;
             self.writer.write(bytes)
         } else {
-            var available = self.buffer.len() - self.len;
+            let available = self.buffer.len() - self.len;
             if bytes.len() > available {
                 self.flush().?;
             }
@@ -370,8 +370,8 @@ where R: Reader
                     if count > remaining {
                         count = remaining;
                     }
-                    var chunk = &mut bytes[0..count];
-                    var n = self.reader.read(chunk).?;
+                    let chunk = &mut bytes[0..count];
+                    let n = self.reader.read(chunk).?;
                     switch self.limit.remaining {
                         ?current => self.limit = Limit::limited(current - n),
                         null => {},

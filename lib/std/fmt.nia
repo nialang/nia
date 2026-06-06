@@ -23,12 +23,12 @@ extend[E] Formatter[E] {
     }
 
     pub fn write_byte(&mut self, byte: u8) E!void {
-        var bytes: [1]u8 = [byte];
+        let bytes: [1]u8 = [byte];
         self.write_bytes(&bytes[..])
     }
 
     pub fn write_char(&mut self, ch: char) E!void {
-        var encoded = unicode::encode_utf8(ch);
+        let encoded = unicode::encode_utf8(ch);
         self.write_bytes(encoded.bytes())
     }
 
@@ -61,7 +61,7 @@ fn write_unsigned[E](formatter: &mut Formatter[E], value: usize) E!void {
         var count = 0usize;
         var n = value;
         while n != 0 {
-            var digit = n % 10usize;
+            let digit = n % 10usize;
             digits[count] = (digit as u8) + b'0';
             n = n / 10usize;
             count += 1;
@@ -77,7 +77,7 @@ fn write_unsigned[E](formatter: &mut Formatter[E], value: usize) E!void {
 fn write_signed_i32[E](formatter: &mut Formatter[E], value: i32) E!void {
     if value < 0 {
         formatter.write_byte(b'-').?;
-        var widened = value as i64;
+        let widened = value as i64;
         write_unsigned(formatter, (0i64 - widened) as usize)
     } else {
         write_unsigned(formatter, value as usize)
@@ -135,7 +135,7 @@ where W: io::Writer
     var index = 0usize;
     var arg_index = 0usize;
     while index < template.len() {
-        var ch = template[index];
+        let ch = template[index];
         if ch == '{' and index + 1usize < template.len() and template[index + 1usize] == '}' {
             args[arg_index].format(&mut formatter).?;
             arg_index += 1usize;

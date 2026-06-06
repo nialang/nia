@@ -1,4 +1,5 @@
 import std.os;
+import std.result;
 import std.unicode;
 
 pub enum Error: i32 {
@@ -93,13 +94,13 @@ extend Dir {
 
     pub fn open_file(&self, path: Path, options: OpenOptions) Error!File {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
-        var encoded = encode_path(path, &mut storage[..]).?;
+        let encoded = encode_path(path, &mut storage[..]).?;
         open_encoded_file(self.handle, encoded, options)
     }
 
     pub fn create_file(&self, path: Path, options: CreateOptions) Error!File {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
-        var encoded = encode_path(path, &mut storage[..]).?;
+        let encoded = encode_path(path, &mut storage[..]).?;
         create_encoded_file(self.handle, encoded, options)
     }
 }
@@ -122,24 +123,15 @@ extend File {
     }
 
     pub fn close(&self) Error!void {
-        switch self.handle.close() {
-            !ok => !ok,
-            err! => map_os_error(err)!,
-        }
+        self.handle.close().map_err[Error](&[os::Error]::as_fs_error)
     }
 
     pub fn write_some(&self, bytes: &[u8]) Error!usize {
-        switch self.handle.write_some(bytes) {
-            !n => !n,
-            err! => map_os_error(err)!,
-        }
+        self.handle.write_some(bytes).map_err[Error](&[os::Error]::as_fs_error)
     }
 
     pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
-        switch self.handle.read_some(bytes) {
-            !n => !n,
-            err! => map_os_error(err)!,
-        }
+        self.handle.read_some(bytes).map_err[Error](&[os::Error]::as_fs_error)
     }
 }
 
@@ -194,7 +186,7 @@ extend CreateOptions {
 }
 
 fn open_encoded_file(dir: os::FileDescriptor, path: EncodedPath, options: OpenOptions) Error!File {
-    switch os::open_at(
+    let handle = os::open_at(
         dir,
         path.ptr(),
         open_options_mode(options),
@@ -202,10 +194,8 @@ fn open_encoded_file(dir: os::FileDescriptor, path: EncodedPath, options: OpenOp
         false,
         false,
         0,
-    ) {
-        !handle => !File::init(handle),
-        err! => map_os_error(err)!,
-    }
+    ).map_err[Error](&[os::Error]::as_fs_error).?;
+    !File::init(handle)
 }
 
 fn create_encoded_file(
@@ -213,7 +203,7 @@ fn create_encoded_file(
     path: EncodedPath,
     options: CreateOptions,
 ) Error!File {
-    switch os::open_at(
+    let handle = os::open_at(
         dir,
         path.ptr(),
         create_options_mode(options),
@@ -221,10 +211,8 @@ fn create_encoded_file(
         options.truncate(),
         options.is_exclusive(),
         options.permissions(),
-    ) {
-        !handle => !File::init(handle),
-        err! => map_os_error(err)!,
-    }
+    ).map_err[Error](&[os::Error]::as_fs_error).?;
+    !File::init(handle)
 }
 
 fn open_options_mode(options: OpenOptions) os::OpenMode {
@@ -245,25 +233,22 @@ fn create_options_mode(options: CreateOptions) os::OpenMode {
 }
 
 fn encode_path(path: Path, storage: &mut [u8]) Error!EncodedPath {
-    switch encode_path_bytes(path.text(), storage) {
-        !raw => !raw,
-        err! => map_path_error(err)!,
-    }
+    encode_path_bytes(path.text(), storage).map_err[Error](&[PathError]::as_fs_error)
 }
 
 fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!EncodedPath {
     var out = 0usize;
     var index = 0usize;
     while index < text.len() {
-        var ch = text[index];
+        let ch = text[index];
         if ch as u32 == 0u32 {
             return PathError::Invalid!;
         }
-        var encoded = unicode::encode_utf8(ch);
+        let encoded = unicode::encode_utf8(ch);
         if out + encoded.len() >= storage.len() {
             return PathError::TooLong!;
         }
-        var bytes = encoded.bytes();
+        let bytes = encoded.bytes();
         var byte_index = 0usize;
         while byte_index < bytes.len() {
             storage[out] = bytes[byte_index];
@@ -279,31 +264,35 @@ fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!EncodedPath {
     !EncodedPath::init(storage.get_ptr_read())
 }
 
-fn map_path_error(error: PathError) Error {
-    switch error {
-        PathError::Invalid => Error::Invalid,
-        PathError::TooLong => Error::TooLong,
-        _ => Error::Invalid,
+extend PathError {
+    fn as_fs_error(self) Error {
+        switch self {
+            PathError::Invalid => Error::Invalid,
+            PathError::TooLong => Error::TooLong,
+            _ => Error::Invalid,
+        }
     }
 }
 
-fn map_os_error(error: os::Error) Error {
-    switch error {
-        os::Error::PermissionDenied => Error::PermissionDenied,
-        os::Error::NoEntry => Error::NotFound,
-        os::Error::Interrupted => Error::Interrupted,
-        os::Error::Io => Error::Io,
-        os::Error::BadFd => Error::BadFd,
-        os::Error::Again => Error::Again,
-        os::Error::NoMemory => Error::OutOfMemory,
-        os::Error::Access => Error::Access,
-        os::Error::Fault => Error::Fault,
-        os::Error::Busy => Error::Busy,
-        os::Error::Exists => Error::AlreadyExists,
-        os::Error::Invalid => Error::Invalid,
-        os::Error::NoSpace => Error::NoSpace,
-        os::Error::BrokenPipe => Error::BrokenPipe,
-        os::Error::OutOfRange => Error::OutOfRange,
-        _ => Error::System,
+extend os::Error {
+    fn as_fs_error(self) Error {
+        switch self {
+            os::Error::PermissionDenied => Error::PermissionDenied,
+            os::Error::NoEntry => Error::NotFound,
+            os::Error::Interrupted => Error::Interrupted,
+            os::Error::Io => Error::Io,
+            os::Error::BadFd => Error::BadFd,
+            os::Error::Again => Error::Again,
+            os::Error::NoMemory => Error::OutOfMemory,
+            os::Error::Access => Error::Access,
+            os::Error::Fault => Error::Fault,
+            os::Error::Busy => Error::Busy,
+            os::Error::Exists => Error::AlreadyExists,
+            os::Error::Invalid => Error::Invalid,
+            os::Error::NoSpace => Error::NoSpace,
+            os::Error::BrokenPipe => Error::BrokenPipe,
+            os::Error::OutOfRange => Error::OutOfRange,
+            _ => Error::System,
+        }
     }
 }

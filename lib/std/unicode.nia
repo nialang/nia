@@ -18,7 +18,7 @@ extend Utf8 {
 }
 
 pub fn encode_utf8(ch: char) Utf8 {
-    var code = ch as u32;
+    let code = ch as u32;
     if code <= 127u32 {
         Utf8::init([code as u8, 0, 0, 0], 1)
     } else if code <= 2047u32 {
