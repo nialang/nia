@@ -164,6 +164,7 @@ impl<'a> BodyChecker<'a> {
                 &expr.node_key,
                 ResolvedCall::FunctionInstance {
                     def_id: method_id,
+                    arg_module_id: self.defs.module_id,
                     args: instance_args,
                 },
             );

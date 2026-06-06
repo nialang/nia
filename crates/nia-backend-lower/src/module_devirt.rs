@@ -118,6 +118,7 @@ impl<'a> ModuleLowerer<'a> {
                 if let Some((receiver, def_id)) = self.direct_trait_call_target(callee) {
                     *callee = FunctionCallee::Method {
                         def_id,
+                        arg_module_id: self.input.module_id,
                         args: Vec::new(),
                         receiver_kind: nia_ast::ReceiverKind::Ref,
                         receiver,

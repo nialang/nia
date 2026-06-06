@@ -953,7 +953,16 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         def_id: GlobalDefId,
         args: &[InternedTyId],
     ) -> Option<&'a BackendFunctionInstance> {
-        if let Some(item) = self.program.function_instance(def_id, self.source.id, args) {
+        self.function_instance_item_with_arg_module(def_id, self.source.id, args)
+    }
+
+    pub(crate) fn function_instance_item_with_arg_module(
+        &self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: &[InternedTyId],
+    ) -> Option<&'a BackendFunctionInstance> {
+        if let Some(item) = self.program.function_instance(def_id, arg_module_id, args) {
             return Some(item);
         }
         let mut matches = self
@@ -962,7 +971,9 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .filter(|item| self.same_type_args(args, &item.args));
+            .filter(|item| {
+                item.arg_module_id == arg_module_id && self.same_type_args(args, &item.args)
+            });
         let first = matches.next().copied()?;
         if matches.next().is_some() {
             return None;

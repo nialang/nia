@@ -596,6 +596,7 @@ impl<'a> BodyChecker<'a> {
                         if let Some(reference) = self.function_reference(expr) {
                             TypedExprKind::FunctionInstance {
                                 def_id: reference.def_id,
+                                arg_module_id: reference.arg_module_id,
                                 args: reference.args.clone(),
                             }
                         } else {
@@ -1135,6 +1136,7 @@ impl<'a> BodyChecker<'a> {
         } else {
             Some(TypedExprKind::FunctionInstance {
                 def_id: reference.def_id,
+                arg_module_id: reference.arg_module_id,
                 args: reference.args.clone(),
             })
         }
@@ -1197,9 +1199,15 @@ impl<'a> BodyChecker<'a> {
     fn lower_resolved_callee(&mut self, callee: &Expr, resolved: ResolvedCall) -> TypedCallee {
         match resolved {
             ResolvedCall::Function(def_id) => TypedCallee::Function(def_id),
-            ResolvedCall::FunctionInstance { def_id, args } => {
-                TypedCallee::FunctionInstance { def_id, args }
-            }
+            ResolvedCall::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => TypedCallee::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            },
             ResolvedCall::Method {
                 def_id,
                 args,

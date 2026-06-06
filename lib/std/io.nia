@@ -18,6 +18,11 @@ pub trait Writer {
         !{}
     }
 
+    fn write_byte(&mut self, byte: u8) Error!void {
+        var bytes: [1]u8 = [byte];
+        self.write_all(&bytes[..])
+    }
+
     fn write_all(&mut self, bytes: &[u8]) Error!void {
         var written = 0usize;
         while written < bytes.len() {
@@ -74,6 +79,12 @@ pub struct Limit {
 pub struct LimitedReader[R] {
     reader: &mut R,
     limit: Limit,
+}
+
+pub struct BufferedWriter[W] {
+    writer: &mut W,
+    buffer: &mut [u8],
+    len: usize,
 }
 
 extend FixedBufferWriter {
@@ -173,6 +184,66 @@ extend DiscardingWriter : Writer {
     pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
         self.len += bytes.len();
         !bytes.len()
+    }
+}
+
+extend[W] BufferedWriter[W]
+where W: Writer
+{
+    pub fn init(writer: &mut W, buffer: &mut [u8]) BufferedWriter[W] {
+        { writer: writer, buffer: buffer, len: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn buffered(&self) &[u8] {
+        & self.buffer[0..self.len]
+    }
+}
+
+extend[W] BufferedWriter[W] : Writer
+where W: Writer
+{
+    type Error = [W as Writer]::Error;
+
+    pub fn short_write(&self) Error {
+        self.writer.short_write()
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+        if bytes.len() == 0 {
+            !0
+        } else if bytes.len() > self.buffer.len() {
+            self.flush().?;
+            self.writer.write(bytes)
+        } else {
+            var available = self.buffer.len() - self.len;
+            if bytes.len() > available {
+                self.flush().?;
+            }
+
+            var index = 0usize;
+            while index < bytes.len() {
+                self.buffer[self.len + index] = bytes[index];
+                index += 1usize;
+            }
+            self.len += bytes.len();
+            !bytes.len()
+        }
+    }
+
+    pub fn flush(&mut self) Error!void {
+        if self.len != 0 {
+            self.writer.write_all(& self.buffer[0..self.len]).?;
+            self.len = 0;
+        }
+        self.writer.flush()
     }
 }
 

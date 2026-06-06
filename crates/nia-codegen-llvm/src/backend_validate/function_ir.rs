@@ -115,10 +115,14 @@ impl BackendValidator<'_> {
                     "backend IR expression references missing function",
                 );
             }
-            FunctionExprKind::FunctionInstance { def_id, args } => {
+            FunctionExprKind::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => {
                 self.validate_function_instance_ref(
                     *def_id,
-                    def_id.module_id,
+                    *arg_module_id,
                     args,
                     expr.span,
                     "backend IR expression references missing function instance",
@@ -246,16 +250,20 @@ impl BackendValidator<'_> {
                 span,
                 "backend IR call references missing function",
             ),
-            FunctionCallee::FunctionInstance { def_id, args } => self
-                .validate_function_instance_ref(
-                    *def_id,
-                    def_id.module_id,
-                    args,
-                    span,
-                    "backend IR call references missing function instance",
-                ),
+            FunctionCallee::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => self.validate_function_instance_ref(
+                *def_id,
+                *arg_module_id,
+                args,
+                span,
+                "backend IR call references missing function instance",
+            ),
             FunctionCallee::Method {
                 def_id,
+                arg_module_id,
                 args,
                 receiver,
                 ..
@@ -270,7 +278,7 @@ impl BackendValidator<'_> {
                 } else {
                     self.validate_function_instance_ref(
                         *def_id,
-                        def_id.module_id,
+                        *arg_module_id,
                         args,
                         span,
                         "backend IR method call references missing function instance",
