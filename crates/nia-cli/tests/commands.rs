@@ -2025,6 +2025,172 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_mem_allocator_realloc_preserves_byte_prefix() {
+    let root = temp_dir("emit_exe_std_mem_allocator_realloc_preserves_byte_prefix");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    var block: mem::Block;
+    switch allocator.alloc_bytes(4, 1) {
+        !value => block = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    var bytes = block.bytes();
+    bytes[0] = 10u8;
+    bytes[1] = 20u8;
+    bytes[2] = 30u8;
+    bytes[3] = 40u8;
+
+    var grow_layout: mem::Layout;
+    switch mem::Layout::init(8, 1) {
+        !value => grow_layout = value,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch allocator.realloc(block, grow_layout) {
+        !value => block = value,
+        error! => return process::ExitCode::init(3)!,
+    }
+    if block.size() != 8 {
+        return process::ExitCode::init(4)!;
+    }
+    bytes = block.bytes();
+    if bytes[0] != 10u8 or bytes[1] != 20u8 or bytes[2] != 30u8 or bytes[3] != 40u8 {
+        return process::ExitCode::init(5)!;
+    }
+    bytes[4] = 50u8;
+    bytes[5] = 60u8;
+
+    var shrink_layout: mem::Layout;
+    switch mem::Layout::init(2, 1) {
+        !value => shrink_layout = value,
+        error! => return process::ExitCode::init(6)!,
+    }
+    switch allocator.realloc(block, shrink_layout) {
+        !value => block = value,
+        error! => return process::ExitCode::init(7)!,
+    }
+    if block.size() != 2 {
+        return process::ExitCode::init(8)!;
+    }
+    bytes = block.bytes();
+    if bytes[0] != 10u8 or bytes[1] != 20u8 {
+        return process::ExitCode::init(9)!;
+    }
+
+    switch allocator.free(block) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(10)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_mem_allocator_realloc_from_empty_block() {
+    let root = temp_dir("emit_exe_std_mem_allocator_realloc_from_empty_block");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    var empty_layout: mem::Layout;
+    switch mem::Layout::init(0, 8) {
+        !value => empty_layout = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    var block: mem::Block;
+    switch allocator.alloc(empty_layout) {
+        !value => block = value,
+        error! => return process::ExitCode::init(2)!,
+    }
+    if block.size() != 0 {
+        return process::ExitCode::init(3)!;
+    }
+
+    var full_layout: mem::Layout;
+    switch mem::Layout::init(16, 8) {
+        !value => full_layout = value,
+        error! => return process::ExitCode::init(4)!,
+    }
+    switch allocator.realloc(block, full_layout) {
+        !value => block = value,
+        error! => return process::ExitCode::init(5)!,
+    }
+    if block.size() != 16 or block.align() != 8 {
+        return process::ExitCode::init(6)!;
+    }
+    var bytes = block.bytes();
+    bytes[0] = 77u8;
+    bytes[15] = 99u8;
+    if bytes[0] != 77u8 or bytes[15] != 99u8 {
+        return process::ExitCode::init(7)!;
+    }
+
+    switch allocator.free(block) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(8)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_mem_allocator_preserves_empty_slice_len() {
     let root = temp_dir("emit_exe_std_mem_allocator_preserves_empty_slice_len");
     let main = root.join("main.nia");
