@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[test]
 fn help_and_version_use_nia_command_name() {
@@ -2602,7 +2605,8 @@ pub fn main(init: process::Init) process::ExitCode!void {
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let mut dir = std::env::temp_dir();
-    dir.push(format!("nia_cli_{name}_{}", std::process::id()));
+    let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    dir.push(format!("nia_cli_{name}_{}_{id}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
