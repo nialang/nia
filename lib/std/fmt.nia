@@ -1,4 +1,5 @@
 import std.io;
+import std.unicode;
 
 pub trait FormatWriter[E] {
     fn write_fmt_bytes(&mut self, bytes: &[u8]) E!void;
@@ -17,13 +18,27 @@ extend[E] Formatter[E] {
         { writer: writer }
     }
 
-    pub fn write_all(&mut self, bytes: &[u8]) E!void {
+    pub fn write_bytes(&mut self, bytes: &[u8]) E!void {
         self.writer.write_fmt_bytes(bytes)
     }
 
     pub fn write_byte(&mut self, byte: u8) E!void {
         var bytes: [1]u8 = [byte];
-        self.write_all(&bytes[..])
+        self.write_bytes(&bytes[..])
+    }
+
+    pub fn write_char(&mut self, ch: char) E!void {
+        var encoded = unicode::encode_utf8(ch);
+        self.write_bytes(encoded.bytes())
+    }
+
+    pub fn write_text(&mut self, text: &[char]) E!void {
+        var index = 0usize;
+        while index < text.len() {
+            self.write_char(text[index]).?;
+            index += 1usize;
+        }
+        !{}
     }
 }
 
@@ -37,7 +52,7 @@ where W: io::Writer
 
 fn write_unsigned[E](formatter: &mut Formatter[E], value: usize) E!void {
     if value == 0 {
-        formatter.write_all(b"0")
+        formatter.write_byte(b'0')
     } else {
         var digits: [20]u8 = [
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -61,7 +76,7 @@ fn write_unsigned[E](formatter: &mut Formatter[E], value: usize) E!void {
 
 fn write_signed_i32[E](formatter: &mut Formatter[E], value: i32) E!void {
     if value < 0 {
-        formatter.write_all(b"-").?;
+        formatter.write_byte(b'-').?;
         var widened = value as i64;
         write_unsigned(formatter, (0i64 - widened) as usize)
     } else {
@@ -84,22 +99,34 @@ extend[E] usize : Format[E] {
 extend[E] bool : Format[E] {
     fn format(&self, formatter: &mut Formatter[E]) E!void {
         if self.* {
-            formatter.write_all(b"true")
+            formatter.write_text("true")
         } else {
-            formatter.write_all(b"false")
+            formatter.write_text("false")
         }
+    }
+}
+
+extend[E] char : Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void {
+        formatter.write_char(self.*)
+    }
+}
+
+extend[E] &[char] : Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void {
+        formatter.write_text(self.*)
     }
 }
 
 extend[E] &[u8] : Format[E] {
     fn format(&self, formatter: &mut Formatter[E]) E!void {
-        formatter.write_all(self.*)
+        formatter.write_bytes(self.*)
     }
 }
 
 pub fn print_unchecked[W](
     writer: &mut W,
-    template: &[u8],
+    template: &[char],
     args: &[&Format[[W as io::Writer]::Error]],
 ) [W as io::Writer]::Error!void
 where W: io::Writer
@@ -108,19 +135,19 @@ where W: io::Writer
     var index = 0usize;
     var arg_index = 0usize;
     while index < template.len() {
-        var byte = template[index];
-        if byte == b'{' and index + 1usize < template.len() and template[index + 1usize] == b'}' {
+        var ch = template[index];
+        if ch == '{' and index + 1usize < template.len() and template[index + 1usize] == '}' {
             args[arg_index].format(&mut formatter).?;
             arg_index += 1usize;
             index += 2usize;
-        } else if byte == b'{' and index + 1usize < template.len() and template[index + 1usize] == b'{' {
-            formatter.write_byte(b'{').?;
+        } else if ch == '{' and index + 1usize < template.len() and template[index + 1usize] == '{' {
+            formatter.write_char('{').?;
             index += 2usize;
-        } else if byte == b'}' and index + 1usize < template.len() and template[index + 1usize] == b'}' {
-            formatter.write_byte(b'}').?;
+        } else if ch == '}' and index + 1usize < template.len() and template[index + 1usize] == '}' {
+            formatter.write_char('}').?;
             index += 2usize;
         } else {
-            formatter.write_byte(byte).?;
+            formatter.write_char(ch).?;
             index += 1usize;
         }
     }
@@ -132,7 +159,7 @@ where W: io::Writer
 {
     pub fn print(
         &mut self,
-        template: &[u8],
+        template: &[char],
         args: &[&Format[[W as io::Writer]::Error]],
     ) [W as io::Writer]::Error!void {
         print_unchecked(self, template, args)

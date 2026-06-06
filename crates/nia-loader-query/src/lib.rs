@@ -635,10 +635,12 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
         let std_module = program.graph.get(std_alias.target).expect("std module");
         assert_eq!(std_module.path.as_str(), default_std_module_path().as_str());
         for relative in [
+            "lib/std/fmt.nia",
             "lib/std/io.nia",
             "lib/std/mem.nia",
             "lib/std/os.nia",
             "lib/std/process.nia",
+            "lib/std/unicode.nia",
         ] {
             assert!(
                 program

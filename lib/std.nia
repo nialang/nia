@@ -8,5 +8,6 @@ import std.fmt;
 import std.mem;
 import std.os;
 import std.process;
+import std.unicode;
 
-pub using {fmt, io, mem, os, process};
+pub using {fmt, io, mem, os, process, unicode};
