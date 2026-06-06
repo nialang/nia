@@ -375,11 +375,13 @@ pub(super) fn provide_visible_extensions(
 ) -> VisibleExtensionsForModule {
     let imports = db.query(ImportAliasMapQuery);
     let defs = defs_by_module_id(db);
+    let public = db.query(PublicSurfaceQuery);
     let normalizations = db.query(ProgramTypeNormalizationsQuery);
     let extensions = db.query(ExtensionMethodsQuery);
     visible_extensions_for_module(
         module_id,
         &imports,
+        &public.surfaces,
         &defs,
         &normalizations,
         &extensions.methods,
@@ -686,6 +688,7 @@ pub(super) fn provide_body_check(
     let layouts = db.query(LayoutsQuery(module_id));
     let program_layouts = db.query(ProgramLayoutsQuery);
     let extensions = db.query(VisibleExtensionsQuery(module_id));
+    let extension_methods = db.query(ExtensionMethodsQuery);
     let program_signatures = db.query(ProgramSignaturesQuery);
     let module_ids = db.query(ParseOkModuleIdsQuery);
     let program_item_signatures = module_ids
@@ -712,6 +715,7 @@ pub(super) fn provide_body_check(
             comptime_module: &comptime_module.module,
             layouts: &layouts,
             extensions: &extensions.methods,
+            program_extension_methods: &extension_methods.methods,
             extension_interner: Some(&extensions.interner),
             program: nia_body_check::BodyProgramContext {
                 defs: Some(&program_defs),
@@ -834,6 +838,7 @@ pub(super) fn provide_backend_lowering(
         .iter()
         .map(|checked_module| db.query(VisibleExtensionsQuery(checked_module.id)))
         .collect::<Vec<_>>();
+    let extension_methods = db.query(ExtensionMethodsQuery);
     let program_extensions = checked_modules
         .iter()
         .zip(visible_extensions.iter())
@@ -877,6 +882,7 @@ pub(super) fn provide_backend_lowering(
                     layouts: &checked_module.layouts,
                     function_bodies,
                     extension_interner: Some(&visible_extensions.interner),
+                    program_extension_methods: &extension_methods.methods,
                     program_extensions: &program_extensions,
                     program_type_interners: &program_type_interners,
                     program_functions: &program_signatures.functions,

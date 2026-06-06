@@ -327,11 +327,10 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             ExprKind::BracketSuffix { callee, args } => {
                 self.visit_expr(callee);
                 for arg in args {
-                    if let Some(expr) = &arg.expr {
-                        self.visit_expr(expr);
-                    }
                     if let Some(ty) = &arg.ty {
-                        self.visit_type(ty);
+                        self.lower_type_in_context(ty, TypeContext::Value);
+                    } else if let Some(expr) = &arg.expr {
+                        self.visit_expr(expr);
                     }
                 }
             }

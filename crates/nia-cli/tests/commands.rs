@@ -1128,6 +1128,49 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_format_to_stdout() {
+    let root = temp_dir("emit_exe_can_format_to_stdout");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std;
+
+pub fn main(init: std::process::Init) std::process::ExitCode!void {
+    _ = init;
+    var stdout = std::os::File::stdout();
+    switch std::fmt::print_unchecked(&mut stdout, b"hello, {}\n", [10]) {
+        !ok => _ = ok,
+        error! => return std::process::ExitCode::init(1)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run = Command::new(&exe).output().expect("run emitted executable");
+    assert_eq!(run.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "hello, 10\n");
+}
+
+#[test]
 fn emit_exe_can_use_std_io_fixed_buffers() {
     let root = temp_dir("emit_exe_can_use_std_io_fixed_buffers");
     let main = root.join("main.nia");

@@ -92,23 +92,23 @@ impl<'a> BodyChecker<'a> {
             return Vec::new();
         };
         let mut candidates = Vec::new();
-        let Some(current_def_id) = self.current_def_id else {
-            return candidates;
-        };
-        let Some(signature) = self
-            .resolved_function_signature(current_def_id)
-            .map(|resolved| resolved.signature)
-        else {
-            return candidates;
-        };
-        if let Some(trait_id) = self.current_trait_method_parent(current_def_id)
-            && let Some(trait_signature) = self.resolved_trait_signature(trait_id)
-        {
-            let trait_args = trait_signature
-                .generics
-                .iter()
-                .map(|generic| self.interner.intern(TyKind::GenericParam(generic.clone())))
-                .collect::<Vec<_>>();
+        let self_ty = self.import_type_for_method_resolution(self_ty);
+        for goal in self.current_trait_goals() {
+            let goal_self_ty = self.import_type_for_method_resolution(goal.self_ty);
+            if !self.types_match(goal_self_ty, self_ty) {
+                continue;
+            }
+            let TraitId::Source(trait_id) = goal.trait_id else {
+                continue;
+            };
+            let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
+                continue;
+            };
+            let trait_args = goal
+                .trait_args
+                .into_iter()
+                .map(|arg| self.import_type_for_method_resolution(arg))
+                .collect();
             self.push_trait_method_candidates(
                 &mut candidates,
                 trait_id,
@@ -118,36 +118,19 @@ impl<'a> BodyChecker<'a> {
                 &trait_signature,
             );
         }
-        for predicate in &signature.where_predicates {
-            if !self.types_match(predicate.ty, self_ty) {
-                continue;
-            }
-            for bound in &predicate.bounds {
-                let Some(TyKind::Nominal {
-                    def_id: trait_id,
-                    args: trait_args,
-                }) = self
-                    .interner
-                    .get(self.normalization.normalize(bound.trait_ty))
-                    .cloned()
-                else {
-                    continue;
-                };
-                let Some(trait_signature) = self.resolved_trait_signature(trait_id) else {
-                    continue;
-                };
-                self.push_trait_method_candidates(
-                    &mut candidates,
-                    trait_id,
-                    trait_args,
-                    self_ty,
-                    name,
-                    &trait_signature,
-                );
-            }
-        }
         self.push_visible_impl_trait_method_candidates(&mut candidates, self_ty, name);
         candidates
+    }
+
+    fn import_type_for_method_resolution(&mut self, ty: InternedTyId) -> InternedTyId {
+        if self.interner.get(ty).is_some() {
+            return ty;
+        }
+        if self.normalization.interner.get(ty).is_some() {
+            let source = self.normalization.interner.clone();
+            return self.import_type_from(&source, ty);
+        }
+        ty
     }
 
     fn push_visible_impl_trait_method_candidates(
@@ -371,20 +354,6 @@ impl<'a> BodyChecker<'a> {
                 &supertrait_signature,
             );
         }
-    }
-
-    fn current_trait_method_parent(&self, current_def_id: GlobalDefId) -> Option<GlobalDefId> {
-        if current_def_id.module_id != self.defs.module_id {
-            return None;
-        }
-        let def = self.defs.defs.get(current_def_id.def_id)?;
-        if def.kind != nia_defs::DefKind::TraitMethod {
-            return None;
-        }
-        Some(GlobalDefId {
-            module_id: current_def_id.module_id,
-            def_id: def.parent?,
-        })
     }
 
     fn trait_receiver_self_ty(&mut self, receiver_ty: InternedTyId) -> Option<InternedTyId> {
@@ -766,13 +735,22 @@ impl<'a> BodyChecker<'a> {
         method_id: GlobalDefId,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> Vec<InternedTyId> {
-        let Some(target_ty) = self.extension_target_ty_for_method(method_id) else {
+        let Some(impl_generics) = self.extension_impl_generics_for_method(method_id) else {
             return Vec::new();
         };
-        self.generic_params_in_ty(target_ty)
+        impl_generics
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect()
+    }
+
+    fn extension_impl_generics_for_method(&self, method_id: GlobalDefId) -> Option<&[String]> {
+        self.extensions
+            .targets()
+            .iter()
+            .flat_map(|target| target.methods.iter())
+            .find(|method| method.def_id == method_id)
+            .map(|method| method.impl_generics.as_slice())
     }
 
     fn extension_target_ty_for_method(&self, method_id: GlobalDefId) -> Option<InternedTyId> {
@@ -806,7 +784,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(in crate::calls::methods) fn match_type_pattern(
+    pub(crate) fn match_type_pattern(
         &self,
         pattern: InternedTyId,
         actual: InternedTyId,

@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use nia_ast::{Expr, ItemKind, Module};
 use nia_backend_ir::{BackendLayouts, BackendModule, BackendProgram, BackendStructInstanceKey};
 use nia_body_ir::BodyIr;
-use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
+use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::FunctionBody;
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, ModuleId, TraitId};
@@ -87,6 +87,7 @@ pub struct BackendLowerModuleInput<'a> {
     pub layouts: &'a Layouts,
     pub function_bodies: &'a std::collections::HashMap<GlobalDefId, FunctionBody>,
     pub extension_interner: Option<&'a nia_ty::TyInterner>,
+    pub program_extension_methods: &'a ExtensionMethods,
     pub program_extensions: &'a std::collections::HashMap<
         ModuleId,
         (&'a VisibleExtensionMethods, &'a nia_ty::TyInterner),
@@ -173,15 +174,18 @@ pub(crate) struct ModuleLowerer<'a> {
     pub(crate) diagnostics: Vec<Diagnostic>,
     optimization_report: BackendOptimizationReport,
     missing_array_len_diagnostics: HashSet<GlobalConstExprId>,
-    extension_targets_by_method: HashMap<GlobalDefId, InternedTyId>,
+    extension_generics_by_method: HashMap<GlobalDefId, Vec<String>>,
     trait_impls_by_method: HashMap<GlobalDefId, usize>,
     extension_trait_method_candidates:
+        HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
+    program_extension_trait_method_candidates:
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     instance_extension_trait_method_candidates: Option<(
         ModuleId,
         HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>>,
     )>,
     instance_extension_interner: Option<&'a nia_ty::TyInterner>,
+    known_type_interners: HashMap<ModuleId, &'a nia_ty::TyInterner>,
     current_instantiated_function: Option<GlobalDefId>,
     struct_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
     union_layout_instances_by_def: HashMap<DefId, Vec<StructLayoutKey>>,
@@ -191,7 +195,6 @@ pub(crate) struct ModuleLowerer<'a> {
     type_substitutions: Vec<HashMap<String, InternedTyId>>,
     type_substitution_ids: HashMap<TypeSubstitutionKey, TypeSubstitutionId>,
     effective_generics: HashMap<GlobalDefId, Vec<String>>,
-    extension_ty_generics: HashMap<InternedTyId, Vec<String>>,
     generic_param_presence: HashMap<InternedTyId, bool>,
     def_names: HashMap<GlobalDefId, String>,
     method_names_by_def: HashMap<GlobalDefId, String>,
@@ -217,6 +220,7 @@ pub(crate) struct ExtensionTraitMethodCandidate {
     target_ty: InternedTyId,
     method_def_id: GlobalDefId,
     trait_args: Vec<InternedTyId>,
+    impl_generics: Vec<String>,
     source_interner: nia_ty::TyInterner,
 }
 
@@ -249,14 +253,17 @@ impl<'a> ModuleLowerer<'a> {
             diagnostics: Vec::new(),
             optimization_report: BackendOptimizationReport::default(),
             missing_array_len_diagnostics: HashSet::new(),
-            extension_targets_by_method: index_extension_targets_by_method(input.extensions),
+            extension_generics_by_method: index_extension_generics_by_method(input.extensions),
             trait_impls_by_method: index_trait_impls_by_method(input),
             extension_trait_method_candidates: index_extension_trait_method_candidates(
                 input.extensions,
                 input.extension_interner.unwrap_or(&input.body_ir.interner),
             ),
+            program_extension_trait_method_candidates:
+                index_program_extension_trait_method_candidates(input),
             instance_extension_trait_method_candidates: None,
             instance_extension_interner: None,
+            known_type_interners: index_known_type_interners(input, monomorphization),
             current_instantiated_function: None,
             struct_layout_instances_by_def: index_layout_instances_by_def(
                 input.layouts.struct_instances.keys(),
@@ -270,7 +277,6 @@ impl<'a> ModuleLowerer<'a> {
             type_substitutions: Vec::new(),
             type_substitution_ids: HashMap::new(),
             effective_generics: HashMap::new(),
-            extension_ty_generics: HashMap::new(),
             generic_param_presence: HashMap::new(),
             def_names: HashMap::new(),
             method_names_by_def: index_method_names_by_def(input),
@@ -318,12 +324,14 @@ impl<'a> ModuleLowerer<'a> {
                     }
                 }
                 ItemKind::Extend(extend) => {
-                    let extend_target_is_generic = self.extend_target_has_generics(extend);
                     for method in &extend.methods {
                         if let Some(function) =
                             self.lower_function(method.function.span, &method.function)
                         {
-                            if !extend_target_is_generic && function.generics.is_empty() {
+                            if self
+                                .effective_generics(function.def_id, &function.generics)
+                                .is_empty()
+                            {
                                 functions.push(function.clone());
                             }
                             function_templates.push(function);
@@ -337,7 +345,10 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 ItemKind::Function(function) => {
                     if let Some(function) = self.lower_function(item.span, function) {
-                        if function.generics.is_empty() {
+                        if self
+                            .effective_generics(function.def_id, &function.generics)
+                            .is_empty()
+                        {
                             functions.push(function.clone());
                         }
                         function_templates.push(function);
@@ -434,19 +445,6 @@ impl<'a> ModuleLowerer<'a> {
             &mut layouts.union_instances,
             computed.union_instances,
         );
-    }
-
-    fn extend_target_has_generics(&self, extend: &nia_ast::ExtendItem) -> bool {
-        let Some(ty) = self
-            .input
-            .type_lowering
-            .node_type_uses
-            .get(&extend.target.node_key)
-            .copied()
-        else {
-            return !extend.generics.is_empty();
-        };
-        !self.generic_params_in_ty(ty).is_empty()
     }
 
     fn expr_ty(&self, expr: &Expr) -> Option<InternedTyId> {
@@ -578,16 +576,40 @@ impl<'a> ModuleLowerer<'a> {
     }
 }
 
-fn index_extension_targets_by_method(
+fn index_extension_generics_by_method(
     extensions: &VisibleExtensionMethods,
-) -> HashMap<GlobalDefId, InternedTyId> {
-    let mut targets_by_method = HashMap::new();
+) -> HashMap<GlobalDefId, Vec<String>> {
+    let mut generics_by_method = HashMap::new();
     for target in extensions.targets() {
         for method in &target.methods {
-            targets_by_method.insert(method.def_id, target.target_ty);
+            generics_by_method.insert(method.def_id, method.impl_generics.clone());
         }
     }
-    targets_by_method
+    generics_by_method
+}
+
+fn index_known_type_interners<'a>(
+    input: &'a BackendLowerModuleInput<'a>,
+    monomorphization: &'a Monomorphization,
+) -> HashMap<ModuleId, &'a nia_ty::TyInterner> {
+    let mut interners = HashMap::new();
+    interners.insert(
+        input.body_ir.interner.interner_id(),
+        &input.body_ir.interner,
+    );
+    if let Some(interner) = input.extension_interner {
+        interners.insert(interner.interner_id(), interner);
+    }
+    for interner in input.program_type_interners.values() {
+        interners.insert(interner.interner_id(), *interner);
+    }
+    for (_, interner) in input.program_extensions.values() {
+        interners.insert(interner.interner_id(), *interner);
+    }
+    for interner in monomorphization.type_interners.values() {
+        interners.insert(interner.interner_id(), interner);
+    }
+    interners
 }
 
 fn index_trait_impls_by_method(input: &BackendLowerModuleInput<'_>) -> HashMap<GlobalDefId, usize> {
@@ -620,6 +642,9 @@ fn index_extension_trait_method_candidates(
         HashMap::new();
     for target in extensions.targets() {
         for method in &target.methods {
+            if !method.is_trait_witness {
+                continue;
+            }
             let Some(trait_id) = method.trait_id else {
                 continue;
             };
@@ -634,9 +659,43 @@ fn index_extension_trait_method_candidates(
                     target_ty: target.target_ty,
                     method_def_id: method.def_id,
                     trait_args: method.trait_args.clone(),
+                    impl_generics: method.impl_generics.clone(),
                     source_interner: source_interner.clone(),
                 });
         }
+    }
+    candidates
+}
+
+fn index_program_extension_trait_method_candidates(
+    input: &BackendLowerModuleInput<'_>,
+) -> HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> {
+    let mut candidates: HashMap<ExtensionTraitMethodKey, Vec<ExtensionTraitMethodCandidate>> =
+        HashMap::new();
+    for method in input.program_extension_methods.all_methods() {
+        let Some(trait_id) = method.trait_id else {
+            continue;
+        };
+        let Some(impl_signature) = input.trait_impls.iter().find(|impl_signature| {
+            impl_signature.module_id == method.def_id.module_id
+                && impl_signature.local_index == method.impl_index
+        }) else {
+            continue;
+        };
+        candidates
+            .entry(ExtensionTraitMethodKey {
+                trait_id,
+                method_name: method.name.clone(),
+                trait_arg_count: method.trait_args.len(),
+            })
+            .or_default()
+            .push(ExtensionTraitMethodCandidate {
+                target_ty: method.target_ty,
+                method_def_id: method.def_id,
+                trait_args: method.trait_args.clone(),
+                impl_generics: method.impl_generics.clone(),
+                source_interner: impl_signature.interner.clone(),
+            });
     }
     candidates
 }

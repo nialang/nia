@@ -129,6 +129,124 @@ fn main() i32 {
 }
 
 #[test]
+fn qualified_trait_projection_uses_trait_bound_context() {
+    let root = temp_dir("qualified_trait_projection_uses_trait_bound_context");
+    write(
+        &root.join("io.nia"),
+        r#"
+pub trait Writer {
+    type Error;
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .io;
+
+fn error_of[W](value: [W as io::Writer]::Error) void
+where W: io::Writer
+{
+    _ = value;
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        !program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .message
+            .contains("trait types are not valid as values")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn qualified_trait_projection_can_be_generic_argument() {
+    let root = temp_dir("qualified_trait_projection_can_be_generic_argument");
+    write(
+        &root.join("io.nia"),
+        r#"
+pub trait Writer {
+    type Error;
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .io;
+
+struct Box[T] {
+    value: T,
+}
+
+fn boxed_error[W](value: [W as io::Writer]::Error) Box[[W as io::Writer]::Error]
+where W: io::Writer
+{
+    { value: value }
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn projected_generic_argument_type_prefix_associated_call_lowers_cleanly() {
+    let root = temp_dir("projected_generic_argument_type_prefix_associated_call_lowers_cleanly");
+    write(
+        &root.join("io.nia"),
+        r#"
+pub trait Writer {
+    type Error;
+}
+"#,
+    );
+    write(
+        &root.join("main.nia"),
+        r#"
+import .io;
+
+struct Box[T] {
+    value: T,
+}
+
+extend[T] Box[T] {
+    fn init(value: T) Box[T] {
+        { value: value }
+    }
+}
+
+fn boxed_error[W](value: [W as io::Writer]::Error) Box[[W as io::Writer]::Error]
+where W: io::Writer
+{
+    Box[[W as io::Writer]::Error]::init(value)
+}
+
+fn main() i32 {
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn trait_impls_require_associated_type_definitions() {
     let root = temp_dir("trait_impls_require_associated_type_definitions");
     write(

@@ -74,6 +74,7 @@ pub struct ProgramTraitSignature {
 pub struct ProgramTraitImplSignature {
     pub module_id: nia_ids::ModuleId,
     pub local_index: usize,
+    pub generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_id: nia_ty::TraitId,
     pub trait_args: Vec<InternedTyId>,
@@ -167,6 +168,7 @@ pub struct TraitMethodSignature {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TraitImplSignature {
+    pub generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_ty: Option<InternedTyId>,
     pub where_predicates: Vec<WherePredicateSignature>,
@@ -402,6 +404,7 @@ impl<'a> SignatureCollector<'a> {
 
     fn collect_extend(&mut self, signatures: &mut ItemSignatures, extend: &ExtendItem) {
         signatures.trait_impls.push(TraitImplSignature {
+            generics: extend.generics.clone(),
             target_ty: self.ty_for_type(&extend.target),
             trait_ty: extend
                 .trait_ref

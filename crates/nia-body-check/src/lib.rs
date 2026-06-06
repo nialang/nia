@@ -21,7 +21,7 @@ use nia_ast::{
 use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
 use nia_comptime_ir::ResolvedComptimeModule;
-use nia_defs::{DefCollection, DefId, DefKind, VisibleExtensionMethods};
+use nia_defs::{DefCollection, DefId, DefKind, ExtensionMethods, VisibleExtensionMethods};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_item_signatures::{
@@ -104,6 +104,7 @@ pub struct BodyCheckInput<'a> {
     pub comptime_module: &'a ResolvedComptimeModule,
     pub layouts: &'a Layouts,
     pub extensions: &'a VisibleExtensionMethods,
+    pub program_extension_methods: &'a ExtensionMethods,
     pub extension_interner: Option<&'a TyInterner>,
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
@@ -126,6 +127,7 @@ pub struct BodyCheckWithProgramSignaturesInput<'a> {
     pub comptime: &'a ComptimeCheck,
     pub comptime_module: &'a ResolvedComptimeModule,
     pub extensions: &'a VisibleExtensionMethods,
+    pub program_extension_methods: &'a ExtensionMethods,
     pub program: BodyProgramContext<'a>,
     pub program_signatures: ProgramSignatureMaps<'a>,
 }
@@ -167,6 +169,7 @@ pub fn check_module_bodies(
     let empty_traits = HashMap::new();
     let empty_trait_impls = Vec::new();
     let empty_extensions = VisibleExtensionMethods::default();
+    let empty_program_extension_methods = ExtensionMethods::default();
     let empty_comptime = ComptimeCheck::default();
     let target = TargetConfig::host();
     let semantic_uses = semantic_use_table_for_body_input(defs.module_id, values, locals, lowered);
@@ -186,6 +189,7 @@ pub fn check_module_bodies(
         comptime_module: &empty_comptime_module,
         layouts: &layouts,
         extensions: &empty_extensions,
+        program_extension_methods: &empty_program_extension_methods,
         extension_interner: None,
         program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {
@@ -238,6 +242,7 @@ pub fn check_module_bodies_with_program_signatures(
         comptime_module: input.comptime_module,
         layouts: &layouts,
         extensions: input.extensions,
+        program_extension_methods: input.program_extension_methods,
         extension_interner: None,
         program: input.program,
         program_signatures: input.program_signatures,
@@ -324,6 +329,7 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
         comptime_module: input.comptime_module,
         layouts: input.layouts,
         extensions: input.extensions,
+        program_extension_methods: input.program_extension_methods,
         program_functions: input.program_signatures.functions,
         program_globals: input.program_signatures.globals,
         program_comptimes: input.program_signatures.comptimes,
@@ -405,6 +411,7 @@ struct BodyChecker<'a> {
     comptime_module: &'a ResolvedComptimeModule,
     layouts: &'a Layouts,
     extensions: &'a VisibleExtensionMethods,
+    program_extension_methods: &'a ExtensionMethods,
     program_functions: &'a HashMap<GlobalDefId, ProgramFunctionSignature>,
     program_globals: &'a HashMap<GlobalDefId, ProgramGlobalSignature>,
     program_comptimes: &'a HashMap<GlobalDefId, ProgramComptimeSignature>,

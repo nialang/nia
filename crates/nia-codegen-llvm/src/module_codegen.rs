@@ -25,8 +25,10 @@ use nia_span::Span;
 use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 type InstanceKey = (GlobalDefId, Vec<InternedTyId>);
+type FunctionInstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
 type InstanceTypeLookup<'ctx> = RefCell<HashMap<InstanceKey, Option<StructType<'ctx>>>>;
-type FunctionInstanceLookup<'ctx> = RefCell<HashMap<InstanceKey, Option<FunctionValue<'ctx>>>>;
+type FunctionInstanceLookup<'ctx> =
+    RefCell<HashMap<FunctionInstanceKey, Option<FunctionValue<'ctx>>>>;
 type AggregateLayoutLookup = RefCell<HashMap<InstanceKey, Option<Vec<InternedTyId>>>>;
 
 struct FunctionSignature<'a, P> {
@@ -58,7 +60,7 @@ pub(super) struct ModuleCodegen<'ctx, 'a> {
     pub(super) function_instances:
         HashMap<(GlobalDefId, ModuleId), HashMap<Vec<InternedTyId>, FunctionValue<'ctx>>>,
     pub(super) function_instances_by_def:
-        HashMap<GlobalDefId, Vec<(Vec<InternedTyId>, FunctionValue<'ctx>)>>,
+        HashMap<GlobalDefId, Vec<(ModuleId, Vec<InternedTyId>, FunctionValue<'ctx>)>>,
     function_instance_value_lookups: FunctionInstanceLookup<'ctx>,
     pub(super) globals: HashMap<GlobalDefId, GlobalValue<'ctx>>,
     layouts: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
@@ -298,8 +300,11 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 }
                 continue;
             };
-            let Some(llvm_function) = self.function_instance_value(instance.def_id, &instance.args)
-            else {
+            let Some(llvm_function) = self.function_instance_value(
+                instance.def_id,
+                instance.arg_module_id,
+                &instance.args,
+            ) else {
                 return Err(self.error(instance.span, "missing function instance"));
             };
             let mut codegen = FunctionCodegen::new(

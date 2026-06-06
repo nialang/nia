@@ -399,10 +399,6 @@ impl<'a> ModuleLowerer<'a> {
             return;
         };
         let trait_signature = program_trait.signature.clone();
-        let trait_args = trait_args
-            .iter()
-            .map(|arg| nia_ty::import_type_into(&mut self.interner, &program_trait.interner, *arg))
-            .collect::<Vec<_>>();
         for method in &trait_signature.methods {
             let slot = *next_slot;
             *next_slot += 1;
@@ -433,7 +429,12 @@ impl<'a> ModuleLowerer<'a> {
             let function = if args.is_empty() {
                 BackendTraitObjectVtableFunction::Function(def_id)
             } else {
-                BackendTraitObjectVtableFunction::FunctionInstance { def_id, args }
+                let args = self.canonicalize_instance_args(&args);
+                BackendTraitObjectVtableFunction::FunctionInstance {
+                    def_id,
+                    arg_module_id: self.input.module_id,
+                    args,
+                }
             };
             entries.push(BackendTraitObjectVtableEntry {
                 trait_id,

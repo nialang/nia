@@ -122,9 +122,14 @@ impl BackendValidator<'_> {
                             "backend IR vtable references missing function",
                         );
                     }
-                    BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } => {
+                    BackendTraitObjectVtableFunction::FunctionInstance {
+                        def_id,
+                        arg_module_id,
+                        args,
+                    } => {
                         self.validate_function_instance_ref(
                             *def_id,
+                            *arg_module_id,
                             args,
                             vtable.span,
                             "backend IR vtable references missing function instance",

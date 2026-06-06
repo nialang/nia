@@ -332,6 +332,7 @@ name = "nia-driver"
 version = "0.3.2"
 dependencies = [
  "nia-ast",
+ "nia-backend-ir",
  "nia-body-ir",
  "nia-compiler-query",
  "nia-function-ir",

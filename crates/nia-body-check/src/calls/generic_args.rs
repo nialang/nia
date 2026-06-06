@@ -41,7 +41,7 @@ impl<'a> BodyChecker<'a> {
         lowered
     }
 
-    pub(super) fn record_generic_instantiation(
+    pub(crate) fn record_generic_instantiation(
         &mut self,
         def_id: GlobalDefId,
         args: &[InternedTyId],
@@ -61,8 +61,9 @@ impl<'a> BodyChecker<'a> {
             .extensions
             .targets()
             .iter()
-            .find(|target| target.methods.iter().any(|method| method.def_id == def_id))
-            .map(|target| self.generic_params_in_ty(target.target_ty))
+            .flat_map(|target| target.methods.iter())
+            .find(|method| method.def_id == def_id)
+            .map(|method| method.impl_generics.clone())
             .unwrap_or_default();
         if def_id.module_id == self.defs.module_id {
             if self
@@ -88,85 +89,5 @@ impl<'a> BodyChecker<'a> {
             }
         }
         generics
-    }
-
-    pub(crate) fn generic_params_in_ty(&self, ty: InternedTyId) -> Vec<String> {
-        let mut generics = Vec::new();
-        self.collect_generic_params_in_ty(ty, &mut generics);
-        generics
-    }
-
-    fn collect_generic_params_in_ty(&self, ty: InternedTyId, generics: &mut Vec<String>) {
-        match self.interner.get(ty) {
-            Some(TyKind::GenericParam(name)) => {
-                if !generics.contains(name) {
-                    generics.push(name.clone());
-                }
-            }
-            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
-                self.collect_generic_params_in_ty(*elem, generics);
-            }
-            Some(TyKind::Array { elem, .. }) => {
-                self.collect_generic_params_in_ty(*elem, generics);
-            }
-            Some(TyKind::Range { bound, .. }) => {
-                if let Some(bound) = bound {
-                    self.collect_generic_params_in_ty(*bound, generics);
-                }
-            }
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            }) => {
-                for param in params {
-                    self.collect_generic_params_in_ty(*param, generics);
-                }
-                self.collect_generic_params_in_ty(*return_type, generics);
-            }
-            Some(TyKind::Optional { elem }) => {
-                self.collect_generic_params_in_ty(*elem, generics);
-            }
-            Some(TyKind::ErrorUnion { error, value }) => {
-                self.collect_generic_params_in_ty(*error, generics);
-                self.collect_generic_params_in_ty(*value, generics);
-            }
-            Some(TyKind::Nominal { args, .. }) => {
-                for arg in args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::BuiltinTrait { args, .. }) => {
-                for arg in args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::TraitObject {
-                trait_args,
-                associated_type_bindings,
-                ..
-            }) => {
-                for arg in trait_args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-                for binding in associated_type_bindings {
-                    for arg in &binding.trait_args {
-                        self.collect_generic_params_in_ty(*arg, generics);
-                    }
-                    self.collect_generic_params_in_ty(binding.ty, generics);
-                }
-            }
-            Some(TyKind::Projection {
-                self_ty,
-                trait_args,
-                ..
-            }) => {
-                self.collect_generic_params_in_ty(*self_ty, generics);
-                for arg in trait_args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
-        }
     }
 }

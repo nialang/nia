@@ -4,8 +4,9 @@
 // import `std` as the stable facade.
 
 import std.io;
+import std.fmt;
 import std.mem;
 import std.os;
 import std.process;
 
-pub using {io, mem, os, process};
+pub using {fmt, io, mem, os, process};

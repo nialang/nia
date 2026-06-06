@@ -13,7 +13,7 @@ use nia_function_ir::{
     FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionInlineAsm, FunctionOp,
     FunctionPlace, FunctionPlaceBase, FunctionPlaceElem, FunctionTerminator,
 };
-use nia_ids::{GlobalDefId, InternedTyId};
+use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_opt::OptimizationDepth;
 use nia_static_ir::StaticInit;
 
@@ -23,6 +23,7 @@ pub(crate) const REMOVE_UNUSED_FUNCTION_INSTANCES_PASS: &str = "remove-unused-fu
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct FunctionInstanceRef {
     def_id: GlobalDefId,
+    arg_module_id: ModuleId,
     args: Vec<InternedTyId>,
 }
 
@@ -65,17 +66,25 @@ impl<'a> ModuleLowerer<'a> {
         let mut refs = FunctionRefs::default();
         for function in functions.iter() {
             if !removable_functions.contains(&function.def_id) {
-                collect_function_refs_from_optional_body(&function.function_body, &mut refs);
+                collect_function_refs_from_optional_body(
+                    self.input.module_id,
+                    &function.function_body,
+                    &mut refs,
+                );
             }
         }
         for instance in function_instances.iter() {
             if !removable_instances.contains(&FunctionInstanceRef::from(instance)) {
-                collect_function_refs_from_optional_body(&instance.function_body, &mut refs);
+                collect_function_refs_from_optional_body(
+                    self.input.module_id,
+                    &instance.function_body,
+                    &mut refs,
+                );
             }
         }
         for global in globals {
             if let Some(init) = &global.init {
-                collect_function_refs_from_static_init(init, &mut refs);
+                collect_function_refs_from_static_init(self.input.module_id, init, &mut refs);
             }
         }
         for vtable in trait_object_vtables {
@@ -84,9 +93,14 @@ impl<'a> ModuleLowerer<'a> {
                     BackendTraitObjectVtableFunction::Function(function) => {
                         refs.functions.insert(*function);
                     }
-                    BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } => {
+                    BackendTraitObjectVtableFunction::FunctionInstance {
+                        def_id,
+                        arg_module_id,
+                        args,
+                    } => {
                         refs.instances.insert(FunctionInstanceRef {
                             def_id: *def_id,
+                            arg_module_id: *arg_module_id,
                             args: args.clone(),
                         });
                     }
@@ -166,6 +180,7 @@ impl From<&BackendFunctionInstance> for FunctionInstanceRef {
     fn from(instance: &BackendFunctionInstance) -> Self {
         Self {
             def_id: instance.def_id,
+            arg_module_id: instance.arg_module_id,
             args: instance.args.clone(),
         }
     }
@@ -198,7 +213,11 @@ fn collect_transitive_refs(
                 continue;
             };
             let mut discovered = FunctionRefs::default();
-            collect_function_refs_from_optional_body(&function.function_body, &mut discovered);
+            collect_function_refs_from_optional_body(
+                function.def_id.module_id,
+                &function.function_body,
+                &mut discovered,
+            );
             enqueue_new_refs(
                 refs,
                 discovered,
@@ -215,7 +234,11 @@ fn collect_transitive_refs(
                 continue;
             };
             let mut discovered = FunctionRefs::default();
-            collect_function_refs_from_optional_body(&instance.function_body, &mut discovered);
+            collect_function_refs_from_optional_body(
+                instance.arg_module_id,
+                &instance.function_body,
+                &mut discovered,
+            );
             enqueue_new_refs(
                 refs,
                 discovered,
@@ -244,62 +267,88 @@ fn enqueue_new_refs(
     }
 }
 
-fn collect_function_refs_from_optional_body(body: &Option<FunctionBody>, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_optional_body(
+    module_id: ModuleId,
+    body: &Option<FunctionBody>,
+    refs: &mut FunctionRefs,
+) {
     if let Some(body) = body {
-        collect_function_refs_from_body(body, refs);
+        collect_function_refs_from_body(module_id, body, refs);
     }
 }
 
-fn collect_function_refs_from_body(body: &FunctionBody, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_body(
+    module_id: ModuleId,
+    body: &FunctionBody,
+    refs: &mut FunctionRefs,
+) {
     for block in &body.blocks {
-        collect_function_refs_from_block(block, refs);
+        collect_function_refs_from_block(module_id, block, refs);
     }
 }
 
-fn collect_function_refs_from_defer_body(body: &FunctionDeferBody, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_defer_body(
+    module_id: ModuleId,
+    body: &FunctionDeferBody,
+    refs: &mut FunctionRefs,
+) {
     for block in &body.blocks {
-        collect_function_refs_from_block(block, refs);
+        collect_function_refs_from_block(module_id, block, refs);
     }
 }
 
-fn collect_function_refs_from_block(block: &FunctionBlock, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_block(
+    module_id: ModuleId,
+    block: &FunctionBlock,
+    refs: &mut FunctionRefs,
+) {
     for op in &block.ops {
-        collect_function_refs_from_op(op, refs);
+        collect_function_refs_from_op(module_id, op, refs);
     }
-    collect_function_refs_from_terminator(&block.terminator, refs);
+    collect_function_refs_from_terminator(module_id, &block.terminator, refs);
 }
 
-fn collect_function_refs_from_op(op: &FunctionOp, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_op(module_id: ModuleId, op: &FunctionOp, refs: &mut FunctionRefs) {
     match op {
         FunctionOp::Binding(binding) => {
             if let Some(value) = &binding.value {
-                collect_function_refs_from_expr(value, refs);
+                collect_function_refs_from_expr(module_id, value, refs);
             }
         }
         FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-            collect_function_refs_from_expr(value, refs);
+            collect_function_refs_from_expr(module_id, value, refs);
         }
-        FunctionOp::Defer(body) => collect_function_refs_from_defer_body(body, refs),
+        FunctionOp::Defer(body) => collect_function_refs_from_defer_body(module_id, body, refs),
     }
 }
 
-fn collect_function_refs_from_terminator(terminator: &FunctionTerminator, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_terminator(
+    module_id: ModuleId,
+    terminator: &FunctionTerminator,
+    refs: &mut FunctionRefs,
+) {
     match terminator {
-        FunctionTerminator::If { cond, .. } => collect_function_refs_from_expr(cond, refs),
+        FunctionTerminator::If { cond, .. } => {
+            collect_function_refs_from_expr(module_id, cond, refs)
+        }
         FunctionTerminator::Switch { target, arms, .. } => {
-            collect_function_refs_from_expr(target, refs);
+            collect_function_refs_from_expr(module_id, target, refs);
             for arm in arms {
-                collect_function_refs_from_expr(&arm.pattern, refs);
+                collect_function_refs_from_expr(module_id, &arm.pattern, refs);
             }
         }
-        FunctionTerminator::Try { value, .. } => collect_function_refs_from_expr(value, refs),
+        FunctionTerminator::Try { value, .. } => {
+            collect_function_refs_from_expr(module_id, value, refs)
+        }
         FunctionTerminator::Loop { header, .. } => match header {
-            FunctionForHeader::Condition(expr) => collect_function_refs_from_expr(expr, refs),
+            FunctionForHeader::Condition(expr) => {
+                collect_function_refs_from_expr(module_id, expr, refs)
+            }
             FunctionForHeader::Infinite => {}
         },
         FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
             if let Some(value) = value {
-                collect_function_refs_from_expr(value, refs);
+                collect_function_refs_from_expr(module_id, value, refs);
             }
         }
         FunctionTerminator::Error { .. }
@@ -308,7 +357,11 @@ fn collect_function_refs_from_terminator(terminator: &FunctionTerminator, refs: 
     }
 }
 
-fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_expr(
+    module_id: ModuleId,
+    expr: &FunctionExpr,
+    refs: &mut FunctionRefs,
+) {
     match &expr.kind {
         FunctionExprKind::Function(def_id) => {
             refs.functions.insert(*def_id);
@@ -316,18 +369,21 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs)
         FunctionExprKind::FunctionInstance { def_id, args } => {
             refs.instances.insert(FunctionInstanceRef {
                 def_id: *def_id,
+                arg_module_id: module_id,
                 args: args.clone(),
             });
         }
         FunctionExprKind::Range(range) => {
             if let Some(start) = &range.start {
-                collect_function_refs_from_expr(start, refs);
+                collect_function_refs_from_expr(module_id, start, refs);
             }
             if let Some(end) = &range.end {
-                collect_function_refs_from_expr(end, refs);
+                collect_function_refs_from_expr(module_id, end, refs);
             }
         }
-        FunctionExprKind::InlineAsm(asm) => collect_function_refs_from_inline_asm(asm, refs),
+        FunctionExprKind::InlineAsm(asm) => {
+            collect_function_refs_from_inline_asm(module_id, asm, refs)
+        }
         FunctionExprKind::CStringPointer { array, .. }
         | FunctionExprKind::RangeBound { range: array, .. }
         | FunctionExprKind::Unary { expr: array, .. }
@@ -341,53 +397,55 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs)
         | FunctionExprKind::Cast { expr: array, .. }
         | FunctionExprKind::TraitObjectUpcast { expr: array, .. }
         | FunctionExprKind::TraitObjectCoercion { expr: array, .. } => {
-            collect_function_refs_from_expr(array, refs);
+            collect_function_refs_from_expr(module_id, array, refs);
         }
         FunctionExprKind::ArrayLiteral { elems } => match elems {
             FunctionArrayElements::List(elems) => {
                 for elem in elems {
-                    collect_function_refs_from_expr(elem, refs);
+                    collect_function_refs_from_expr(module_id, elem, refs);
                 }
             }
             FunctionArrayElements::Repeat { value, .. } => {
-                collect_function_refs_from_expr(value, refs)
+                collect_function_refs_from_expr(module_id, value, refs)
             }
         },
         FunctionExprKind::StructLiteral { fields, .. } => {
             for field in fields {
-                collect_function_refs_from_expr(&field.value, refs);
+                collect_function_refs_from_expr(module_id, &field.value, refs);
             }
         }
         FunctionExprKind::UnionLiteral { field, .. } => {
-            collect_function_refs_from_expr(&field.value, refs);
+            collect_function_refs_from_expr(module_id, &field.value, refs);
         }
-        FunctionExprKind::AddrOf(place) => collect_function_refs_from_place(place, refs),
+        FunctionExprKind::AddrOf(place) => collect_function_refs_from_place(module_id, place, refs),
         FunctionExprKind::Binary { lhs, rhs, .. } => {
-            collect_function_refs_from_expr(lhs, refs);
-            collect_function_refs_from_expr(rhs, refs);
+            collect_function_refs_from_expr(module_id, lhs, refs);
+            collect_function_refs_from_expr(module_id, rhs, refs);
         }
         FunctionExprKind::Assign { place, rhs, .. } => {
-            collect_function_refs_from_place(place, refs);
-            collect_function_refs_from_expr(rhs, refs);
+            collect_function_refs_from_place(module_id, place, refs);
+            collect_function_refs_from_expr(module_id, rhs, refs);
         }
         FunctionExprKind::Call { callee, args } => {
-            collect_function_refs_from_callee(callee, refs);
+            collect_function_refs_from_callee(module_id, callee, refs);
             for arg in args {
-                collect_function_refs_from_expr(arg, refs);
+                collect_function_refs_from_expr(module_id, arg, refs);
             }
         }
-        FunctionExprKind::Field { lhs, .. } => collect_function_refs_from_expr(lhs, refs),
+        FunctionExprKind::Field { lhs, .. } => {
+            collect_function_refs_from_expr(module_id, lhs, refs)
+        }
         FunctionExprKind::Index { lhs, index } => {
-            collect_function_refs_from_expr(lhs, refs);
-            collect_function_refs_from_expr(index, refs);
+            collect_function_refs_from_expr(module_id, lhs, refs);
+            collect_function_refs_from_expr(module_id, index, refs);
         }
         FunctionExprKind::Slice { lhs, range, .. } => {
-            collect_function_refs_from_expr(lhs, refs);
+            collect_function_refs_from_expr(module_id, lhs, refs);
             if let Some(start) = &range.start {
-                collect_function_refs_from_expr(start, refs);
+                collect_function_refs_from_expr(module_id, start, refs);
             }
             if let Some(end) = &range.end {
-                collect_function_refs_from_expr(end, refs);
+                collect_function_refs_from_expr(module_id, end, refs);
             }
         }
         FunctionExprKind::Error
@@ -406,7 +464,11 @@ fn collect_function_refs_from_expr(expr: &FunctionExpr, refs: &mut FunctionRefs)
     }
 }
 
-fn collect_function_refs_from_callee(callee: &FunctionCallee, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_callee(
+    module_id: ModuleId,
+    callee: &FunctionCallee,
+    refs: &mut FunctionRefs,
+) {
     match callee {
         FunctionCallee::Function(def_id) => {
             refs.functions.insert(*def_id);
@@ -415,6 +477,7 @@ fn collect_function_refs_from_callee(callee: &FunctionCallee, refs: &mut Functio
         | FunctionCallee::Method { def_id, args, .. } => {
             refs.instances.insert(FunctionInstanceRef {
                 def_id: *def_id,
+                arg_module_id: module_id,
                 args: args.clone(),
             });
         }
@@ -431,57 +494,72 @@ fn collect_function_refs_from_callee(callee: &FunctionCallee, refs: &mut Functio
             instance_args.extend(args.iter().copied());
             refs.instances.insert(FunctionInstanceRef {
                 def_id: *method_id,
+                arg_module_id: module_id,
                 args: instance_args,
             });
-            collect_function_refs_from_expr(receiver, refs);
+            collect_function_refs_from_expr(module_id, receiver, refs);
         }
         FunctionCallee::DynamicTraitMethod { receiver, .. }
         | FunctionCallee::BuiltinPlaceMethod { receiver, .. }
         | FunctionCallee::BuiltinMethod { receiver, .. }
         | FunctionCallee::FunctionPointer(receiver) => {
-            collect_function_refs_from_expr(receiver, refs);
+            collect_function_refs_from_expr(module_id, receiver, refs);
         }
         FunctionCallee::BuiltinOperator(_) => {}
     }
 }
 
-fn collect_function_refs_from_place(place: &FunctionPlace, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_place(
+    module_id: ModuleId,
+    place: &FunctionPlace,
+    refs: &mut FunctionRefs,
+) {
     match &place.base {
-        FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(expr, refs),
+        FunctionPlaceBase::Deref(expr) => collect_function_refs_from_expr(module_id, expr, refs),
         FunctionPlaceBase::Local(_) | FunctionPlaceBase::Global(_) | FunctionPlaceBase::Error => {}
     }
     for elem in &place.elems {
         match elem {
-            FunctionPlaceElem::Index(expr) => collect_function_refs_from_expr(expr, refs),
+            FunctionPlaceElem::Index(expr) => {
+                collect_function_refs_from_expr(module_id, expr, refs)
+            }
             FunctionPlaceElem::Field(_) | FunctionPlaceElem::Error => {}
         }
     }
 }
 
-fn collect_function_refs_from_inline_asm(asm: &FunctionInlineAsm, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_inline_asm(
+    module_id: ModuleId,
+    asm: &FunctionInlineAsm,
+    refs: &mut FunctionRefs,
+) {
     for input in &asm.inputs {
-        collect_function_refs_from_expr(&input.value, refs);
+        collect_function_refs_from_expr(module_id, &input.value, refs);
     }
     for output in &asm.outputs {
-        collect_function_refs_from_place(&output.place, refs);
+        collect_function_refs_from_place(module_id, &output.place, refs);
     }
 }
 
-fn collect_function_refs_from_static_init(init: &StaticInit, refs: &mut FunctionRefs) {
+fn collect_function_refs_from_static_init(
+    module_id: ModuleId,
+    init: &StaticInit,
+    refs: &mut FunctionRefs,
+) {
     match init {
         StaticInit::Array(elems) => {
             for elem in elems {
-                collect_function_refs_from_static_init(elem, refs);
+                collect_function_refs_from_static_init(module_id, elem, refs);
             }
         }
         StaticInit::Repeat { value, count } => {
             if *count != 0 {
-                collect_function_refs_from_static_init(value, refs);
+                collect_function_refs_from_static_init(module_id, value, refs);
             }
         }
         StaticInit::Struct(fields) => {
             for field in fields {
-                collect_function_refs_from_static_init(&field.value, refs);
+                collect_function_refs_from_static_init(module_id, &field.value, refs);
             }
         }
         StaticInit::AddrOfGlobal { .. } => {}
@@ -491,6 +569,7 @@ fn collect_function_refs_from_static_init(init: &StaticInit, refs: &mut Function
             } else {
                 refs.instances.insert(FunctionInstanceRef {
                     def_id: *function,
+                    arg_module_id: module_id,
                     args: args.clone(),
                 });
             }

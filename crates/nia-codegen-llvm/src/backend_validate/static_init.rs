@@ -63,6 +63,7 @@ impl BackendValidator<'_> {
                 } else {
                     self.validate_function_instance_ref(
                         *function,
+                        function.module_id,
                         args,
                         span,
                         "backend IR static initializer references missing function instance",

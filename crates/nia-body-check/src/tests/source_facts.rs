@@ -79,6 +79,7 @@ fn main() i32 {
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &VisibleExtensionMethods::default(),
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {
@@ -205,6 +206,7 @@ fn main() i32 {
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &VisibleExtensionMethods::default(),
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {

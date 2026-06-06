@@ -185,7 +185,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             self.function_instances_by_def
                 .entry(instance.def_id)
                 .or_default()
-                .push((instance.args.clone(), value));
+                .push((instance.arg_module_id, instance.args.clone(), value));
             self.function_instance_value_lookups.borrow_mut().clear();
         }
         Ok(())
@@ -291,17 +291,20 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                                 })?
                                 .as_global_value()
                                 .as_pointer_value(),
-                            BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } => {
-                                self.function_instance_value(*def_id, args)
-                                    .ok_or_else(|| {
-                                        self.error(
-                                            vtable.span,
-                                            "missing vtable method function instance",
-                                        )
-                                    })?
-                                    .as_global_value()
-                                    .as_pointer_value()
-                            }
+                            BackendTraitObjectVtableFunction::FunctionInstance {
+                                def_id,
+                                arg_module_id,
+                                args,
+                            } => self
+                                .function_instance_value(*def_id, *arg_module_id, args)
+                                .ok_or_else(|| {
+                                    self.error(
+                                        vtable.span,
+                                        "missing vtable method function instance",
+                                    )
+                                })?
+                                .as_global_value()
+                                .as_pointer_value(),
                         };
                         values.push(value);
                     }

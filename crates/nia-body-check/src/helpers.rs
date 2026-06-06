@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::{BodyChecker, ReceiverBase};
 use nia_ast::ReceiverKind;
 use nia_defs::{DefId, DefKind};
-use nia_ids::{GlobalDefId, InternedTyId, TraitId};
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_item_signatures::FunctionSignature;
 use nia_ty::TyKind;
 
@@ -58,15 +58,6 @@ impl<'a> BodyChecker<'a> {
             }
         }
         None
-    }
-
-    pub(crate) fn extension_trait_id_for_method(&self, method_id: GlobalDefId) -> Option<TraitId> {
-        self.extensions
-            .targets()
-            .iter()
-            .flat_map(|target| target.methods.iter())
-            .find(|method| method.def_id == method_id)
-            .and_then(|method| method.trait_id)
     }
 
     pub(crate) fn receiver_base_type(&self, ty: InternedTyId) -> Option<ReceiverBase> {

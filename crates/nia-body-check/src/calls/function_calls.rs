@@ -403,26 +403,20 @@ impl<'a> BodyChecker<'a> {
                 span,
             );
         }
-        let actuals: Vec<InternedTyId> = args
-            .iter()
-            .enumerate()
-            .map(|(index, arg)| {
-                if let Some(expected) = params
-                    .get(index)
-                    .copied()
-                    .map(|param| self.substitute_generics(param, &substitutions))
-                    .and_then(|param| self.generic_call_expected(param))
-                {
-                    self.check_expr_with_expected(arg, Some(expected))
-                } else {
-                    self.check_expr(arg)
-                }
-            })
-            .collect();
         self.check_call_arg_count(span, args.len(), params.len(), signature.is_variadic);
-
-        for (param, (arg, actual)) in params.iter().zip(args.iter().zip(actuals.iter())) {
-            self.infer_generics_from_type(*param, *actual, &mut substitutions, arg.span);
+        for (index, arg) in args.iter().enumerate() {
+            let Some(param) = params.get(index).copied() else {
+                self.check_expr(arg);
+                continue;
+            };
+            let substituted_param = self.substitute_generics(param, &substitutions);
+            let expected = self.generic_call_expected(substituted_param);
+            let actual = if let Some(expected) = expected {
+                self.check_expr_with_expected(arg, Some(expected))
+            } else {
+                self.check_expr(arg)
+            };
+            self.infer_generics_from_type(param, actual, &mut substitutions, arg.span);
         }
 
         let mut complete = true;

@@ -34,8 +34,10 @@ pub struct ExtensionMethods {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionMethod {
+    pub name: String,
     pub def_id: GlobalDefId,
     pub impl_index: usize,
+    pub impl_generics: Vec<String>,
     pub target_ty: InternedTyId,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
@@ -53,9 +55,12 @@ pub struct VisibleExtensionMethod {
     pub name: String,
     pub def_id: GlobalDefId,
     pub impl_index: usize,
+    pub impl_generics: Vec<String>,
     pub trait_id: Option<TraitId>,
     pub trait_args: Vec<InternedTyId>,
     pub where_predicates: Vec<WherePredicateSignature>,
+    pub is_callable: bool,
+    pub is_trait_witness: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,7 +89,9 @@ impl ExtensionMethods {
                 methods.extend(
                     module_methods
                         .iter()
-                        .filter(|method| method.visibility == Visibility::Public)
+                        .filter(|method| {
+                            method.visibility == Visibility::Public || method.trait_id.is_some()
+                        })
                         .cloned(),
                 );
             }
@@ -99,6 +106,10 @@ impl ExtensionMethods {
             .flat_map(|methods| methods.iter())
             .map(|method| method.def_id.def_id)
             .collect()
+    }
+
+    pub fn all_methods(&self) -> impl Iterator<Item = &ExtensionMethod> {
+        self.by_module.values().flat_map(|methods| methods.iter())
     }
 }
 
@@ -140,6 +151,24 @@ impl VisibleExtensionMethods {
             .flat_map(|item| {
                 item.methods
                     .iter()
+                    .filter(|method| method.is_callable)
+                    .filter(move |method| method.name == name)
+                    .cloned()
+                    .map(move |method| (item.target_ty, method))
+            })
+            .collect()
+    }
+
+    pub fn all_trait_witnesses_named(
+        &self,
+        name: &str,
+    ) -> Vec<(InternedTyId, VisibleExtensionMethod)> {
+        self.targets
+            .iter()
+            .flat_map(|item| {
+                item.methods
+                    .iter()
+                    .filter(|method| method.is_trait_witness)
                     .filter(move |method| method.name == name)
                     .cloned()
                     .map(move |method| (item.target_ty, method))

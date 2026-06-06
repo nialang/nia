@@ -956,27 +956,33 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         if let Some(item) = self.program.function_instance(def_id, self.source.id, args) {
             return Some(item);
         }
-        self.program
+        let mut matches = self
+            .program
             .function_instances_by_def
             .get(&def_id)
             .into_iter()
             .flatten()
-            .find(|item| self.same_type_args(args, &item.args))
-            .copied()
+            .filter(|item| self.same_type_args(args, &item.args));
+        let first = matches.next().copied()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        Some(first)
     }
 
     pub(crate) fn function_instance_value(
         &self,
         def_id: GlobalDefId,
+        arg_module_id: ModuleId,
         args: &[InternedTyId],
     ) -> Option<FunctionValue<'ctx>> {
-        let key = (def_id, args.to_vec());
+        let key = (def_id, arg_module_id, args.to_vec());
         if let Some(cached) = self.function_instance_value_lookups.borrow().get(&key) {
             return *cached;
         }
         if let Some(value) = self
             .function_instances
-            .get(&(def_id, self.source.id))
+            .get(&(def_id, arg_module_id))
             .and_then(|instances| instances.get(args))
             .copied()
         {
@@ -990,8 +996,10 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             .get(&def_id)
             .into_iter()
             .flatten()
-            .find_map(|(candidate_args, value)| {
-                self.same_type_args(args, candidate_args).then_some(*value)
+            .find_map(|(candidate_arg_module_id, candidate_args, value)| {
+                (*candidate_arg_module_id == arg_module_id
+                    && self.same_type_args(args, candidate_args))
+                .then_some(*value)
             });
         self.function_instance_value_lookups
             .borrow_mut()

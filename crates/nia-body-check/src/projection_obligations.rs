@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::BodyChecker;
 use nia_defs::{DefId, DefKind};
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_item_signatures::{FunctionSignature, TraitImplSignature, WherePredicateSignature};
+use nia_item_signatures::{
+    FunctionSignature, ProgramTraitImplSignature, TraitImplSignature, WherePredicateSignature,
+};
 use nia_span::Span;
 use nia_trait_solve::{AssociatedTypeProjectionEq, TraitGoal, TraitResolution, TraitSolverContext};
 use nia_ty::{TraitId, TyKind};
@@ -145,10 +147,9 @@ impl<'a> BodyChecker<'a> {
                     .trait_impl_signature_for_method(self.global_def_id(def_id))
                     .cloned()
                 {
-                    self.push_where_predicate_obligations(
-                        obligations,
-                        &impl_signature.where_predicates,
-                    );
+                    let predicates =
+                        self.instantiate_impl_where_predicates_for_method(def_id, &impl_signature);
+                    self.push_where_predicate_obligations(obligations, &predicates);
                 }
                 if let Some(owner_ty) = self.method_owner_type(def_id) {
                     self.push_nominal_owner_where_obligations(obligations, owner_ty);
@@ -166,6 +167,27 @@ impl<'a> BodyChecker<'a> {
             }
             _ => {}
         }
+    }
+
+    fn instantiate_impl_where_predicates_for_method(
+        &mut self,
+        def_id: DefId,
+        impl_signature: &TraitImplSignature,
+    ) -> Vec<WherePredicateSignature> {
+        let Some(owner_ty) = self.method_owner_type(def_id) else {
+            return impl_signature.where_predicates.clone();
+        };
+        let target_ty =
+            self.import_type_from(&self.normalization.interner, impl_signature.target_ty);
+        let target_ty = self.normalization.normalize(target_ty);
+        let owner_ty = self.normalization.normalize(owner_ty);
+        let mut substitutions = HashMap::new();
+        self.match_type_pattern(target_ty, owner_ty, &mut substitutions);
+        impl_signature
+            .where_predicates
+            .iter()
+            .map(|predicate| self.substitute_where_predicate(predicate, &substitutions))
+            .collect()
     }
 
     fn push_nominal_owner_where_obligations(
@@ -430,10 +452,9 @@ impl<'a> BodyChecker<'a> {
             }
             DefKind::Method => {
                 let method_id = self.global_def_id(def_id);
-                let trait_id = self.extension_trait_id_for_method(method_id)?;
                 let target_ty = self.method_owner_type(def_id)?;
                 let impl_signature = self.trait_impl_signature_for_method(method_id)?.clone();
-                let trait_args = self.trait_impl_signature_args(&impl_signature, trait_id)?;
+                let (trait_id, trait_args) = self.trait_impl_signature_trait(&impl_signature)?;
                 Some(TraitObligation {
                     self_ty: target_ty,
                     trait_id,
@@ -443,13 +464,24 @@ impl<'a> BodyChecker<'a> {
                         .iter()
                         .map(|associated_type| TraitObligationAssociatedTypeBinding {
                             name: associated_type.name.clone(),
-                            ty: associated_type.ty,
+                            ty: self
+                                .import_type_from(&self.normalization.interner, associated_type.ty),
                         })
                         .collect(),
                 })
             }
             _ => None,
         }
+    }
+
+    fn trait_impl_signature_trait(
+        &mut self,
+        impl_signature: &TraitImplSignature,
+    ) -> Option<(TraitId, Vec<InternedTyId>)> {
+        let trait_ty =
+            self.import_type_from(&self.normalization.interner, impl_signature.trait_ty?);
+        let trait_ty = self.normalization.normalize(trait_ty);
+        self.trait_id_and_args(trait_ty)
     }
 
     pub(crate) fn trait_impl_signature_for_method(
@@ -477,25 +509,6 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .find(|signature| signature.span == extend.target.span)
         })
-    }
-
-    pub(crate) fn trait_impl_signature_args(
-        &mut self,
-        impl_signature: &TraitImplSignature,
-        trait_id: TraitId,
-    ) -> Option<Vec<InternedTyId>> {
-        let trait_ty = self.normalization.normalize(impl_signature.trait_ty?);
-        match self.interner.get(trait_ty) {
-            Some(TyKind::Nominal { def_id, args }) if TraitId::Source(*def_id) == trait_id => {
-                Some(args.clone())
-            }
-            Some(TyKind::BuiltinTrait { trait_id: id, args })
-                if TraitId::Builtin(*id) == trait_id =>
-            {
-                Some(args.clone())
-            }
-            _ => None,
-        }
     }
 
     fn push_trait_obligation_from_bound(
@@ -644,10 +657,14 @@ impl<'a> BodyChecker<'a> {
             if impl_signature.trait_id != trait_id {
                 continue;
             }
+            if !self.trait_impl_signature_is_visible(&impl_signature) {
+                continue;
+            }
             let target_ty =
                 self.import_type_from(&impl_signature.interner, impl_signature.target_ty);
             let target_ty = self.normalization.normalize(target_ty);
-            if !self.types_equivalent_without_projection_resolution(target_ty, self_ty) {
+            let mut substitutions = HashMap::new();
+            if !self.match_type_pattern(target_ty, self_ty, &mut substitutions) {
                 continue;
             }
             let trait_args = impl_signature
@@ -655,6 +672,7 @@ impl<'a> BodyChecker<'a> {
                 .iter()
                 .map(|arg| {
                     let arg = self.import_type_from(&impl_signature.interner, *arg);
+                    let arg = self.substitute_generics(arg, &substitutions);
                     self.normalization.normalize(arg)
                 })
                 .collect::<Vec<_>>();
@@ -677,6 +695,19 @@ impl<'a> BodyChecker<'a> {
             return;
         }
         candidates.push(trait_args);
+    }
+
+    fn trait_impl_signature_is_visible(
+        &mut self,
+        impl_signature: &ProgramTraitImplSignature,
+    ) -> bool {
+        self.extensions.targets().iter().any(|target| {
+            target.methods.iter().any(|method| {
+                method.is_trait_witness
+                    && method.def_id.module_id == impl_signature.module_id
+                    && method.impl_index == impl_signature.local_index
+            })
+        })
     }
 
     fn check_type_projection_obligations(

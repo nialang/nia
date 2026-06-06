@@ -113,6 +113,7 @@ impl BackendValidator<'_> {
             FunctionExprKind::FunctionInstance { def_id, args } => {
                 self.validate_function_instance_ref(
                     *def_id,
+                    def_id.module_id,
                     args,
                     expr.span,
                     "backend IR expression references missing function instance",
@@ -243,6 +244,7 @@ impl BackendValidator<'_> {
             FunctionCallee::FunctionInstance { def_id, args } => self
                 .validate_function_instance_ref(
                     *def_id,
+                    def_id.module_id,
                     args,
                     span,
                     "backend IR call references missing function instance",
@@ -263,6 +265,7 @@ impl BackendValidator<'_> {
                 } else {
                     self.validate_function_instance_ref(
                         *def_id,
+                        def_id.module_id,
                         args,
                         span,
                         "backend IR method call references missing function instance",

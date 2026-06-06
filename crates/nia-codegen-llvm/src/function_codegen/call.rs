@@ -43,10 +43,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let Some(instance) = self.module.function_instance_item(*def_id, args) else {
                     return Err(self.error(span, "missing function instance item"));
                 };
-                let Some(function) = self
-                    .module
-                    .function_instance_value(instance.def_id, &instance.args)
-                else {
+                let Some(function) = self.module.function_instance_value(
+                    instance.def_id,
+                    instance.arg_module_id,
+                    &instance.args,
+                ) else {
                     return Err(self.error(span, "missing function instance value"));
                 };
                 Ok(function.as_global_value().as_pointer_value().into())
@@ -250,7 +251,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 self.builder
                     .build_call(
                         self.module
-                            .function_instance_value(instance.def_id, &instance.args)
+                            .function_instance_value(
+                                instance.def_id,
+                                instance.arg_module_id,
+                                &instance.args,
+                            )
                             .ok_or_else(|| {
                                 self.error(expr.span, "missing callee function instance")
                             })?,
@@ -281,8 +286,11 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     let instance = self.module.function_instance_item(*def_id, type_args);
                     (
                         instance.and_then(|instance| {
-                            self.module
-                                .function_instance_value(instance.def_id, &instance.args)
+                            self.module.function_instance_value(
+                                instance.def_id,
+                                instance.arg_module_id,
+                                &instance.args,
+                            )
                         }),
                         instance.is_some_and(|instance| instance.is_extern),
                         instance.map(|instance| {

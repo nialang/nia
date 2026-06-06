@@ -2,7 +2,7 @@
 use crate::BodyChecker;
 use nia_ast::Expr;
 use nia_diagnostic::Diagnostic;
-use nia_ids::InternedTyId;
+use nia_ids::{GlobalDefId, InternedTyId};
 use nia_sema_ir::{TraitObjectCoercion, TraitObjectUpcast, ValueTraitObjectCoercion};
 use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
@@ -155,6 +155,7 @@ impl<'a> BodyChecker<'a> {
                 target_ty: expected,
             },
         );
+        self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
         Some(expected)
     }
 
@@ -207,6 +208,7 @@ impl<'a> BodyChecker<'a> {
                 target_ty: expected,
             },
         );
+        self.record_trait_object_vtable_instantiations(expr.span, actual, trait_id, &trait_args);
         Some(expected)
     }
 
@@ -268,6 +270,96 @@ impl<'a> BodyChecker<'a> {
             )
             .is_some_and(|actual| self.types_match(actual, binding.ty))
         })
+    }
+
+    fn record_trait_object_vtable_instantiations(
+        &mut self,
+        span: Span,
+        self_ty: InternedTyId,
+        trait_id: nia_ty::TraitId,
+        trait_args: &[InternedTyId],
+    ) {
+        let nia_ty::TraitId::Source(source_trait_id) = trait_id else {
+            return;
+        };
+        let Some(trait_signature) = self.resolved_trait_signature(source_trait_id) else {
+            return;
+        };
+        for method in &trait_signature.methods {
+            let method_id = GlobalDefId {
+                module_id: source_trait_id.module_id,
+                def_id: method.def_id,
+            };
+            if let Some((def_id, args)) = self.trait_object_impl_method_instance(
+                source_trait_id,
+                &method.name,
+                self_ty,
+                trait_args,
+            ) {
+                self.record_generic_instantiation(def_id, &args, span);
+            } else if method.has_default {
+                let mut args = vec![self_ty];
+                args.extend(trait_args.iter().copied());
+                self.record_generic_instantiation(method_id, &args, span);
+            }
+        }
+    }
+
+    fn trait_object_impl_method_instance(
+        &mut self,
+        trait_id: GlobalDefId,
+        method_name: &str,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let mut matches = Vec::new();
+        for method in self.program_extension_methods.all_methods() {
+            if method.name != method_name {
+                continue;
+            }
+            if method.trait_id != Some(nia_ty::TraitId::Source(trait_id))
+                || method.trait_args.len() != trait_args.len()
+            {
+                continue;
+            }
+            let Some(impl_signature) = self.program_trait_impls.iter().find(|impl_signature| {
+                impl_signature.module_id == method.def_id.module_id
+                    && impl_signature.local_index == method.impl_index
+            }) else {
+                continue;
+            };
+            let impl_interner = impl_signature.interner.clone();
+            let target_ty =
+                nia_ty::import_type_into(&mut self.interner, &impl_interner, method.target_ty);
+            let mut substitutions = std::collections::HashMap::new();
+            if !self.match_type_pattern(target_ty, self_ty, &mut substitutions) {
+                continue;
+            }
+            let method_trait_args = method
+                .trait_args
+                .iter()
+                .map(|arg| nia_ty::import_type_into(&mut self.interner, &impl_interner, *arg))
+                .collect::<Vec<_>>();
+            if !method_trait_args
+                .iter()
+                .zip(trait_args)
+                .all(|(pattern, actual)| {
+                    self.match_type_pattern(*pattern, *actual, &mut substitutions)
+                })
+            {
+                continue;
+            }
+            let args = method
+                .impl_generics
+                .iter()
+                .filter_map(|generic| substitutions.get(generic).copied())
+                .collect::<Vec<_>>();
+            matches.push((method.def_id, args));
+        }
+        match matches.as_slice() {
+            [candidate] => Some(candidate.clone()),
+            _ => None,
+        }
     }
 
     pub(crate) fn is_object_safe_trait_object(
