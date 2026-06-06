@@ -2557,21 +2557,39 @@ pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var left: [5]i32 = [1, 2, 3, 4, 5];
     mem::copy_forwards[i32](&mut left[0..3], &left[1..4]);
-    if left[0] != 2 or left[1] != 3 or left[2] != 4 or left[3] != 4 or left[4] != 5 {
+    let expected_left: [5]i32 = [2, 3, 4, 4, 5];
+    if not mem::equal[i32](&left[..], &expected_left[..]) {
         return process::ExitCode::init(1)!;
     }
 
     var right: [5]i32 = [1, 2, 3, 4, 5];
     mem::copy_backwards[i32](&mut right[1..4], &right[0..3]);
-    if right[0] != 1 or right[1] != 1 or right[2] != 2 or right[3] != 3 or right[4] != 5 {
+    let expected_right: [5]i32 = [1, 1, 2, 3, 5];
+    if not mem::equal[i32](&right[..], &expected_right[..]) {
         return process::ExitCode::init(2)!;
     }
 
     var exact_to: [3]u8 = [0, 0, 0];
     let exact_from: [3]u8 = [7, 8, 9];
     mem::copy_forwards[u8](&mut exact_to[..], &exact_from[..]);
-    if exact_to[0] != 7u8 or exact_to[1] != 8u8 or exact_to[2] != 9u8 {
+    if not mem::equal[u8](&exact_to[..], &exact_from[..]) {
         return process::ExitCode::init(3)!;
+    }
+
+    let low: [2]u8 = [1, 2];
+    let high: [2]u8 = [1, 3];
+    if mem::order[u8](&low[..], &high[..]) != mem::Order::Less {
+        return process::ExitCode::init(4)!;
+    }
+    if mem::order[u8](&high[..], &low[..]) != mem::Order::Greater {
+        return process::ExitCode::init(5)!;
+    }
+    if mem::order[u8](&low[..], &low[..]) != mem::Order::Equal {
+        return process::ExitCode::init(6)!;
+    }
+    let prefix: [1]u8 = [1];
+    if mem::order[u8](&prefix[..], &low[..]) != mem::Order::Less {
+        return process::ExitCode::init(7)!;
     }
     !{}
 }
