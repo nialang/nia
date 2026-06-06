@@ -15,9 +15,9 @@ struct DynamicTraitMethodSearch<'a> {
 }
 
 impl<'a> BodyChecker<'a> {
-    pub(in crate::calls) fn method_candidates_for_struct(
+    pub(in crate::calls) fn method_candidates_for_nominal_def(
         &mut self,
-        struct_id: GlobalDefId,
+        nominal_def_id: GlobalDefId,
         name: &str,
     ) -> Vec<MethodCandidate> {
         self.extensions
@@ -27,7 +27,7 @@ impl<'a> BodyChecker<'a> {
                 let target_ty = self.normalization.normalize(target_ty);
                 matches!(
                     self.interner.get(target_ty),
-                    Some(TyKind::Nominal { def_id, .. }) if *def_id == struct_id
+                    Some(TyKind::Nominal { def_id, .. }) if *def_id == nominal_def_id
                 )
                 .then_some(MethodCandidate { target_ty, method })
             })

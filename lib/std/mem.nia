@@ -217,7 +217,7 @@ extend PageAllocator : Allocator {
         if layout.is_empty() {
             !dangling_block(layout)
         } else {
-            let ptr = os::map_pages(layout.size(), layout.align()).map_err[Error](&[os::Error]::as_mem_error).?;
+            let ptr = os::map_pages(layout.size(), layout.align()).map_err[Error](&os::Error::as_mem_error).?;
             !Block::init(ptr, layout)
         }
     }
@@ -259,7 +259,7 @@ extend PageAllocator : Allocator {
         if block.layout().is_empty() {
             !{}
         } else {
-            os::unmap_pages(block.ptr(), block.size()).map_err[Error](&[os::Error]::as_mem_error)
+            os::unmap_pages(block.ptr(), block.size()).map_err[Error](&os::Error::as_mem_error)
         }
     }
 }

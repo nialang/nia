@@ -585,6 +585,40 @@ extend[T] &T {
 }
 
 #[test]
+fn imported_enum_extension_method_function_pointer_uses_nominal_prefix() {
+    let root = temp_dir("imported_enum_extension_method_function_pointer_uses_nominal_prefix");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .errors;
+
+fn main() i32 {
+    let code: &fn(errors::Error) i32 = &errors::Error::code;
+    code(errors::Error::Invalid)
+}
+"#,
+    );
+    write(
+        &root.join("errors.nia"),
+        r#"
+pub enum Error: i32 {
+    Invalid = 22,
+    _,
+}
+
+extend Error {
+    pub fn code(self) i32 {
+        self as i32
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn imported_extension_method_where_clause_constrains_candidates() {
     let root = temp_dir("imported_extension_method_where_clause_constrains_candidates");
     write(

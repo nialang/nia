@@ -202,32 +202,35 @@ impl<'a> BodyChecker<'a> {
         if let ExprKind::TypeTarget { ty } = &ty_expr.kind {
             return Some(self.ty_for_type(ty));
         }
-        let (struct_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
-        let candidates = self.method_candidates_for_struct(struct_id, name);
+        let (nominal_def_id, mut type_args) = self.type_prefix_instance(ty_expr)?;
+        let candidates = self.method_candidates_for_nominal_def(nominal_def_id, name);
         if type_args.is_empty()
             && let Some(expected) = expected
-            && let Some(inferred) =
-                self.infer_associated_type_args_from_candidates(struct_id, &candidates, expected)
+            && let Some(inferred) = self.infer_associated_type_args_from_candidates(
+                nominal_def_id,
+                &candidates,
+                expected,
+            )
         {
             type_args = inferred;
         }
-        if !type_args.is_empty() || self.type_prefix_has_no_generics(struct_id) {
-            self.check_type_prefix_arg_count(ty_expr.span, struct_id, type_args.len());
+        if !type_args.is_empty() || self.nominal_type_prefix_has_no_generics(nominal_def_id) {
+            self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
             return Some(self.interner.intern(TyKind::Nominal {
-                def_id: struct_id,
+                def_id: nominal_def_id,
                 args: type_args,
             }));
         }
-        self.check_type_prefix_arg_count(ty_expr.span, struct_id, type_args.len());
+        self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
         Some(self.interner.intern(TyKind::Nominal {
-            def_id: struct_id,
+            def_id: nominal_def_id,
             args: Vec::new(),
         }))
     }
 
     fn infer_associated_type_args_from_expected_return(
         &mut self,
-        struct_id: GlobalDefId,
+        nominal_def_id: GlobalDefId,
         signature: &FunctionSignature,
         expected: InternedTyId,
     ) -> Option<Vec<InternedTyId>> {
@@ -239,10 +242,10 @@ impl<'a> BodyChecker<'a> {
         else {
             return None;
         };
-        if expected_def != struct_id {
+        if expected_def != nominal_def_id {
             return None;
         }
-        let substitutions = self.struct_generic_substitutions(struct_id, &expected_args);
+        let substitutions = self.nominal_type_generic_substitutions(nominal_def_id, &expected_args);
         let return_type = self.substitute_generics(signature.return_type, &substitutions);
         if self.types_match(expected, return_type) {
             Some(expected_args)
@@ -253,7 +256,7 @@ impl<'a> BodyChecker<'a> {
 
     fn infer_associated_type_args_from_candidates(
         &mut self,
-        struct_id: GlobalDefId,
+        nominal_def_id: GlobalDefId,
         candidates: &[MethodCandidate],
         expected: InternedTyId,
     ) -> Option<Vec<InternedTyId>> {
@@ -265,9 +268,11 @@ impl<'a> BodyChecker<'a> {
             else {
                 continue;
             };
-            if let Some(args) = self
-                .infer_associated_type_args_from_expected_return(struct_id, &signature, expected)
-                && !inferred.contains(&args)
+            if let Some(args) = self.infer_associated_type_args_from_expected_return(
+                nominal_def_id,
+                &signature,
+                expected,
+            ) && !inferred.contains(&args)
             {
                 inferred.push(args);
             }
@@ -278,9 +283,12 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(in crate::calls) fn type_prefix_has_no_generics(&mut self, def_id: GlobalDefId) -> bool {
-        self.resolved_struct_signature(def_id)
-            .map(|resolved| resolved.signature.generics.is_empty())
+    pub(in crate::calls) fn nominal_type_prefix_has_no_generics(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> bool {
+        self.nominal_type_generics(def_id)
+            .map(|generics| generics.is_empty())
             .unwrap_or(false)
     }
 
@@ -290,24 +298,16 @@ impl<'a> BodyChecker<'a> {
         def_id: GlobalDefId,
         actual: usize,
     ) -> bool {
-        let Some(signature) = self
-            .resolved_struct_signature(def_id)
-            .map(|resolved| resolved.signature)
-        else {
+        let Some(generics) = self.nominal_type_generics(def_id) else {
             return true;
         };
-        let expected = signature.generics.len();
+        let expected = generics.len();
         if expected == actual {
             return true;
         }
         let name = self
-            .resolved_struct_signature(def_id)
-            .map(|resolved| resolved.signature.span)
-            .and_then(|_| {
-                (def_id.module_id == self.defs.module_id)
-                    .then(|| self.defs.defs.get(def_id.def_id))
-                    .flatten()
-            })
+            .defs_for_module(def_id.module_id)
+            .and_then(|defs| defs.defs.get(def_id.def_id))
             .map(|def| def.name.as_str())
             .unwrap_or("<unknown>");
         self.diagnostics.push(Diagnostic::user_error_at(

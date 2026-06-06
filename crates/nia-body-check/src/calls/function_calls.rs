@@ -133,17 +133,18 @@ impl<'a> BodyChecker<'a> {
             let target_substitutions = self.extension_target_substitutions(method_id, target_ty);
             (Some(target_ty), method_id, target_substitutions)
         } else {
-            let (struct_id, type_args) = self.type_prefix_instance(ty_expr)?;
-            let candidates = self.method_candidates_for_struct(struct_id, name);
+            let (nominal_def_id, type_args) = self.type_prefix_instance(ty_expr)?;
+            let candidates = self.method_candidates_for_nominal_def(nominal_def_id, name);
             let method_id = self.single_method_candidate(span, name, candidates)?;
-            let target_ty = (!type_args.is_empty() || self.type_prefix_has_no_generics(struct_id))
-                .then(|| {
-                    self.check_type_prefix_arg_count(ty_expr.span, struct_id, type_args.len());
-                    self.interner.intern(TyKind::Nominal {
-                        def_id: struct_id,
-                        args: type_args,
-                    })
-                });
+            let target_ty = (!type_args.is_empty()
+                || self.nominal_type_prefix_has_no_generics(nominal_def_id))
+            .then(|| {
+                self.check_type_prefix_arg_count(ty_expr.span, nominal_def_id, type_args.len());
+                self.interner.intern(TyKind::Nominal {
+                    def_id: nominal_def_id,
+                    args: type_args,
+                })
+            });
             let target_substitutions = target_ty
                 .map(|target_ty| self.extension_target_substitutions(method_id, target_ty))
                 .unwrap_or_default();
