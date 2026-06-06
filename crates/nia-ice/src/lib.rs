@@ -4,7 +4,6 @@ use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use nia_diagnostic::Diagnostic;
-use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ice {
@@ -28,11 +27,20 @@ impl Ice {
     }
 
     pub fn diagnostic(&self) -> Diagnostic {
-        Diagnostic::error(Span::default(), self.render_message())
+        let mut diagnostic = Diagnostic::internal_error("I0001", self.render_summary())
+            .note("this is a compiler bug; please report it with the source file and command that triggered it");
+        if let Some(location) = &self.location {
+            diagnostic = diagnostic.debug("panic_location", location);
+        }
+        diagnostic.finish()
+    }
+
+    pub fn render_summary(&self) -> String {
+        format!("internal compiler error: {}", self.message)
     }
 
     pub fn render_message(&self) -> String {
-        let mut rendered = format!("internal compiler error: {}", self.message);
+        let mut rendered = self.render_summary();
         if let Some(location) = &self.location {
             rendered.push_str(&format!("\ncompiler panic location: {location}"));
         }
@@ -105,6 +113,7 @@ fn clean_panic_message(message: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_diagnostic::DiagnosticCategory;
 
     #[test]
     fn catches_string_panics_as_ice() {
@@ -117,6 +126,29 @@ mod tests {
         let message = Ice::new("failed invariant").render_message();
         assert!(message.contains("internal compiler error"));
         assert!(message.contains("Please report it"));
+    }
+
+    #[test]
+    fn converts_to_internal_diagnostic() {
+        let diagnostic = Ice::new("failed invariant")
+            .with_location(Some("main.rs:1:2".to_string()))
+            .diagnostic();
+
+        assert_eq!(diagnostic.category, DiagnosticCategory::Internal);
+        assert_eq!(diagnostic.code.as_str(), "I0001");
+        assert!(diagnostic.summary.contains("failed invariant"));
+        assert!(
+            diagnostic
+                .notes
+                .iter()
+                .any(|note| note.contains("compiler bug"))
+        );
+        assert!(
+            diagnostic
+                .debug
+                .iter()
+                .any(|field| field.key == "panic_location")
+        );
     }
 
     #[test]

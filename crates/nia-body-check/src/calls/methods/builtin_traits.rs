@@ -18,7 +18,8 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let method = BuiltinTraitMethod::from_name(call.name)?;
         if call.type_args.is_some() {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 call.span,
                 "builtin trait methods do not take method generic arguments",
             ));
@@ -76,7 +77,8 @@ impl<'a> BodyChecker<'a> {
         let span = expr.span;
         let method = BuiltinTraitMethod::from_name(name)?;
         if method_type_args.is_some() {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 "builtin trait methods do not take method generic arguments",
             ));
@@ -101,7 +103,8 @@ impl<'a> BodyChecker<'a> {
         let op = BuiltinOperatorOp::from_method(method)?;
         let trait_id = method.trait_id();
         let Some((receiver, value_args)) = args.split_first() else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!("receiver method `{name}` requires a receiver argument"),
             ));
@@ -119,7 +122,8 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -185,7 +189,8 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let trait_id = call.method.trait_id();
         let Some((receiver, value_args)) = call.args.split_first() else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 call.span,
                 format!(
                     "receiver method `{}` requires a receiver argument",
@@ -212,7 +217,8 @@ impl<'a> BodyChecker<'a> {
             TraitId::Builtin(trait_id),
             trait_args.clone(),
         ) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 call.span,
                 format!(
                     "trait bound not satisfied: {}: {}",
@@ -305,7 +311,8 @@ impl<'a> BodyChecker<'a> {
                 for arg in args {
                     self.check_expr(arg);
                 }
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     span,
                     format!(
                         "builtin trait method `{}` has unsupported arity",

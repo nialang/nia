@@ -15,7 +15,8 @@ impl BackendValidator<'_> {
         span: Span,
     ) {
         let Some(field) = field else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 "backend IR aggregate literal has invalid field",
             ));
@@ -37,14 +38,16 @@ impl BackendValidator<'_> {
         message: &str,
     ) -> Option<InternedTyId> {
         let Some((def_id, args)) = self.field_base_type(base_ty) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 "backend IR field base type is not nominal",
             ));
             return None;
         };
         let Some(fields) = self.aggregate_fields(def_id, &args) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 format!("backend IR aggregate fields are missing for {def_id:?}"),
             ));
@@ -53,8 +56,11 @@ impl BackendValidator<'_> {
         if let Some(field) = fields.iter().find(|candidate| candidate.def_id == field) {
             return Some(field.ty);
         }
-        self.diagnostics
-            .push(Diagnostic::error(span, format!("{message} {field:?}")));
+        self.diagnostics.push(Diagnostic::internal_error_at(
+            "I0300",
+            span,
+            format!("{message} {field:?}"),
+        ));
         None
     }
 
@@ -69,8 +75,11 @@ impl BackendValidator<'_> {
             && !self.index.struct_instances_by_def.contains_key(&def_id)
             && !self.index.union_instances_by_def.contains_key(&def_id)
         {
-            self.diagnostics
-                .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                span,
+                format!("{message} {def_id:?}"),
+            ));
         }
     }
 
@@ -81,8 +90,11 @@ impl BackendValidator<'_> {
         message: &str,
     ) {
         if !self.index.enum_variants.contains_key(&def_id) {
-            self.diagnostics
-                .push(Diagnostic::error(span, format!("{message} {def_id:?}")));
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
+                span,
+                format!("{message} {def_id:?}"),
+            ));
         }
     }
 

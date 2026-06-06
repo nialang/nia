@@ -84,12 +84,12 @@ pub fn eval_config_bool(
     let expr = match nia_comptime_ir::lower_expr_early(expr) {
         Ok(expr) => expr,
         Err(err) => {
-            diagnostics.push(Diagnostic::error(err.span, err.message));
+            diagnostics.push(Diagnostic::user_error_at("E0103", err.span, err.message));
             return None;
         }
     };
     nia_comptime_engine::eval_early_comptime_bool_expr(&expr, &mut env)
-        .map_err(|err| diagnostics.push(Diagnostic::error(err.span, err.message)))
+        .map_err(|err| diagnostics.push(Diagnostic::user_error_at("E0103", err.span, err.message)))
         .ok()
 }
 
@@ -361,7 +361,7 @@ impl Pruner<'_> {
             Ok(active) => active,
             Err(err) => {
                 self.diagnostics
-                    .push(Diagnostic::error(err.span, err.message));
+                    .push(Diagnostic::user_error_at("E0103", err.span, err.message));
                 ActiveModuleItemTree::new(Vec::new(), Default::default())
             }
         };
@@ -798,14 +798,14 @@ impl Pruner<'_> {
             Ok(expr) => expr,
             Err(err) => {
                 self.diagnostics
-                    .push(Diagnostic::error(err.span, err.message));
+                    .push(Diagnostic::user_error_at("E0103", err.span, err.message));
                 return None;
             }
         };
         nia_comptime_engine::eval_early_comptime_bool_expr(&expr, &mut env)
             .map_err(|err| {
                 self.diagnostics
-                    .push(Diagnostic::error(err.span, err.message))
+                    .push(Diagnostic::user_error_at("E0103", err.span, err.message))
             })
             .ok()
     }
@@ -845,7 +845,7 @@ fn lower_early_comptime_functions(module: &Module) -> EarlyComptimeFunctions {
             Ok(lowered) => {
                 functions.insert(function.name.clone(), lowered);
             }
-            Err(err) => diagnostics.push(Diagnostic::error(err.span, err.message)),
+            Err(err) => diagnostics.push(Diagnostic::user_error_at("E0103", err.span, err.message)),
         }
     }
     EarlyComptimeFunctions {
@@ -928,7 +928,7 @@ comptime if enabled() {
 
         assert!(
             result.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("unknown target comptime function `enabled`")),
             "{:?}",
             result.diagnostics
@@ -963,7 +963,7 @@ comptime if enabled[bool]() {
 
         assert!(
             result.diagnostics.iter().any(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("target conditions cannot call generic `comptime fn`")),
             "{:?}",
             result.diagnostics

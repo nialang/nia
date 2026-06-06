@@ -755,16 +755,25 @@ impl<'a> LocalResolver<'a> {
             kind,
             span,
         });
+        let debug_node_key = node_key.clone();
         self.node_local_defs.insert(node_key, id);
         let Some(scope) = self.scopes.last_mut() else {
-            self.diagnostics.push(Diagnostic::error(
-                span,
-                "internal compiler error: local resolver has no active scope",
-            ));
+            self.diagnostics.push(
+                Diagnostic::internal_error("I0105", "local resolver has no active scope")
+                    .primary(
+                        span,
+                        "local definition reached resolver without an active scope",
+                    )
+                    .debug("name", name)
+                    .debug("kind", kind)
+                    .debug("node_key", debug_node_key)
+                    .finish(),
+            );
             return;
         };
         if let Some(existing) = scope.get(name) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0302",
                 span,
                 format!("{duplicate_message}: `{name}`"),
             ));
@@ -969,13 +978,13 @@ fn main(a: i32, a: i32) i32 {
             locals
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate parameter name"))
+                .any(|diagnostic| diagnostic.summary.contains("duplicate parameter name"))
         );
         assert!(
             locals
                 .diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate local binding"))
+                .any(|diagnostic| diagnostic.summary.contains("duplicate local binding"))
         );
     }
 

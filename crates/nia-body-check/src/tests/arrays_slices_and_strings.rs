@@ -99,7 +99,7 @@ fn main(xs: & [i32]) i32 {
     assert!(
         checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
-                .message
+                .summary
                 .contains("range index expression must be borrowed")
         }),
         "{:?}",
@@ -109,7 +109,7 @@ fn main(xs: & [i32]) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| { diagnostic.message.contains("slice is read-only") }),
+            .any(|diagnostic| { diagnostic.summary.contains("slice is read-only") }),
         "{:?}",
         checked.diagnostics
     );
@@ -130,7 +130,7 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("array literal element"))
+            .filter(|diagnostic| diagnostic.summary.contains("array literal element"))
             .count(),
         2
     );
@@ -157,7 +157,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("array literal length mismatch"))
+            .filter(|diagnostic| diagnostic.summary.contains("array literal length mismatch"))
             .count(),
         2
     );
@@ -165,13 +165,13 @@ fn main() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
 }
 
@@ -221,7 +221,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("array literal element"))
+            .filter(|diagnostic| diagnostic.summary.contains("array literal element"))
             .count(),
         1,
         "{:?}",
@@ -229,7 +229,7 @@ fn main() i32 {
     );
     assert!(
         !checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("array literal requires an expected")),
         "{:?}",
         checked.diagnostics
@@ -238,7 +238,7 @@ fn main() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument")),
+            .any(|diagnostic| diagnostic.summary.contains("call argument")),
         "{:?}",
         checked.diagnostics
     );
@@ -256,9 +256,9 @@ fn main() i32 {
     );
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("array repeat count is not a valid constant")
-            && diagnostic.message.contains("division by zero")
+            && diagnostic.summary.contains("division by zero")
     }));
 }
 
@@ -325,7 +325,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .filter(|diagnostic| diagnostic.summary.contains("binding initializer"))
             .count(),
         3
     );
@@ -333,7 +333,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("cannot cast u32 to char")),
+            .any(|diagnostic| diagnostic.summary.contains("cannot cast u32 to char")),
         "{:?}",
         checked.diagnostics
     );
@@ -341,7 +341,7 @@ fn main() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("text"))
+            .any(|diagnostic| diagnostic.summary.contains("text"))
     );
 }
 
@@ -367,19 +367,19 @@ fn main(flag: bool) i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("index"))
+            .any(|diagnostic| diagnostic.summary.contains("index"))
     );
 }
 
@@ -426,7 +426,7 @@ fn make() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer")),
         "{:?}",
         checked.diagnostics
     );
@@ -434,7 +434,7 @@ fn make() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument")),
+            .any(|diagnostic| diagnostic.summary.contains("call argument")),
         "{:?}",
         checked.diagnostics
     );
@@ -442,7 +442,7 @@ fn make() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("reference target")),
+            .any(|diagnostic| diagnostic.summary.contains("reference target")),
         "{:?}",
         checked.diagnostics
     );
@@ -450,7 +450,7 @@ fn make() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("slice target")),
+            .any(|diagnostic| diagnostic.summary.contains("slice target")),
         "{:?}",
         checked.diagnostics
     );
@@ -513,7 +513,7 @@ fn main() void {
     let messages = checked
         .diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.message.as_str())
+        .map(|diagnostic| diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert!(
         messages

@@ -29,14 +29,14 @@ fn main(flag: bool, x: i32) bool {
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied: bool: BitNot")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied: i32: Not")),
         "{:?}",
         checked.diagnostics
@@ -74,7 +74,7 @@ fn main() usize {
         rejected
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("requires T: Sized")),
+            .any(|diagnostic| diagnostic.summary.contains("requires T: Sized")),
         "{:?}",
         rejected.diagnostics
     );
@@ -139,7 +139,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("invalid cast"))
+            .filter(|diagnostic| diagnostic.summary.contains("invalid cast"))
             .count(),
         1,
         "{:?}",
@@ -150,7 +150,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("non-exhaustive open enum switch"))
             .count(),
         1,
@@ -161,7 +161,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("i32 to Flag")),
+            .any(|diagnostic| diagnostic.summary.contains("i32 to Flag")),
         "{:?}",
         checked.diagnostics
     );
@@ -170,7 +170,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("out of range for Flag backing type"))
             .count(),
         2,
@@ -179,7 +179,7 @@ fn closed_integer_pattern(closed: Closed) i32 {
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("type mismatch in switch pattern")),
         "{:?}",
         checked.diagnostics
@@ -201,14 +201,14 @@ fn main(flag: bool) i32 {
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied: i32: Shl[bool]")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied: bool: Shl[i32]")),
         "{:?}",
         checked.diagnostics
@@ -235,18 +235,18 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("global initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("global initializer"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("global is let"))
+            .any(|diagnostic| diagnostic.summary.contains("global is let"))
     );
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("global type is not available"))
+            .any(|diagnostic| diagnostic.summary.contains("global type is not available"))
     );
 }

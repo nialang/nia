@@ -397,7 +397,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("`comptime fn` can only be called from a comptime expression")),
         "{:?}",
         program.diagnostics
@@ -715,7 +715,7 @@ comptime let n: usize = width();
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("bool")),
         "{:?}",
         program.diagnostics
     );
@@ -743,7 +743,7 @@ comptime let n: usize = width();
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("bool")),
         "{:?}",
         program.diagnostics
     );
@@ -903,7 +903,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("cannot assign to immutable comptime local `i`")),
         "{:?}",
         program.diagnostics
@@ -930,7 +930,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("primitive type usize")),
         "{:?}",
         program.diagnostics
@@ -957,7 +957,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("primitive type bool")),
         "{:?}",
         program.diagnostics
@@ -984,7 +984,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("expected array type")),
         "{:?}",
         program.diagnostics
@@ -1012,7 +1012,7 @@ comptime let n: usize = width();
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 2")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("expected length 2")),
         "{:?}",
         program.diagnostics
     );
@@ -1038,7 +1038,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("expected optional type")),
         "{:?}",
         program.diagnostics
@@ -1065,7 +1065,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("expected error union type")),
         "{:?}",
         program.diagnostics
@@ -1093,7 +1093,7 @@ comptime let n: usize = width();
         program.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("comptime struct value is missing field `enabled`")
         }),
         "{:?}",
@@ -1127,7 +1127,7 @@ comptime let n: usize = width();
         program.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("comptime struct value is missing field `y`")
         }),
         "{:?}",
@@ -1156,7 +1156,7 @@ comptime let n: usize = width();
         program.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("comptime struct value has extra field `enabled`")
         }),
         "{:?}",
@@ -1190,7 +1190,7 @@ comptime let n: usize = width();
         program.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("comptime struct value has extra field `z`")
         }),
         "{:?}",
@@ -1353,7 +1353,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("cannot assign to immutable comptime local `p`")),
         "{:?}",
         program.diagnostics
@@ -1384,7 +1384,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("primitive type usize")),
         "{:?}",
         program.diagnostics
@@ -1506,7 +1506,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("comptime for-in range requires a start bound")),
         "{:?}",
         program.diagnostics
@@ -1536,7 +1536,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("comptime loop control flow escaped its loop")),
         "{:?}",
         program.diagnostics
@@ -1569,7 +1569,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("comptime loop exceeded")),
         "{:?}",
         program.diagnostics
@@ -1654,7 +1654,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("comptime-only value")),
         "{:?}",
         program.diagnostics
@@ -1681,7 +1681,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("expected string type")),
         "{:?}",
         program.diagnostics
@@ -1708,7 +1708,7 @@ comptime let n: usize = width();
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("primitive type bool")),
         "{:?}",
         program.diagnostics
@@ -1735,7 +1735,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("unsupported builtin call in comptime expression")),
         "{:?}",
         program.diagnostics
@@ -2095,7 +2095,7 @@ comptime let n: usize = id(switch 2usize {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("switch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("switch")),
         "{:?}",
         program.diagnostics
     );
@@ -2123,7 +2123,7 @@ comptime let n: usize = id(switch true {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("switch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("switch")),
         "{:?}",
         program.diagnostics
     );
@@ -2248,7 +2248,7 @@ comptime let n: usize = first([8usize; true]);
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("array repeat count")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("array repeat count")),
         "{:?}",
         program.diagnostics
     );
@@ -2833,7 +2833,7 @@ comptime let n: usize = id(comptime if 1usize {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("bool")),
         "{:?}",
         program.diagnostics
     );
@@ -3047,7 +3047,7 @@ comptime let n: usize = id(true as usize);
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("cast")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("cast")),
         "{:?}",
         program.diagnostics
     );
@@ -3072,7 +3072,7 @@ comptime let n: usize = id(({width: 4usize}) as usize);
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("cast")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("cast")),
         "{:?}",
         program.diagnostics
     );
@@ -3155,7 +3155,7 @@ comptime let value: bool = id(1usize == true);
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("matching operand types")),
         "{:?}",
         program.diagnostics
@@ -3181,7 +3181,7 @@ comptime let value: bool = id(true and 1usize);
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("bool")),
         "{:?}",
         program.diagnostics
     );
@@ -3206,7 +3206,7 @@ comptime let value: bool = id(not 1usize);
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("bool")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("bool")),
         "{:?}",
         program.diagnostics
     );
@@ -3227,7 +3227,7 @@ comptime let casted: f32 = 1e40f64 as f32;
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("out of range for f32")),
         "{:?}",
         program.diagnostics
@@ -3235,7 +3235,7 @@ comptime let casted: f32 = 1e40f64 as f32;
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("cannot be represented as `f32`")),
         "{:?}",
         program.diagnostics
@@ -3261,7 +3261,7 @@ comptime let selected: u8 = config.values[1];
         .filter(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("out of range for u8")
         })
         .count();
@@ -3290,7 +3290,7 @@ comptime let packet: Packet[u8] = Packet[u8]{tag: 1u16, payload: 300u16};
         .filter(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("out of range for u8")
         })
         .count();
@@ -3324,7 +3324,7 @@ comptime let selected: u8 = config::packet.payload;
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("out of range for u8")),
         "{:?}",
         program.diagnostics
@@ -3455,7 +3455,7 @@ comptime let n: usize = accept_short(@builtin().target.os);
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 4")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("expected length 4")),
         "{:?}",
         program.diagnostics
     );
@@ -3578,7 +3578,7 @@ comptime let os = target_os();
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 4")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("expected length 4")),
         "{:?}",
         program.diagnostics
     );
@@ -3718,7 +3718,7 @@ comptime let os = config::target_os();
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("expected length 4")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("expected length 4")),
         "{:?}",
         program.diagnostics
     );
@@ -4262,7 +4262,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("cannot infer comptime generic type argument `T`")),
         "{:?}",
         program.diagnostics
@@ -4531,7 +4531,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("cyclic comptime dependency")),
         "{:?}",
         program.diagnostics
@@ -4557,7 +4557,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("comptime expression can only use comptime bindings")),
         "{:?}",
         program.diagnostics

@@ -62,7 +62,7 @@ fn main(value: &Box[bool]) void {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied")),
         "{:?}",
         program.diagnostics
@@ -94,7 +94,7 @@ fn main(ptr: Ptr[i32]) void {
     assert!(
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("cannot cast void to usize")),
         "{:?}",
         program.diagnostics
@@ -102,7 +102,7 @@ fn main(ptr: Ptr[i32]) void {
     assert!(
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("cannot cast <error type> to usize")),
         "{:?}",
         program.diagnostics
@@ -228,7 +228,7 @@ fn main(pair: Pair[i32, i32]) i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("ambiguous method `rank`")),
         "{:?}",
         program.diagnostics
@@ -259,7 +259,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("extend target must be an extendable value type")),
         "{:?}",
         program.diagnostics
@@ -267,7 +267,7 @@ fn main() i32 {
     assert!(
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("associated functions are not supported")),
         "{:?}",
         program.diagnostics
@@ -308,7 +308,7 @@ pub struct RemoteBox[T] {
         .filter(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("generic argument count mismatch")
         })
         .count();
@@ -343,7 +343,7 @@ pub fn id[T](value: T) T {
         !program.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("binding initializer")
         }),
         "{:?}",
@@ -353,7 +353,7 @@ pub fn id[T](value: T) T {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| { diagnostic.diagnostic.message.contains("call argument") })
+            .any(|diagnostic| { diagnostic.diagnostic.summary.contains("call argument") })
     );
 }
 
@@ -389,7 +389,7 @@ pub fn choose[T](left: T, right: T) T {
         !program.diagnostics.iter().any(|diagnostic| {
             diagnostic
                 .diagnostic
-                .message
+                .summary
                 .contains("binding initializer")
         }),
         "{:?}",
@@ -398,7 +398,7 @@ pub fn choose[T](left: T, right: T) T {
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("conflicting inferred type for generic parameter `T`")
     }));
 }
@@ -541,7 +541,7 @@ fn main() i32 {
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("recursive generic instantiation")
     }));
 }
@@ -570,7 +570,7 @@ fn main() i32 {
     assert!(program.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("recursive generic instantiation")
     }));
 }

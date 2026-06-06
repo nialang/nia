@@ -53,7 +53,7 @@ fn bad(c: Color) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("non-exhaustive enum switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive enum switch"))
             .count(),
         1
     );
@@ -61,13 +61,13 @@ fn bad(c: Color) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("switch pattern"))
+            .any(|diagnostic| diagnostic.summary.contains("switch pattern"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("unknown enum variant"))
+            .any(|diagnostic| diagnostic.summary.contains("unknown enum variant"))
     );
 }
 
@@ -113,7 +113,7 @@ fn bad(x: u32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("type mismatch in switch arms")),
+            .any(|diagnostic| diagnostic.summary.contains("type mismatch in switch arms")),
         "{:?}",
         checked.diagnostics
     );
@@ -121,7 +121,7 @@ fn bad(x: u32) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("non-exhaustive enum switch"))
+            .filter(|diagnostic| diagnostic.summary.contains("non-exhaustive enum switch"))
             .count(),
         0,
         "{:?}",
@@ -177,7 +177,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("type mismatch in switch arms"))
+            .filter(|diagnostic| diagnostic.summary.contains("type mismatch in switch arms"))
             .count(),
         2,
         "{:?}",
@@ -187,7 +187,7 @@ fn main() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("statement_arm_never")),
+            .any(|diagnostic| diagnostic.summary.contains("statement_arm_never")),
         "{:?}",
         checked.diagnostics
     );
@@ -219,7 +219,7 @@ fn bad(value: u8) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("out of range for u8"))
+            .filter(|diagnostic| diagnostic.summary.contains("out of range for u8"))
             .count(),
         1,
         "{:?}",
@@ -227,7 +227,7 @@ fn bad(value: u8) i32 {
     );
     assert!(
         !checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("type mismatch in switch pattern")),
         "{:?}",
         checked.diagnostics
@@ -281,7 +281,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("switch pattern overlaps")),
+            .any(|diagnostic| diagnostic.summary.contains("switch pattern overlaps")),
         "{:?}",
         checked.diagnostics
     );
@@ -289,7 +289,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("switch range pattern is empty")),
+            .any(|diagnostic| diagnostic.summary.contains("switch range pattern is empty")),
         "{:?}",
         checked.diagnostics
     );
@@ -297,7 +297,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("integer switch target")),
+            .any(|diagnostic| diagnostic.summary.contains("integer switch target")),
         "{:?}",
         checked.diagnostics
     );
@@ -305,7 +305,7 @@ fn non_constant(value: i32, start: i32) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("compile-time integer constant")),
+            .any(|diagnostic| diagnostic.summary.contains("compile-time integer constant")),
         "{:?}",
         checked.diagnostics
     );
@@ -408,18 +408,18 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("trait bound not satisfied"))
+            .any(|diagnostic| diagnostic.summary.contains("trait bound not satisfied"))
     );
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("explicit"))
+            .any(|diagnostic| diagnostic.summary.contains("explicit"))
     );
 }

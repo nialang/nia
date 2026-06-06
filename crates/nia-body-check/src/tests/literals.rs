@@ -29,14 +29,14 @@ fn main() u8 {
     let range_errors = checked
         .diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic.message.contains("out of range for u8"))
+        .filter(|diagnostic| diagnostic.summary.contains("out of range for u8"))
         .count();
     assert_eq!(range_errors, 6, "{:?}", checked.diagnostics);
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("type mismatch"))
+            .any(|diagnostic| diagnostic.summary.contains("type mismatch"))
     );
 }
 
@@ -61,7 +61,7 @@ fn main() f64 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("out of range for F32")),
+            .any(|diagnostic| diagnostic.summary.contains("out of range for F32")),
         "{:?}",
         checked.diagnostics
     );
@@ -69,7 +69,7 @@ fn main() f64 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer")),
         "{:?}",
         checked.diagnostics
     );
@@ -77,7 +77,7 @@ fn main() f64 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument")),
+            .any(|diagnostic| diagnostic.summary.contains("call argument")),
         "{:?}",
         checked.diagnostics
     );
@@ -209,7 +209,7 @@ fn main() usize {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer")),
         "{:?}",
         checked.diagnostics
     );
@@ -217,27 +217,27 @@ fn main() usize {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("out of range for u8")),
+            .any(|diagnostic| diagnostic.summary.contains("out of range for u8")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("invalid integer literal suffix `foo`")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("invalid float literal suffix `foo`")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("invalid float literal suffix `usize`")),
         "{:?}",
         checked.diagnostics
@@ -265,13 +265,13 @@ fn main() usize {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("out of range for u8")),
+            .any(|diagnostic| diagnostic.summary.contains("out of range for u8")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().all(|diagnostic| !diagnostic
-            .message
+            .summary
             .contains("invalid integer literal suffix")),
         "{:?}",
         checked.diagnostics
@@ -299,13 +299,13 @@ fn main() usize {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("out of range for F32")),
+            .any(|diagnostic| diagnostic.summary.contains("out of range for F32")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("invalid float literal suffix `usize`")),
         "{:?}",
         checked.diagnostics
@@ -346,7 +346,7 @@ fn main(ptr: & u8, other: & i32, flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("invalid cast"))
+            .filter(|diagnostic| diagnostic.summary.contains("invalid cast"))
             .count(),
         3,
         "{:?}",
@@ -357,7 +357,7 @@ fn main(ptr: & u8, other: & i32, flag: bool) i32 {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("function values are not supported"))
             .count(),
         1,

@@ -432,9 +432,10 @@ impl ComptimeModuleLowerer<'_> {
                 self.module
                     .insert_function(self.global_def_id(def_id), function);
             }
-            Err(err) => self
-                .diagnostics
-                .push(Diagnostic::error(err.span, err.message)),
+            Err(err) => {
+                self.diagnostics
+                    .push(Diagnostic::user_error_at("E0401", err.span, err.message))
+            }
         }
     }
 
@@ -447,7 +448,7 @@ impl ComptimeModuleLowerer<'_> {
             Ok(expr) => Some(expr),
             Err(err) => {
                 self.diagnostics
-                    .push(Diagnostic::error(err.span, err.message));
+                    .push(Diagnostic::user_error_at("E0401", err.span, err.message));
                 None
             }
         }
@@ -920,7 +921,8 @@ impl Analyzer<'_> {
             if let Some((min, max)) = range
                 && (value < min || value > max)
             {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0401",
                     variant.span(),
                     format!("enum variant value {value} is out of range for backing type"),
                 ));
@@ -970,8 +972,11 @@ impl Analyzer<'_> {
             return Some(value);
         }
         if !self.active.insert(key) {
-            self.diagnostics
-                .push(Diagnostic::error(span, "cyclic comptime dependency"));
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0401",
+                span,
+                "cyclic comptime dependency",
+            ));
             return None;
         }
         let module_id = self.key_module_id(key);
@@ -1060,7 +1065,8 @@ impl Analyzer<'_> {
                 if let ComptimeValueType::Array { len: Some(len), .. } = ty
                     && values.len() as u64 != *len
                 {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0401",
                         span,
                         format!(
                             "comptime array length {} does not match expected length {len}",
@@ -1235,7 +1241,7 @@ impl Analyzer<'_> {
                     && self.runtime_array_is_char_array(ty)
                     && let Some(expected_len) = self.runtime_array_len(ty)
                 {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at("E0401", 
                         span,
                         format!(
                             "comptime array length {} does not match expected length {expected_len}",
@@ -1251,7 +1257,7 @@ impl Analyzer<'_> {
                 if let Some(expected_len) = self.runtime_array_len(ty)
                     && values.len() as u64 != expected_len
                 {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at("E0401", 
                         span,
                         format!(
                             "comptime array length {} does not match expected length {expected_len}",
@@ -1339,7 +1345,8 @@ impl Analyzer<'_> {
                     return;
                 };
                 if *value < min || *value > max {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0401",
                         span,
                         format!(
                             "comptime integer value {value} is out of range for {}",
@@ -1352,7 +1359,8 @@ impl Analyzer<'_> {
             (ComptimeValue::Float(value), PrimitiveTy::F32) => {
                 let value = *value as f32;
                 if !value.is_finite() {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0401",
                         span,
                         "comptime float value is out of range for f32",
                     ));
@@ -1360,7 +1368,8 @@ impl Analyzer<'_> {
             }
             (ComptimeValue::Float(value), PrimitiveTy::F64) => {
                 if !value.is_finite() {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0401",
                         span,
                         "comptime float value is out of range for f64",
                     ));
@@ -1405,28 +1414,32 @@ impl Analyzer<'_> {
     }
 
     fn push_comptime_type_mismatch(&mut self, span: Span, expected: &str) {
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0401",
             span,
             format!("comptime value does not match expected {expected} type"),
         ));
     }
 
     fn push_comptime_missing_struct_field(&mut self, span: Span, name: &str) {
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0401",
             span,
             format!("comptime struct value is missing field `{name}`"),
         ));
     }
 
     fn push_comptime_extra_struct_field(&mut self, span: Span, name: &str) {
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0401",
             span,
             format!("comptime struct value has extra field `{name}`"),
         ));
     }
 
     fn push_comptime_primitive_mismatch(&mut self, span: Span, primitive: PrimitiveTy) {
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0401",
             span,
             format!(
                 "comptime value does not match primitive type {}",
@@ -1614,7 +1627,7 @@ impl Analyzer<'_> {
 
     fn push_engine_error(&mut self, err: ComptimeError) {
         self.diagnostics
-            .push(Diagnostic::error(err.span, err.message));
+            .push(Diagnostic::user_error_at("E0401", err.span, err.message));
     }
 
     fn initializer_for_key(&self, key: ComptimeKey) -> Option<&ResolvedComptimeExpr> {
@@ -4601,7 +4614,8 @@ fn validate_assignment_shape(
     match (value, previous) {
         (ComptimeValue::Array(values), ComptimeValue::Array(previous_values)) => {
             if values.len() != previous_values.len() {
-                diagnostics.push(Diagnostic::error(
+                diagnostics.push(Diagnostic::user_error_at(
+                    "E0401",
                     span,
                     format!(
                         "comptime array length {} does not match expected length {}",
@@ -4623,7 +4637,8 @@ fn validate_assignment_shape(
                 if let Some(value) = values.get(name) {
                     validate_assignment_shape(diagnostics, span, value, previous);
                 } else {
-                    diagnostics.push(Diagnostic::error(
+                    diagnostics.push(Diagnostic::user_error_at(
+                        "E0401",
                         span,
                         format!("comptime struct value is missing field `{name}`"),
                     ));
@@ -4631,7 +4646,8 @@ fn validate_assignment_shape(
             }
             for name in values.keys() {
                 if !previous_names.contains(name.as_str()) {
-                    diagnostics.push(Diagnostic::error(
+                    diagnostics.push(Diagnostic::user_error_at(
+                        "E0401",
                         span,
                         format!("comptime struct value has extra field `{name}`"),
                     ));
@@ -5110,8 +5126,8 @@ comptime fn add_one(x: usize) usize {
 
         assert!(
             comptime_module.diagnostics.iter().any(|diagnostic| {
-                diagnostic.span == removed_span
-                    && diagnostic.message == "failed to resolve comptime local binding"
+                diagnostic.primary_span() == Some(removed_span)
+                    && diagnostic.summary == "failed to resolve comptime local binding"
             }),
             "{:?}",
             comptime_module.diagnostics

@@ -660,13 +660,15 @@ impl<'a> SignatureCollector<'a> {
             match attribute.path.as_slice() {
                 [name] if name == "naked" => {
                     if !attribute.args.is_empty() {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0203",
                             attribute.span,
                             "`@[naked]` does not take arguments",
                         ));
                     }
                     if !function.is_extern || function.body.is_none() {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0203",
                             attribute.span,
                             "`@[naked]` is only valid on `extern fn` definitions",
                         ));
@@ -674,7 +676,8 @@ impl<'a> SignatureCollector<'a> {
                     out.push(FunctionAttribute::Naked);
                 }
                 _ => {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0203",
                         attribute.span,
                         format!(
                             "unknown function attribute `@[{}]`",
@@ -692,7 +695,8 @@ impl<'a> SignatureCollector<'a> {
             Some(ty) => self.ty_for_type(ty),
             None if param.receiver.is_some() => self.error(),
             None => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0203",
                     param.span,
                     "parameter requires an explicit type",
                 ));
@@ -770,24 +774,45 @@ impl<'a> SignatureCollector<'a> {
         expected: DefKind,
     ) -> Option<DefId> {
         let Some(def_id) = self.defs.def_nodes.get(node_key) else {
-            self.diagnostics.push(Diagnostic::error(
-                diagnostic_span,
-                format!("missing definition id for {:?} node {node_key:?}", expected),
-            ));
+            self.diagnostics.push(
+                Diagnostic::internal_error(
+                    "I0101",
+                    "missing definition id while collecting item signature",
+                )
+                .primary(diagnostic_span, "this syntax node has no definition id")
+                .debug("node_key", node_key)
+                .debug("expected_def_kind", expected)
+                .finish(),
+            );
             return None;
         };
         let Some(def) = self.defs.defs.get(def_id) else {
-            self.diagnostics.push(Diagnostic::error(
-                diagnostic_span,
-                "definition id does not exist in definition map",
-            ));
+            self.diagnostics.push(
+                Diagnostic::internal_error(
+                    "I0102",
+                    "definition id does not exist in definition map",
+                )
+                .primary(diagnostic_span, "definition map lookup failed here")
+                .debug("node_key", node_key)
+                .debug("def_id", def_id)
+                .debug("expected_def_kind", expected)
+                .finish(),
+            );
             return None;
         };
         if def.kind != expected {
-            self.diagnostics.push(Diagnostic::error(
-                def.span,
-                format!("definition kind mismatch: expected {:?}", expected),
-            ));
+            self.diagnostics.push(
+                Diagnostic::internal_error(
+                    "I0103",
+                    "definition kind mismatch while collecting item signature",
+                )
+                .primary(def.span, "definition has an unexpected kind")
+                .debug("node_key", node_key)
+                .debug("def_id", def_id)
+                .debug("expected_def_kind", expected)
+                .debug("actual_def_kind", def.kind)
+                .finish(),
+            );
             return None;
         }
         Some(def_id)
@@ -797,10 +822,15 @@ impl<'a> SignatureCollector<'a> {
         if let Some(ty) = self.lowered.node_type_uses.get(&ty_ref.node_key).copied() {
             ty
         } else {
-            self.diagnostics.push(Diagnostic::error(
-                ty_ref.span,
-                "missing lowered type for signature",
-            ));
+            self.diagnostics.push(
+                Diagnostic::internal_error(
+                    "I0104",
+                    "missing lowered type while collecting item signature",
+                )
+                .primary(ty_ref.span, "this type reference was not lowered")
+                .debug("node_key", &ty_ref.node_key)
+                .finish(),
+            );
             self.lowered.interner.error()
         }
     }

@@ -20,18 +20,21 @@ impl<'a> BodyChecker<'a> {
                 if let Some(expr) = &arg.expr {
                     let expr_ty = self.check_expr(expr);
                     if let Some(TyKind::Error) = self.interner.get(expr_ty) {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0301",
                             arg.span,
                             "generic arguments must be types",
                         ));
                     } else {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0301",
                             arg.span,
                             "generic argument resolved as a value; expected a type",
                         ));
                     }
                 } else {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         arg.span,
                         "generic arguments must be types",
                     ));

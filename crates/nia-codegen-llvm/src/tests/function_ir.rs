@@ -420,9 +420,11 @@ fn rejects_field_access_with_mismatched_base_struct() {
 
     let output = emit_llvm_ir(&program);
     assert!(
-        output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("field expression references missing field")),
+        has_internal_diagnostic(
+            &output.diagnostics,
+            "I0300",
+            "field expression references missing field"
+        ),
         "{:?}",
         output.diagnostics
     );
@@ -490,7 +492,7 @@ fn validates_backend_ir_missing_array_length_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("was not evaluated before LLVM codegen")),
         "{:?}",
         output.diagnostics
@@ -580,7 +582,7 @@ fn validates_backend_ir_missing_runtime_layout_before_llvm() {
         output
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("has no ABI layout")),
+            .any(|diagnostic| diagnostic.summary.contains("has no ABI layout")),
         "{:?}",
         output.diagnostics
     );
@@ -670,9 +672,11 @@ fn validates_backend_ir_missing_function_instance_refs_before_llvm() {
 
     assert!(output.modules.is_empty());
     assert!(
-        output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("call references missing function instance")),
+        has_internal_diagnostic(
+            &output.diagnostics,
+            "I0300",
+            "call references missing function instance"
+        ),
         "{:?}",
         output.diagnostics
     );
@@ -901,7 +905,7 @@ fn validates_backend_ir_missing_vtable_function_refs_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("vtable references missing function")),
         "{:?}",
         output.diagnostics
@@ -970,7 +974,7 @@ fn validates_backend_ir_static_initializer_refs_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("static initializer references missing global")),
         "{:?}",
         output.diagnostics
@@ -1069,7 +1073,7 @@ fn validates_backend_ir_static_initializer_field_refs_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("static initializer references missing field")),
         "{:?}",
         output.diagnostics
@@ -1172,7 +1176,7 @@ fn validates_backend_ir_missing_enum_variant_refs_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("expression references missing enum variant")),
         "{:?}",
         output.diagnostics
@@ -1240,17 +1244,16 @@ fn validates_function_ir_missing_entry_before_llvm() {
 
     assert!(output.modules.is_empty());
     assert!(
-        output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
-            .contains("backend IR contains invalid function IR")),
+        has_internal_diagnostic(
+            &output.diagnostics,
+            "I0300",
+            "backend IR contains invalid function IR"
+        ),
         "{:?}",
         output.diagnostics
     );
     assert!(
-        output
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.message.contains("function entry block")),
+        has_internal_diagnostic(&output.diagnostics, "I0300", "function entry block"),
         "{:?}",
         output.diagnostics
     );
@@ -1327,7 +1330,7 @@ fn validates_function_ir_missing_successor_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("terminator successor references missing block")),
         "{:?}",
         output.diagnostics
@@ -1386,7 +1389,7 @@ fn validates_backend_ir_static_function_address_refs_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("static initializer references missing function")),
         "{:?}",
         output.diagnostics
@@ -1457,7 +1460,7 @@ fn validates_backend_ir_static_address_path_shape_before_llvm() {
         output
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("indexes non-array type")),
+            .any(|diagnostic| diagnostic.summary.contains("indexes non-array type")),
         "{:?}",
         output.diagnostics
     );
@@ -1581,7 +1584,7 @@ fn validates_backend_ir_missing_aggregate_literal_field_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("aggregate literal references missing field")),
         "{:?}",
         output.diagnostics
@@ -1662,7 +1665,7 @@ fn validates_backend_ir_missing_local_place_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("place local references missing local")),
         "{:?}",
         output.diagnostics
@@ -1760,7 +1763,7 @@ fn validates_backend_ir_unresolved_trait_method_before_llvm() {
         output
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("unresolved trait method")),
+            .any(|diagnostic| diagnostic.summary.contains("unresolved trait method")),
         "{:?}",
         output.diagnostics
     );
@@ -1844,7 +1847,7 @@ fn validates_backend_ir_unresolved_builtin_place_method_before_llvm() {
     assert!(output.modules.is_empty());
     assert!(
         output.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("unresolved builtin place method")),
         "{:?}",
         output.diagnostics

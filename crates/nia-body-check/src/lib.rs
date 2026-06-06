@@ -674,7 +674,8 @@ impl<'a> BodyChecker<'a> {
             return;
         };
         let Some(value) = &binding.value else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 item_span,
                 "comptime binding requires an initializer",
             ));
@@ -715,7 +716,8 @@ impl<'a> BodyChecker<'a> {
             if let Some(ty) = signature.explicit_type {
                 self.global_types.insert(def_id, ty);
             } else {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     item_span,
                     "global declaration requires an explicit type",
                 ));
@@ -864,7 +866,8 @@ impl<'a> BodyChecker<'a> {
             let def_id = *def_id;
             let args = args.clone();
             if self.is_union_def(def_id) {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     block.span,
                     "union literal requires exactly one field, got 0",
                 ));
@@ -920,7 +923,8 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Expr(expr) => {
                 let expr_ty = self.check_expr(expr);
                 if !self.is_void(expr_ty) && !self.is_never(expr_ty) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         "non-void expression result is discarded; assign it to `_` explicitly",
                     ));
@@ -929,7 +933,8 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Defer(expr) => {
                 let expr_ty = self.check_expr(expr);
                 if !self.is_void(expr_ty) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         "`defer` expression must have type `void`",
                     ));
@@ -1019,21 +1024,23 @@ impl<'a> BodyChecker<'a> {
                 bound: Some(bound),
             }) => bound,
             Some(TyKind::Range { bound: Some(_), .. }) => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     iter.span,
                     "for-in range iterator requires a start bound",
                 ));
                 self.error()
             }
             Some(TyKind::Range { bound: None, .. }) => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     iter.span,
                     "unbounded range cannot be used as a for iterator",
                 ));
                 self.error()
             }
             Some(_) | None => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at("E0301", 
                     iter.span,
                     "for-in expects an iterator expression; only bounded ranges are supported currently",
                 ));
@@ -1045,7 +1052,8 @@ impl<'a> BodyChecker<'a> {
     fn check_local_binding(&mut self, stmt: &Stmt, binding: &BindingStmt) {
         let span = stmt.span;
         if binding.is_comptime && binding.value.is_none() {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 "comptime binding requires an initializer",
             ));
@@ -1094,7 +1102,8 @@ impl<'a> BodyChecker<'a> {
                 }
             }
             (None, None) => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     span,
                     "binding declaration requires an explicit type",
                 ));
@@ -1107,7 +1116,8 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn reject_runtime_comptime_only_value(&mut self, span: Span, context: &str) {
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0301",
             span,
             format!("{context} cannot use comptime-only value"),
         ));
@@ -1134,7 +1144,8 @@ impl<'a> BodyChecker<'a> {
 
         for (arm_index, arm) in switch.arms.iter().enumerate() {
             if has_default {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     arm.span,
                     "switch arm is unreachable because `_` default appears earlier",
                 ));
@@ -1143,7 +1154,8 @@ impl<'a> BodyChecker<'a> {
                 match pattern {
                     nia_ast::SwitchPattern::Default => {
                         if arm.patterns.len() != 1 {
-                            self.diagnostics.push(Diagnostic::error(
+                            self.diagnostics.push(Diagnostic::user_error_at(
+                                "E0301",
                                 arm.span,
                                 "`_` default must be the only pattern in a switch arm",
                             ));
@@ -1240,7 +1252,8 @@ impl<'a> BodyChecker<'a> {
 
     fn check_switch_binding_pattern_is_single(&mut self, span: Span, arm: &nia_ast::SwitchArm) {
         if arm.patterns.len() != 1 {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 "switch pattern binding must be the only pattern in its arm",
             ));
@@ -1299,7 +1312,8 @@ impl<'a> BodyChecker<'a> {
                 },
                 covered_intervals,
             ),
-            _ => self.diagnostics.push(Diagnostic::error(
+            _ => self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "`?name` switch pattern requires an optional target, found `{}`",
@@ -1324,7 +1338,8 @@ impl<'a> BodyChecker<'a> {
                 },
                 covered_intervals,
             ),
-            _ => self.diagnostics.push(Diagnostic::error(
+            _ => self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "`null` switch pattern requires an optional target, found `{}`",
@@ -1349,7 +1364,8 @@ impl<'a> BodyChecker<'a> {
                 },
                 covered_intervals,
             ),
-            _ => self.diagnostics.push(Diagnostic::error(
+            _ => self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "`!name` switch pattern requires an error union target, found `{}`",
@@ -1374,7 +1390,8 @@ impl<'a> BodyChecker<'a> {
                 },
                 covered_intervals,
             ),
-            _ => self.diagnostics.push(Diagnostic::error(
+            _ => self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!(
                     "`name!` switch pattern requires an error union target, found `{}`",
@@ -1408,7 +1425,8 @@ impl<'a> BodyChecker<'a> {
                 .any(|interval| interval.start <= tag && tag <= interval.end)
         };
         if !covers(0) || !covers(1) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 format!("non-exhaustive {kind} switch"),
             ));
@@ -1437,7 +1455,8 @@ impl<'a> BodyChecker<'a> {
             && variant_enum == expected_enum
         {
             if let Some(previous) = covered_enum_variants.insert(variant_id, pattern.span) {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     pattern.span,
                     format!("switch pattern overlaps previous pattern at {previous:?}"),
                 ));
@@ -1447,7 +1466,8 @@ impl<'a> BodyChecker<'a> {
         }
         if self.is_integer(target_ty) || self.is_bool(target_ty) {
             let Some(value) = self.switch_pattern_int_value(pattern) else {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     pattern.span,
                     "switch pattern must be a compile-time integer constant",
                 ));
@@ -1474,7 +1494,8 @@ impl<'a> BodyChecker<'a> {
         covered_intervals: &mut Vec<SwitchInterval>,
     ) {
         if !self.is_integer(target_ty) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 "switch range patterns require an integer switch target",
             ));
@@ -1484,14 +1505,16 @@ impl<'a> BodyChecker<'a> {
         let end_ty = self.check_expr_with_expected(end, Some(target_ty));
         self.expect_expr_type(end, target_ty, end_ty, "switch range pattern");
         let Some(start_value) = self.switch_pattern_int_value(start) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 start.span,
                 "switch range start must be a compile-time integer constant",
             ));
             return;
         };
         let Some(end_value) = self.switch_pattern_int_value(end) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 end.span,
                 "switch range end must be a compile-time integer constant",
             ));
@@ -1502,15 +1525,19 @@ impl<'a> BodyChecker<'a> {
         } else {
             end_value.checked_sub(1)
         }) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 span,
                 "switch range pattern endpoint is out of range",
             ));
             return;
         };
         if start_value > end_inclusive {
-            self.diagnostics
-                .push(Diagnostic::error(span, "switch range pattern is empty"));
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                "switch range pattern is empty",
+            ));
             return;
         }
         self.check_switch_interval_overlap(
@@ -1557,7 +1584,8 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .find(|previous| interval.start <= previous.end && previous.start <= interval.end)
         {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 interval.span,
                 format!(
                     "switch pattern overlaps previous pattern at {:?}",

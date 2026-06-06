@@ -398,7 +398,8 @@ impl<'a> BodyChecker<'a> {
             [method] => Some(method.method.def_id),
             [] => None,
             _ => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     span,
                     format!("ambiguous method `{name}`"),
                 ));
@@ -688,7 +689,7 @@ impl<'a> BodyChecker<'a> {
             self.extension_target_substitutions(context.method_id, context.receiver_ty);
         let method_arg_count = context.lowered_method_args.len();
         if context.method_args.is_some() && signature.generics.len() != method_arg_count {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at("E0301", 
                 context.span,
                 format!(
                     "generic argument count mismatch for method: expected {}, got {method_arg_count}",
@@ -1051,7 +1052,8 @@ impl<'a> BodyChecker<'a> {
         for generic in &signature.generics {
             if !substitutions.contains_key(generic) {
                 complete = false;
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     span,
                     format!("cannot infer generic parameter `{generic}`"),
                 ));
@@ -1069,7 +1071,8 @@ impl<'a> BodyChecker<'a> {
         if receiver_kind == ReceiverKind::Ref {
             let base = self.receiver_base_type(receiver_ty);
             if base.as_ref().is_some_and(|base| base.has_readonly_pointer) {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     receiver.span,
                     "receiver cannot be matched through read-only `&T`",
                 ));

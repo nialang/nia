@@ -136,9 +136,10 @@ fn query_error_diagnostic(err: QueryError) -> Diagnostic {
                 message.push_str("\n  ");
                 message.push_str(&frame.description);
             }
-            Diagnostic::error(Span::default(), message)
+            Diagnostic::user_error_at("E0201", Span::default(), message)
         }
-        QueryError::InvalidInput { query, message } => Diagnostic::error(
+        QueryError::InvalidInput { query, message } => Diagnostic::user_error_at(
+            "E0201",
             Span::default(),
             format!("invalid query input for {}: {message}", query.description),
         ),
@@ -329,7 +330,7 @@ fn main() i32 {
         assert!(
             checked.diagnostics[0]
                 .diagnostic
-                .message
+                .summary
                 .contains("missing loaded module ModuleId(99)")
         );
     }

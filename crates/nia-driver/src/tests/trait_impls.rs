@@ -103,7 +103,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("does not match the trait signature")),
         "{:?}",
         program.diagnostics
@@ -111,7 +111,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("is not a member of implemented trait")),
         "{:?}",
         program.diagnostics
@@ -119,7 +119,7 @@ fn main() i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("missing implementation for trait method `size`")),
         "{:?}",
         program.diagnostics
@@ -199,7 +199,7 @@ fn main(value: &Box[bool]) i32 {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait bound not satisfied")),
         "{:?}",
         program.diagnostics
@@ -288,7 +288,7 @@ pub trait Show {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("is not a member of implemented trait")),
         "{:?}",
         program.diagnostics
@@ -296,7 +296,7 @@ pub trait Show {
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("missing implementation for trait method `size`")),
         "{:?}",
         program.diagnostics

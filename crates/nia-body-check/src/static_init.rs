@@ -19,7 +19,8 @@ impl<'a> BodyChecker<'a> {
                 parse_int_literal(text)
                     .map(StaticInit::Int)
                     .unwrap_or_else(|| {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0301",
                             expr.span,
                             format!("invalid integer literal `{text}` in static initializer"),
                         ));
@@ -31,7 +32,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::String(literal) => decode_string_literal(literal)
                 .map(StaticInit::Chars)
                 .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         "invalid string literal in static initializer",
                     ));
@@ -40,7 +42,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ByteString(literal) => decode_byte_string_literal(literal)
                 .map(StaticInit::Bytes)
                 .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         "invalid byte string literal in static initializer",
                     ));
@@ -49,7 +52,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::CString(literal) => decode_c_string_literal(literal)
                 .map(StaticInit::Bytes)
                 .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         "invalid C string literal in static initializer",
                     ));
@@ -58,7 +62,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Char(text) => decode_char_literal(text)
                 .map(StaticInit::Char)
                 .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         format!("invalid char literal `{text}` in static initializer"),
                     ));
@@ -67,7 +72,8 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ByteChar(text) => decode_byte_char_literal(text)
                 .map(StaticInit::Byte)
                 .unwrap_or_else(|| {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         format!("invalid byte char literal `{text}` in static initializer"),
                     ));
@@ -76,14 +82,16 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Builtin { .. } => match self.builtin_value(expr) {
                 Some(BuiltinValue::Usize(value)) => StaticInit::Int(*value as i128),
                 Some(BuiltinValue::Layout { .. }) => {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         "generic layout builtin is not representable as static data",
                     ));
                     StaticInit::Zero
                 }
                 None => {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         "builtin value is not representable as static data yet",
                     ));
@@ -128,7 +136,8 @@ impl<'a> BodyChecker<'a> {
                 .eval_static_comptime_int_expr(expr)
                 .map(StaticInit::Int)
                 .unwrap_or_else(|err| {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
                         expr.span,
                         format!(
                             "invalid integer constant in static initializer: {}",
@@ -143,7 +152,8 @@ impl<'a> BodyChecker<'a> {
             } => self.lower_static_address_init(expr),
             ExprKind::Cast { expr, .. } => self.lower_static_init(expr),
             _ => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     expr.span,
                     "global initializer is not representable as static data yet",
                 ));
@@ -192,7 +202,8 @@ impl<'a> BodyChecker<'a> {
                 path: place.path,
             },
             StaticAddressBase::Invalid => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     expr.span,
                     "global address initializer must refer to global storage",
                 ));
@@ -237,7 +248,8 @@ impl<'a> BodyChecker<'a> {
                 op: nia_ast::UnaryOp::Deref,
                 expr,
             } => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     expr.span,
                     "global address initializer cannot dereference runtime pointers",
                 ));
@@ -286,7 +298,8 @@ impl<'a> BodyChecker<'a> {
         match self.eval_static_comptime_array_len_expr(expr) {
             Ok(value) => value,
             Err(error) => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0301",
                     expr.span,
                     format!(
                         "static address index is not a valid usize constant: {}",

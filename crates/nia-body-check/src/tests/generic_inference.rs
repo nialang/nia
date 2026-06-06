@@ -27,11 +27,11 @@ fn main(box: Box[i32], ptr: & i32, flag: bool) i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("conflicting inferred type for generic parameter `T`")
     }));
 }
@@ -60,7 +60,7 @@ fn main() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer")),
         "{:?}",
         checked.diagnostics
     );
@@ -68,7 +68,7 @@ fn main() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("function body")),
+            .any(|diagnostic| diagnostic.summary.contains("function body")),
         "{:?}",
         checked.diagnostics
     );
@@ -77,7 +77,7 @@ fn main() i32 {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("cannot infer generic parameter `T`"))
             .count(),
         0,
@@ -106,13 +106,13 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .all(|diagnostic| !diagnostic.message.contains("variadic argument")),
+            .all(|diagnostic| !diagnostic.summary.contains("variadic argument")),
         "{:?}",
         checked.diagnostics
     );
@@ -120,6 +120,6 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .all(|diagnostic| !diagnostic.message.contains("argument count mismatch"))
+            .all(|diagnostic| !diagnostic.summary.contains("argument count mismatch"))
     );
 }

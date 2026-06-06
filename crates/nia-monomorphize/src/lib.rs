@@ -358,7 +358,8 @@ impl MonoCollector<'_> {
                 .map(|entry| self.instance_name(entry))
                 .collect::<Vec<_>>()
                 .join(" -> ");
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0601",
                 span,
                 format!("recursive generic instantiation detected: {cycle}"),
             ));
@@ -973,7 +974,8 @@ fn array_len(
             .and_then(|const_exprs| const_exprs.get(&id))
             .map(|expr| expr.span)
             .unwrap_or_default();
-        diagnostics.push(Diagnostic::error(
+        diagnostics.push(Diagnostic::user_error_at(
+            "E0601",
             span,
             format!(
                 "array length {id:?} was not evaluated before monomorphization symbol generation"
@@ -1358,10 +1360,10 @@ fn main() i32 { 0 }
         assert_eq!(mono.diagnostics.len(), 1);
         assert!(
             mono.diagnostics[0]
-                .message
+                .summary
                 .contains("was not evaluated before monomorphization")
         );
-        assert_eq!(mono.diagnostics[0].span, Span::new(10, 12));
+        assert_eq!(mono.diagnostics[0].primary_span(), Some(Span::new(10, 12)));
     }
 
     #[test]

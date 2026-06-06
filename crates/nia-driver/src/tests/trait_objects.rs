@@ -57,7 +57,7 @@ fn use_other(other: & Other) void {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("type mismatch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
         "{:?}",
         program.diagnostics
     );
@@ -337,7 +337,7 @@ fn main() i32 {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("type mismatch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
         "{:?}",
         program.diagnostics
     );
@@ -566,7 +566,7 @@ fn main() i32 { 0 }
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("type mismatch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
         "{:?}",
         program.diagnostics
     );
@@ -594,7 +594,7 @@ fn read(bad: & Bad) i32 {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("not object safe")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("not object safe")),
         "{:?}",
         program.diagnostics
     );
@@ -621,7 +621,7 @@ fn read(bad: & Bad) i32 {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("not object safe"))
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("not object safe"))
     );
 }
 
@@ -646,7 +646,7 @@ fn read(bad: & Bad) bool {
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("mentions `Self`")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("mentions `Self`")),
         "{:?}",
         program.diagnostics
     );
@@ -684,7 +684,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("receiver cannot be matched through read-only `&Trait`")),
         "{:?}",
         program.diagnostics

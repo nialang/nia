@@ -67,7 +67,7 @@ fn main(pair: Pair[i32, i32]) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("ambiguous method `rank`")),
+            .any(|diagnostic| diagnostic.summary.contains("ambiguous method `rank`")),
         "{:?}",
         checked.diagnostics
     );
@@ -106,19 +106,19 @@ fn main(param: i32, read: & i32, write: &mut i32, cell: Cell, read_cell: & Cell,
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("local is let"))
+            .any(|diagnostic| diagnostic.summary.contains("local is let"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("global is let"))
+            .any(|diagnostic| diagnostic.summary.contains("global is let"))
     );
     assert_eq!(
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("pointer is read-only"))
+            .filter(|diagnostic| diagnostic.summary.contains("pointer is read-only"))
             .count(),
         1
     );
@@ -126,11 +126,11 @@ fn main(param: i32, read: & i32, write: &mut i32, cell: Cell, read_cell: & Cell,
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("local_mut"))
+            .any(|diagnostic| diagnostic.summary.contains("local_mut"))
     );
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("`_` discard only supports plain assignment")
     }));
 }
@@ -167,26 +167,26 @@ fn main(ro: & Box[i32], rw: &mut Box[i32]) i32 {
     );
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("receiver cannot be matched through read-only `&T`")
     }));
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("argument count mismatch"))
+            .any(|diagnostic| diagnostic.summary.contains("argument count mismatch"))
     );
     assert!(
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
 }
 
@@ -245,9 +245,9 @@ fn main() {
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic.message.contains("receiver is not assignable")
+            diagnostic.summary.contains("receiver is not assignable")
                 || diagnostic
-                    .message
+                    .summary
                     .contains("reference target is not assignable")
         }),
         "{:?}",
@@ -257,7 +257,7 @@ fn main() {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("local is let")),
+            .any(|diagnostic| diagnostic.summary.contains("local is let")),
         "{:?}",
         checked.diagnostics
     );
@@ -297,20 +297,20 @@ fn main(flag: bool) i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert_eq!(
         checked
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("generic argument count mismatch for method"))
             .count(),
         1
@@ -320,7 +320,7 @@ fn main(flag: bool) i32 {
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic
-                .message
+                .summary
                 .contains("cannot infer generic parameter `U`"))
             .count(),
         1
@@ -382,13 +382,13 @@ fn main(cb: &fn(i32, bool) i64, variadic: &fn(i32, ...) void, flag: bool) i64 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert_eq!(
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("call argument"))
+            .filter(|diagnostic| diagnostic.summary.contains("call argument"))
             .count(),
         2
     );
@@ -396,7 +396,7 @@ fn main(cb: &fn(i32, bool) i64, variadic: &fn(i32, ...) void, flag: bool) i64 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("argument count mismatch"))
+            .filter(|diagnostic| diagnostic.summary.contains("argument count mismatch"))
             .count(),
         1
     );
@@ -543,14 +543,14 @@ fn main() {
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("generic function pointer requires explicit type arguments")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("generic argument count mismatch for function pointer")),
         "{:?}",
         checked.diagnostics
@@ -590,28 +590,28 @@ fn main(flag: bool) i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("argument count mismatch"))
+            .any(|diagnostic| diagnostic.summary.contains("argument count mismatch"))
     );
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("receiver method `get` requires")
     }));
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("qualified access is not a value expression")
     }));
 }
@@ -647,17 +647,17 @@ fn main(flag: bool) i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("generic argument count mismatch for `Box`")
     }));
 }

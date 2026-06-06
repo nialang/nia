@@ -57,7 +57,10 @@ impl LlvmError {
     pub fn diagnostic(&self) -> nia_diagnostic::Diagnostic {
         match self {
             Self::Error(message) => {
-                nia_diagnostic::Diagnostic::error(nia_span::Span::default(), message.clone())
+                nia_diagnostic::Diagnostic::internal_error("I0200", "LLVM API returned an error")
+                    .primary(nia_span::Span::default(), "while calling LLVM")
+                    .debug("llvm_message", message)
+                    .finish()
             }
             Self::Ice(ice) => ice.diagnostic(),
         }

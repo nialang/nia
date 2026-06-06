@@ -148,7 +148,8 @@ impl<'a> BodyChecker<'a> {
                         bound: Some(_),
                     }) => receiver_ty,
                     Some(TyKind::Range { .. }) => {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0301",
                             span,
                             "range.iter() requires a start bound",
                         ));
@@ -241,8 +242,11 @@ impl<'a> BodyChecker<'a> {
             .resolved_function_signature(method_id)
             .map(|resolved| resolved.signature)
         else {
-            self.diagnostics
-                .push(Diagnostic::error(call.span, "method signature not found"));
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                call.span,
+                "method signature not found",
+            ));
             return Some(self.error());
         };
         let Some(receiver_param) = signature
@@ -250,7 +254,8 @@ impl<'a> BodyChecker<'a> {
             .first()
             .filter(|param| param.receiver.is_some())
         else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
                 call.span,
                 "associated functions are not supported by receiver method call syntax",
             ));
@@ -258,10 +263,15 @@ impl<'a> BodyChecker<'a> {
         };
 
         let Some(receiver_kind) = receiver_param.receiver else {
-            self.diagnostics.push(Diagnostic::error(
-                call.span,
-                "internal compiler error: receiver method candidate has no receiver",
-            ));
+            self.diagnostics.push(
+                Diagnostic::internal_error("I0106", "receiver method candidate has no receiver")
+                    .primary(
+                        call.span,
+                        "method resolution selected a candidate without receiver metadata",
+                    )
+                    .debug("method_id", method_id)
+                    .finish(),
+            );
             return Some(self.error());
         };
         self.check_receiver_match(call.receiver, call.receiver_ty, receiver_kind);

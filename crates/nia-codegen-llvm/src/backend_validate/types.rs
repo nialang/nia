@@ -14,7 +14,8 @@ impl BackendValidator<'_> {
     pub(super) fn validate_runtime_type(&mut self, ty: InternedTyId, span: Span) {
         self.validate_type(ty, span);
         if self.layout_of(ty).is_none() {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 format!("backend IR type {ty:?} has no ABI layout before LLVM codegen"),
             ));
@@ -26,7 +27,8 @@ impl BackendValidator<'_> {
             return;
         }
         let Some(module) = self.index.module(ty.interner_id) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 format!(
                     "backend IR type {ty:?} belongs to missing module {:?}",
@@ -36,7 +38,8 @@ impl BackendValidator<'_> {
             return;
         };
         let Some(kind) = module.interner.get(ty).cloned() else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 format!("backend IR type {ty:?} is missing from its owner interner"),
             ));
@@ -72,7 +75,8 @@ impl BackendValidator<'_> {
             }
             TyKind::Nominal { def_id, args } => {
                 if self.index.module(def_id.module_id).is_none() {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         span,
                         format!(
                             "backend IR nominal type {def_id:?} belongs to missing module {:?}",
@@ -114,7 +118,8 @@ impl BackendValidator<'_> {
                     self.validate_type(arg, span);
                 }
             }
-            TyKind::ComptimeOnly => self.diagnostics.push(Diagnostic::error(
+            TyKind::ComptimeOnly => self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 span,
                 format!("backend IR type {ty:?} is comptime-only before LLVM codegen"),
             )),
@@ -127,7 +132,8 @@ impl BackendValidator<'_> {
             ArrayLenTy::ConstValue(_) => {}
             ArrayLenTy::ConstExpr(id) => {
                 let Some(module) = self.index.module(id.module_id) else {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         span,
                         format!(
                             "backend IR array length {id:?} belongs to missing module {:?}",
@@ -137,7 +143,8 @@ impl BackendValidator<'_> {
                     return;
                 };
                 if !module.comptime.array_lengths.contains_key(id) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         span,
                         format!(
                             "backend IR array length {id:?} was not evaluated before LLVM codegen"
@@ -149,7 +156,8 @@ impl BackendValidator<'_> {
                 self.validate_runtime_type(*ty, span);
             }
             ArrayLenTy::Infer => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    "I0300",
                     span,
                     "backend IR array length inference reached LLVM codegen",
                 ));

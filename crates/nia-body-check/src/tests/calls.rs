@@ -31,13 +31,13 @@ fn main(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("argument count mismatch"))
+            .any(|diagnostic| diagnostic.summary.contains("argument count mismatch"))
     );
 }
 
@@ -84,17 +84,17 @@ fn main(flag: bool) i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("call argument"))
+            .any(|diagnostic| diagnostic.summary.contains("call argument"))
     );
     assert!(checked.diagnostics.iter().any(|diagnostic| {
         diagnostic
-            .message
+            .summary
             .contains("generic argument count mismatch")
     }));
 }
@@ -120,14 +120,14 @@ fn main() i32 {
         !checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("index")),
+            .any(|diagnostic| diagnostic.summary.contains("index")),
         "{:?}",
         checked.diagnostics
     );
     assert!(
         checked.diagnostics.iter().any(|diagnostic| {
             diagnostic
-                .message
+                .summary
                 .contains("function values are not supported")
         }),
         "{:?}",

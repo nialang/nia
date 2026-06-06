@@ -306,7 +306,8 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
             }
             TypeKind::SelfType => {
                 if self.self_type_stack.is_empty() {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0201",
                         ty.span,
                         "`Self` is only valid in traits and extend blocks",
                     ));
@@ -513,7 +514,8 @@ impl<'a> TypeResolver<'a> {
                 self.resolve_module_type(span, node_key, module_id, last, &path_text)
             }
             ResolvedNamespace::Type(_) => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
                     span,
                     "type namespaces do not contain nested types",
                 ));
@@ -564,7 +566,8 @@ impl<'a> TypeResolver<'a> {
                 def_id: entry.target_def_id,
             }));
         }
-        self.diagnostics.push(Diagnostic::error(
+        self.diagnostics.push(Diagnostic::user_error_at(
+            "E0201",
             path_span,
             format!("unknown namespace `{}`", segment.name),
         ));
@@ -596,7 +599,8 @@ impl<'a> TypeResolver<'a> {
                 let def_id = target_defs.module_scope.types.get(&segment.name)?;
                 let def = target_defs.defs.get(def_id)?;
                 if module_id != self.defs.module_id && def.visibility != Visibility::Public {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0201",
                         path_span,
                         format!("type `{}` is private", segment.name),
                     ));
@@ -629,14 +633,16 @@ impl<'a> TypeResolver<'a> {
             return TypeNameResolution::External(global);
         }
         let Some(target_defs) = self.defs_for_module(module_id) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0201",
                 span,
                 "module namespace refers to an unloaded module",
             ));
             return TypeNameResolution::Error;
         };
         let Some(def_id) = target_defs.module_scope.types.get(&segment.name) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0201",
                 span,
                 format!("unknown type `{}`", segment.name),
             ));
@@ -652,7 +658,8 @@ impl<'a> TypeResolver<'a> {
             return TypeNameResolution::Error;
         }
         if module_id != self.defs.module_id && def.visibility != Visibility::Public {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0201",
                 span,
                 format!("type `{path_text}` is private"),
             ));
@@ -713,7 +720,8 @@ impl<'a> TypeResolver<'a> {
             return TypeNameResolution::External(global);
         }
         if !self.suppress_unknown_type_errors {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0201",
                 span,
                 format!("unknown type `{}`", segment.name),
             ));
@@ -896,7 +904,7 @@ fn main() Missing {
         assert_eq!(resolved.diagnostics.len(), 1);
         assert!(
             resolved.diagnostics[0]
-                .message
+                .summary
                 .contains("unknown type `Missing`")
         );
     }
@@ -916,10 +924,13 @@ fn main() Missing::Type {
         assert_eq!(resolved.diagnostics.len(), 1);
         assert!(
             resolved.diagnostics[0]
-                .message
+                .summary
                 .contains("unknown namespace `Missing`")
         );
-        assert_ne!(resolved.diagnostics[0].span, Span::default());
+        assert_ne!(
+            resolved.diagnostics[0].primary_span(),
+            Some(Span::default())
+        );
     }
 
     #[test]

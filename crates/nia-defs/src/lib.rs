@@ -663,7 +663,8 @@ impl Collector {
         message: &'static str,
     ) {
         if let Err(duplicate) = table.insert(name, def_id, span) {
-            diagnostics.push(Diagnostic::error(
+            diagnostics.push(Diagnostic::user_error_at(
+                "E0101",
                 duplicate.second_span,
                 format!("{message}: `{}`", duplicate.name),
             ));
@@ -679,7 +680,8 @@ impl Collector {
         message: &'static str,
     ) {
         if let Err(duplicate) = table.insert(name, def_id, span) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0101",
                 duplicate.second_span,
                 format!("{message}: `{}`", duplicate.name),
             ));
@@ -690,7 +692,8 @@ impl Collector {
         let mut seen = HashSet::new();
         for generic in generics {
             if !seen.insert(generic) {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0101",
                     span,
                     format!("duplicate generic parameter `{generic}`"),
                 ));
@@ -709,6 +712,7 @@ fn import_default_alias(path: &ImportPath) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_diagnostic::DiagnosticCategory;
     use nia_parser::parse_module;
 
     #[test]
@@ -753,30 +757,34 @@ enum E { A, A }
         assert!(errors.is_empty(), "{errors:?}");
         let collection = collect_module_defs(ModuleId(0), &module);
         assert_eq!(collection.diagnostics.len(), 4);
-        assert!(
-            collection
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate type definition"))
-        );
-        assert!(
-            collection
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate value definition"))
-        );
-        assert!(
-            collection
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate struct field"))
-        );
-        assert!(
-            collection
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("duplicate enum variant"))
-        );
+        assert!(collection.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "E0101"
+                && diagnostic.category == DiagnosticCategory::User
+                && diagnostic
+                    .primary_message()
+                    .is_some_and(|message| message.contains("duplicate type definition"))
+        }));
+        assert!(collection.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "E0101"
+                && diagnostic.category == DiagnosticCategory::User
+                && diagnostic
+                    .primary_message()
+                    .is_some_and(|message| message.contains("duplicate value definition"))
+        }));
+        assert!(collection.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "E0101"
+                && diagnostic.category == DiagnosticCategory::User
+                && diagnostic
+                    .primary_message()
+                    .is_some_and(|message| message.contains("duplicate struct field"))
+        }));
+        assert!(collection.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code.as_str() == "E0101"
+                && diagnostic.category == DiagnosticCategory::User
+                && diagnostic
+                    .primary_message()
+                    .is_some_and(|message| message.contains("duplicate enum variant"))
+        }));
     }
 
     #[test]
@@ -800,7 +808,13 @@ extend[T, T] Methods[T] {
         let duplicate_count = collection
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic.message.contains("duplicate generic parameter"))
+            .filter(|diagnostic| {
+                diagnostic.code.as_str() == "E0101"
+                    && diagnostic.category == DiagnosticCategory::User
+                    && diagnostic
+                        .primary_message()
+                        .is_some_and(|message| message.contains("duplicate generic parameter"))
+            })
             .count();
         assert_eq!(duplicate_count, 5, "{:?}", collection.diagnostics);
     }

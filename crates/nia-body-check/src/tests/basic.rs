@@ -47,7 +47,7 @@ fn main() i32 {
         bad_empty
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("exactly one field")),
+            .any(|diagnostic| diagnostic.summary.contains("exactly one field")),
         "{:?}",
         bad_empty.diagnostics
     );
@@ -69,7 +69,7 @@ fn main() i32 {
         bad_multi
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("exactly one field")),
+            .any(|diagnostic| diagnostic.summary.contains("exactly one field")),
         "{:?}",
         bad_multi.diagnostics
     );
@@ -108,7 +108,7 @@ fn main() {
         bad_implicit
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer")),
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer")),
         "{:?}",
         bad_implicit.diagnostics
     );
@@ -126,7 +126,7 @@ fn main() i32 {
         bad_deref
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("cannot dereference `&void`")),
+            .any(|diagnostic| diagnostic.summary.contains("cannot dereference `&void`")),
         "{:?}",
         bad_deref.diagnostics
     );
@@ -163,13 +163,13 @@ fn bad(flag: bool) i32 {
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("binding initializer"))
+            .any(|diagnostic| diagnostic.summary.contains("binding initializer"))
     );
     assert!(
         checked
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("function body"))
+            .any(|diagnostic| diagnostic.summary.contains("function body"))
     );
 }
 
@@ -216,7 +216,7 @@ fn bad() i32 {
 
     assert!(
         checked.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("requires an expected error union type")),
         "{:?}",
         checked.diagnostics
@@ -256,7 +256,7 @@ fn bad(value: ?i32) i32 {
     );
     assert!(
         missing.diagnostics.iter().any(|diagnostic| diagnostic
-            .message
+            .summary
             .contains("non-exhaustive optional switch")),
         "{:?}",
         missing.diagnostics
@@ -276,7 +276,7 @@ fn bad(value: i32) i32 {
         wrong_target
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message.contains("requires an optional target")),
+            .any(|diagnostic| diagnostic.summary.contains("requires an optional target")),
         "{:?}",
         wrong_target.diagnostics
     );

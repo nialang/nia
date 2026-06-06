@@ -269,7 +269,8 @@ impl<'a> LayoutComputer<'a> {
             return Some(layout);
         }
         if !self.visiting.insert(ty_id) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
                 span,
                 "recursive type layout is not supported",
             ));
@@ -342,7 +343,8 @@ impl<'a> LayoutComputer<'a> {
         let elem_layout = self.layout_ty(elem, span)?;
         let len = match len {
             ArrayLenTy::Infer => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0501",
                     span,
                     "array layout requires a concrete length",
                 ));
@@ -358,7 +360,8 @@ impl<'a> LayoutComputer<'a> {
                         .and_then(|array_lengths| array_lengths(id))
                 };
                 let Some(value) = value else {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0501",
                         span,
                         "array length was not evaluated by comptime",
                     ));
@@ -368,7 +371,8 @@ impl<'a> LayoutComputer<'a> {
             }
             ArrayLenTy::Builtin { builtin, ty } => {
                 let Some(layout) = self.layout_ty(ty, span) else {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0501",
                         span,
                         format!(
                             "cannot compute layout for array length builtin `@{}`",
@@ -481,7 +485,8 @@ impl<'a> LayoutComputer<'a> {
             return None;
         }
         if !self.visiting_structs.insert(key.clone()) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
                 span,
                 "recursive struct layout is not supported",
             ));
@@ -525,12 +530,16 @@ impl<'a> LayoutComputer<'a> {
             return None;
         }
         if signature.fields.is_empty() {
-            self.diagnostics
-                .push(Diagnostic::error(span, "union requires at least one field"));
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
+                span,
+                "union requires at least one field",
+            ));
             return None;
         }
         if !self.visiting_unions.insert(key.clone()) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
                 span,
                 "recursive union layout is not supported",
             ));

@@ -439,7 +439,8 @@ impl<'a> ValueResolver<'a> {
                 let target_defs = match self.defs_for_module(module_id) {
                     Some(defs) => defs,
                     None => {
-                        self.diagnostics.push(Diagnostic::error(
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0201",
                             segment.span,
                             "module namespace refers to an unloaded module",
                         ));
@@ -449,7 +450,8 @@ impl<'a> ValueResolver<'a> {
                 let def_id = target_defs.module_scope.types.get(segment.name)?;
                 let def = target_defs.defs.get(def_id)?;
                 if module_id != self.defs.module_id && def.visibility != Visibility::Public {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0201",
                         segment.span,
                         format!("type `{}` is private", segment.name),
                     ));
@@ -500,7 +502,8 @@ impl<'a> ValueResolver<'a> {
             }
         }
         let Some(target_defs) = self.defs_for_module(module_id) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0201",
                 span,
                 "module namespace refers to an unloaded module",
             ));
@@ -511,7 +514,8 @@ impl<'a> ValueResolver<'a> {
                 return;
             };
             if module_id != self.defs.module_id && def.visibility != Visibility::Public {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
                     span,
                     format!("type `{path_text}` is private"),
                 ));
@@ -521,7 +525,8 @@ impl<'a> ValueResolver<'a> {
             return;
         }
         let Some(def_id) = target_defs.module_scope.values.get(name.name) else {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0201",
                 span,
                 format!("unknown value `{}`", name.name),
             ));
@@ -531,7 +536,8 @@ impl<'a> ValueResolver<'a> {
             return;
         };
         if module_id != self.defs.module_id && def.visibility != Visibility::Public {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0201",
                 span,
                 format!("value `{path_text}` is private"),
             ));
@@ -612,7 +618,8 @@ impl<'a> ValueResolver<'a> {
             "align" => BuiltinResolution::AlignOf,
             "asm" => BuiltinResolution::Asm,
             _ => {
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
                     span,
                     format!("unknown builtin `@{name}`"),
                 ));
@@ -749,7 +756,7 @@ fn main() usize {
         assert_eq!(resolved.diagnostics.len(), 1);
         assert!(
             resolved.diagnostics[0]
-                .message
+                .summary
                 .contains("unknown builtin `@unknown`")
         );
         assert!(

@@ -13,7 +13,8 @@ use super::BackendValidator;
 impl BackendValidator<'_> {
     pub(super) fn validate_function_body(&mut self, body: &FunctionBody) {
         if let Err(error) = validate_function_body(body) {
-            self.diagnostics.push(Diagnostic::error(
+            self.diagnostics.push(Diagnostic::internal_error_at(
+                "I0300",
                 error.span,
                 format!("backend IR contains invalid function IR: {}", error.message),
             ));
@@ -100,7 +101,8 @@ impl BackendValidator<'_> {
         match &expr.kind {
             FunctionExprKind::Global(def_id) => {
                 if !self.index.globals.contains_key(def_id) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         expr.span,
                         format!("backend IR expression references missing global {def_id:?}"),
                     ));
@@ -308,7 +310,7 @@ impl BackendValidator<'_> {
                 }
                 self.validate_expr(receiver);
                 if !matches!(trait_id, BuiltinTrait::GetPtrRead | BuiltinTrait::GetPtr) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at("I0300", 
                         span,
                         format!(
                             "backend IR call contains unresolved builtin place method {trait_id:?}::{method:?}"
@@ -331,7 +333,7 @@ impl BackendValidator<'_> {
                     self.validate_type(*arg, span);
                 }
                 self.validate_expr(receiver);
-                self.diagnostics.push(Diagnostic::error(
+                self.diagnostics.push(Diagnostic::internal_error_at("I0300", 
                     span,
                     format!(
                         "backend IR call contains unresolved trait method `{method_name}` {method_id:?} on trait {trait_id:?}"
@@ -354,7 +356,8 @@ impl BackendValidator<'_> {
                     .last()
                     .is_some_and(|local_tys| local_tys.contains_key(local_id))
                 {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         place.span,
                         format!("backend IR place references missing local {local_id:?}"),
                     ));
@@ -362,7 +365,8 @@ impl BackendValidator<'_> {
             }
             FunctionPlaceBase::Global(def_id) => {
                 if !self.index.globals.contains_key(def_id) {
-                    self.diagnostics.push(Diagnostic::error(
+                    self.diagnostics.push(Diagnostic::internal_error_at(
+                        "I0300",
                         place.span,
                         format!("backend IR place references missing global {def_id:?}"),
                     ));

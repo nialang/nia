@@ -35,7 +35,7 @@ fn main(value: void, ptr: &u8) void {
     let messages = checked
         .diagnostics
         .iter()
-        .map(|diagnostic| diagnostic.message.as_str())
+        .map(|diagnostic| diagnostic.summary.as_str())
         .collect::<Vec<_>>();
     assert!(
         messages

@@ -4316,7 +4316,7 @@ fn main(value: Box[[N]u8]) void {}
     assert_eq!(lowering.diagnostics.len(), 1);
     assert!(
         lowering.diagnostics[0]
-            .message
+            .summary
             .contains("was not evaluated before backend symbol generation"),
         "{:?}",
         lowering.diagnostics

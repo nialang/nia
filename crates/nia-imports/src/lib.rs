@@ -104,10 +104,12 @@ impl ModuleGraph {
 
     fn add_import(&mut self, from: ModuleId, import: ImportEdge) -> Result<(), Diagnostic> {
         let Some(module) = self.modules.get_mut(from.0 as usize) else {
-            return Err(Diagnostic::error(
-                Span::default(),
-                format!("internal error: unknown source module id {from:?}"),
-            ));
+            return Err(Diagnostic::internal_error(
+                "I0107",
+                "unknown source module id while adding import",
+            )
+            .debug("module_id", from)
+            .finish());
         };
         module.imports.push(import);
         Ok(())
@@ -229,10 +231,11 @@ pub fn collect_module_imports(
     // bad caller could leave unreachable modules in the graph while losing the
     // edge that explains why they were discovered.
     if graph.get(module_id).is_none() {
-        diagnostics.push(Diagnostic::error(
-            Span::default(),
-            format!("internal error: unknown module id {module_id:?} while collecting imports"),
-        ));
+        diagnostics.push(
+            Diagnostic::internal_error("I0108", "unknown module id while collecting imports")
+                .debug("module_id", module_id)
+                .finish(),
+        );
         return;
     }
 
@@ -284,14 +287,16 @@ pub fn resolve_module_imports_from_active_item_tree(
             .unwrap_or_else(|| import_default_alias(&import.path));
         if let Some(first_span) = aliases.get(&alias).copied() {
             let _ = first_span;
-            diagnostics.push(Diagnostic::error(
+            diagnostics.push(Diagnostic::user_error_at(
+                "E0102",
                 item.span,
                 format!("duplicate import alias: `{alias}`"),
             ));
             continue;
         }
         let Some(path) = resolve_import_path(module_path, &import.path, module_map) else {
-            diagnostics.push(Diagnostic::error(
+            diagnostics.push(Diagnostic::user_error_at(
+                "E0102",
                 item.span,
                 format!(
                     "unknown module mapping `{}`; configure it with `-M {0}=path`",
@@ -319,12 +324,12 @@ pub fn add_resolved_imports(
     // that as an explicit boundary error so graph corruption is reported before
     // unreachable target modules can be interned.
     if graph.get(module_id).is_none() {
-        return Err(Diagnostic::error(
-            Span::default(),
-            format!(
-                "internal error: unknown module id {module_id:?} while adding resolved imports"
-            ),
-        ));
+        return Err(Diagnostic::internal_error(
+            "I0109",
+            "unknown module id while adding resolved imports",
+        )
+        .debug("module_id", module_id)
+        .finish());
     }
 
     for import in imports {
@@ -417,6 +422,7 @@ fn normalize_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nia_diagnostic::DiagnosticCategory;
     use nia_parser::parse_module;
 
     #[test]
@@ -457,10 +463,14 @@ import .b.math as math;
         assert!(errors.is_empty(), "{errors:?}");
         let collection = collect_root_imports(SourcePath::new("main.nia"), &module);
         assert_eq!(collection.diagnostics.len(), 1);
+        let diagnostic = &collection.diagnostics[0];
+        assert_eq!(diagnostic.code.as_str(), "E0102");
+        assert_eq!(diagnostic.category, DiagnosticCategory::User);
+        assert!(diagnostic.primary_span().is_some());
         assert!(
-            collection.diagnostics[0]
-                .message
-                .contains("duplicate import alias")
+            diagnostic
+                .primary_message()
+                .is_some_and(|message| message.contains("duplicate import alias"))
         );
     }
 
@@ -501,10 +511,14 @@ import .b.math as math;
         assert!(errors.is_empty(), "{errors:?}");
         let collection = collect_root_imports(SourcePath::new("src/main.nia"), &module);
         assert_eq!(collection.diagnostics.len(), 1);
+        let diagnostic = &collection.diagnostics[0];
+        assert_eq!(diagnostic.code.as_str(), "E0102");
+        assert_eq!(diagnostic.category, DiagnosticCategory::User);
+        assert!(diagnostic.primary_span().is_some());
         assert!(
-            collection.diagnostics[0]
-                .message
-                .contains("unknown module mapping")
+            diagnostic
+                .primary_message()
+                .is_some_and(|message| message.contains("unknown module mapping"))
         );
     }
 
@@ -595,7 +609,14 @@ import math.ops;
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("unknown module id"));
+        assert_eq!(diagnostics[0].code.as_str(), "I0108");
+        assert_eq!(diagnostics[0].category, DiagnosticCategory::Internal);
+        assert!(
+            diagnostics[0]
+                .debug
+                .iter()
+                .any(|field| field.key == "module_id")
+        );
         assert_eq!(graph.modules().count(), 1);
         assert!(
             graph
@@ -621,7 +642,9 @@ import math.ops;
         )
         .expect_err("unknown source module id should be reported");
 
-        assert!(err.message.contains("unknown module id"));
+        assert_eq!(err.code.as_str(), "I0109");
+        assert_eq!(err.category, DiagnosticCategory::Internal);
+        assert!(err.debug.iter().any(|field| field.key == "module_id"));
         assert_eq!(graph.modules().count(), 1);
     }
 }

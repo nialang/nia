@@ -160,7 +160,7 @@ fn main() i32 {
     assert!(
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait types are not valid as values")),
         "{:?}",
         program.diagnostics
@@ -274,7 +274,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("missing definition for associated type `B`")),
         "{:?}",
         program.diagnostics
@@ -282,7 +282,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("associated type `Extra` is not a member")),
         "{:?}",
         program.diagnostics
@@ -315,7 +315,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("associated type definitions are only allowed in trait implementations")),
         "{:?}",
         program.diagnostics
@@ -350,7 +350,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("duplicate trait associated type")),
         "{:?}",
         program.diagnostics
@@ -358,7 +358,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("duplicate associated type definition")),
         "{:?}",
         program.diagnostics
@@ -387,7 +387,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("projection trait must resolve to a trait")),
         "{:?}",
         program.diagnostics
@@ -417,7 +417,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait does not define associated type `Missing`")),
         "{:?}",
         program.diagnostics
@@ -457,7 +457,7 @@ fn main() i32 { 0 }
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains(
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains(
                 "implementation of trait method `get` does not match the trait signature"
             )),
         "{:?}",
@@ -575,7 +575,7 @@ fn main() i32 { 0 }
     assert!(
         !program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("generic argument count mismatch")),
         "{:?}",
         program.diagnostics
@@ -608,7 +608,7 @@ fn main() i32 { 0 }
         program
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.diagnostic.message.contains("type mismatch")),
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
         "{:?}",
         program.diagnostics
     );
@@ -649,7 +649,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("trait does not define associated type `Missing`")),
         "{:?}",
         program.diagnostics
@@ -657,7 +657,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("duplicate associated type binding `Output`")),
         "{:?}",
         program.diagnostics
@@ -665,7 +665,7 @@ fn main() i32 { 0 }
     assert!(
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
-            .message
+            .summary
             .contains("associated type bindings require a trait bound")),
         "{:?}",
         program.diagnostics
