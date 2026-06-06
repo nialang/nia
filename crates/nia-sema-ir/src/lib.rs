@@ -106,7 +106,6 @@ pub struct SemanticFacts {
     pub node_array_to_slice_coercions: HashMap<NodeKey, ArrayToSliceCoercion>,
     pub node_c_string_pointer_coercions: HashMap<NodeKey, CStringPointerCoercion>,
     pub node_trait_object_coercions: HashMap<NodeKey, TraitObjectCoercion>,
-    pub node_value_trait_object_coercions: HashMap<NodeKey, ValueTraitObjectCoercion>,
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
@@ -156,13 +155,6 @@ pub struct CStringPointerCoercion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TraitObjectCoercion {
     pub source_ty: InternedTyId,
-    pub target_ty: InternedTyId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ValueTraitObjectCoercion {
-    pub value_ty: InternedTyId,
-    pub pointer_ty: InternedTyId,
     pub target_ty: InternedTyId,
 }
 

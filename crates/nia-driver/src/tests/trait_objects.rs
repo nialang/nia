@@ -107,8 +107,52 @@ fn main() i32 {
 }
 
 #[test]
-fn array_literal_elements_coerce_to_trait_objects() {
-    let root = temp_dir("array_literal_elements_coerce_to_trait_objects");
+fn mutable_pointer_coerces_to_mutable_trait_object_and_dispatches_method() {
+    let root = temp_dir("mutable_pointer_coerces_to_mutable_trait_object_and_dispatches_method");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait CounterLike {
+    fn bump(&mut self) i32;
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : CounterLike {
+    fn bump(&mut self) i32 {
+        self.value += 1;
+        self.value
+    }
+}
+
+fn bump(counter: &mut CounterLike) i32 {
+    counter.bump()
+}
+
+fn main() i32 {
+    var counter: Counter = { value: 8 };
+    bump(&mut counter)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        !module.semantic_facts.node_trait_object_coercions.is_empty()
+            && module
+                .body_ir
+                .function_bodies
+                .values()
+                .any(body_contains_dynamic_trait_callee)
+    }));
+}
+
+#[test]
+fn array_literal_reference_elements_coerce_to_trait_objects() {
+    let root = temp_dir("array_literal_reference_elements_coerce_to_trait_objects");
     write(
         &root.join("main.nia"),
         r#"
@@ -127,24 +171,60 @@ fn read_all(sources: & [ & Source]) i32 {
 }
 
 fn main() i32 {
-    read_all([8])
+    read_all([&8])
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(program.modules.iter().any(|module| {
-        !module
-            .semantic_facts
-            .node_value_trait_object_coercions
-            .is_empty()
-    }));
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| { !module.semantic_facts.node_trait_object_coercions.is_empty() })
+    );
 }
 
 #[test]
-fn value_coerces_to_readonly_trait_object_argument() {
-    let root = temp_dir("value_coerces_to_readonly_trait_object_argument");
+fn reference_coerces_to_readonly_trait_object_argument() {
+    let root = temp_dir("reference_coerces_to_readonly_trait_object_argument");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    fn get(& self) i32;
+}
+
+extend i32 : Source {
+    fn get(& self) i32 {
+        self.*
+    }
+}
+
+fn read(source: & Source) i32 {
+    source.get()
+}
+
+fn main() i32 {
+    read(&8)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .modules
+            .iter()
+            .any(|module| { !module.semantic_facts.node_trait_object_coercions.is_empty() })
+    );
+}
+
+#[test]
+fn value_does_not_coerce_to_readonly_trait_object_argument() {
+    let root = temp_dir("value_does_not_coerce_to_readonly_trait_object_argument");
     write(
         &root.join("main.nia"),
         r#"
@@ -169,13 +249,14 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-    assert!(program.modules.iter().any(|module| {
-        !module
-            .semantic_facts
-            .node_value_trait_object_coercions
-            .is_empty()
-    }));
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("type mismatch")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
@@ -191,7 +272,7 @@ fn read(source: &fmt::Format) i32 {
 }
 
 fn main() i32 {
-    read(8)
+    read(&8)
 }
 "#,
     );
@@ -213,10 +294,7 @@ extend i32 : Format {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
     assert!(program.modules.iter().any(|module| {
-        !module
-            .semantic_facts
-            .node_value_trait_object_coercions
-            .is_empty()
+        !module.semantic_facts.node_trait_object_coercions.is_empty()
             && module
                 .body_ir
                 .function_bodies
@@ -238,7 +316,7 @@ fn use_all(args: &[&std::fmt::Format[std::fmt::Error]]) i32 {
 }
 
 fn main() i32 {
-    use_all([10])
+    use_all([&10])
 }
 "#,
     );
@@ -307,8 +385,8 @@ extend[E] i32 : Format[E] {
 }
 
 #[test]
-fn value_trait_object_coercion_does_not_create_mutable_objects() {
-    let root = temp_dir("value_trait_object_coercion_does_not_create_mutable_objects");
+fn value_does_not_coerce_to_mutable_trait_object_argument() {
+    let root = temp_dir("value_does_not_coerce_to_mutable_trait_object_argument");
     write(
         &root.join("main.nia"),
         r#"
@@ -341,12 +419,6 @@ fn main() i32 {
         "{:?}",
         program.diagnostics
     );
-    assert!(program.modules.iter().all(|module| {
-        module
-            .semantic_facts
-            .node_value_trait_object_coercions
-            .is_empty()
-    }));
 }
 
 #[test]

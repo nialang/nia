@@ -157,8 +157,8 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_rvalue_array_element_trait_object_coercions() {
-    let root = temp_dir("emits_rvalue_array_element_trait_object_coercions");
+fn emits_array_reference_element_trait_object_coercions() {
+    let root = temp_dir("emits_array_reference_element_trait_object_coercions");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
@@ -178,7 +178,7 @@ fn read_all(sources: & [ & Source]) i32 {
 }
 
 fn main() i32 {
-    read_all([8])
+    read_all([&8])
 }
 "#,
     )

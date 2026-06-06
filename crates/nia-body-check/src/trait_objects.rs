@@ -3,7 +3,7 @@ use crate::BodyChecker;
 use nia_ast::Expr;
 use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, InternedTyId};
-use nia_sema_ir::{TraitObjectCoercion, TraitObjectUpcast, ValueTraitObjectCoercion};
+use nia_sema_ir::{TraitObjectCoercion, TraitObjectUpcast};
 use nia_span::Span;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
 use nia_ty::{AssociatedTypeBindingTy, TraitId, TyKind};
@@ -156,59 +156,6 @@ impl<'a> BodyChecker<'a> {
             },
         );
         self.record_trait_object_vtable_instantiations(expr.span, self_ty, trait_id, &trait_args);
-        Some(expected)
-    }
-
-    pub(crate) fn coerce_value_to_trait_object(
-        &mut self,
-        expr: &Expr,
-        expected: InternedTyId,
-        actual: InternedTyId,
-    ) -> Option<InternedTyId> {
-        let expected = self.normalization.normalize(expected);
-        let actual = self.normalization.normalize(actual);
-        let Some(TyKind::TraitObject {
-            is_readonly,
-            trait_id,
-            trait_args,
-            associated_type_bindings,
-        }) = self.interner.get(expected).cloned()
-        else {
-            return None;
-        };
-        if !is_readonly || matches!(self.interner.get(actual), Some(TyKind::Pointer { .. })) {
-            return None;
-        }
-        if !self.is_object_safe_trait_object(
-            expr.span,
-            trait_id,
-            &trait_args,
-            &associated_type_bindings,
-        ) {
-            return None;
-        }
-        if !self.trait_object_bindings_match_impl(
-            actual,
-            trait_id,
-            &trait_args,
-            &associated_type_bindings,
-        ) {
-            return None;
-        }
-        self.check_reference_target_with_ty(expr, "value trait object source", true, Some(actual));
-        let pointer_ty = self.interner.intern(TyKind::Pointer {
-            is_readonly: true,
-            elem: actual,
-        });
-        self.record_value_trait_object_node_coercion(
-            expr,
-            ValueTraitObjectCoercion {
-                value_ty: actual,
-                pointer_ty,
-                target_ty: expected,
-            },
-        );
-        self.record_trait_object_vtable_instantiations(expr.span, actual, trait_id, &trait_args);
         Some(expected)
     }
 
