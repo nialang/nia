@@ -2,6 +2,8 @@ comptime if @builtin().target.arch == "x86_64" {
     import std.os.linux.x86_64.syscall;
 }
 
+pub comptime let max_path_bytes: usize = 4096usize;
+
 pub enum Error: i32 {
     PermissionDenied = 1,
     NoEntry = 2,

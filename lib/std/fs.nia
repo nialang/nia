@@ -1,6 +1,32 @@
 import std.os;
+import std.unicode;
 
-pub using os::{Error};
+pub enum Error: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    Invalid = 22,
+    NoSpace = 28,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    System = 255,
+    _,
+}
+
+enum PathError: i32 {
+    Invalid = 1,
+    TooLong = 36,
+    _,
+}
 
 pub enum OpenMode: i32 {
     ReadOnly = 0,
@@ -10,6 +36,10 @@ pub enum OpenMode: i32 {
 }
 
 pub struct Path {
+    text: &[char],
+}
+
+pub struct RawPath {
     ptr: &u8,
 }
 
@@ -33,7 +63,17 @@ pub struct CreateOptions {
 }
 
 extend Path {
-    pub fn from_nul_terminated_bytes(ptr: &u8) Path {
+    pub fn init(text: &[char]) Path {
+        { text: text }
+    }
+
+    pub fn text(&self) &[char] {
+        self.text
+    }
+}
+
+extend RawPath {
+    pub fn from_nul_terminated_bytes(ptr: &u8) RawPath {
         { ptr: ptr }
     }
 
@@ -52,7 +92,13 @@ extend Dir {
     }
 
     pub fn open_file(&self, path: Path, options: OpenOptions) Error!File {
-        var handle = os::open_at(
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        var raw = encode_path(path, &mut storage[..]).?;
+        self.open_raw_file(raw, options)
+    }
+
+    pub fn open_raw_file(&self, path: RawPath, options: OpenOptions) Error!File {
+        switch os::open_at(
             self.handle,
             path.ptr(),
             options.os_mode(),
@@ -60,12 +106,20 @@ extend Dir {
             false,
             false,
             0,
-        ).?;
-        !File::init(handle)
+        ) {
+            !handle => !File::init(handle),
+            err! => map_os_error(err)!,
+        }
     }
 
     pub fn create_file(&self, path: Path, options: CreateOptions) Error!File {
-        var handle = os::open_at(
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        var raw = encode_path(path, &mut storage[..]).?;
+        self.create_raw_file(raw, options)
+    }
+
+    pub fn create_raw_file(&self, path: RawPath, options: CreateOptions) Error!File {
+        switch os::open_at(
             self.handle,
             path.ptr(),
             options.os_mode(),
@@ -73,8 +127,10 @@ extend Dir {
             options.truncate(),
             options.is_exclusive(),
             options.permissions(),
-        ).?;
-        !File::init(handle)
+        ) {
+            !handle => !File::init(handle),
+            err! => map_os_error(err)!,
+        }
     }
 }
 
@@ -100,15 +156,24 @@ extend File {
     }
 
     pub fn close(&self) Error!void {
-        self.handle.close()
+        switch self.handle.close() {
+            !ok => !ok,
+            err! => map_os_error(err)!,
+        }
     }
 
     pub fn write_some(&self, bytes: &[u8]) Error!usize {
-        self.handle.write_some(bytes)
+        switch self.handle.write_some(bytes) {
+            !n => !n,
+            err! => map_os_error(err)!,
+        }
     }
 
     pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
-        self.handle.read_some(bytes)
+        switch self.handle.read_some(bytes) {
+            !n => !n,
+            err! => map_os_error(err)!,
+        }
     }
 }
 
@@ -174,5 +239,69 @@ extend CreateOptions {
         } else {
             os::OpenMode::WriteOnly
         }
+    }
+}
+
+fn encode_path(path: Path, storage: &mut [u8]) Error!RawPath {
+    switch encode_path_bytes(path.text(), storage) {
+        !raw => !raw,
+        err! => map_path_error(err)!,
+    }
+}
+
+fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!RawPath {
+    var out = 0usize;
+    var index = 0usize;
+    while index < text.len() {
+        var ch = text[index];
+        if ch as u32 == 0u32 {
+            return PathError::Invalid!;
+        }
+        var encoded = unicode::encode_utf8(ch);
+        if out + encoded.len() >= storage.len() {
+            return PathError::TooLong!;
+        }
+        var bytes = encoded.bytes();
+        var byte_index = 0usize;
+        while byte_index < bytes.len() {
+            storage[out] = bytes[byte_index];
+            out += 1usize;
+            byte_index += 1usize;
+        }
+        index += 1usize;
+    }
+    if out >= storage.len() {
+        return PathError::TooLong!;
+    }
+    storage[out] = 0u8;
+    !RawPath::from_nul_terminated_bytes(storage.get_ptr_read())
+}
+
+fn map_path_error(error: PathError) Error {
+    switch error {
+        PathError::Invalid => Error::Invalid,
+        PathError::TooLong => Error::TooLong,
+        _ => Error::Invalid,
+    }
+}
+
+fn map_os_error(error: os::Error) Error {
+    switch error {
+        os::Error::PermissionDenied => Error::PermissionDenied,
+        os::Error::NoEntry => Error::NotFound,
+        os::Error::Interrupted => Error::Interrupted,
+        os::Error::Io => Error::Io,
+        os::Error::BadFd => Error::BadFd,
+        os::Error::Again => Error::Again,
+        os::Error::NoMemory => Error::OutOfMemory,
+        os::Error::Access => Error::Access,
+        os::Error::Fault => Error::Fault,
+        os::Error::Busy => Error::Busy,
+        os::Error::Exists => Error::AlreadyExists,
+        os::Error::Invalid => Error::Invalid,
+        os::Error::NoSpace => Error::NoSpace,
+        os::Error::BrokenPipe => Error::BrokenPipe,
+        os::Error::OutOfRange => Error::OutOfRange,
+        _ => Error::System,
     }
 }

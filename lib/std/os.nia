@@ -4,6 +4,8 @@ comptime if @builtin().target.os == "linux" {
 
 pub using platform::{Error, FileDescriptor, OpenMode};
 
+pub comptime let max_path_bytes: usize = platform::max_path_bytes;
+
 pub fn cwd() FileDescriptor {
     platform::cwd()
 }
