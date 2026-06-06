@@ -21,16 +21,16 @@ pub struct Block {
 pub struct PageAllocator {}
 
 pub trait Allocator {
-    fn alloc(&self, layout: Layout) Error!?Block;
+    fn alloc(&mut self, layout: Layout) Error!?Block;
 
-    fn free(&self, block: Block) Error!void;
+    fn free(&mut self, block: Block) Error!void;
 
-    fn alloc_bytes(&self, len: usize, align: usize) Error!?Block {
+    fn alloc_bytes(&mut self, len: usize, align: usize) Error!?Block {
         var layout = Layout::init(len, align).?;
         self.alloc(layout)
     }
 
-    fn alloc_slice[T](&self, len: usize) Error!?&mut [T]
+    fn alloc_slice[T](&mut self, len: usize) Error!?&mut [T]
     where T: Sized
     {
         var layout = Layout::array[T](len).?;
@@ -43,7 +43,7 @@ pub trait Allocator {
         }
     }
 
-    fn free_slice[T](&self, slice: &mut [T]) Error!void
+    fn free_slice[T](&mut self, slice: &mut [T]) Error!void
     where T: Sized
     {
         var layout = Layout::array[T](slice.len()).?;
@@ -151,7 +151,7 @@ extend PageAllocator {
 }
 
 extend PageAllocator : Allocator {
-    pub fn alloc(&self, layout: Layout) Error!?Block {
+    pub fn alloc(&mut self, layout: Layout) Error!?Block {
         _ = self;
         if layout.is_empty() {
             !null
@@ -163,7 +163,7 @@ extend PageAllocator : Allocator {
         }
     }
 
-    pub fn free(&self, block: Block) Error!void {
+    pub fn free(&mut self, block: Block) Error!void {
         _ = self;
         if block.layout().is_empty() {
             !{}
