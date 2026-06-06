@@ -1,4 +1,5 @@
 import std.os;
+import std.result;
 
 pub enum Error: i32 {
     Invalid = 1,
@@ -48,21 +49,21 @@ pub trait Allocator {
             ?new_block => return !new_block,
             null => {},
         }
-        var new_block = self.alloc(new_layout).?;
+        let new_block = self.alloc(new_layout).?;
         copy_block_prefix(block, new_block);
         self.free(block).?;
         !new_block
     }
 
     fn alloc_bytes(&mut self, len: usize, align: usize) Error!Block {
-        var layout = Layout::init(len, align).?;
+        let layout = Layout::init(len, align).?;
         self.alloc(layout)
     }
 
     fn alloc_slice[T](&mut self, len: usize) Error!&mut [T]
     where T: Sized
     {
-        var layout = Layout::array[T](len).?;
+        let layout = Layout::array[T](len).?;
         if layout.is_empty() {
             return !dangling_slice[T](len);
         }
@@ -75,7 +76,7 @@ pub trait Allocator {
     fn free_slice[T](&mut self, slice: &mut [T]) Error!void
     where T: Sized
     {
-        var layout = Layout::array[T](slice.len()).?;
+        let layout = Layout::array[T](slice.len()).?;
         self.free(Block::init(slice.get_ptr() as &mut u8, layout))
     }
 }
@@ -142,9 +143,9 @@ extend Layout {
     pub fn array[T](count: usize) Error!Layout
     where T: Sized
     {
-        var elem_len = @size[T]();
+        let elem_len = @size[T]();
         if elem_len != 0usize and count != 0usize {
-            var size = elem_len * count;
+            let size = elem_len * count;
             if size / elem_len != count {
                 return Error::OutOfMemory!;
             }
@@ -216,10 +217,8 @@ extend PageAllocator : Allocator {
         if layout.is_empty() {
             !dangling_block(layout)
         } else {
-            switch os::map_pages(layout.size(), layout.align()) {
-                !ptr => !Block::init(ptr, layout),
-                err! => map_os_error(err)!,
-            }
+            let ptr = os::map_pages(layout.size(), layout.align()).map_err[Error](&[os::Error]::as_mem_error).?;
+            !Block::init(ptr, layout)
         }
     }
 
@@ -260,21 +259,17 @@ extend PageAllocator : Allocator {
         if block.layout().is_empty() {
             !{}
         } else {
-            switch os::unmap_pages(block.ptr(), block.size()) {
-                !ok => {
-                    _ = ok;
-                    !{}
-                },
-                err! => map_os_error(err)!,
-            }
+            os::unmap_pages(block.ptr(), block.size()).map_err[Error](&[os::Error]::as_mem_error)
         }
     }
 }
 
-fn map_os_error(error: os::Error) Error {
-    switch error {
-        os::Error::Invalid => Error::Invalid,
-        os::Error::NoMemory => Error::OutOfMemory,
-        _ => Error::System,
+extend os::Error {
+    fn as_mem_error(self) Error {
+        switch self {
+            os::Error::Invalid => Error::Invalid,
+            os::Error::NoMemory => Error::OutOfMemory,
+            _ => Error::System,
+        }
     }
 }

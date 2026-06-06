@@ -4,6 +4,53 @@ use crate::{NiaOptimizationLevel, check_program, check_program_with_options};
 use nia_ids::ModuleId;
 
 #[test]
+fn error_union_structural_extend_supports_map_err_style_methods() {
+    let root = temp_dir("error_union_structural_extend_supports_map_err_style_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+enum A: i32 {
+    Bad = 1,
+    _
+}
+
+enum B: i32 {
+    Other = 2,
+    _
+}
+
+fn to_b(error: A) B {
+    _ = error;
+    B::Other
+}
+
+extend[E, T] E!T {
+    fn map_err[E2](self, mapper: &fn(E) E2) E2!T {
+        switch self {
+            !value => !value,
+            err! => mapper(err)!,
+        }
+    }
+}
+
+fn fail() A!i32 {
+    A::Bad!
+}
+
+fn main() i32 {
+    switch fail().map_err[B](&to_b) {
+        !value => value,
+        err! => err as i32,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
 fn checks_bodies_against_normalized_type_aliases() {
     let root = temp_dir("checks_bodies_against_normalized_type_aliases");
     write(

@@ -1154,6 +1154,66 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_map_error_unions_with_std_result() {
+    let root = temp_dir("emit_exe_can_map_error_unions_with_std_result");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.process;
+import std.result;
+
+enum ParseError: i32 {
+    Bad = 1,
+    _
+}
+
+enum AppError: i32 {
+    InvalidInput = 7,
+    _
+}
+
+fn map_parse_error(error: ParseError) AppError {
+    _ = error;
+    AppError::InvalidInput
+}
+
+fn parse() ParseError!i32 {
+    ParseError::Bad!
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    switch parse().map_err[AppError](&map_parse_error) {
+        !value => return process::ExitCode::init(value)!,
+        err! => return process::ExitCode::init(err as i32)!,
+    }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(7));
+}
+
+#[test]
 fn emit_exe_can_write_stdout_through_std_fs() {
     let root = temp_dir("emit_exe_can_write_stdout_through_std_fs");
     let main = root.join("main.nia");
