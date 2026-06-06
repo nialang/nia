@@ -39,7 +39,7 @@ pub struct Path {
     text: &[char],
 }
 
-pub struct RawPath {
+struct EncodedPath {
     ptr: &u8,
 }
 
@@ -72,18 +72,18 @@ extend Path {
     }
 }
 
-extend RawPath {
-    pub fn from_nul_terminated_bytes(ptr: &u8) RawPath {
+extend EncodedPath {
+    fn init(ptr: &u8) EncodedPath {
         { ptr: ptr }
     }
 
-    pub fn ptr(&self) &u8 {
+    fn ptr(&self) &u8 {
         self.ptr
     }
 }
 
 extend Dir {
-    pub fn init(handle: os::FileDescriptor) Dir {
+    fn init(handle: os::FileDescriptor) Dir {
         { handle: handle }
     }
 
@@ -93,49 +93,19 @@ extend Dir {
 
     pub fn open_file(&self, path: Path, options: OpenOptions) Error!File {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
-        var raw = encode_path(path, &mut storage[..]).?;
-        self.open_raw_file(raw, options)
-    }
-
-    pub fn open_raw_file(&self, path: RawPath, options: OpenOptions) Error!File {
-        switch os::open_at(
-            self.handle,
-            path.ptr(),
-            options.os_mode(),
-            false,
-            false,
-            false,
-            0,
-        ) {
-            !handle => !File::init(handle),
-            err! => map_os_error(err)!,
-        }
+        var encoded = encode_path(path, &mut storage[..]).?;
+        open_encoded_file(self.handle, encoded, options)
     }
 
     pub fn create_file(&self, path: Path, options: CreateOptions) Error!File {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
-        var raw = encode_path(path, &mut storage[..]).?;
-        self.create_raw_file(raw, options)
-    }
-
-    pub fn create_raw_file(&self, path: RawPath, options: CreateOptions) Error!File {
-        switch os::open_at(
-            self.handle,
-            path.ptr(),
-            options.os_mode(),
-            true,
-            options.truncate(),
-            options.is_exclusive(),
-            options.permissions(),
-        ) {
-            !handle => !File::init(handle),
-            err! => map_os_error(err)!,
-        }
+        var encoded = encode_path(path, &mut storage[..]).?;
+        create_encoded_file(self.handle, encoded, options)
     }
 }
 
 extend File {
-    pub fn init(handle: os::FileDescriptor) File {
+    fn init(handle: os::FileDescriptor) File {
         { handle: handle }
     }
 
@@ -149,10 +119,6 @@ extend File {
 
     pub fn stderr() File {
         File::init(os::FileDescriptor::stderr())
-    }
-
-    pub fn handle(&self) os::FileDescriptor {
-        self.handle
     }
 
     pub fn close(&self) Error!void {
@@ -242,14 +208,48 @@ extend CreateOptions {
     }
 }
 
-fn encode_path(path: Path, storage: &mut [u8]) Error!RawPath {
+fn open_encoded_file(dir: os::FileDescriptor, path: EncodedPath, options: OpenOptions) Error!File {
+    switch os::open_at(
+        dir,
+        path.ptr(),
+        options.os_mode(),
+        false,
+        false,
+        false,
+        0,
+    ) {
+        !handle => !File::init(handle),
+        err! => map_os_error(err)!,
+    }
+}
+
+fn create_encoded_file(
+    dir: os::FileDescriptor,
+    path: EncodedPath,
+    options: CreateOptions,
+) Error!File {
+    switch os::open_at(
+        dir,
+        path.ptr(),
+        options.os_mode(),
+        true,
+        options.truncate(),
+        options.is_exclusive(),
+        options.permissions(),
+    ) {
+        !handle => !File::init(handle),
+        err! => map_os_error(err)!,
+    }
+}
+
+fn encode_path(path: Path, storage: &mut [u8]) Error!EncodedPath {
     switch encode_path_bytes(path.text(), storage) {
         !raw => !raw,
         err! => map_path_error(err)!,
     }
 }
 
-fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!RawPath {
+fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!EncodedPath {
     var out = 0usize;
     var index = 0usize;
     while index < text.len() {
@@ -274,7 +274,7 @@ fn encode_path_bytes(text: &[char], storage: &mut [u8]) PathError!RawPath {
         return PathError::TooLong!;
     }
     storage[out] = 0u8;
-    !RawPath::from_nul_terminated_bytes(storage.get_ptr_read())
+    !EncodedPath::init(storage.get_ptr_read())
 }
 
 fn map_path_error(error: PathError) Error {
