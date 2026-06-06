@@ -6,6 +6,14 @@ pub using platform::{Error, FileDescriptor, OpenMode};
 
 pub comptime let max_path_bytes: usize = platform::max_path_bytes;
 
+pub fn page_size() usize {
+    platform::page_size()
+}
+
+pub fn page_aligned_len(len: usize) Error!usize {
+    platform::page_aligned_len(len)
+}
+
 pub fn cwd() FileDescriptor {
     platform::cwd()
 }

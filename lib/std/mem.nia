@@ -223,6 +223,38 @@ extend PageAllocator : Allocator {
         }
     }
 
+    pub fn resize(&mut self, block: Block, new_layout: Layout) bool {
+        _ = self;
+        if block.align() != new_layout.align() {
+            return false;
+        }
+        if block.is_empty() or new_layout.is_empty() {
+            return block.is_empty() and new_layout.is_empty();
+        }
+
+        var old_size: usize;
+        switch os::page_aligned_len(block.size()) {
+            !size => old_size = size,
+            err! => return false,
+        }
+        var new_size: usize;
+        switch os::page_aligned_len(new_layout.size()) {
+            !size => new_size = size,
+            err! => return false,
+        }
+        old_size == new_size
+    }
+
+    pub fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
+        if self.resize(block, new_layout) {
+            ?Block::init(block.ptr(), new_layout)
+        } else if block.is_empty() and new_layout.is_empty() {
+            ?dangling_block(new_layout)
+        } else {
+            null
+        }
+    }
+
     pub fn free(&mut self, block: Block) Error!void {
         _ = self;
         if block.layout().is_empty() {
