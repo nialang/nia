@@ -669,7 +669,8 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_comptime_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Comptime) else {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Comptime)
+        else {
             return;
         };
         let Some(value) = &binding.value else {
@@ -703,7 +704,8 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn check_global_binding(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Global) else {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Global)
+        else {
             return;
         };
         let Some(value) = &binding.value else {
@@ -754,22 +756,27 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn check_function_item(&mut self, item_span: Span, function: &FunctionItem) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Function) else {
+    fn check_function_item(&mut self, _item_span: Span, function: &FunctionItem) {
+        let Some(def_id) =
+            self.def_id_for_node(&function.node_key, function.span, DefKind::Function)
+        else {
             return;
         };
         self.check_function(def_id, function);
     }
 
-    fn check_function_def(&mut self, span: Span, function: &FunctionItem) {
-        let Some(def_id) = self.def_id_for_span(span, DefKind::Method) else {
+    fn check_function_def(&mut self, _span: Span, function: &FunctionItem) {
+        let Some(def_id) = self.def_id_for_node(&function.node_key, function.span, DefKind::Method)
+        else {
             return;
         };
         self.check_function(def_id, function);
     }
 
-    fn check_trait_function_def(&mut self, span: Span, function: &FunctionItem) {
-        let Some(def_id) = self.def_id_for_span(span, DefKind::TraitMethod) else {
+    fn check_trait_function_def(&mut self, _span: Span, function: &FunctionItem) {
+        let Some(def_id) =
+            self.def_id_for_node(&function.node_key, function.span, DefKind::TraitMethod)
+        else {
             return;
         };
         self.check_function(def_id, function);
@@ -935,6 +942,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 if let Some(value) = value {
                     self.expect_expr_type(value, self.current_return, value_ty, "return");
+                    self.record_expr_node_type(value, self.current_return);
                 } else {
                     self.expect_type(stmt.span, self.current_return, value_ty, "return");
                 }

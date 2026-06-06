@@ -497,8 +497,8 @@ impl<'a> BodyChecker<'a> {
             };
             let has_method = extend.methods.iter().any(|method| {
                 self.defs
-                    .def_spans
-                    .get(method.function.span)
+                    .def_nodes
+                    .get(&method.function.node_key)
                     .is_some_and(|def_id| def_id == method_id.def_id)
             });
             if !has_method {

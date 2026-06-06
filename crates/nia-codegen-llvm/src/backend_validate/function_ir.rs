@@ -93,6 +93,9 @@ impl BackendValidator<'_> {
     }
 
     fn validate_expr(&mut self, expr: &FunctionExpr) {
+        if matches!(expr.kind, FunctionExprKind::Error) {
+            return;
+        }
         self.validate_type(expr.ty, expr.span);
         match &expr.kind {
             FunctionExprKind::Global(def_id) => {

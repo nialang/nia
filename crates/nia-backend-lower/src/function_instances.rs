@@ -1,59 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use crate::ModuleLowerer;
-use nia_backend_ir::{BackendFunction, BackendFunctionInstance, BackendTraitObjectVtableFunction};
-use nia_defs::DefKind;
-use nia_function_ir::{
-    FunctionBlock, FunctionBody, FunctionCallee, FunctionDeferBody, FunctionExpr, FunctionExprKind,
-    FunctionForHeader, FunctionOp, FunctionTerminator,
+use nia_backend_ir::{
+    BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
 };
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
+use nia_item_signatures::FunctionAttribute;
 use nia_ty::TyKind;
 
 type InstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
-type InstanceQueueEntry = (InstanceKey, String);
-
-struct InstanceWorkQueue {
-    entries: VecDeque<InstanceQueueEntry>,
-    queued: HashSet<InstanceKey>,
-}
-
-impl InstanceWorkQueue {
-    fn new() -> Self {
-        Self {
-            entries: VecDeque::new(),
-            queued: HashSet::new(),
-        }
-    }
-
-    fn contains(&self, key: &InstanceKey) -> bool {
-        self.queued.contains(key)
-    }
-
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    fn push(
-        &mut self,
-        def_id: GlobalDefId,
-        arg_module_id: ModuleId,
-        args: Vec<InternedTyId>,
-        symbol: String,
-    ) {
-        let key = (def_id, arg_module_id, args);
-        if self.queued.insert(key.clone()) {
-            self.entries.push_back((key, symbol));
-        }
-    }
-
-    fn pop_front(&mut self) -> Option<(GlobalDefId, ModuleId, Vec<InternedTyId>, String)> {
-        let (key, symbol) = self.entries.pop_front()?;
-        self.queued.remove(&key);
-        Some((key.0, key.1, key.2, symbol))
-    }
-}
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_function_instances(
@@ -62,10 +18,9 @@ impl<'a> ModuleLowerer<'a> {
     ) -> Vec<BackendFunctionInstance> {
         let mut instances = Vec::new();
         let mut seen = HashSet::<InstanceKey>::new();
-        let mut queue = InstanceWorkQueue::new();
-        let functions_by_def = functions
+        let mut functions_by_def = functions
             .iter()
-            .map(|function| (function.def_id, function))
+            .map(|function| (function.def_id, function.clone()))
             .collect::<HashMap<_, _>>();
         for instance in self
             .monomorphization
@@ -80,427 +35,165 @@ impl<'a> ModuleLowerer<'a> {
             }) {
                 continue;
             }
-            queue.push(
+            self.lower_planned_function_instance(
+                &mut functions_by_def,
+                &mut seen,
+                &mut instances,
                 instance.def_id,
                 instance.arg_module_id,
                 args,
                 instance.symbol.clone(),
             );
         }
-        self.enqueue_function_instances_from_functions(functions, &mut seen, &mut queue);
-
-        self.drain_function_instance_queue(
-            &functions_by_def,
-            &mut seen,
-            &mut queue,
-            &mut instances,
-        );
-        let mut next_vtable_scan_start = 0;
-        loop {
-            let mut vtables = Vec::new();
-            if next_vtable_scan_start == 0 {
-                self.collect_trait_object_vtables_from_functions(&mut vtables, functions);
-            }
-            self.collect_trait_object_vtables_from_function_instances(
-                &mut vtables,
-                &instances[next_vtable_scan_start..],
-            );
-            next_vtable_scan_start = instances.len();
-            for vtable in &vtables {
-                for entry in &vtable.entries {
-                    if let BackendTraitObjectVtableFunction::FunctionInstance {
-                        def_id,
-                        arg_module_id,
-                        args,
-                    } = &entry.function
-                    {
-                        self.enqueue_function_instance_for_module(
-                            *def_id,
-                            *arg_module_id,
-                            args,
-                            &seen,
-                            &mut queue,
-                        );
-                    }
-                }
-            }
-            if queue.is_empty() {
-                break;
-            }
-            let drained = self.drain_function_instance_queue(
-                &functions_by_def,
-                &mut seen,
-                &mut queue,
-                &mut instances,
-            );
-            if drained == 0 {
-                break;
-            }
-        }
         instances
     }
 
-    fn drain_function_instance_queue(
+    fn lower_planned_function_instance(
         &mut self,
-        functions_by_def: &HashMap<GlobalDefId, &BackendFunction>,
+        functions_by_def: &mut HashMap<GlobalDefId, BackendFunction>,
         seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
         instances: &mut Vec<BackendFunctionInstance>,
-    ) -> usize {
-        let start_len = instances.len();
-        while let Some((def_id, arg_module_id, args, symbol)) = queue.pop_front() {
-            if !seen.insert((def_id, arg_module_id, args.clone())) {
-                continue;
-            }
-            let Some(base) = functions_by_def.get(&def_id).copied() else {
-                continue;
-            };
-            let substitutions =
-                self.effective_generic_substitutions_for_instance(base.def_id, &args);
-            let function_body = base.function_body.clone().map(|body| {
-                self.instantiate_function_body(
-                    def_id,
-                    arg_module_id,
-                    args.len(),
-                    body,
-                    &substitutions,
-                )
-            });
-            if let Some(body) = &function_body {
-                self.enqueue_function_instances_from_body(body, seen, queue);
-            }
-            instances.push(BackendFunctionInstance {
-                def_id,
-                name: base.name.clone(),
-                arg_module_id,
-                args,
-                symbol,
-                params: self.instantiate_params(base, &substitutions),
-                return_type: self.instantiate_ty(base.return_type, &substitutions),
-                is_extern: base.is_extern,
-                is_variadic: base.is_variadic,
-                attributes: base.attributes.clone(),
-                function_body,
-                span: base.span,
-            });
-        }
-        instances.len() - start_len
-    }
-
-    fn enqueue_function_instances_from_functions(
-        &mut self,
-        functions: &[BackendFunction],
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        for function in functions {
-            if !self
-                .effective_generics(function.def_id, &function.generics)
-                .is_empty()
-            {
-                continue;
-            }
-            if let Some(body) = &function.function_body {
-                self.enqueue_function_instances_from_body(body, seen, queue);
-            }
-        }
-    }
-
-    fn enqueue_function_instances_from_body(
-        &mut self,
-        body: &FunctionBody,
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        self.enqueue_function_instances_from_blocks(&body.blocks, seen, queue);
-    }
-
-    fn enqueue_function_instances_from_defer_body(
-        &mut self,
-        body: &FunctionDeferBody,
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        self.enqueue_function_instances_from_blocks(&body.blocks, seen, queue);
-    }
-
-    fn enqueue_function_instances_from_blocks(
-        &mut self,
-        blocks: &[FunctionBlock],
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        for block in blocks {
-            for op in &block.ops {
-                self.enqueue_function_instances_from_op(op, seen, queue);
-            }
-            self.enqueue_function_instances_from_terminator(&block.terminator, seen, queue);
-        }
-    }
-
-    fn enqueue_function_instances_from_terminator(
-        &mut self,
-        terminator: &FunctionTerminator,
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        match terminator {
-            FunctionTerminator::If { cond, .. } => {
-                self.enqueue_function_instances_from_expr(cond, seen, queue);
-            }
-            FunctionTerminator::Switch { target, arms, .. } => {
-                self.enqueue_function_instances_from_expr(target, seen, queue);
-                for arm in arms {
-                    self.enqueue_function_instances_from_expr(&arm.pattern, seen, queue);
-                }
-            }
-            FunctionTerminator::Try { value, .. } => {
-                self.enqueue_function_instances_from_expr(value, seen, queue);
-            }
-            FunctionTerminator::Loop { header, .. } => match header {
-                FunctionForHeader::Condition(expr) => {
-                    self.enqueue_function_instances_from_expr(expr, seen, queue);
-                }
-                FunctionForHeader::Infinite => {}
-            },
-            FunctionTerminator::Return { value, .. } | FunctionTerminator::Tail { value, .. } => {
-                if let Some(value) = value {
-                    self.enqueue_function_instances_from_expr(value, seen, queue);
-                }
-            }
-            FunctionTerminator::Branch { .. }
-            | FunctionTerminator::Next { .. }
-            | FunctionTerminator::Error { .. } => {}
-        }
-    }
-
-    fn enqueue_function_instances_from_op(
-        &mut self,
-        op: &FunctionOp,
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        match op {
-            FunctionOp::Binding(binding) => {
-                if let Some(value) = &binding.value {
-                    self.enqueue_function_instances_from_expr(value, seen, queue);
-                }
-            }
-            FunctionOp::StoreLocal { value, .. } | FunctionOp::Expr(value) => {
-                self.enqueue_function_instances_from_expr(value, seen, queue);
-            }
-            FunctionOp::Defer(body) => {
-                self.enqueue_function_instances_from_defer_body(body, seen, queue);
-            }
-        }
-    }
-
-    fn enqueue_function_instances_from_expr(
-        &mut self,
-        expr: &FunctionExpr,
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        match &expr.kind {
-            FunctionExprKind::FunctionInstance { def_id, args } => {
-                self.enqueue_function_instance(*def_id, args, seen, queue);
-            }
-            FunctionExprKind::Discard(inner)
-            | FunctionExprKind::RangeBound { range: inner, .. }
-            | FunctionExprKind::Cast { expr: inner, .. }
-            | FunctionExprKind::OptionalSome { expr: inner }
-            | FunctionExprKind::ErrorOk { expr: inner }
-            | FunctionExprKind::ErrorErr { expr: inner }
-            | FunctionExprKind::TaggedUnionTag { expr: inner }
-            | FunctionExprKind::TaggedUnionPayload { expr: inner }
-            | FunctionExprKind::Try { expr: inner }
-            | FunctionExprKind::TraitObjectUpcast { expr: inner, .. }
-            | FunctionExprKind::TraitObjectCoercion { expr: inner, .. } => {
-                self.enqueue_function_instances_from_expr(inner, seen, queue);
-            }
-            FunctionExprKind::Range(range) => {
-                if let Some(start) = &range.start {
-                    self.enqueue_function_instances_from_expr(start, seen, queue);
-                }
-                if let Some(end) = &range.end {
-                    self.enqueue_function_instances_from_expr(end, seen, queue);
-                }
-            }
-            FunctionExprKind::InlineAsm(asm) => {
-                for input in &asm.inputs {
-                    self.enqueue_function_instances_from_expr(&input.value, seen, queue);
-                }
-            }
-            FunctionExprKind::CStringPointer { array, .. } => {
-                self.enqueue_function_instances_from_expr(array, seen, queue);
-            }
-            FunctionExprKind::ArrayLiteral { elems } => match elems {
-                nia_function_ir::FunctionArrayElements::List(elems) => {
-                    for elem in elems {
-                        self.enqueue_function_instances_from_expr(elem, seen, queue);
-                    }
-                }
-                nia_function_ir::FunctionArrayElements::Repeat { value, .. } => {
-                    self.enqueue_function_instances_from_expr(value, seen, queue);
-                }
-            },
-            FunctionExprKind::StructLiteral { fields, .. } => {
-                for field in fields {
-                    self.enqueue_function_instances_from_expr(&field.value, seen, queue);
-                }
-            }
-            FunctionExprKind::UnionLiteral { field, .. } => {
-                self.enqueue_function_instances_from_expr(&field.value, seen, queue);
-            }
-            FunctionExprKind::Unary { expr: inner, .. } => {
-                self.enqueue_function_instances_from_expr(inner, seen, queue);
-            }
-            FunctionExprKind::AddrOf(place) => {
-                self.enqueue_function_instances_from_place(place, seen, queue);
-            }
-            FunctionExprKind::Binary { lhs, rhs, .. } => {
-                self.enqueue_function_instances_from_expr(lhs, seen, queue);
-                self.enqueue_function_instances_from_expr(rhs, seen, queue);
-            }
-            FunctionExprKind::Assign { place, rhs, .. } => {
-                self.enqueue_function_instances_from_place(place, seen, queue);
-                self.enqueue_function_instances_from_expr(rhs, seen, queue);
-            }
-            FunctionExprKind::Call { callee, args } => {
-                self.enqueue_function_instances_from_callee(callee, seen, queue);
-                for arg in args {
-                    self.enqueue_function_instances_from_expr(arg, seen, queue);
-                }
-            }
-            FunctionExprKind::Field { lhs, .. } => {
-                self.enqueue_function_instances_from_expr(lhs, seen, queue);
-            }
-            FunctionExprKind::Index { lhs, index } => {
-                self.enqueue_function_instances_from_expr(lhs, seen, queue);
-                self.enqueue_function_instances_from_expr(index, seen, queue);
-            }
-            FunctionExprKind::Slice { lhs, range, .. } => {
-                self.enqueue_function_instances_from_expr(lhs, seen, queue);
-                if let Some(start) = &range.start {
-                    self.enqueue_function_instances_from_expr(start, seen, queue);
-                }
-                if let Some(end) = &range.end {
-                    self.enqueue_function_instances_from_expr(end, seen, queue);
-                }
-            }
-            FunctionExprKind::Error
-            | FunctionExprKind::Integer(_)
-            | FunctionExprKind::Float(_)
-            | FunctionExprKind::String(_)
-            | FunctionExprKind::ByteString(_)
-            | FunctionExprKind::Char(_)
-            | FunctionExprKind::ByteChar(_)
-            | FunctionExprKind::Bool(_)
-            | FunctionExprKind::Null
-            | FunctionExprKind::Local(_)
-            | FunctionExprKind::Global(_)
-            | FunctionExprKind::Function(_)
-            | FunctionExprKind::EnumVariant(_)
-            | FunctionExprKind::BuiltinValue(_) => {}
-        }
-    }
-
-    fn enqueue_function_instances_from_callee(
-        &mut self,
-        callee: &FunctionCallee,
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        match callee {
-            FunctionCallee::FunctionInstance { def_id, args }
-            | FunctionCallee::Method { def_id, args, .. } => {
-                self.enqueue_function_instance(*def_id, args, seen, queue);
-            }
-            FunctionCallee::TraitMethod {
-                method_id,
-                args,
-                self_ty,
-                trait_args,
-                ..
-            } => {
-                let mut instance_args = vec![*self_ty];
-                instance_args.extend(trait_args.iter().copied());
-                instance_args.extend(args.iter().copied());
-                self.enqueue_function_instance(*method_id, &instance_args, seen, queue);
-            }
-            FunctionCallee::BuiltinPlaceMethod { receiver, .. }
-            | FunctionCallee::BuiltinMethod { receiver, .. } => {
-                self.enqueue_function_instances_from_expr(receiver, seen, queue);
-            }
-            FunctionCallee::DynamicTraitMethod { receiver, .. } => {
-                self.enqueue_function_instances_from_expr(receiver, seen, queue);
-            }
-            FunctionCallee::Function(_)
-            | FunctionCallee::BuiltinOperator(_)
-            | FunctionCallee::FunctionPointer(_) => {}
-        }
-    }
-
-    fn enqueue_function_instances_from_place(
-        &mut self,
-        place: &nia_function_ir::FunctionPlace,
-        seen: &mut HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        if let nia_function_ir::FunctionPlaceBase::Deref(expr) = &place.base {
-            self.enqueue_function_instances_from_expr(expr, seen, queue);
-        }
-        for elem in &place.elems {
-            if let nia_function_ir::FunctionPlaceElem::Index(expr) = elem {
-                self.enqueue_function_instances_from_expr(expr, seen, queue);
-            }
-        }
-    }
-
-    fn enqueue_function_instance(
-        &mut self,
-        def_id: GlobalDefId,
-        args: &[InternedTyId],
-        seen: &HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
-    ) {
-        self.enqueue_function_instance_for_module(def_id, self.input.module_id, args, seen, queue);
-    }
-
-    fn enqueue_function_instance_for_module(
-        &mut self,
         def_id: GlobalDefId,
         arg_module_id: ModuleId,
-        args: &[InternedTyId],
-        seen: &HashSet<InstanceKey>,
-        queue: &mut InstanceWorkQueue,
+        args: Vec<InternedTyId>,
+        symbol: String,
     ) {
-        if args.is_empty() || def_id.module_id != self.input.module_id {
+        if !seen.insert((def_id, arg_module_id, args.clone())) {
             return;
         }
-        let args = self.canonicalize_instance_args(args);
-        if args.iter().any(|arg| {
-            self.cached_ty_contains_generic_param(*arg)
-                || self.cached_ty_contains_unresolved_projection(*arg)
-        }) {
-            return;
+        if !functions_by_def.contains_key(&def_id)
+            && let Some(function) = self.backend_function_template_for_program_def(def_id)
+        {
+            functions_by_def.insert(def_id, function);
         }
-        let key = (def_id, arg_module_id, args);
-        if seen.contains(&key) || queue.contains(&key) {
-            return;
-        }
-        let Some(def) = self.input.defs.defs.get(def_id.def_id) else {
+        let Some(base) = functions_by_def.get(&def_id).cloned() else {
             return;
         };
-        if !matches!(
-            def.kind,
-            DefKind::Function | DefKind::Method | DefKind::TraitMethod
-        ) {
-            return;
+        let imported_args = args
+            .iter()
+            .map(|arg| self.import_instance_arg_type(*arg))
+            .collect::<Vec<_>>();
+        let substitutions = ModuleLowerer::generic_substitutions(&base.generics, &imported_args);
+        let function_body = base.function_body.clone().map(|body| {
+            self.instantiate_function_body(def_id, arg_module_id, args.len(), body, &substitutions)
+        });
+        instances.push(BackendFunctionInstance {
+            def_id,
+            name: base.name.clone(),
+            arg_module_id,
+            args,
+            symbol,
+            params: self.instantiate_params(&base, &substitutions),
+            return_type: self.instantiate_ty(base.return_type, &substitutions),
+            is_extern: base.is_extern,
+            is_variadic: base.is_variadic,
+            attributes: base.attributes.clone(),
+            function_body,
+            span: base.span,
+        });
+    }
+
+    fn backend_function_template_for_program_def(
+        &mut self,
+        def_id: GlobalDefId,
+    ) -> Option<BackendFunction> {
+        let signature = self.input.program_functions.get(&def_id)?;
+        if signature.signature.is_comptime {
+            return None;
         }
-        let name = def.name.clone();
-        let symbol = self.mangle_instance_symbol(def_id, &name, &key.2);
-        queue.push(def_id, arg_module_id, key.2, symbol);
+        let source_interner = &signature.interner;
+        let body_interner = self
+            .input
+            .program_type_interners
+            .get(&def_id.module_id)
+            .copied()
+            .unwrap_or(source_interner);
+        let own_generics = &signature.signature.generics;
+        let effective_generics = self.effective_generics(def_id, own_generics).to_vec();
+        let identity_substitutions = effective_generics
+            .iter()
+            .map(|generic| {
+                (
+                    generic.clone(),
+                    self.interner.intern(TyKind::GenericParam(generic.clone())),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let raw_function_body = self.input.program_function_bodies.get(&def_id).cloned();
+        let param_local_tys = raw_function_body
+            .as_ref()
+            .map(|body| {
+                body.locals
+                    .iter()
+                    .filter(|local| local.kind == nia_function_ir::FunctionLocalKind::Param)
+                    .map(|local| local.ty)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let function_body = raw_function_body.map(|body| {
+            self.instantiate_function_body(
+                def_id,
+                self.input.module_id,
+                0,
+                body,
+                &identity_substitutions,
+            )
+        });
+        Some(BackendFunction {
+            def_id,
+            name: signature.name.clone(),
+            generics: effective_generics,
+            params: signature
+                .signature
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    let signature_ty =
+                        nia_ty::import_type_into(&mut self.interner, source_interner, param.ty);
+                    let local_ty = if param.receiver.is_some() {
+                        param_local_tys
+                            .get(index)
+                            .copied()
+                            .map(|ty| {
+                                nia_ty::import_type_into(&mut self.interner, body_interner, ty)
+                            })
+                            .unwrap_or(signature_ty)
+                    } else {
+                        signature_ty
+                    };
+                    let passing_ty = param
+                        .receiver
+                        .map(|receiver| self.receiver_passing_ty(receiver, local_ty))
+                        .unwrap_or(local_ty);
+                    BackendParam {
+                        local_id: None,
+                        name: param.name.clone(),
+                        receiver: param.receiver,
+                        passing_ty,
+                        local_ty,
+                        span: param.span,
+                    }
+                })
+                .collect(),
+            return_type: nia_ty::import_type_into(
+                &mut self.interner,
+                source_interner,
+                signature.signature.return_type,
+            ),
+            is_extern: signature.signature.is_extern,
+            is_variadic: signature.signature.is_variadic,
+            attributes: signature
+                .signature
+                .attributes
+                .iter()
+                .map(|attribute| match attribute {
+                    FunctionAttribute::Naked => BackendFunctionAttribute::Naked,
+                })
+                .collect(),
+            function_body,
+            span: signature.signature.span,
+        })
     }
 
     pub(crate) fn canonicalize_instance_args(
@@ -525,26 +218,39 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
+        let current_interner = &self.interner;
         let known_type_interners = &self.known_type_interners;
         contains_generic_param(
             ty,
             &mut |ty| {
-                known_type_interners
-                    .get(&ty.interner_id)
-                    .and_then(|interner| interner.get(ty))
-                    .cloned()
+                (ty.interner_id == current_interner.interner_id())
+                    .then(|| current_interner.get(ty).cloned())
+                    .flatten()
+                    .or_else(|| {
+                        known_type_interners
+                            .get(&ty.interner_id)
+                            .and_then(|interner| interner.get(ty))
+                            .cloned()
+                    })
+                    .or_else(|| Some(TyKind::GenericParam("<unknown>".to_string())))
             },
-            Some(&mut self.generic_param_presence),
+            None,
         )
     }
 
     fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
+        let current_interner = &self.interner;
         let known_type_interners = &self.known_type_interners;
         contains_unresolved_projection(ty, &mut |ty| {
-            known_type_interners
-                .get(&ty.interner_id)
-                .and_then(|interner| interner.get(ty))
-                .cloned()
+            (ty.interner_id == current_interner.interner_id())
+                .then(|| current_interner.get(ty).cloned())
+                .flatten()
+                .or_else(|| {
+                    known_type_interners
+                        .get(&ty.interner_id)
+                        .and_then(|interner| interner.get(ty))
+                        .cloned()
+                })
         })
     }
 }

@@ -13,16 +13,18 @@ use nia_function_ir::{
     FunctionPlaceElem, FunctionTerminator,
 };
 use nia_ids::{GlobalDefId, InternedTyId};
+use nia_node_id::NodeKey;
 use nia_span::Span;
 use nia_ty::TyKind;
 
 impl<'a> ModuleLowerer<'a> {
     pub(crate) fn lower_struct_instances(
         &mut self,
+        node_key: &NodeKey,
         span: Span,
         item: &nia_ast::StructItem,
     ) -> Vec<BackendStructInstance> {
-        let Some(def_id) = self.def_id_for_span(span, DefKind::Struct) else {
+        let Some(def_id) = self.def_id_for_node(node_key, DefKind::Struct) else {
             return Vec::new();
         };
         let Some(signature) = self.input.signatures.structs.get(&def_id) else {
@@ -70,10 +72,11 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(crate) fn lower_union_instances(
         &mut self,
+        node_key: &NodeKey,
         span: Span,
         item: &nia_ast::UnionItem,
     ) -> Vec<BackendUnionInstance> {
-        let Some(def_id) = self.def_id_for_span(span, DefKind::Union) else {
+        let Some(def_id) = self.def_id_for_node(node_key, DefKind::Union) else {
             return Vec::new();
         };
         let Some(signature) = self.input.signatures.unions.get(&def_id) else {

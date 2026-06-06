@@ -50,29 +50,14 @@ impl<'a> ModuleLowerer<'a> {
             .unwrap_or(&[])
     }
 
-    fn effective_generics_for_def(&mut self, def_id: GlobalDefId) -> &[String] {
-        if !self.effective_generics.contains_key(&def_id) {
-            let own_generics = self
-                .input
-                .defs
-                .defs
-                .get(def_id.def_id)
-                .map(|def| def.generics.as_slice())
-                .unwrap_or(&[]);
-            let generics = self.compute_effective_generics(def_id, own_generics);
-            self.effective_generics.insert(def_id, generics);
-        }
-        self.effective_generics
-            .get(&def_id)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
     fn compute_effective_generics(
         &self,
         def_id: GlobalDefId,
         own_generics: &[String],
     ) -> Vec<String> {
+        if let Some(generics) = self.program_trait_method_generics(def_id, own_generics) {
+            return generics;
+        }
         if self
             .input
             .defs
@@ -114,30 +99,42 @@ impl<'a> ModuleLowerer<'a> {
         self.extension_generics_by_method.get(&def_id).cloned()
     }
 
-    pub(crate) fn effective_generic_substitutions(
-        &mut self,
+    fn program_trait_method_generics(
+        &self,
         def_id: GlobalDefId,
-        args: &[InternedTyId],
-    ) -> HashMap<String, InternedTyId> {
-        let generics = self.effective_generics_for_def(def_id);
-        Self::generic_substitutions(generics, args)
-    }
-
-    pub(crate) fn effective_generic_substitutions_for_instance(
-        &mut self,
-        def_id: GlobalDefId,
-        args: &[InternedTyId],
-    ) -> HashMap<String, InternedTyId> {
-        let args = args
+        own_generics: &[String],
+    ) -> Option<Vec<String>> {
+        self.input
+            .program_traits
             .iter()
-            .map(|arg| self.import_instance_arg_type(*arg))
-            .collect::<Vec<_>>();
-        self.effective_generic_substitutions(def_id, &args)
+            .find_map(|(trait_id, signature)| {
+                signature
+                    .signature
+                    .methods
+                    .iter()
+                    .any(|method| {
+                        GlobalDefId {
+                            module_id: trait_id.module_id,
+                            def_id: method.def_id,
+                        } == def_id
+                    })
+                    .then(|| {
+                        let mut generics = vec!["Self".to_string()];
+                        generics.extend(signature.signature.generics.iter().cloned());
+                        generics.extend(own_generics.iter().cloned());
+                        generics
+                    })
+            })
     }
 
-    fn import_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
+    pub(crate) fn import_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
         if ty.interner_id == self.interner.interner_id() {
             return ty;
+        }
+        if let Some(interner) = self.current_instantiated_body_interner
+            && ty.interner_id == interner.interner_id()
+        {
+            return nia_ty::import_type_into(&mut self.interner, interner, ty);
         }
         if let Some(interner) = self.known_type_interners.get(&ty.interner_id).copied() {
             return nia_ty::import_type_into(&mut self.interner, interner, ty);
@@ -176,6 +173,14 @@ impl<'a> ModuleLowerer<'a> {
         let previous_candidates = self.instance_extension_trait_method_candidates.take();
         let previous_interner = self.instance_extension_interner.take();
         let previous_function = self.current_instantiated_function.replace(function);
+        let previous_body_interner = self.current_instantiated_body_interner.take();
+        let previous_substitutions = self.current_type_substitutions.take();
+        self.current_instantiated_body_interner = self
+            .input
+            .program_type_interners
+            .get(&function.module_id)
+            .copied()
+            .or(Some(&self.input.body_ir.interner));
         if instantiation_module_id != self.input.module_id
             && let Some((extensions, interner)) =
                 self.input.program_extensions.get(&instantiation_module_id)
@@ -187,6 +192,7 @@ impl<'a> ModuleLowerer<'a> {
             self.instance_extension_interner = Some(*interner);
         }
         let substitutions = self.intern_type_substitutions(substitutions);
+        self.current_type_substitutions = Some(substitutions);
         let body = FunctionBody {
             span: body.span,
             locals: body
@@ -224,6 +230,8 @@ impl<'a> ModuleLowerer<'a> {
         self.instance_extension_trait_method_candidates = previous_candidates;
         self.instance_extension_interner = previous_interner;
         self.current_instantiated_function = previous_function;
+        self.current_instantiated_body_interner = previous_body_interner;
+        self.current_type_substitutions = previous_substitutions;
         body
     }
 
@@ -261,7 +269,81 @@ impl<'a> ModuleLowerer<'a> {
         {
             return None;
         }
+        if !self.candidate_where_predicates_hold(candidate, &substitutions) {
+            return None;
+        }
         Some(substitutions)
+    }
+
+    pub(crate) fn import_where_predicates(
+        &mut self,
+        predicates: &[nia_item_signatures::WherePredicateSignature],
+        source_interner: &nia_ty::TyInterner,
+    ) -> Vec<nia_item_signatures::WherePredicateSignature> {
+        predicates
+            .iter()
+            .map(|predicate| nia_item_signatures::WherePredicateSignature {
+                ty: nia_ty::import_type_into(&mut self.interner, source_interner, predicate.ty),
+                bounds: predicate
+                    .bounds
+                    .iter()
+                    .map(|bound| nia_item_signatures::WhereBoundSignature {
+                        trait_ty: nia_ty::import_type_into(
+                            &mut self.interner,
+                            source_interner,
+                            bound.trait_ty,
+                        ),
+                        associated_type_bindings: bound
+                            .associated_type_bindings
+                            .iter()
+                            .map(
+                                |binding| nia_item_signatures::AssociatedTypeBindingSignature {
+                                    name: binding.name.clone(),
+                                    ty: nia_ty::import_type_into(
+                                        &mut self.interner,
+                                        source_interner,
+                                        binding.ty,
+                                    ),
+                                    span: binding.span,
+                                },
+                            )
+                            .collect(),
+                        span: bound.span,
+                    })
+                    .collect(),
+                span: predicate.span,
+            })
+            .collect()
+    }
+
+    pub(crate) fn substitute_where_predicate(
+        &mut self,
+        predicate: &nia_item_signatures::WherePredicateSignature,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> nia_item_signatures::WherePredicateSignature {
+        nia_item_signatures::WherePredicateSignature {
+            ty: self.instantiate_ty(predicate.ty, substitutions),
+            bounds: predicate
+                .bounds
+                .iter()
+                .map(|bound| nia_item_signatures::WhereBoundSignature {
+                    trait_ty: self.instantiate_ty(bound.trait_ty, substitutions),
+                    associated_type_bindings: bound
+                        .associated_type_bindings
+                        .iter()
+                        .map(
+                            |binding| nia_item_signatures::AssociatedTypeBindingSignature {
+                                name: binding.name.clone(),
+                                ty: self.instantiate_ty(binding.ty, substitutions),
+                                span: binding.span,
+                            },
+                        )
+                        .collect(),
+                    span: bound.span,
+                })
+                .collect(),
+            span: predicate.span,
+        }
     }
 
     pub(crate) fn candidate_impl_generics<'b>(
@@ -269,6 +351,54 @@ impl<'a> ModuleLowerer<'a> {
         candidate: &'b ExtensionTraitMethodCandidate,
     ) -> &'b [String] {
         &candidate.impl_generics
+    }
+
+    pub(crate) fn trait_method_call_is_concrete(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+        method_args: &[InternedTyId],
+    ) -> bool {
+        !self.ty_contains_generic_param(self_ty)
+            && !trait_args
+                .iter()
+                .chain(method_args)
+                .any(|arg| self.ty_contains_generic_param(*arg))
+    }
+
+    fn ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
+        let current_interner = self.interner.clone();
+        let body_interner = &self.input.body_ir.interner;
+        let extension_interner = self.input.extension_interner;
+        let mut ty_kind = |ty: InternedTyId| {
+            if ty.interner_id == current_interner.interner_id() {
+                return current_interner.get(ty).cloned();
+            }
+            if ty.interner_id == body_interner.interner_id() {
+                return body_interner.get(ty).cloned();
+            }
+            if let Some(extension_interner) = extension_interner
+                && ty.interner_id == extension_interner.interner_id()
+            {
+                return extension_interner.get(ty).cloned();
+            }
+            if let Some(interner) = self.current_instantiated_body_interner
+                && ty.interner_id == interner.interner_id()
+            {
+                return interner.get(ty).cloned();
+            }
+            if let Some(current) = self.current_instantiated_function
+                && let Some(interner) = self.input.program_type_interners.get(&current.module_id)
+                && ty.interner_id == interner.interner_id()
+            {
+                return interner.get(ty).cloned();
+            }
+            self.known_type_interners
+                .get(&ty.interner_id)
+                .and_then(|interner| interner.get(ty).cloned())
+                .or_else(|| Some(TyKind::GenericParam("<unknown>".to_string())))
+        };
+        crate::function_instances::contains_generic_param(ty, &mut ty_kind, None)
     }
 
     pub(crate) fn instantiate_ty(
@@ -294,6 +424,7 @@ impl<'a> ModuleLowerer<'a> {
         substitutions: TypeSubstitutionId,
         active_projections: &mut HashSet<ProjectionInstantiationKey>,
     ) -> InternedTyId {
+        let ty = self.import_instance_arg_type(ty);
         let key = TypeInstantiationKey {
             ty,
             substitutions,
@@ -504,13 +635,13 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    fn intern_type_substitutions(
+    pub(crate) fn intern_type_substitutions(
         &mut self,
         substitutions: &HashMap<String, InternedTyId>,
     ) -> TypeSubstitutionId {
         let mut substitutions = substitutions
             .iter()
-            .map(|(name, ty)| (name.clone(), *ty))
+            .map(|(name, ty)| (name.clone(), self.import_instance_arg_type(*ty)))
             .collect::<Vec<_>>();
         substitutions.sort_by(|left, right| left.0.cmp(&right.0));
         let key = TypeSubstitutionKey { substitutions };
@@ -654,6 +785,15 @@ impl<'a> ModuleLowerer<'a> {
                 }
             })
             .collect()
+    }
+
+    pub(super) fn current_associated_type_assumptions_without_active_projections(
+        &mut self,
+    ) -> Vec<AssociatedTypeProjectionEq> {
+        let Some(substitutions) = self.current_type_substitutions else {
+            return Vec::new();
+        };
+        self.current_associated_type_assumptions(substitutions, &mut HashSet::new())
     }
 
     fn extension_ty_kind(&self, ty: InternedTyId) -> Option<&TyKind> {

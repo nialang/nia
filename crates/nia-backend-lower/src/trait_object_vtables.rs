@@ -29,28 +29,6 @@ impl<'a> ModuleLowerer<'a> {
         );
     }
 
-    pub(crate) fn collect_trait_object_vtables_from_functions(
-        &mut self,
-        out: &mut Vec<BackendTraitObjectVtable>,
-        functions: &[BackendFunction],
-    ) {
-        let mut seen = HashSet::new();
-        self.collect_trait_object_vtables_from_functions_with_seen(out, functions, &mut seen);
-    }
-
-    pub(crate) fn collect_trait_object_vtables_from_function_instances(
-        &mut self,
-        out: &mut Vec<BackendTraitObjectVtable>,
-        function_instances: &[BackendFunctionInstance],
-    ) {
-        let mut seen = HashSet::new();
-        self.collect_trait_object_vtables_from_function_instances_with_seen(
-            out,
-            function_instances,
-            &mut seen,
-        );
-    }
-
     fn collect_trait_object_vtables_from_functions_with_seen(
         &mut self,
         out: &mut Vec<BackendTraitObjectVtable>,

@@ -336,17 +336,17 @@ impl ComptimeModuleLowerer<'_> {
     fn lower_module(&mut self) {
         for item in &self.input.module.items {
             match &item.kind {
-                ItemKind::Enum(item_enum) => self.lower_enum(item.span, item_enum),
+                ItemKind::Enum(item_enum) => self.lower_enum(item, item_enum),
                 ItemKind::Binding(binding) if binding.is_comptime => {
-                    self.lower_global_initializer(item.span, binding.value.as_ref())
+                    self.lower_global_initializer(item.span, binding)
                 }
                 ItemKind::Function(function) if function.is_comptime => {
-                    self.lower_function(item.span, function)
+                    self.lower_function(function)
                 }
                 ItemKind::Extend(extend) => {
                     for method in &extend.methods {
                         if method.function.is_comptime {
-                            self.lower_function(method.function.span, &method.function);
+                            self.lower_function(&method.function);
                         }
                     }
                 }
@@ -371,15 +371,16 @@ impl ComptimeModuleLowerer<'_> {
         }
     }
 
-    fn lower_enum(&mut self, item_span: Span, item_enum: &nia_ast::EnumItem) {
-        let Some(enum_id) = self.def_id_for_span(item_span, DefKind::Enum) else {
+    fn lower_enum(&mut self, item: &nia_ast::Item, item_enum: &nia_ast::EnumItem) {
+        let Some(enum_id) = self.def_id_for_node(&item.node_key, item.span, DefKind::Enum) else {
             return;
         };
         let variants = item_enum
             .variants
             .iter()
             .filter_map(|variant| {
-                let variant_id = self.def_id_for_span(variant.span, DefKind::EnumVariant)?;
+                let variant_id =
+                    self.def_id_for_node(&variant.node_key, variant.span, DefKind::EnumVariant)?;
                 let value = variant
                     .value
                     .as_ref()
@@ -393,15 +394,17 @@ impl ComptimeModuleLowerer<'_> {
             .collect();
         self.module.push_enum(ResolvedComptimeEnum::new(
             self.global_def_id(enum_id),
-            item_span,
+            item.span,
             variants,
         ));
     }
 
-    fn lower_global_initializer(&mut self, item_span: Span, value: Option<&Expr>) {
-        let Some(def_id) = self.def_id_for_span(item_span, DefKind::Comptime) else {
+    fn lower_global_initializer(&mut self, item_span: Span, binding: &nia_ast::BindingItem) {
+        let Some(def_id) = self.def_id_for_node(&binding.node_key, item_span, DefKind::Comptime)
+        else {
             return;
         };
+        let value = binding.value.as_ref();
         let Some(value) = value else {
             return;
         };
@@ -411,15 +414,17 @@ impl ComptimeModuleLowerer<'_> {
         }
     }
 
-    fn lower_function(&mut self, function_span: Span, function: &nia_ast::FunctionItem) {
-        let Some(def_id) = self.def_id_for_span(function_span, DefKind::Function) else {
+    fn lower_function(&mut self, function: &nia_ast::FunctionItem) {
+        let Some(def_id) =
+            self.def_id_for_node(&function.node_key, function.span, DefKind::Function)
+        else {
             return;
         };
         let function_locals = self.function_locals(function);
         let semantic_uses = self.semantic_uses_with_allowed_locals(&function_locals);
         let context = nia_comptime_ir::ResolvedComptimeLowerInputs::new(&semantic_uses);
         match nia_comptime_ir::lower_function_resolved_with_context(
-            function_span,
+            function.span,
             function,
             &context,
         ) {
@@ -756,8 +761,13 @@ impl ComptimeModuleLowerer<'_> {
         None
     }
 
-    fn def_id_for_span(&self, span: Span, expected: DefKind) -> Option<DefId> {
-        let def_id = self.input.defs.def_spans.get(span)?;
+    fn def_id_for_node(
+        &self,
+        node_key: &nia_node_id::NodeKey,
+        _span: Span,
+        expected: DefKind,
+    ) -> Option<DefId> {
+        let def_id = self.input.defs.def_nodes.get(node_key)?;
         let def = self.input.defs.defs.get(def_id)?;
         (def.kind == expected).then_some(def_id)
     }

@@ -507,3 +507,112 @@ fn main() i32 {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn generic_trait_bound_can_call_default_trait_method_in_backend() {
+    let root = temp_dir("generic_trait_bound_can_call_default_trait_method_in_backend");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Writer {
+    type Error;
+
+    fn write(&mut self, bytes: &[u8]) Error!usize;
+
+    fn write_all(&mut self, bytes: &[u8]) Error!void {
+        _ = self.write(bytes).?;
+        !{}
+    }
+}
+
+fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!void
+where W: Writer
+{
+    writer.write_all(bytes)
+}
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+struct Sink {}
+
+extend Sink : Writer {
+    type Error = Error;
+
+    fn write(&mut self, bytes: &[u8]) Error!usize {
+        !bytes.len()
+    }
+}
+
+fn main() i32 {
+    var sink = Sink {};
+    switch forward[Sink](&mut sink, b"ok") {
+        !ok => {
+            _ = ok;
+            0
+        },
+        error! => 1,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn blanket_impl_with_projected_trait_arg_can_call_source_trait_method() {
+    let root = temp_dir("blanket_impl_with_projected_trait_arg_can_call_source_trait_method");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Writer {
+    type Error;
+
+    fn write_all(&mut self) Error!void {
+        !{}
+    }
+}
+
+trait FormatWriter[E] {
+    fn write_fmt_bytes(&mut self) E!void;
+}
+
+extend[W] W : FormatWriter[[W as Writer]::Error]
+where W: Writer
+{
+    fn write_fmt_bytes(&mut self) [W as Writer]::Error!void {
+        self.write_all()
+    }
+}
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+struct Sink {}
+
+extend Sink : Writer {
+    type Error = Error;
+}
+
+fn main() i32 {
+    var sink = Sink {};
+    switch sink.write_fmt_bytes() {
+        !ok => {
+            _ = ok;
+            0
+        },
+        error! => 1,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

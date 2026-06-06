@@ -524,7 +524,9 @@ impl<'a> ModuleLowerer<'a> {
                         receiver_kind,
                         receiver,
                     }
-                } else if self.trait_method_has_default(method_id) {
+                } else if self.trait_method_has_default(method_id)
+                    && self.trait_method_call_is_concrete(self_ty, &trait_args, &args)
+                {
                     let mut instance_args = vec![self_ty];
                     instance_args.extend(trait_args.iter().copied());
                     instance_args.extend(args);
@@ -535,10 +537,15 @@ impl<'a> ModuleLowerer<'a> {
                         receiver,
                     }
                 } else {
-                    self.diagnostics.push(nia_diagnostic::Diagnostic::error(
-                        receiver.span,
-                        "no visible implementation found for trait method call",
-                    ));
+                    if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
+                        self.diagnostics.push(nia_diagnostic::Diagnostic::error(
+                            receiver.span,
+                            format!(
+                                "no visible implementation found for trait method call `{}`",
+                                method_name
+                            ),
+                        ));
+                    }
                     FunctionCallee::TraitMethod {
                         trait_id,
                         method_id,
@@ -678,7 +685,20 @@ impl<'a> ModuleLowerer<'a> {
             .collect::<Vec<_>>();
         match candidates.as_slice() {
             [candidate] => Some(candidate.clone()),
-            _ => None,
+            _ => {
+                let pointee = self.pointer_elem_ty(self_ty)?;
+                let candidates = self.program_extension_trait_method_candidates(&key);
+                let candidates = candidates
+                    .iter()
+                    .filter_map(|candidate| {
+                        self.trait_impl_method_for_candidate(candidate, trait_args, pointee)
+                    })
+                    .collect::<Vec<_>>();
+                match candidates.as_slice() {
+                    [candidate] => Some(candidate.clone()),
+                    _ => None,
+                }
+            }
         }
     }
 

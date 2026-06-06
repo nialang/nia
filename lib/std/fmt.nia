@@ -126,3 +126,15 @@ where W: io::Writer
     }
     !{}
 }
+
+extend[W] W
+where W: io::Writer
+{
+    pub fn print(
+        &mut self,
+        template: &[u8],
+        args: &[&Format[[W as io::Writer]::Error]],
+    ) [W as io::Writer]::Error!void {
+        print_unchecked(self, template, args)
+    }
+}

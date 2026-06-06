@@ -15,6 +15,7 @@ nia-diagnostic.workspace = true
 nia-ids.workspace = true
 nia-item-signatures.workspace = true
 nia-local-resolve.workspace = true
+nia-node-id.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true
 nia-value-resolve.workspace = true

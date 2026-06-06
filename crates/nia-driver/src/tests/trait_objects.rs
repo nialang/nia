@@ -271,7 +271,6 @@ extend[E] i32 : Format[E] {
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-
     let vtable_instance_refs = program
         .backend_lowering
         .program
@@ -289,18 +288,20 @@ extend[E] i32 : Format[E] {
         })
         .collect::<Vec<_>>();
     assert!(!vtable_instance_refs.is_empty());
-    for (def_id, arg_module_id, args) in vtable_instance_refs {
-        assert!(
-            program
-                .backend_lowering
-                .program
-                .modules
-                .iter()
-                .flat_map(|module| module.function_instances.iter())
-                .any(|instance| instance.def_id == def_id
-                    && instance.arg_module_id == arg_module_id
-                    && instance.args.len() == args.len()),
-            "missing function instance {def_id:?} {arg_module_id:?} {args:?}"
+    for (def_id, _arg_module_id, args) in vtable_instance_refs {
+        let matches = program
+            .backend_lowering
+            .program
+            .modules
+            .iter()
+            .flat_map(|module| module.function_instances.iter())
+            .filter(|instance| instance.def_id == def_id && instance.args.len() == args.len())
+            .count();
+        assert_eq!(
+            matches,
+            1,
+            "expected one canonical function instance for {def_id:?} with {} args",
+            args.len()
         );
     }
 }
@@ -346,6 +347,56 @@ fn main() i32 {
             .node_value_trait_object_coercions
             .is_empty()
     }));
+}
+
+#[test]
+fn trait_object_method_call_wins_over_blanket_extension_methods() {
+    let root = temp_dir("trait_object_method_call_wins_over_blanket_extension_methods");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Other {}
+
+trait Writer[E] {
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) E!void;
+}
+
+struct Formatter[E] {
+    writer: &mut Writer[E],
+}
+
+extend[E] Formatter[E] {
+    fn write_all(&mut self, bytes: &[u8]) E!void {
+        self.writer.write_fmt_bytes(bytes)
+    }
+
+    fn write_byte(&mut self) E!void {
+        var bytes: [1]u8 = [0];
+        self.write_all(&bytes[..]).?;
+        !{}
+    }
+}
+
+extend[W] W : Writer[i32]
+where W: Other
+{
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) i32!void {
+        _ = bytes;
+        !{}
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .modules
+            .iter()
+            .flat_map(|module| module.body_ir.function_bodies.values())
+            .any(body_contains_dynamic_trait_callee)
+    );
 }
 
 #[test]
