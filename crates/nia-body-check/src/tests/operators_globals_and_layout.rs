@@ -44,6 +44,43 @@ fn main(flag: bool, x: i32) bool {
 }
 
 #[test]
+fn char_supports_builtin_equality_and_ordering() {
+    let checked = pipeline(
+        r#"
+fn main(a: char, b: char, n: u32) bool {
+    var eq = a == b;
+    var ne = a != b;
+    var lt = a < b;
+    var le = a <= b;
+    var gt = a > b;
+    var ge = a >= b;
+    var bad = a == n;
+    eq or ne or lt or le or gt or ge or bad
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("char: Eq[u32]")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert_eq!(
+        checked
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.summary.contains("char: Eq[char]")
+                || diagnostic.summary.contains("char: Ord[char]"))
+            .count(),
+        0,
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn generic_layout_builtins_require_sized_bound() {
     let checked = pipeline(
         r#"

@@ -1140,7 +1140,7 @@ import std;
 pub fn main(init: std::process::Init) std::process::ExitCode!void {
     _ = init;
     var stdout = std::os::File::stdout();
-    switch stdout.print(b"hello, {}\n", [10]) {
+    switch stdout.print("A¢€😀, {}\n", ['λ']) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
     }
@@ -1167,7 +1167,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 
     let run = Command::new(&exe).output().expect("run emitted executable");
     assert_eq!(run.status.code(), Some(0));
-    assert_eq!(String::from_utf8_lossy(&run.stdout), "hello, 10\n");
+    assert_eq!(String::from_utf8_lossy(&run.stdout), "A¢€😀, λ\n");
 }
 
 #[test]
@@ -1184,7 +1184,7 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
     _ = init;
     var storage: [8]u8 = [0, 0, 0, 0, 0, 0, 0, 0];
     var writer = std::io::FixedBufferWriter::init(&mut storage[..]);
-    switch writer.print(b"nia {}", [7]) {
+    switch writer.print("nia {}", [7]) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
     }

@@ -177,6 +177,7 @@ where
                 self.patterns_can_match(self_ty, rhs_ty)
                     && (self.can_be_numeric(self_ty)
                         || self.can_be_bool(self_ty)
+                        || self.can_be_char(self_ty)
                         || self.can_be_pointer(self_ty)
                         || self.can_be_enum(self_ty))
             }
@@ -184,7 +185,8 @@ where
                 let Some(rhs_ty) = trait_args.first().copied() else {
                     return false;
                 };
-                self.patterns_can_match(self_ty, rhs_ty) && self.can_be_numeric(self_ty)
+                self.patterns_can_match(self_ty, rhs_ty)
+                    && (self.can_be_numeric(self_ty) || self.can_be_char(self_ty))
             }
             BuiltinTrait::Sized => self.can_have_known_layout(self_ty),
             BuiltinTrait::DerefRead => self.can_be_non_void_pointer(self_ty, false),
@@ -326,6 +328,13 @@ where
         matches!(
             self.interner.get(self.normalize(ty)),
             Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Bool))
+        )
+    }
+
+    fn can_be_char(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.interner.get(self.normalize(ty)),
+            Some(TyKind::GenericParam(_)) | Some(TyKind::Primitive(PrimitiveTy::Char))
         )
     }
 
@@ -562,6 +571,7 @@ where
                 self.types_equivalent(self_ty, *rhs_ty)
                     && (self.is_numeric(self_ty)
                         || self.types_equivalent(self_ty, self.bool())
+                        || self.is_char(self_ty)
                         || self.is_pointer(self_ty)
                         || (self.is_enum)(self_ty))
             }
@@ -569,7 +579,8 @@ where
                 let [rhs_ty] = goal.trait_args.as_slice() else {
                     return false;
                 };
-                self.types_equivalent(self_ty, *rhs_ty) && self.is_numeric(self_ty)
+                self.types_equivalent(self_ty, *rhs_ty)
+                    && (self.is_numeric(self_ty) || self.is_char(self_ty))
             }
             BuiltinTrait::Sized => goal.trait_args.is_empty() && self.layout_of(self_ty),
             BuiltinTrait::DerefRead => {
@@ -1434,6 +1445,10 @@ where
                     | PrimitiveTy::Usize
             ))
         )
+    }
+
+    fn is_char(&self, ty: InternedTyId) -> bool {
+        matches!(self.kind(ty), Some(TyKind::Primitive(PrimitiveTy::Char)))
     }
 
     fn is_pointer(&self, ty: InternedTyId) -> bool {

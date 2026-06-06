@@ -1,0 +1,46 @@
+pub struct Utf8 {
+    bytes: [4]u8,
+    len: usize,
+}
+
+extend Utf8 {
+    pub fn init(bytes: [4]u8, len: usize) Utf8 {
+        { bytes: bytes, len: len }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn bytes(&self) &[u8] {
+        & self.bytes[0..self.len]
+    }
+}
+
+pub fn encode_utf8(ch: char) Utf8 {
+    var code = ch as u32;
+    if code <= 127u32 {
+        Utf8::init([code as u8, 0, 0, 0], 1)
+    } else if code <= 2047u32 {
+        Utf8::init([
+            192u8 + (code / 64u32) as u8,
+            128u8 + (code % 64u32) as u8,
+            0,
+            0,
+        ], 2)
+    } else if code <= 65535u32 {
+        Utf8::init([
+            224u8 + (code / 4096u32) as u8,
+            128u8 + ((code / 64u32) % 64u32) as u8,
+            128u8 + (code % 64u32) as u8,
+            0,
+        ], 3)
+    } else {
+        Utf8::init([
+            240u8 + (code / 262144u32) as u8,
+            128u8 + ((code / 4096u32) % 64u32) as u8,
+            128u8 + ((code / 64u32) % 64u32) as u8,
+            128u8 + (code % 64u32) as u8,
+        ], 4)
+    }
+}
