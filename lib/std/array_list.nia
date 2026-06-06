@@ -21,6 +21,12 @@ where T: Sized
         { items: dangling_slice[T](0), capacity: 0 }
     }
 
+    pub fn init_capacity(allocator: &mut mem::Allocator, capacity: usize) mem::Error!ArrayList[T] {
+        var list = ArrayList[T]::init();
+        list.ensure_total_capacity_precise(allocator, capacity).?;
+        !list
+    }
+
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
         self.free_items(allocator).?;
         self.items = dangling_slice[T](0);
@@ -53,12 +59,17 @@ where T: Sized
         self.items = &mut ptr[0..0];
     }
 
+    pub fn clear_retaining_capacity(&mut self) void {
+        self.clear();
+    }
+
+    pub fn clear_and_free(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.deinit(allocator)
+    }
+
     pub fn push(&mut self, allocator: &mut mem::Allocator, value: T) mem::Error!void {
-        self.reserve(allocator, 1usize).?;
-        let len = self.len();
-        var all_items = self.allocated_items();
-        all_items[len] = value;
-        self.items = &mut all_items[0..(len + 1usize)];
+        let slot = self.add_one(allocator).?;
+        slot.* = value;
         !{}
     }
 
@@ -76,6 +87,19 @@ where T: Sized
     }
 
     pub fn reserve(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+        self.ensure_unused_capacity(allocator, additional)
+    }
+
+    pub fn reserve_exact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
+        let len = self.len();
+        let needed = len + additional;
+        if needed < len {
+            return mem::Error::OutOfMemory!;
+        }
+        self.ensure_total_capacity_precise(allocator, needed)
+    }
+
+    pub fn ensure_unused_capacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         let len = self.len();
         let needed = len + additional;
         if needed < len {
@@ -84,26 +108,80 @@ where T: Sized
         self.ensure_total_capacity(allocator, needed)
     }
 
-    fn ensure_total_capacity(&mut self, allocator: &mut mem::Allocator, needed: usize) mem::Error!void {
-        if needed <= self.capacity() {
+    pub fn ensure_total_capacity(&mut self, allocator: &mut mem::Allocator, new_capacity: usize) mem::Error!void {
+        if new_capacity <= self.capacity() {
             return !{};
         }
-        let new_capacity = self.grown_capacity(needed).?;
+        let better_capacity = self.grown_capacity(new_capacity).?;
+        self.ensure_total_capacity_precise(allocator, better_capacity)
+    }
+
+    pub fn ensure_total_capacity_precise(&mut self, allocator: &mut mem::Allocator, new_capacity: usize) mem::Error!void {
+        if new_capacity <= self.capacity() {
+            return !{};
+        }
         self.grow_to_capacity(allocator, new_capacity).?;
         !{}
     }
 
-    fn grown_capacity(&self, needed: usize) mem::Error!usize {
-        var capacity = self.capacity();
-        if capacity == 0 {
-            capacity = 4usize;
+    pub fn append_slice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
+        let out = self.add_many_as_slice(allocator, items.len()).?;
+        copy_items[T](out, items);
+        !{}
+    }
+
+    pub fn append_slice_assume_capacity(&mut self, items: &[T]) void {
+        let out = self.add_many_as_slice_assume_capacity(items.len());
+        copy_items[T](out, items);
+    }
+
+    pub fn add_one(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut T {
+        var items = self.add_many_as_slice(allocator, 1usize).?;
+        !&mut items[0]
+    }
+
+    pub fn add_one_assume_capacity(&mut self) &mut T {
+        var items = self.add_many_as_slice_assume_capacity(1usize);
+        &mut items[0]
+    }
+
+    pub fn add_many_as_slice(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
+        self.ensure_unused_capacity(allocator, count).?;
+        !self.add_many_as_slice_assume_capacity(count)
+    }
+
+    pub fn add_many_as_slice_assume_capacity(&mut self, count: usize) &mut [T] {
+        let old_len = self.len();
+        let new_len = old_len + count;
+        var items = self.allocated_items();
+        self.items = &mut items[0..new_len];
+        &mut items[old_len..new_len]
+    }
+
+    pub fn shrink_retaining_capacity(&mut self, new_len: usize) void {
+        if new_len < self.len() {
+            var ptr = self.items.get_ptr();
+            self.items = &mut ptr[0..new_len];
         }
-        while capacity < needed {
-            let next = capacity * 2usize;
-            if next < capacity {
-                return mem::Error::OutOfMemory!;
+    }
+
+    fn grown_capacity(&self, needed: usize) mem::Error!usize {
+        let elem_len = @size[T]();
+        var init_capacity = 1usize;
+        if elem_len != 0usize {
+            init_capacity = 64usize / elem_len;
+            if init_capacity == 0usize {
+                init_capacity = 1usize;
             }
-            capacity = next;
+        }
+        let half = needed / 2usize;
+        let extra = half + init_capacity;
+        if extra < half {
+            return mem::Error::OutOfMemory!;
+        }
+        let capacity = needed + extra;
+        if capacity < needed {
+            return mem::Error::OutOfMemory!;
         }
         !capacity
     }
@@ -121,7 +199,7 @@ where T: Sized
 
         let new_block = allocator.alloc(layout).?;
         var new_items = block_items[T](new_block, capacity);
-        self.copy_items(new_items);
+        copy_items[T](new_items, self.as_slice());
         switch allocator.free(old_block) {
             !ok => _ = ok,
             err! => {
@@ -157,14 +235,6 @@ where T: Sized
         self.items = &mut items[0..len];
         self.capacity = capacity;
     }
-
-    fn copy_items(&self, to: &mut [T]) void {
-        var index = 0usize;
-        while index < self.len() {
-            to[index] = self.items[index];
-            index += 1usize;
-        }
-    }
 }
 
 fn block_items[T](block: mem::Block, len: usize) &mut [T]
@@ -172,4 +242,14 @@ where T: Sized
 {
     var ptr = block.ptr() as &mut T;
     &mut ptr[0..len]
+}
+
+fn copy_items[T](to: &mut [T], from: &[T]) void
+where T: Sized
+{
+    var index = 0usize;
+    while index < from.len() {
+        to[index] = from[index];
+        index += 1usize;
+    }
 }
