@@ -2543,6 +2543,96 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_array_list_push_pop_and_deinit() {
+    let root = temp_dir("emit_exe_std_array_list_push_pop_and_deinit");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.array_list;
+import std.mem;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    var list = array_list::ArrayList[i32]::init(&mut allocator);
+    if list.len() != 0 or not list.is_empty() {
+        return process::ExitCode::init(1)!;
+    }
+    switch list.reserve(5) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    if list.capacity() < 5 {
+        return process::ExitCode::init(3)!;
+    }
+    var index = 0;
+    while index < 6 {
+        switch list.push(index * 10) {
+            !ok => _ = ok,
+            error! => return process::ExitCode::init(4)!,
+        }
+        index += 1;
+    }
+    if list.len() != 6 or list.capacity() < 6 {
+        return process::ExitCode::init(5)!;
+    }
+    let items = list.as_slice();
+    if items[0] != 0 or items[1] != 10 or items[5] != 50 {
+        return process::ExitCode::init(6)!;
+    }
+    switch list.pop() {
+        ?value => {
+            if value != 50 {
+                return process::ExitCode::init(7)!;
+            }
+        },
+        null => return process::ExitCode::init(8)!,
+    }
+    if list.len() != 5 {
+        return process::ExitCode::init(9)!;
+    }
+    var mutable_items = list.as_mut_slice();
+    mutable_items[2] = 77;
+    if list.as_slice()[2] != 77 {
+        return process::ExitCode::init(10)!;
+    }
+    list.clear();
+    if not list.is_empty() {
+        return process::ExitCode::init(11)!;
+    }
+    switch list.deinit() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(12)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_reports_private_root_entry_called_by_freestanding_start() {
     let root = temp_dir("emit_exe_reports_private_root_entry_called_by_freestanding_start");
     let main = root.join("main.nia");
