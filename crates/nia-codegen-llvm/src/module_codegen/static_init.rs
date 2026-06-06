@@ -147,7 +147,14 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
         let function = if args.is_empty() {
             self.function(function)
         } else {
-            self.function_instance_value(function, args)
+            self.function_instance_item(function, args)
+                .and_then(|instance| {
+                    self.function_instance_value(
+                        instance.def_id,
+                        instance.arg_module_id,
+                        &instance.args,
+                    )
+                })
         }
         .ok_or_else(|| self.error(span, "missing function for static address initializer"))?;
         let target_ptr_ty = self

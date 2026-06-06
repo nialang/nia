@@ -261,6 +261,7 @@ pub enum BackendTraitObjectVtableFunction {
     Function(GlobalDefId),
     FunctionInstance {
         def_id: GlobalDefId,
+        arg_module_id: ModuleId,
         args: Vec<InternedTyId>,
     },
 }

@@ -4,7 +4,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::LoadedModule;
 use nia_defs::{
     AssociatedTypeBindingSignature, DefCollection, ExtensionMethod, ExtensionMethods,
-    VisibleExtensionMethod, VisibleExtensionMethods, WhereBoundSignature, WherePredicateSignature,
+    PublicNamespace, PublicSurfaces, VisibleExtensionMethod, VisibleExtensionMethods,
+    WhereBoundSignature, WherePredicateSignature,
 };
 use nia_diagnostic::Diagnostic;
 use nia_ids::{BuiltinReceiverKind, BuiltinTrait, BuiltinTraitMethod, GlobalDefId, InternedTyId};
@@ -267,6 +268,7 @@ pub(crate) fn collect_program_trait_impls(
             trait_impls.push(ProgramTraitImplSignature {
                 module_id: module.module_id,
                 local_index,
+                generics: impl_signature.generics.clone(),
                 target_ty: impl_signature.target_ty,
                 trait_id,
                 trait_args,
@@ -395,11 +397,13 @@ pub(crate) fn collect_extension_methods(
                 extensions.insert(
                     module.module.id,
                     ExtensionMethod {
+                        name: method.function.name.clone(),
                         def_id: GlobalDefId {
                             module_id: module.module.id,
                             def_id: method_id,
                         },
                         impl_index,
+                        impl_generics: extend.generics.clone(),
                         target_ty,
                         trait_id,
                         trait_args: trait_args.clone(),
@@ -1618,6 +1622,7 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
 pub(crate) fn visible_extensions_for_module(
     module_id: nia_ids::ModuleId,
     imports: &nia_imports::ImportAliasMap,
+    public_surfaces: &PublicSurfaces,
     defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
     normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
     extensions: &ExtensionMethods,
@@ -1631,13 +1636,22 @@ pub(crate) fn visible_extensions_for_module(
     };
     let mut target_interner = current_normalization.interner.clone();
     let mut visible = VisibleExtensionMethods::default();
-    for method in extensions.visible_methods(module_id, imported_modules) {
+    for method in extensions.visible_methods(module_id, imported_modules.iter().copied()) {
         let Some(method_defs) = defs_by_module.get(&method.def_id.module_id) else {
             continue;
         };
-        let Some(method_def) = method_defs.defs.get(method.def_id.def_id) else {
+        if method_defs.defs.get(method.def_id.def_id).is_none() {
             continue;
-        };
+        }
+        let trait_is_visible = method.trait_id.is_some_and(|trait_id| {
+            trait_id_is_visible(
+                module_id,
+                &imported_modules,
+                trait_id,
+                public_surfaces,
+                defs_by_module,
+            )
+        });
         let Some(method_normalization) = normalizations.get(&method.def_id.module_id) else {
             continue;
         };
@@ -1651,9 +1665,10 @@ pub(crate) fn visible_extensions_for_module(
             method.impl_index,
             target_ty,
             VisibleExtensionMethod {
-                name: method_def.name.clone(),
+                name: method.name.clone(),
                 def_id: method.def_id,
                 impl_index: method.impl_index,
+                impl_generics: method.impl_generics.clone(),
                 trait_id: method.trait_id,
                 trait_args: method
                     .trait_args
@@ -1668,6 +1683,9 @@ pub(crate) fn visible_extensions_for_module(
                     &method_normalization.interner,
                     &method.where_predicates,
                 ),
+                is_callable: method.def_id.module_id == module_id
+                    || method.visibility == nia_ast::Visibility::Public,
+                is_trait_witness: trait_is_visible,
             },
         );
     }
@@ -1675,6 +1693,34 @@ pub(crate) fn visible_extensions_for_module(
         methods: visible,
         interner: target_interner,
     }
+}
+
+fn trait_id_is_visible(
+    current_module: nia_ids::ModuleId,
+    imported_modules: &[nia_ids::ModuleId],
+    trait_id: TraitId,
+    public_surfaces: &PublicSurfaces,
+    defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
+) -> bool {
+    let TraitId::Source(trait_id) = trait_id else {
+        return true;
+    };
+    if trait_id.module_id == current_module {
+        return true;
+    }
+    if imported_modules.contains(&trait_id.module_id) {
+        return defs_by_module
+            .get(&trait_id.module_id)
+            .and_then(|defs| defs.defs.get(trait_id.def_id))
+            .is_some_and(|def| def.visibility == nia_ast::Visibility::Public);
+    }
+    public_surfaces.get(current_module).is_some_and(|surface| {
+        surface.types.values().any(|item| {
+            item.target_module == trait_id.module_id
+                && item.target_def_id == trait_id.def_id
+                && item.namespace == PublicNamespace::Type
+        })
+    })
 }
 
 fn import_where_predicates(

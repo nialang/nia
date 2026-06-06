@@ -13,6 +13,7 @@ nia-loader-query.workspace = true
 
 [dev-dependencies]
 nia-ast.workspace = true
+nia-backend-ir.workspace = true
 nia-body-ir.workspace = true
 nia-function-ir.workspace = true
 nia-ids.workspace = true

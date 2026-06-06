@@ -179,6 +179,133 @@ fn main() i32 {
 }
 
 #[test]
+fn imported_public_trait_impl_private_method_coerces_to_trait_object() {
+    let root = temp_dir("imported_public_trait_impl_private_method_coerces_to_trait_object");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .fmt;
+
+fn read(source: &fmt::Format) i32 {
+    source.format()
+}
+
+fn main() i32 {
+    read(8)
+}
+"#,
+    );
+    write(
+        &root.join("fmt.nia"),
+        r#"
+pub trait Format {
+    fn format(&self) i32;
+}
+
+extend i32 : Format {
+    fn format(&self) i32 {
+        self.*
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(program.modules.iter().any(|module| {
+        !module
+            .semantic_facts
+            .node_value_trait_object_coercions
+            .is_empty()
+            && module
+                .body_ir
+                .function_bodies
+                .values()
+                .any(body_contains_dynamic_trait_callee)
+    }));
+}
+
+#[test]
+fn facade_import_trait_object_coercion_records_cross_module_vtable_instance() {
+    let root = temp_dir("facade_import_trait_object_coercion_records_cross_module_vtable_instance");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .std;
+
+fn use_all(args: &[&std::fmt::Format[std::fmt::Error]]) i32 {
+    args[0].format()
+}
+
+fn main() i32 {
+    use_all([10])
+}
+"#,
+    );
+    write(
+        &root.join("std.nia"),
+        r#"
+import .fmt;
+
+pub using {fmt};
+"#,
+    );
+    write(
+        &root.join("fmt.nia"),
+        r#"
+pub enum Error {
+    Failed,
+}
+
+pub trait Format[E] {
+    fn format(&self) i32;
+}
+
+extend[E] i32 : Format[E] {
+    fn format(&self) i32 {
+        self.*
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+
+    let vtable_instance_refs = program
+        .backend_lowering
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| module.trait_object_vtables.iter())
+        .flat_map(|vtable| vtable.entries.iter())
+        .filter_map(|entry| match &entry.function {
+            nia_backend_ir::BackendTraitObjectVtableFunction::FunctionInstance {
+                def_id,
+                arg_module_id,
+                args,
+            } => Some((*def_id, *arg_module_id, args.clone())),
+            nia_backend_ir::BackendTraitObjectVtableFunction::Function(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(!vtable_instance_refs.is_empty());
+    for (def_id, arg_module_id, args) in vtable_instance_refs {
+        assert!(
+            program
+                .backend_lowering
+                .program
+                .modules
+                .iter()
+                .flat_map(|module| module.function_instances.iter())
+                .any(|instance| instance.def_id == def_id
+                    && instance.arg_module_id == arg_module_id
+                    && instance.args.len() == args.len()),
+            "missing function instance {def_id:?} {arg_module_id:?} {args:?}"
+        );
+    }
+}
+
+#[test]
 fn value_trait_object_coercion_does_not_create_mutable_objects() {
     let root = temp_dir("value_trait_object_coercion_does_not_create_mutable_objects");
     write(

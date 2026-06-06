@@ -3,26 +3,76 @@ use super::*;
 use crate::{BuiltinTraitGoalKey, ExtensionTraitMethodCandidate, ExtensionTraitMethodKey};
 
 impl<'a> ModuleLowerer<'a> {
+    pub(super) fn current_impl_trait_method(
+        &mut self,
+        key: &ExtensionTraitMethodKey,
+        trait_args: &[InternedTyId],
+        self_ty: InternedTyId,
+    ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
+        let current = self.current_instantiated_function?;
+        if current.module_id != self.input.module_id {
+            return None;
+        }
+        let current_impl_index = *self.trait_impls_by_method.get(&current)?;
+        let impl_signature = self.input.trait_impls.get(current_impl_index)?;
+        if impl_signature.trait_id != key.trait_id {
+            return None;
+        }
+        let impl_interner = impl_signature.interner.clone();
+        let target_ty =
+            nia_ty::import_type_into(&mut self.interner, &impl_interner, impl_signature.target_ty);
+        let mut substitutions = std::collections::HashMap::new();
+        if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
+            return None;
+        }
+        if impl_signature.trait_args.len() != trait_args.len() {
+            return None;
+        }
+        let impl_trait_args = impl_signature
+            .trait_args
+            .iter()
+            .map(|arg| nia_ty::import_type_into(&mut self.interner, &impl_interner, *arg))
+            .collect::<Vec<_>>();
+        if !impl_trait_args.iter().zip(trait_args).all(|(left, right)| {
+            self.match_extension_type_pattern(*left, *right, &mut substitutions)
+        }) {
+            return None;
+        }
+        self.input
+            .extensions
+            .targets()
+            .iter()
+            .flat_map(|target| target.methods.iter())
+            .find(|method| {
+                method.is_trait_witness
+                    && self
+                        .trait_impls_by_method
+                        .get(&method.def_id)
+                        .is_some_and(|impl_index| *impl_index == current_impl_index)
+                    && method.trait_id == Some(key.trait_id)
+                    && method.name == key.method_name
+                    && method.trait_args.len() == key.trait_arg_count
+            })
+            .map(|method| {
+                let args = method
+                    .impl_generics
+                    .iter()
+                    .filter_map(|generic| substitutions.get(generic).copied())
+                    .collect();
+                (method.def_id, args)
+            })
+    }
+
     pub(super) fn trait_impl_method_for_candidate(
         &mut self,
         candidate: &ExtensionTraitMethodCandidate,
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if !self.extension_trait_args_match(candidate, trait_args) {
-            return None;
-        }
-        let mut substitutions = HashMap::new();
-        let target_ty = nia_ty::import_type_into(
-            &mut self.interner,
-            &candidate.source_interner,
-            candidate.target_ty,
-        );
-        if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
-            return None;
-        }
+        let substitutions =
+            self.match_extension_trait_impl_candidate(candidate, trait_args, self_ty)?;
         let args = self
-            .generic_params_in_extension_ty(target_ty)
+            .candidate_impl_generics(candidate)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
@@ -60,43 +110,14 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if !self.extension_trait_args_match(candidate, trait_args) {
-            return None;
-        }
-        let mut substitutions = HashMap::new();
-        let target_ty = nia_ty::import_type_into(
-            &mut self.interner,
-            &candidate.source_interner,
-            candidate.target_ty,
-        );
-        if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
-            return None;
-        }
+        let substitutions =
+            self.match_extension_trait_impl_candidate(candidate, trait_args, self_ty)?;
         let args = self
-            .generic_params_in_extension_ty(target_ty)
+            .candidate_impl_generics(candidate)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
         Some((candidate.method_def_id, args))
-    }
-
-    fn extension_trait_args_match(
-        &mut self,
-        candidate: &ExtensionTraitMethodCandidate,
-        trait_args: &[InternedTyId],
-    ) -> bool {
-        candidate
-            .trait_args
-            .iter()
-            .zip(trait_args)
-            .all(|(actual, expected)| {
-                let actual = nia_ty::import_type_into(
-                    &mut self.interner,
-                    &candidate.source_interner,
-                    *actual,
-                );
-                self.types_match(actual, *expected)
-            })
     }
 
     pub(super) fn lower_intrinsic_builtin_place_method_call(
@@ -276,6 +297,21 @@ impl<'a> ModuleLowerer<'a> {
             }
         }
         out
+    }
+
+    pub(super) fn program_extension_trait_method_candidates(
+        &self,
+        key: &ExtensionTraitMethodKey,
+    ) -> Vec<ExtensionTraitMethodCandidate> {
+        let candidates = self
+            .program_extension_trait_method_candidates
+            .get(key)
+            .cloned()
+            .unwrap_or_default();
+        if candidates.is_empty() {
+            return self.extension_trait_method_candidates(key);
+        }
+        candidates
     }
 
     pub(super) fn pointer_elem_ty(&self, ty: InternedTyId) -> Option<InternedTyId> {

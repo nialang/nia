@@ -662,6 +662,7 @@ impl<'a> BodyChecker<'a> {
             comptime_module: self.comptime_module,
             layouts: self.layouts,
             extensions: self.extensions,
+            program_extension_methods: self.program_extension_methods,
             program_functions: self.program_functions,
             program_globals: self.program_globals,
             program_comptimes: self.program_comptimes,

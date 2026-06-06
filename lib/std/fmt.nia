@@ -1,0 +1,128 @@
+import std.io;
+
+pub trait FormatWriter[E] {
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) E!void;
+}
+
+pub trait Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void;
+}
+
+pub struct Formatter[E] {
+    writer: &mut FormatWriter[E],
+}
+
+extend[E] Formatter[E] {
+    pub fn init(writer: &mut FormatWriter[E]) Formatter[E] {
+        { writer: writer }
+    }
+
+    pub fn write_all(&mut self, bytes: &[u8]) E!void {
+        self.writer.write_fmt_bytes(bytes)
+    }
+
+    pub fn write_byte(&mut self, byte: u8) E!void {
+        var bytes: [1]u8 = [byte];
+        self.write_all(&bytes[..])
+    }
+}
+
+extend[W] W : FormatWriter[[W as io::Writer]::Error]
+where W: io::Writer
+{
+    fn write_fmt_bytes(&mut self, bytes: &[u8]) [W as io::Writer]::Error!void {
+        self.write_all(bytes)
+    }
+}
+
+fn write_unsigned[E](formatter: &mut Formatter[E], value: usize) E!void {
+    if value == 0 {
+        formatter.write_all(b"0")
+    } else {
+        var digits: [20]u8 = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        var count = 0usize;
+        var n = value;
+        while n != 0 {
+            var digit = n % 10usize;
+            digits[count] = (digit as u8) + b'0';
+            n = n / 10usize;
+            count += 1;
+        }
+        while count != 0 {
+            count -= 1;
+            formatter.write_byte(digits[count]).?;
+        }
+        !{}
+    }
+}
+
+fn write_signed_i32[E](formatter: &mut Formatter[E], value: i32) E!void {
+    if value < 0 {
+        formatter.write_all(b"-").?;
+        var widened = value as i64;
+        write_unsigned(formatter, (0i64 - widened) as usize)
+    } else {
+        write_unsigned(formatter, value as usize)
+    }
+}
+
+extend[E] i32 : Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void {
+        write_signed_i32(formatter, self.*)
+    }
+}
+
+extend[E] usize : Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void {
+        write_unsigned(formatter, self.*)
+    }
+}
+
+extend[E] bool : Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void {
+        if self.* {
+            formatter.write_all(b"true")
+        } else {
+            formatter.write_all(b"false")
+        }
+    }
+}
+
+extend[E] &[u8] : Format[E] {
+    fn format(&self, formatter: &mut Formatter[E]) E!void {
+        formatter.write_all(self.*)
+    }
+}
+
+pub fn print_unchecked[W](
+    writer: &mut W,
+    template: &[u8],
+    args: &[&Format[[W as io::Writer]::Error]],
+) [W as io::Writer]::Error!void
+where W: io::Writer
+{
+    var formatter = Formatter[[W as io::Writer]::Error]::init(writer);
+    var index = 0usize;
+    var arg_index = 0usize;
+    while index < template.len() {
+        var byte = template[index];
+        if byte == b'{' and index + 1usize < template.len() and template[index + 1usize] == b'}' {
+            args[arg_index].format(&mut formatter).?;
+            arg_index += 1usize;
+            index += 2usize;
+        } else if byte == b'{' and index + 1usize < template.len() and template[index + 1usize] == b'{' {
+            formatter.write_byte(b'{').?;
+            index += 2usize;
+        } else if byte == b'}' and index + 1usize < template.len() and template[index + 1usize] == b'}' {
+            formatter.write_byte(b'}').?;
+            index += 2usize;
+        } else {
+            formatter.write_byte(byte).?;
+            index += 1usize;
+        }
+    }
+    !{}
+}

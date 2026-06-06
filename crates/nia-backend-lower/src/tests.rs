@@ -175,9 +175,12 @@ fn main() i32 {
                 def_id: make_id,
             },
             impl_index: 0,
+            impl_generics: Vec::new(),
             trait_id: None,
             trait_args: Vec::new(),
             where_predicates: Vec::new(),
+            is_callable: true,
+            is_trait_witness: false,
         },
     );
     let origins = NodeOriginTable::default();
@@ -197,6 +200,7 @@ fn main() i32 {
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: nia_body_check::BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {
@@ -243,6 +247,7 @@ fn main() i32 {
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_type_interners: &HashMap::new(),
         program_functions: &HashMap::new(),
@@ -254,6 +259,7 @@ fn main() i32 {
         &[input],
         &Monomorphization {
             instances: Vec::new(),
+            type_interners: HashMap::new(),
             diagnostics: Vec::new(),
         },
         nia_opt::OptimizationPolicy::default(),
@@ -2708,9 +2714,12 @@ fn main() i32 {
                 name: "add".to_string(),
                 def_id: add_id,
                 impl_index: 0,
+                impl_generics: Vec::new(),
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),
                 where_predicates: Vec::new(),
+                is_callable: true,
+                is_trait_witness: true,
             },
         );
     };
@@ -2895,9 +2904,12 @@ fn main() i32 {
                 name: "add".to_string(),
                 def_id: add_id,
                 impl_index: 0,
+                impl_generics: vec!["T".to_string()],
                 trait_id: Some(nia_ids::TraitId::Source(source_id)),
                 trait_args: Vec::new(),
                 where_predicates: Vec::new(),
+                is_callable: true,
+                is_trait_witness: true,
             },
         );
     };
@@ -4402,6 +4414,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: nia_body_check::BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {
@@ -4469,6 +4482,7 @@ fn lower_source_with_body_check_mutation_and_optimization(
         layouts: &layouts,
         function_bodies: &function_bodies,
         extension_interner: None,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
         program_extensions: &HashMap::new(),
         program_type_interners: &HashMap::new(),
         program_functions: &HashMap::new(),

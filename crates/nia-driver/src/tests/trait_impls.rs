@@ -456,3 +456,54 @@ fn main() void {
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
 }
+
+#[test]
+fn mutable_generic_trait_receiver_uses_pointee_self_type() {
+    let root = temp_dir("mutable_generic_trait_receiver_uses_pointee_self_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Writer {
+    type Error;
+
+    fn write_all(&mut self, bytes: &[u8]) Error!void;
+}
+
+fn forward[W](writer: &mut W, bytes: &[u8]) [W as Writer]::Error!void
+where W: Writer
+{
+    writer.write_all(bytes)
+}
+
+enum Error: i32 {
+    Bad = 1,
+    _,
+}
+
+struct Sink {}
+
+extend Sink : Writer {
+    type Error = Error;
+
+    fn write_all(&mut self, bytes: &[u8]) Error!void {
+        _ = bytes;
+        !{}
+    }
+}
+
+fn main() i32 {
+    var sink = Sink {};
+    switch forward[Sink](&mut sink, b"ok") {
+        !ok => {
+            _ = ok;
+            0
+        },
+        error! => 1,
+    }
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}

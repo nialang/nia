@@ -73,10 +73,17 @@ impl<'a> ModuleLowerer<'a> {
             .iter()
             .filter(|instance| instance.def_id.module_id == self.input.module_id)
         {
+            let args = self.canonicalize_instance_args(&instance.args);
+            if args.iter().any(|arg| {
+                self.cached_ty_contains_generic_param(*arg)
+                    || self.cached_ty_contains_unresolved_projection(*arg)
+            }) {
+                continue;
+            }
             queue.push(
                 instance.def_id,
                 instance.arg_module_id,
-                instance.args.clone(),
+                args,
                 instance.symbol.clone(),
             );
         }
@@ -101,10 +108,19 @@ impl<'a> ModuleLowerer<'a> {
             next_vtable_scan_start = instances.len();
             for vtable in &vtables {
                 for entry in &vtable.entries {
-                    if let BackendTraitObjectVtableFunction::FunctionInstance { def_id, args } =
-                        &entry.function
+                    if let BackendTraitObjectVtableFunction::FunctionInstance {
+                        def_id,
+                        arg_module_id,
+                        args,
+                    } = &entry.function
                     {
-                        self.enqueue_function_instance(*def_id, args, &seen, &mut queue);
+                        self.enqueue_function_instance_for_module(
+                            *def_id,
+                            *arg_module_id,
+                            args,
+                            &seen,
+                            &mut queue,
+                        );
                     }
                 }
             }
@@ -139,11 +155,8 @@ impl<'a> ModuleLowerer<'a> {
             let Some(base) = functions_by_def.get(&def_id).copied() else {
                 continue;
             };
-            let substitutions = self.effective_generic_substitutions_for_instance(
-                base.def_id,
-                arg_module_id,
-                &args,
-            );
+            let substitutions =
+                self.effective_generic_substitutions_for_instance(base.def_id, &args);
             let function_body = base.function_body.clone().map(|body| {
                 self.instantiate_function_body(
                     def_id,
@@ -451,20 +464,28 @@ impl<'a> ModuleLowerer<'a> {
         seen: &HashSet<InstanceKey>,
         queue: &mut InstanceWorkQueue,
     ) {
+        self.enqueue_function_instance_for_module(def_id, self.input.module_id, args, seen, queue);
+    }
+
+    fn enqueue_function_instance_for_module(
+        &mut self,
+        def_id: GlobalDefId,
+        arg_module_id: ModuleId,
+        args: &[InternedTyId],
+        seen: &HashSet<InstanceKey>,
+        queue: &mut InstanceWorkQueue,
+    ) {
         if args.is_empty() || def_id.module_id != self.input.module_id {
             return;
         }
-        if args
-            .iter()
-            .any(|arg| self.cached_ty_contains_generic_param(*arg))
-        {
+        let args = self.canonicalize_instance_args(args);
+        if args.iter().any(|arg| {
+            self.cached_ty_contains_generic_param(*arg)
+                || self.cached_ty_contains_unresolved_projection(*arg)
+        }) {
             return;
         }
-        let arg_module_id = args
-            .first()
-            .map(|arg| arg.interner_id)
-            .unwrap_or(self.input.module_id);
-        let key = (def_id, arg_module_id, args.to_vec());
+        let key = (def_id, arg_module_id, args);
         if seen.contains(&key) || queue.contains(&key) {
             return;
         }
@@ -478,28 +499,53 @@ impl<'a> ModuleLowerer<'a> {
             return;
         }
         let name = def.name.clone();
-        let symbol = self.mangle_instance_symbol(def_id, &name, args);
+        let symbol = self.mangle_instance_symbol(def_id, &name, &key.2);
         queue.push(def_id, arg_module_id, key.2, symbol);
     }
 
+    pub(crate) fn canonicalize_instance_args(
+        &mut self,
+        args: &[InternedTyId],
+    ) -> Vec<InternedTyId> {
+        args.iter()
+            .copied()
+            .map(|arg| self.canonicalize_instance_arg(arg))
+            .collect()
+    }
+
+    pub(crate) fn canonicalize_instance_arg(&mut self, arg: InternedTyId) -> InternedTyId {
+        let local = if arg.interner_id == self.interner.interner_id() {
+            arg
+        } else if let Some(source) = self.known_type_interners.get(&arg.interner_id).copied() {
+            nia_ty::import_type_into(&mut self.interner, source, arg)
+        } else {
+            arg
+        };
+        self.instantiate_ty(local, &HashMap::new())
+    }
+
     fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
-        let body_interner = &self.input.body_ir.interner;
-        let extension_interner = self.input.extension_interner;
+        let known_type_interners = &self.known_type_interners;
         contains_generic_param(
             ty,
             &mut |ty| {
-                if ty.interner_id == body_interner.interner_id() {
-                    return body_interner.get(ty).cloned();
-                }
-                if let Some(extension_interner) = extension_interner
-                    && ty.interner_id == extension_interner.interner_id()
-                {
-                    return extension_interner.get(ty).cloned();
-                }
-                None
+                known_type_interners
+                    .get(&ty.interner_id)
+                    .and_then(|interner| interner.get(ty))
+                    .cloned()
             },
             Some(&mut self.generic_param_presence),
         )
+    }
+
+    fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
+        let known_type_interners = &self.known_type_interners;
+        contains_unresolved_projection(ty, &mut |ty| {
+            known_type_interners
+                .get(&ty.interner_id)
+                .and_then(|interner| interner.get(ty))
+                .cloned()
+        })
     }
 }
 
@@ -576,6 +622,59 @@ pub(crate) fn contains_generic_param(
         cache.insert(ty, contains);
     }
     contains
+}
+
+pub(crate) fn contains_unresolved_projection(
+    ty: InternedTyId,
+    ty_kind: &mut impl FnMut(InternedTyId) -> Option<TyKind>,
+) -> bool {
+    match ty_kind(ty) {
+        Some(TyKind::Projection { .. }) => true,
+        Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
+            contains_unresolved_projection(elem, ty_kind)
+        }
+        Some(TyKind::Array { elem, .. }) => contains_unresolved_projection(elem, ty_kind),
+        Some(TyKind::Range { bound, .. }) => {
+            bound.is_some_and(|bound| contains_unresolved_projection(bound, ty_kind))
+        }
+        Some(TyKind::FunctionPointer {
+            params,
+            return_type,
+            ..
+        }) => {
+            params
+                .into_iter()
+                .any(|param| contains_unresolved_projection(param, ty_kind))
+                || contains_unresolved_projection(return_type, ty_kind)
+        }
+        Some(TyKind::Optional { elem }) => contains_unresolved_projection(elem, ty_kind),
+        Some(TyKind::ErrorUnion { error, value }) => {
+            contains_unresolved_projection(error, ty_kind)
+                || contains_unresolved_projection(value, ty_kind)
+        }
+        Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+            .into_iter()
+            .any(|arg| contains_unresolved_projection(arg, ty_kind)),
+        Some(TyKind::TraitObject {
+            trait_args,
+            associated_type_bindings,
+            ..
+        }) => {
+            trait_args
+                .into_iter()
+                .any(|arg| contains_unresolved_projection(arg, ty_kind))
+                || associated_type_bindings.into_iter().any(|binding| {
+                    binding
+                        .trait_args
+                        .into_iter()
+                        .any(|arg| contains_unresolved_projection(arg, ty_kind))
+                        || contains_unresolved_projection(binding.ty, ty_kind)
+                })
+        }
+        Some(TyKind::GenericParam(_))
+        | Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_))
+        | None => false,
+    }
 }
 
 #[cfg(test)]

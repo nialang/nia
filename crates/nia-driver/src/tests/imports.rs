@@ -764,7 +764,15 @@ extend[T] &T {
     assert_eq!(instances.len(), 2, "{instances:?}");
     for instance in instances {
         assert_eq!(instance.args.len(), 1, "{instance:?}");
-        assert_eq!(instance.arg_module_id, instance.args[0].interner_id);
+        assert!(
+            program
+                .backend_lowering
+                .program
+                .modules
+                .iter()
+                .any(|module| module.interner.get(instance.args[0]).is_some()),
+            "{instance:?}"
+        );
     }
 }
 

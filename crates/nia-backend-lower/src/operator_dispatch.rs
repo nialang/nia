@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use std::collections::HashMap;
-
 use crate::{ExtensionTraitMethodCandidate, ExtensionTraitMethodKey, ModuleLowerer};
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding,
@@ -823,31 +821,14 @@ impl<'a> ModuleLowerer<'a> {
         trait_args: &[InternedTyId],
         self_ty: InternedTyId,
     ) -> Option<(GlobalDefId, Vec<InternedTyId>)> {
-        if !self.builtin_extension_trait_args_match(candidate, trait_args) {
-            return None;
-        }
-        let mut substitutions = HashMap::new();
-        if !self.match_extension_type_pattern(candidate.target_ty, self_ty, &mut substitutions) {
-            return None;
-        }
+        let substitutions =
+            self.match_extension_trait_impl_candidate(candidate, trait_args, self_ty)?;
         let args = self
-            .generic_params_in_extension_ty(candidate.target_ty)
+            .candidate_impl_generics(candidate)
             .iter()
             .filter_map(|generic| substitutions.get(generic).copied())
             .collect::<Vec<_>>();
         Some((candidate.method_def_id, args))
-    }
-
-    fn builtin_extension_trait_args_match(
-        &self,
-        candidate: &ExtensionTraitMethodCandidate,
-        trait_args: &[InternedTyId],
-    ) -> bool {
-        candidate
-            .trait_args
-            .iter()
-            .zip(trait_args)
-            .all(|(actual, expected)| self.types_match(*actual, *expected))
     }
 
     fn builtin_operator_resolution(

@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{HashMap, HashSet};
 
-use crate::{ModuleLowerer, TypeInstantiationKey, TypeSubstitutionId, TypeSubstitutionKey};
+use crate::{
+    ExtensionTraitMethodCandidate, ModuleLowerer, TypeInstantiationKey, TypeSubstitutionId,
+    TypeSubstitutionKey,
+};
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_function_ir::{
     FunctionArrayElements, FunctionAsmInput, FunctionAsmOutput, FunctionBinding, FunctionBody,
@@ -91,108 +94,24 @@ impl<'a> ModuleLowerer<'a> {
             generics.extend(own_generics.iter().cloned());
             return generics;
         }
-        let mut generics = self.extension_target_generics(def_id).unwrap_or_else(|| {
-            self.input
-                .defs
-                .defs
-                .get(def_id.def_id)
-                .and_then(|def| def.parent)
-                .and_then(|parent| self.input.defs.defs.get(parent))
-                .map(|parent| parent.generics.clone())
-                .unwrap_or_default()
-        });
+        let mut generics = self
+            .extension_method_impl_generics(def_id)
+            .unwrap_or_else(|| {
+                self.input
+                    .defs
+                    .defs
+                    .get(def_id.def_id)
+                    .and_then(|def| def.parent)
+                    .and_then(|parent| self.input.defs.defs.get(parent))
+                    .map(|parent| parent.generics.clone())
+                    .unwrap_or_default()
+            });
         generics.extend(own_generics.iter().cloned());
         generics
     }
 
-    fn extension_target_generics(&self, def_id: GlobalDefId) -> Option<Vec<String>> {
-        self.extension_targets_by_method
-            .get(&def_id)
-            .map(|target_ty| self.generic_params_in_ty(*target_ty))
-    }
-
-    pub(crate) fn generic_params_in_ty(&self, ty: InternedTyId) -> Vec<String> {
-        let mut generics = Vec::new();
-        self.collect_generic_params_in_ty(ty, &mut generics);
-        generics
-    }
-
-    pub(crate) fn collect_generic_params_in_ty(
-        &self,
-        ty: InternedTyId,
-        generics: &mut Vec<String>,
-    ) {
-        match self.ty_kind(ty) {
-            Some(TyKind::GenericParam(name)) => {
-                if !generics.contains(name) {
-                    generics.push(name.clone());
-                }
-            }
-            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
-                self.collect_generic_params_in_ty(*elem, generics);
-            }
-            Some(TyKind::Array { elem, .. }) => {
-                self.collect_generic_params_in_ty(*elem, generics);
-            }
-            Some(TyKind::Range { bound, .. }) => {
-                if let Some(bound) = bound {
-                    self.collect_generic_params_in_ty(*bound, generics);
-                }
-            }
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            }) => {
-                for param in params {
-                    self.collect_generic_params_in_ty(*param, generics);
-                }
-                self.collect_generic_params_in_ty(*return_type, generics);
-            }
-            Some(TyKind::Optional { elem }) => {
-                self.collect_generic_params_in_ty(*elem, generics);
-            }
-            Some(TyKind::ErrorUnion { error, value }) => {
-                self.collect_generic_params_in_ty(*error, generics);
-                self.collect_generic_params_in_ty(*value, generics);
-            }
-            Some(TyKind::Nominal { args, .. }) => {
-                for arg in args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::BuiltinTrait { args, .. }) => {
-                for arg in args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::TraitObject {
-                trait_args,
-                associated_type_bindings,
-                ..
-            }) => {
-                for arg in trait_args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-                for binding in associated_type_bindings {
-                    for arg in &binding.trait_args {
-                        self.collect_generic_params_in_ty(*arg, generics);
-                    }
-                    self.collect_generic_params_in_ty(binding.ty, generics);
-                }
-            }
-            Some(TyKind::Projection {
-                self_ty,
-                trait_args,
-                ..
-            }) => {
-                self.collect_generic_params_in_ty(*self_ty, generics);
-                for arg in trait_args {
-                    self.collect_generic_params_in_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
-        }
+    fn extension_method_impl_generics(&self, def_id: GlobalDefId) -> Option<Vec<String>> {
+        self.extension_generics_by_method.get(&def_id).cloned()
     }
 
     pub(crate) fn effective_generic_substitutions(
@@ -207,32 +126,20 @@ impl<'a> ModuleLowerer<'a> {
     pub(crate) fn effective_generic_substitutions_for_instance(
         &mut self,
         def_id: GlobalDefId,
-        arg_module_id: ModuleId,
         args: &[InternedTyId],
     ) -> HashMap<String, InternedTyId> {
         let args = args
             .iter()
-            .map(|arg| self.import_instance_arg_type(arg_module_id, *arg))
+            .map(|arg| self.import_instance_arg_type(*arg))
             .collect::<Vec<_>>();
         self.effective_generic_substitutions(def_id, &args)
     }
 
-    fn import_instance_arg_type(
-        &mut self,
-        arg_module_id: ModuleId,
-        ty: InternedTyId,
-    ) -> InternedTyId {
+    fn import_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
         if ty.interner_id == self.interner.interner_id() {
             return ty;
         }
-        if let Some(interner) = self.input.program_type_interners.get(&arg_module_id)
-            && ty.interner_id == interner.interner_id()
-        {
-            return nia_ty::import_type_into(&mut self.interner, interner, ty);
-        }
-        if let Some((_, interner)) = self.input.program_extensions.get(&arg_module_id)
-            && ty.interner_id == interner.interner_id()
-        {
+        if let Some(interner) = self.known_type_interners.get(&ty.interner_id).copied() {
             return nia_ty::import_type_into(&mut self.interner, interner, ty);
         }
         ty
@@ -320,95 +227,48 @@ impl<'a> ModuleLowerer<'a> {
         body
     }
 
-    pub(crate) fn generic_params_in_extension_ty(&mut self, ty: InternedTyId) -> &[String] {
-        if self.extension_ty_generics.contains_key(&ty) {
-            return self
-                .extension_ty_generics
-                .get(&ty)
-                .map(Vec::as_slice)
-                .unwrap();
+    pub(crate) fn match_extension_trait_impl_candidate(
+        &mut self,
+        candidate: &ExtensionTraitMethodCandidate,
+        trait_args: &[InternedTyId],
+        self_ty: InternedTyId,
+    ) -> Option<HashMap<String, InternedTyId>> {
+        let mut substitutions = HashMap::new();
+        let target_ty = nia_ty::import_type_into(
+            &mut self.interner,
+            &candidate.source_interner,
+            candidate.target_ty,
+        );
+        if !self.match_extension_type_pattern(target_ty, self_ty, &mut substitutions) {
+            return None;
         }
-        let mut generics = Vec::new();
-        self.collect_generic_params_in_extension_ty(ty, &mut generics);
-        self.extension_ty_generics.insert(ty, generics);
-        self.extension_ty_generics
-            .get(&ty)
-            .map(Vec::as_slice)
-            .unwrap()
+        if candidate.trait_args.len() != trait_args.len() {
+            return None;
+        }
+        let candidate_trait_args = candidate
+            .trait_args
+            .iter()
+            .map(|arg| {
+                nia_ty::import_type_into(&mut self.interner, &candidate.source_interner, *arg)
+            })
+            .collect::<Vec<_>>();
+        if !candidate_trait_args
+            .iter()
+            .zip(trait_args)
+            .all(|(pattern, actual)| {
+                self.match_extension_type_pattern(*pattern, *actual, &mut substitutions)
+            })
+        {
+            return None;
+        }
+        Some(substitutions)
     }
 
-    fn collect_generic_params_in_extension_ty(&self, ty: InternedTyId, generics: &mut Vec<String>) {
-        match self.extension_ty_kind(ty) {
-            Some(TyKind::GenericParam(name)) => {
-                if !generics.contains(name) {
-                    generics.push(name.clone());
-                }
-            }
-            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
-                self.collect_generic_params_in_extension_ty(*elem, generics);
-            }
-            Some(TyKind::Array { elem, .. }) => {
-                self.collect_generic_params_in_extension_ty(*elem, generics);
-            }
-            Some(TyKind::Range { bound, .. }) => {
-                if let Some(bound) = bound {
-                    self.collect_generic_params_in_extension_ty(*bound, generics);
-                }
-            }
-            Some(TyKind::FunctionPointer {
-                params,
-                return_type,
-                ..
-            }) => {
-                for param in params {
-                    self.collect_generic_params_in_extension_ty(*param, generics);
-                }
-                self.collect_generic_params_in_extension_ty(*return_type, generics);
-            }
-            Some(TyKind::Optional { elem }) => {
-                self.collect_generic_params_in_extension_ty(*elem, generics);
-            }
-            Some(TyKind::ErrorUnion { error, value }) => {
-                self.collect_generic_params_in_extension_ty(*error, generics);
-                self.collect_generic_params_in_extension_ty(*value, generics);
-            }
-            Some(TyKind::Nominal { args, .. }) => {
-                for arg in args {
-                    self.collect_generic_params_in_extension_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::BuiltinTrait { args, .. }) => {
-                for arg in args {
-                    self.collect_generic_params_in_extension_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::TraitObject {
-                trait_args,
-                associated_type_bindings,
-                ..
-            }) => {
-                for arg in trait_args {
-                    self.collect_generic_params_in_extension_ty(*arg, generics);
-                }
-                for binding in associated_type_bindings {
-                    for arg in &binding.trait_args {
-                        self.collect_generic_params_in_extension_ty(*arg, generics);
-                    }
-                    self.collect_generic_params_in_extension_ty(binding.ty, generics);
-                }
-            }
-            Some(TyKind::Projection {
-                self_ty,
-                trait_args,
-                ..
-            }) => {
-                self.collect_generic_params_in_extension_ty(*self_ty, generics);
-                for arg in trait_args {
-                    self.collect_generic_params_in_extension_ty(*arg, generics);
-                }
-            }
-            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => {}
-        }
+    pub(crate) fn candidate_impl_generics<'b>(
+        &self,
+        candidate: &'b ExtensionTraitMethodCandidate,
+    ) -> &'b [String] {
+        &candidate.impl_generics
     }
 
     pub(crate) fn instantiate_ty(
@@ -586,6 +446,8 @@ impl<'a> ModuleLowerer<'a> {
                 trait_args,
                 name,
             }) => {
+                let original_self_ty = self_ty;
+                let original_trait_args = trait_args.clone();
                 let self_ty =
                     self.instantiate_ty_with_id_inner(self_ty, substitutions, active_projections);
                 let trait_args = trait_args
@@ -627,7 +489,13 @@ impl<'a> ModuleLowerer<'a> {
                         )
                     });
                 active_projections.remove(&projection_key);
-                let instantiated = resolved.unwrap_or(projection);
+                let instantiated = resolved.unwrap_or_else(|| {
+                    if self_ty == original_self_ty && trait_args == original_trait_args {
+                        ty
+                    } else {
+                        projection
+                    }
+                });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
             Some(TyKind::Error | TyKind::ComptimeOnly) | Some(TyKind::Primitive(_)) | None => {
@@ -658,6 +526,11 @@ impl<'a> ModuleLowerer<'a> {
 
     pub(super) fn empty_type_substitution_id(&mut self) -> TypeSubstitutionId {
         self.intern_type_substitutions(&HashMap::new())
+    }
+
+    fn normalize_type_for_match(&mut self, ty: InternedTyId) -> InternedTyId {
+        let substitutions = self.empty_type_substitution_id();
+        self.instantiate_ty_with_id(ty, substitutions)
     }
 
     fn type_substitution(
@@ -797,14 +670,25 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn match_extension_type_pattern(
-        &self,
+        &mut self,
         pattern: InternedTyId,
         actual: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
-        match self.extension_ty_kind(pattern) {
+        let actual = self.canonicalize_instance_arg(actual);
+        if self.extension_pattern_generics_are_bound(pattern, substitutions) {
+            let substitution_id = self.intern_type_substitutions(substitutions);
+            let mut active_projections = HashSet::new();
+            let pattern = self.instantiate_ty_with_id_inner(
+                pattern,
+                substitution_id,
+                &mut active_projections,
+            );
+            return self.types_match(pattern, actual);
+        }
+        match self.extension_ty_kind(pattern).cloned() {
             Some(TyKind::GenericParam(name)) => {
-                if let Some(existing) = substitutions.get(name).copied() {
+                if let Some(existing) = substitutions.get(&name).copied() {
                     self.types_match(existing, actual)
                 } else {
                     substitutions.insert(name.clone(), actual);
@@ -814,38 +698,38 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::Pointer {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
-            }) => matches!(
-                self.ty_kind(actual),
-                Some(TyKind::Pointer { is_readonly, elem })
-                    if is_readonly == pattern_const
-                        && self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
-            ),
+            }) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::Pointer { is_readonly, elem }) if is_readonly == pattern_const => {
+                    self.match_extension_type_pattern(pattern_elem, elem, substitutions)
+                }
+                _ => false,
+            },
             Some(TyKind::Slice {
                 is_readonly: pattern_const,
                 elem: pattern_elem,
-            }) => matches!(
-                self.ty_kind(actual),
-                Some(TyKind::Slice { is_readonly, elem })
-                    if is_readonly == pattern_const
-                        && self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
-            ),
+            }) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::Slice { is_readonly, elem }) if is_readonly == pattern_const => {
+                    self.match_extension_type_pattern(pattern_elem, elem, substitutions)
+                }
+                _ => false,
+            },
             Some(TyKind::Array {
                 len: pattern_len,
                 elem: pattern_elem,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::Array { len, elem }) if pattern_len == len => {
-                    self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
+                    self.match_extension_type_pattern(pattern_elem, elem, substitutions)
                 }
                 _ => false,
             },
             Some(TyKind::Range {
                 kind: pattern_kind,
                 bound: pattern_bound,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::Range { kind, bound }) if pattern_kind == kind => {
                     match (pattern_bound, bound) {
                         (Some(pattern_bound), Some(bound)) => {
-                            self.match_extension_type_pattern(*pattern_bound, *bound, substitutions)
+                            self.match_extension_type_pattern(pattern_bound, bound, substitutions)
                         }
                         (None, None) => true,
                         _ => false,
@@ -857,47 +741,47 @@ impl<'a> ModuleLowerer<'a> {
                 params: pattern_params,
                 return_type: pattern_return,
                 is_variadic: pattern_variadic,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::FunctionPointer {
                     params,
                     return_type,
                     is_variadic,
                 }) if pattern_variadic == is_variadic && pattern_params.len() == params.len() => {
                     pattern_params.iter().zip(params).all(|(pattern, actual)| {
-                        self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                        self.match_extension_type_pattern(*pattern, actual, substitutions)
                     }) && self.match_extension_type_pattern(
-                        *pattern_return,
-                        *return_type,
+                        pattern_return,
+                        return_type,
                         substitutions,
                     )
                 }
                 _ => false,
             },
-            Some(TyKind::Optional { elem: pattern_elem }) => match self.ty_kind(actual) {
+            Some(TyKind::Optional { elem: pattern_elem }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::Optional { elem }) => {
-                    self.match_extension_type_pattern(*pattern_elem, *elem, substitutions)
+                    self.match_extension_type_pattern(pattern_elem, elem, substitutions)
                 }
                 _ => false,
             },
             Some(TyKind::ErrorUnion {
                 error: pattern_error,
                 value: pattern_value,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::ErrorUnion { error, value }) => {
-                    self.match_extension_type_pattern(*pattern_error, *error, substitutions)
-                        && self.match_extension_type_pattern(*pattern_value, *value, substitutions)
+                    self.match_extension_type_pattern(pattern_error, error, substitutions)
+                        && self.match_extension_type_pattern(pattern_value, value, substitutions)
                 }
                 _ => false,
             },
             Some(TyKind::Nominal {
                 def_id: pattern_def,
                 args: pattern_args,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::Nominal { def_id, args })
                     if pattern_def == def_id && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
-                        self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                        self.match_extension_type_pattern(*pattern, actual, substitutions)
                     })
                 }
                 _ => false,
@@ -905,12 +789,12 @@ impl<'a> ModuleLowerer<'a> {
             Some(TyKind::BuiltinTrait {
                 trait_id: pattern_trait,
                 args: pattern_args,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::BuiltinTrait { trait_id, args })
                     if pattern_trait == trait_id && pattern_args.len() == args.len() =>
                 {
                     pattern_args.iter().zip(args).all(|(pattern, actual)| {
-                        self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                        self.match_extension_type_pattern(*pattern, actual, substitutions)
                     })
                 }
                 _ => false,
@@ -920,7 +804,7 @@ impl<'a> ModuleLowerer<'a> {
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
                 associated_type_bindings: pattern_bindings,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::TraitObject {
                     is_readonly,
                     trait_id,
@@ -935,7 +819,7 @@ impl<'a> ModuleLowerer<'a> {
                         .iter()
                         .zip(trait_args)
                         .all(|(pattern, actual)| {
-                            self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                            self.match_extension_type_pattern(*pattern, actual, substitutions)
                         })
                         && pattern_bindings.iter().all(|pattern_binding| {
                             associated_type_bindings
@@ -962,7 +846,7 @@ impl<'a> ModuleLowerer<'a> {
                 trait_id: pattern_trait,
                 trait_args: pattern_args,
                 name: pattern_name,
-            }) => match self.ty_kind(actual) {
+            }) => match self.ty_kind(actual).cloned() {
                 Some(TyKind::Projection {
                     self_ty,
                     trait_id,
@@ -972,12 +856,12 @@ impl<'a> ModuleLowerer<'a> {
                     && pattern_name == name
                     && pattern_args.len() == trait_args.len() =>
                 {
-                    self.match_extension_type_pattern(*pattern_self, *self_ty, substitutions)
+                    self.match_extension_type_pattern(pattern_self, self_ty, substitutions)
                         && pattern_args
                             .iter()
                             .zip(trait_args)
                             .all(|(pattern, actual)| {
-                                self.match_extension_type_pattern(*pattern, *actual, substitutions)
+                                self.match_extension_type_pattern(*pattern, actual, substitutions)
                             })
                 }
                 _ => false,
@@ -988,11 +872,77 @@ impl<'a> ModuleLowerer<'a> {
         }
     }
 
-    pub(crate) fn types_match(&self, left: InternedTyId, right: InternedTyId) -> bool {
+    fn extension_pattern_generics_are_bound(
+        &self,
+        pattern: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> bool {
+        match self.extension_ty_kind(pattern) {
+            Some(TyKind::GenericParam(name)) => substitutions.contains_key(name),
+            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
+                self.extension_pattern_generics_are_bound(*elem, substitutions)
+            }
+            Some(TyKind::Array { elem, .. }) => {
+                self.extension_pattern_generics_are_bound(*elem, substitutions)
+            }
+            Some(TyKind::Range { bound, .. }) => bound.is_none_or(|bound| {
+                self.extension_pattern_generics_are_bound(bound, substitutions)
+            }),
+            Some(TyKind::FunctionPointer {
+                params,
+                return_type,
+                ..
+            }) => {
+                params
+                    .iter()
+                    .all(|param| self.extension_pattern_generics_are_bound(*param, substitutions))
+                    && self.extension_pattern_generics_are_bound(*return_type, substitutions)
+            }
+            Some(TyKind::Optional { elem }) => {
+                self.extension_pattern_generics_are_bound(*elem, substitutions)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                self.extension_pattern_generics_are_bound(*error, substitutions)
+                    && self.extension_pattern_generics_are_bound(*value, substitutions)
+            }
+            Some(TyKind::Nominal { args, .. } | TyKind::BuiltinTrait { args, .. }) => args
+                .iter()
+                .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions)),
+            Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }) => {
+                trait_args
+                    .iter()
+                    .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
+                    && associated_type_bindings.iter().all(|binding| {
+                        binding.trait_args.iter().all(|arg| {
+                            self.extension_pattern_generics_are_bound(*arg, substitutions)
+                        }) && self.extension_pattern_generics_are_bound(binding.ty, substitutions)
+                    })
+            }
+            Some(TyKind::Projection {
+                self_ty,
+                trait_args,
+                ..
+            }) => {
+                self.extension_pattern_generics_are_bound(*self_ty, substitutions)
+                    && trait_args
+                        .iter()
+                        .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions))
+            }
+            Some(TyKind::Error | TyKind::ComptimeOnly | TyKind::Primitive(_)) | None => true,
+        }
+    }
+
+    pub(crate) fn types_match(&mut self, left: InternedTyId, right: InternedTyId) -> bool {
+        let left = self.normalize_type_for_match(left);
+        let right = self.normalize_type_for_match(right);
         if left == right {
             return true;
         }
-        match (self.ty_kind(left), self.ty_kind(right)) {
+        match (self.ty_kind(left).cloned(), self.ty_kind(right).cloned()) {
             (Some(TyKind::Primitive(left)), Some(TyKind::Primitive(right))) => left == right,
             (
                 Some(TyKind::Pointer {
@@ -1003,7 +953,64 @@ impl<'a> ModuleLowerer<'a> {
                     is_readonly: right_const,
                     elem: right_elem,
                 }),
-            ) => left_const == right_const && self.types_match(*left_elem, *right_elem),
+            )
+            | (
+                Some(TyKind::Slice {
+                    is_readonly: left_const,
+                    elem: left_elem,
+                }),
+                Some(TyKind::Slice {
+                    is_readonly: right_const,
+                    elem: right_elem,
+                }),
+            ) => left_const == right_const && self.types_match(left_elem, right_elem),
+            (
+                Some(TyKind::Array {
+                    len: left_len,
+                    elem: left_elem,
+                }),
+                Some(TyKind::Array {
+                    len: right_len,
+                    elem: right_elem,
+                }),
+            ) => left_len == right_len && self.types_match(left_elem, right_elem),
+            (
+                Some(TyKind::FunctionPointer {
+                    params: left_params,
+                    return_type: left_return,
+                    is_variadic: left_variadic,
+                }),
+                Some(TyKind::FunctionPointer {
+                    params: right_params,
+                    return_type: right_return,
+                    is_variadic: right_variadic,
+                }),
+            ) => {
+                left_variadic == right_variadic
+                    && left_params.len() == right_params.len()
+                    && left_params
+                        .iter()
+                        .zip(&right_params)
+                        .all(|(left, right)| self.types_match(*left, *right))
+                    && self.types_match(left_return, right_return)
+            }
+            (
+                Some(TyKind::Optional { elem: left_elem }),
+                Some(TyKind::Optional { elem: right_elem }),
+            ) => self.types_match(left_elem, right_elem),
+            (
+                Some(TyKind::ErrorUnion {
+                    error: left_error,
+                    value: left_value,
+                }),
+                Some(TyKind::ErrorUnion {
+                    error: right_error,
+                    value: right_value,
+                }),
+            ) => {
+                self.types_match(left_error, right_error)
+                    && self.types_match(left_value, right_value)
+            }
             (
                 Some(TyKind::Nominal {
                     def_id: left_def,
@@ -1018,7 +1025,7 @@ impl<'a> ModuleLowerer<'a> {
                     && left_args.len() == right_args.len()
                     && left_args
                         .iter()
-                        .zip(right_args)
+                        .zip(&right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
             }
             (
@@ -1035,7 +1042,7 @@ impl<'a> ModuleLowerer<'a> {
                     && left_args.len() == right_args.len()
                     && left_args
                         .iter()
-                        .zip(right_args)
+                        .zip(&right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
             }
             (
@@ -1058,7 +1065,7 @@ impl<'a> ModuleLowerer<'a> {
                     && left_bindings.len() == right_bindings.len()
                     && left_args
                         .iter()
-                        .zip(right_args)
+                        .zip(&right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
                     && left_bindings.iter().all(|left_binding| {
                         right_bindings
@@ -1084,7 +1091,7 @@ impl<'a> ModuleLowerer<'a> {
                 left_kind == right_kind
                     && match (left_bound, right_bound) {
                         (Some(left_bound), Some(right_bound)) => {
-                            self.types_match(*left_bound, *right_bound)
+                            self.types_match(left_bound, right_bound)
                         }
                         (None, None) => true,
                         _ => false,
@@ -1107,10 +1114,10 @@ impl<'a> ModuleLowerer<'a> {
                 left_trait == right_trait
                     && left_name == right_name
                     && left_args.len() == right_args.len()
-                    && self.types_match(*left_self, *right_self)
+                    && self.types_match(left_self, right_self)
                     && left_args
                         .iter()
-                        .zip(right_args)
+                        .zip(&right_args)
                         .all(|(left, right)| self.types_match(*left, *right))
             }
             _ => false,
@@ -1118,7 +1125,7 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn associated_type_binding_keys_match(
-        &self,
+        &mut self,
         left: &nia_ty::AssociatedTypeBindingTy,
         right: &nia_ty::AssociatedTypeBindingTy,
     ) -> bool {

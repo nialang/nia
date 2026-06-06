@@ -103,9 +103,12 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
                         def_id: method_id,
                     },
                     impl_index: 0,
+                    impl_generics: extend.generics.clone(),
                     trait_id: None,
                     trait_args: Vec::new(),
                     where_predicates: Vec::new(),
+                    is_callable: true,
+                    is_trait_witness: false,
                 },
             );
         }
@@ -133,6 +136,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         comptime_module: &comptime_module.module,
         layouts: &layouts,
         extensions: &extensions,
+        program_extension_methods: &nia_defs::ExtensionMethods::default(),
         extension_interner: None,
         program: BodyProgramContext::empty(),
         program_signatures: ProgramSignatureMaps {

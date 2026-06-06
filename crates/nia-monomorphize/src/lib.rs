@@ -14,6 +14,7 @@ use nia_ty::{AssociatedTypeBindingTy, TyInterner, TyKind};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Monomorphization {
     pub instances: Vec<MonoInstance>,
+    pub type_interners: HashMap<ModuleId, TyInterner>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -78,6 +79,7 @@ pub fn collect_monomorphizations(inputs: &[MonomorphizeModuleInput<'_>]) -> Mono
     }
     Monomorphization {
         instances: collector.instances,
+        type_interners: collector.working_interners_by_module,
         diagnostics: collector.diagnostics,
     }
 }
@@ -129,7 +131,8 @@ struct TypeSubstitutionKey {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SourceInstantiationEdge {
-    module_id: ModuleId,
+    source_module_id: ModuleId,
+    arg_module_id: ModuleId,
     def_id: GlobalDefId,
     args: Vec<InternedTyId>,
     span: Span,
@@ -260,17 +263,18 @@ impl MonoCollector<'_> {
             let Some(edge) = self.source_instantiation_edges.get(edge_index) else {
                 continue;
             };
-            let edge_module_id = edge.module_id;
+            let source_module_id = edge.source_module_id;
+            let arg_module_id = edge.arg_module_id;
             let edge_def_id = edge.def_id;
             let edge_span = edge.span;
             let edge_args = edge.args.clone();
             if !self.is_generic_def(edge_def_id) {
                 continue;
             }
-            let args = self.instantiate_args(edge_module_id, &edge_args, substitution_id);
+            let args = self.instantiate_args(source_module_id, &edge_args, substitution_id);
             let edge_key = MonoInstanceKey {
                 def_id: edge_def_id,
-                arg_module_id: edge_module_id,
+                arg_module_id,
                 args,
             };
             self.add_instance(edge_key.clone());
@@ -648,7 +652,8 @@ fn collect_source_instantiation_edges(
                 continue;
             }
             edges.push(SourceInstantiationEdge {
-                module_id: input.module_id,
+                source_module_id: input.module_id,
+                arg_module_id: instantiation.def_id.module_id,
                 def_id: instantiation.def_id,
                 args: instantiation.args.clone(),
                 span: instantiation.span,

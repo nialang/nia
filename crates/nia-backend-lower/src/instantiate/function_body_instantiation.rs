@@ -462,27 +462,33 @@ impl<'a> ModuleLowerer<'a> {
     ) -> FunctionCallee {
         match callee {
             FunctionCallee::Function(def_id) => FunctionCallee::Function(def_id),
-            FunctionCallee::FunctionInstance { def_id, args } => FunctionCallee::FunctionInstance {
-                def_id,
-                args: args
+            FunctionCallee::FunctionInstance { def_id, args } => {
+                let args = args
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
-                    .collect(),
-            },
+                    .collect::<Vec<_>>();
+                FunctionCallee::FunctionInstance {
+                    def_id,
+                    args: self.canonicalize_instance_args(&args),
+                }
+            }
             FunctionCallee::Method {
                 def_id,
                 args,
                 receiver_kind,
                 receiver,
-            } => FunctionCallee::Method {
-                def_id,
-                args: args
+            } => {
+                let args = args
                     .into_iter()
                     .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
-                    .collect(),
-                receiver_kind,
-                receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
-            },
+                    .collect::<Vec<_>>();
+                FunctionCallee::Method {
+                    def_id,
+                    args: self.canonicalize_instance_args(&args),
+                    receiver_kind,
+                    receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
+                }
+            }
             FunctionCallee::TraitMethod {
                 trait_id,
                 method_id,
@@ -660,7 +666,10 @@ impl<'a> ModuleLowerer<'a> {
             method_name: trait_method_name.clone(),
             trait_arg_count: trait_args.len(),
         };
-        let candidates = self.extension_trait_method_candidates(&key);
+        if let Some(candidate) = self.current_impl_trait_method(&key, trait_args, self_ty) {
+            return Some(candidate);
+        }
+        let candidates = self.program_extension_trait_method_candidates(&key);
         let candidates = candidates
             .iter()
             .filter_map(|candidate| {
