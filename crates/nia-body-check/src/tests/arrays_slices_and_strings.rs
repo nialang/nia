@@ -530,6 +530,76 @@ fn make() i32 {
 }
 
 #[test]
+fn coerces_mutable_references_and_slices_to_readonly_expected_types() {
+    let checked = pipeline(
+        r#"
+fn read_ptr(x: &i32) i32 {
+    x.*
+}
+
+fn read_slice(xs: &[i32]) i32 {
+    xs[0]
+}
+
+fn generic_ptr[T](x: &T) T {
+    x.*
+}
+
+fn generic_slice[T](xs: &[T]) T {
+    xs[0]
+}
+
+fn main(mut_ptr: &mut i32, mut_slice: &mut [i32]) i32 {
+    var ro_ptr: &i32 = mut_ptr;
+    var ro_slice: &[i32] = mut_slice;
+    read_ptr(mut_ptr)
+        + read_slice(mut_slice)
+        + generic_ptr(mut_ptr)
+        + generic_slice(mut_slice)
+        + ro_ptr.*
+        + ro_slice[0]
+}
+"#,
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}
+
+#[test]
+fn rejects_readonly_references_and_slices_for_mutable_expected_types() {
+    let checked = pipeline(
+        r#"
+fn write_ptr(x: &mut i32) void {
+    x.* = 1;
+}
+
+fn write_slice(xs: &mut [i32]) void {
+    xs[0] = 1;
+}
+
+fn main(ro_ptr: &i32, ro_slice: &[i32]) void {
+    write_ptr(ro_ptr);
+    write_slice(ro_slice);
+}
+"#,
+    );
+    assert!(
+        checked
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.summary.contains("expected &mut i32, got &i32")),
+        "{:?}",
+        checked.diagnostics
+    );
+    assert!(
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("expected &mut [i32], got &[i32]")),
+        "{:?}",
+        checked.diagnostics
+    );
+}
+
+#[test]
 fn checks_c_string_literal_pointer_coercions() {
     let checked = pipeline(
         r#"

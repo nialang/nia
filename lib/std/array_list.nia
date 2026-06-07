@@ -144,7 +144,7 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             var copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, values);
-            switch self.insert_stable_slice(allocator, index, & copy[..]) {
+            switch self.insert_stable_slice(allocator, index, copy) {
                 !ok => _ = ok,
                 err! => {
                     switch allocator.free(copy_block) {
@@ -220,7 +220,7 @@ where T: Sized
             let copy_block = allocator.alloc(copy_layout).?;
             var copy = copy_block.as_slice[T]();
             mem::copy_forwards[T](copy, items);
-            switch self.append_stable_slice(allocator, & copy[..]) {
+            switch self.append_stable_slice(allocator, copy) {
                 !ok => _ = ok,
                 err! => {
                     switch allocator.free(copy_block) {
