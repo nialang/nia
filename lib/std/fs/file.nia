@@ -21,7 +21,7 @@ using types::{
 comptime let max_i64_as_u64: u64 = 9223372036854775807u64;
 
 extend Dir {
-    fn from_owned_descriptor(handle: os::FileDescriptor) Dir {
+    fn from_owned_descriptor(handle: os::FileHandle) Dir {
         { handle: handle }
     }
 
@@ -164,7 +164,7 @@ extend Dir {
 }
 
 extend File {
-    fn from_owned_descriptor(handle: os::FileDescriptor) File {
+    fn from_owned_descriptor(handle: os::FileHandle) File {
         { handle: handle }
     }
 
@@ -198,7 +198,7 @@ extend File {
         !File::from_owned_descriptor(handle)
     }
 
-    pub fn handle(&self) os::FileDescriptor {
+    pub fn handle(&self) os::FileHandle {
         self.handle
     }
 

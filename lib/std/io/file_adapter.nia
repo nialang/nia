@@ -9,14 +9,14 @@ using runtime::Io;
 
 pub struct FileWriter {
     io: &mut Io[Error = os::Error],
-    file: os::FileDescriptor,
+    file: os::FileHandle,
     buffer: &mut [u8],
     len: usize,
 }
 
 pub struct FileReader {
     io: &mut Io[Error = os::Error],
-    file: os::FileDescriptor,
+    file: os::FileHandle,
     buffer: &mut [u8],
     start: usize,
     end: usize,
@@ -33,16 +33,16 @@ extend fs::File {
 }
 
 extend FileWriter {
-    pub fn init(io: &mut Io[Error = os::Error], file: os::FileDescriptor, buffer: &mut [u8]) FileWriter {
+    pub fn init(io: &mut Io[Error = os::Error], file: os::FileHandle, buffer: &mut [u8]) FileWriter {
         { io: io, file: file, buffer: buffer, len: 0 }
     }
 
     pub fn stdout(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
-        FileWriter::init(io, os::FileDescriptor::stdout(), buffer)
+        FileWriter::init(io, os::FileHandle::stdout(), buffer)
     }
 
     pub fn stderr(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
-        FileWriter::init(io, os::FileDescriptor::stderr(), buffer)
+        FileWriter::init(io, os::FileHandle::stderr(), buffer)
     }
 
     pub fn len(&self) usize {
@@ -121,12 +121,12 @@ extend FileWriter : Writer {
 }
 
 extend FileReader {
-    pub fn init(io: &mut Io[Error = os::Error], file: os::FileDescriptor, buffer: &mut [u8]) FileReader {
+    pub fn init(io: &mut Io[Error = os::Error], file: os::FileHandle, buffer: &mut [u8]) FileReader {
         { io: io, file: file, buffer: buffer, start: 0, end: 0 }
     }
 
     pub fn stdin(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileReader {
-        FileReader::init(io, os::FileDescriptor::stdin(), buffer)
+        FileReader::init(io, os::FileHandle::stdin(), buffer)
     }
 
     pub fn len(&self) usize {

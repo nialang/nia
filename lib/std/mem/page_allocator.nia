@@ -75,7 +75,7 @@ extend os::Error {
     fn as_page_allocator_error(self) types::Error {
         switch self {
             os::Error::Invalid => types::Error::Invalid,
-            os::Error::NoMemory => types::Error::OutOfMemory,
+            os::Error::OutOfMemory => types::Error::OutOfMemory,
             _ => types::Error::System,
         }
     }
