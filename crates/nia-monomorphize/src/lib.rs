@@ -401,6 +401,9 @@ impl MonoCollector<'_> {
         if !self.seen.insert(key.clone()) {
             return;
         }
+        if self.args_contain_generic_param(key.arg_module_id, &key.args) {
+            return;
+        }
         if self.instances.len() >= MAX_MONOMORPHIZED_INSTANCES {
             self.report_instance_limit(span, &key);
             return;

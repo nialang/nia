@@ -1,0 +1,110 @@
+import std.io.traits;
+import std.mem;
+
+using traits::{BufferError, Reader, Writer};
+
+pub struct FixedBufferWriter {
+    buffer: &mut [u8],
+    len: usize,
+}
+
+pub struct FixedBufferReader {
+    buffer: &[u8],
+    cursor: usize,
+}
+
+pub struct DiscardingWriter {
+    len: usize,
+}
+
+extend FixedBufferWriter {
+    pub fn init(buffer: &mut [u8]) FixedBufferWriter {
+        { buffer: buffer, len: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn written(&self) &[u8] {
+        & self.buffer[0..self.len]
+    }
+}
+
+extend FixedBufferWriter : Writer {
+    type Error = BufferError;
+
+    pub fn short_write(&self) BufferError {
+        BufferError::NoSpace
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
+        let remaining = self.buffer.len() - self.len;
+        var count = bytes.len();
+        if count > remaining {
+            count = remaining;
+        }
+
+        mem::copy_forwards[u8](&mut self.buffer[self.len..(self.len + count)], &bytes[0..count]);
+        self.len += count;
+        !count
+    }
+}
+
+extend FixedBufferReader {
+    pub fn init(buffer: &[u8]) FixedBufferReader {
+        { buffer: buffer, cursor: 0 }
+    }
+
+    pub fn remaining(&self) usize {
+        self.buffer.len() - self.cursor
+    }
+}
+
+extend FixedBufferReader : Reader {
+    type Error = BufferError;
+
+    pub fn end_of_stream(&self) BufferError {
+        BufferError::EndOfStream
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) BufferError!usize {
+        let remaining = self.buffer.len() - self.cursor;
+        var count = bytes.len();
+        if count > remaining {
+            count = remaining;
+        }
+
+        mem::copy_forwards[u8](&mut bytes[0..count], &self.buffer[self.cursor..(self.cursor + count)]);
+        self.cursor += count;
+        !count
+    }
+}
+
+extend DiscardingWriter {
+    pub fn init() DiscardingWriter {
+        { len: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+}
+
+extend DiscardingWriter : Writer {
+    type Error = BufferError;
+
+    pub fn short_write(&self) BufferError {
+        _ = self;
+        BufferError::ShortWrite
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) BufferError!usize {
+        self.len += bytes.len();
+        !bytes.len()
+    }
+}

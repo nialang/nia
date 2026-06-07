@@ -1,0 +1,57 @@
+pub enum BufferError: i32 {
+    EndOfStream = 1,
+    ShortWrite = 2,
+    NoSpace = 3,
+    _,
+}
+
+pub trait Writer {
+    type Error;
+
+    fn short_write(&self) Error;
+
+    fn write(&mut self, bytes: &[u8]) Error!usize;
+
+    fn flush(&mut self) Error!void {
+        !{}
+    }
+
+    fn write_byte(&mut self, byte: u8) Error!void {
+        let bytes: [1]u8 = [byte];
+        self.write_all(&bytes[..])
+    }
+
+    fn write_all(&mut self, bytes: &[u8]) Error!void {
+        var written = 0usize;
+        while written < bytes.len() {
+            let chunk = & bytes[written..];
+            let n = self.write(chunk).?;
+            if n == 0 {
+                return self.short_write()!;
+            }
+            written += n;
+        }
+        !{}
+    }
+}
+
+pub trait Reader {
+    type Error;
+
+    fn end_of_stream(&self) Error;
+
+    fn read(&mut self, bytes: &mut [u8]) Error!usize;
+
+    fn read_exact(&mut self, bytes: &mut [u8]) Error!void {
+        var read = 0usize;
+        while read < bytes.len() {
+            let chunk = &mut bytes[read..];
+            let n = self.read(chunk).?;
+            if n == 0 {
+                return self.end_of_stream()!;
+            }
+            read += n;
+        }
+        !{}
+    }
+}

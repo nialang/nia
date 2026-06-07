@@ -27,7 +27,7 @@ impl BackendValidator<'_> {
         for arg in args {
             self.validate_type(*arg, span);
         }
-        let key = (def_id, args.to_vec());
+        let key = (def_id, arg_module_id, args.to_vec());
         let exists = if let Some(exists) = self.function_instance_ref_cache.borrow().get(&key) {
             *exists
         } else {
@@ -48,10 +48,30 @@ impl BackendValidator<'_> {
             exists
         };
         if !exists {
+            let available_instances = self
+                .index
+                .function_instances_by_def
+                .get(&def_id)
+                .map_or(0, |instances| instances.len());
+            let function_name = self
+                .index
+                .functions
+                .get(&def_id)
+                .map(|function| function.name.as_str())
+                .unwrap_or("<missing template>");
+            let module_name = self
+                .index
+                .modules
+                .get(&def_id.module_id)
+                .map(|module| module.name.as_str())
+                .unwrap_or("<missing module>");
             self.diagnostics.push(Diagnostic::internal_error_at(
                 "I0300",
                 span,
-                format!("{message} {def_id:?}"),
+                format!(
+                    "{message} {def_id:?} `{function_name}` in `{module_name}` with arg_module_id {arg_module_id:?}, {} args; {available_instances} instances exist for this def",
+                    args.len(),
+                ),
             ));
         }
     }

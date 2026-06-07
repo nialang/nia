@@ -9,6 +9,7 @@ use crate::function_refs::{
 use nia_backend_ir::{
     BackendFunction, BackendFunctionAttribute, BackendFunctionInstance, BackendParam,
 };
+use nia_function_ir::{FunctionBody, FunctionLocal, FunctionLocalKind};
 use nia_ids::{GlobalDefId, InternedTyId, ModuleId};
 use nia_item_signatures::FunctionAttribute;
 use nia_ty::TyKind;
@@ -23,6 +24,51 @@ impl<'a> ModuleLowerer<'a> {
         &mut self,
         functions: &[BackendFunction],
     ) -> Vec<BackendFunctionInstance> {
+        let mut initial_instances = Vec::new();
+        for instance in self
+            .monomorphization
+            .instances
+            .iter()
+            .filter(|instance| instance.def_id.module_id == self.input.module_id)
+        {
+            let args = self.import_monomorphized_instance_args(&instance.args);
+            initial_instances.push(FunctionInstanceRef {
+                def_id: instance.def_id,
+                arg_module_id: instance.arg_module_id,
+                args,
+                span: instance.span,
+            });
+        }
+
+        let mut root_refs = FunctionRefs::default();
+        for function in functions {
+            if !function.generics.is_empty() {
+                continue;
+            }
+            collect_function_refs_from_optional_body(
+                self.input.module_id,
+                &function.function_body,
+                &mut root_refs,
+            );
+        }
+        initial_instances.extend(root_refs.instances);
+        self.lower_function_instances_from_refs(functions, initial_instances, &[])
+    }
+
+    pub(crate) fn lower_additional_function_instances(
+        &mut self,
+        refs: Vec<FunctionInstanceRef>,
+        existing: &[BackendFunctionInstance],
+    ) -> Vec<BackendFunctionInstance> {
+        self.lower_function_instances_from_refs(&[], refs, existing)
+    }
+
+    fn lower_function_instances_from_refs(
+        &mut self,
+        functions: &[BackendFunction],
+        initial_instances: Vec<FunctionInstanceRef>,
+        existing: &[BackendFunctionInstance],
+    ) -> Vec<BackendFunctionInstance> {
         let mut instances = Vec::new();
         let mut seen = HashSet::<InstanceKey>::new();
         let mut queued = HashSet::<FunctionInstanceKey>::new();
@@ -31,33 +77,11 @@ impl<'a> ModuleLowerer<'a> {
             .map(|function| (function.def_id, function.clone()))
             .collect::<HashMap<_, _>>();
         let mut pending = VecDeque::new();
-        for instance in self
-            .monomorphization
-            .instances
-            .iter()
-            .filter(|instance| instance.def_id.module_id == self.input.module_id)
-        {
-            enqueue_function_instance_ref(
-                &mut pending,
-                &mut queued,
-                FunctionInstanceRef {
-                    def_id: instance.def_id,
-                    arg_module_id: instance.arg_module_id,
-                    args: instance.args.clone(),
-                    span: instance.span,
-                },
-            );
+        for instance in existing {
+            let args = self.canonicalize_instance_args(&instance.args);
+            seen.insert((instance.def_id, instance.arg_module_id, args));
         }
-
-        let mut root_refs = FunctionRefs::default();
-        for function in functions {
-            collect_function_refs_from_optional_body(
-                self.input.module_id,
-                &function.function_body,
-                &mut root_refs,
-            );
-        }
-        for instance in root_refs.instances {
+        for instance in initial_instances {
             enqueue_function_instance_ref(&mut pending, &mut queued, instance);
         }
 
@@ -79,6 +103,7 @@ impl<'a> ModuleLowerer<'a> {
 
         while let Some(instance) = pending.pop_front() {
             if instance.def_id.module_id != self.input.module_id {
+                self.foreign_function_instance_refs.push(instance);
                 continue;
             }
             let args = self.canonicalize_instance_args(&instance.args);
@@ -89,6 +114,7 @@ impl<'a> ModuleLowerer<'a> {
             if args.iter().any(|arg| {
                 self.cached_ty_contains_generic_param(*arg)
                     || self.cached_ty_contains_unresolved_projection(*arg)
+                    || self.cached_ty_is_error(*arg)
             }) {
                 continue;
             }
@@ -242,8 +268,7 @@ impl<'a> ModuleLowerer<'a> {
                 .map(|kind| format!("{kind:?}"))
                 .unwrap_or_else(|| format!("{ty:?}"));
         }
-        self.known_type_interners
-            .get(&ty.interner_id)
+        self.known_interner_containing_ty(ty)
             .and_then(|interner| interner.get(ty))
             .map(|kind| format!("{kind:?}"))
             .unwrap_or_else(|| format!("{ty:?}"))
@@ -412,15 +437,9 @@ impl<'a> ModuleLowerer<'a> {
             })
             .collect::<HashMap<_, _>>();
         let raw_function_body = self.input.program_function_bodies.get(&def_id).cloned();
-        let param_local_tys = raw_function_body
+        let param_locals = raw_function_body
             .as_ref()
-            .map(|body| {
-                body.locals
-                    .iter()
-                    .filter(|local| local.kind == nia_function_ir::FunctionLocalKind::Param)
-                    .map(|local| local.ty)
-                    .collect::<Vec<_>>()
-            })
+            .map(|body| self.template_param_locals(def_id, &signature.signature.params, body))
             .unwrap_or_default();
         let function_body = raw_function_body.map(|body| {
             self.instantiate_function_body(
@@ -444,11 +463,10 @@ impl<'a> ModuleLowerer<'a> {
                 .map(|(index, param)| {
                     let signature_ty =
                         nia_ty::import_type_into(&mut self.interner, source_interner, param.ty);
+                    let param_local = param_locals.get(index).copied();
                     let local_ty = if param.receiver.is_some() {
-                        param_local_tys
-                            .get(index)
-                            .copied()
-                            .map(|ty| {
+                        param_local
+                            .map(|(_, ty)| {
                                 nia_ty::import_type_into(&mut self.interner, body_interner, ty)
                             })
                             .unwrap_or(signature_ty)
@@ -460,7 +478,7 @@ impl<'a> ModuleLowerer<'a> {
                         .map(|receiver| self.receiver_passing_ty(receiver, local_ty))
                         .unwrap_or(local_ty);
                     BackendParam {
-                        local_id: None,
+                        local_id: param_local.map(|(local_id, _)| local_id),
                         name: param.name.clone(),
                         receiver: param.receiver,
                         passing_ty,
@@ -489,6 +507,86 @@ impl<'a> ModuleLowerer<'a> {
         })
     }
 
+    fn template_param_locals(
+        &mut self,
+        def_id: GlobalDefId,
+        params: &[nia_item_signatures::ParamSignature],
+        body: &FunctionBody,
+    ) -> Vec<(nia_ids::LocalId, InternedTyId)> {
+        let locals = body
+            .locals
+            .iter()
+            .filter(|local| local.kind == FunctionLocalKind::Param)
+            .collect::<Vec<_>>();
+        if locals.len() != params.len() {
+            self.report_backend_template_param_local_mismatch(
+                def_id,
+                body.span,
+                params.len(),
+                locals.len(),
+            );
+            return Vec::new();
+        }
+        for (index, (param, local)) in params.iter().zip(locals.iter()).enumerate() {
+            if let Some(name) = &param.name
+                && local.name != *name
+            {
+                self.report_backend_template_param_name_mismatch(def_id, index, name, local);
+            }
+        }
+        locals
+            .into_iter()
+            .map(|local| (local.id, local.ty))
+            .collect()
+    }
+
+    fn report_backend_template_param_local_mismatch(
+        &mut self,
+        def_id: GlobalDefId,
+        span: nia_span::Span,
+        signature_params: usize,
+        body_param_locals: usize,
+    ) {
+        self.diagnostics.push(
+            nia_diagnostic::Diagnostic::internal_error(
+                "I0300",
+                "backend function template parameter locals do not match its signature",
+            )
+            .primary(
+                span,
+                "backend function template parameter locals do not match its signature",
+            )
+            .debug("def_id", def_id)
+            .debug("signature_params", signature_params)
+            .debug("body_param_locals", body_param_locals)
+            .finish(),
+        );
+    }
+
+    fn report_backend_template_param_name_mismatch(
+        &mut self,
+        def_id: GlobalDefId,
+        index: usize,
+        signature_name: &str,
+        local: &FunctionLocal,
+    ) {
+        self.diagnostics.push(
+            nia_diagnostic::Diagnostic::internal_error(
+                "I0300",
+                "backend function template parameter local order does not match its signature",
+            )
+            .primary(
+                local.span,
+                "backend function template parameter local order does not match its signature",
+            )
+            .debug("def_id", def_id)
+            .debug("param_index", index)
+            .debug("signature_name", signature_name)
+            .debug("local_name", local.name.as_str())
+            .finish(),
+        );
+    }
+
     pub(crate) fn canonicalize_instance_args(
         &mut self,
         args: &[InternedTyId],
@@ -500,10 +598,21 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn canonicalize_instance_arg(&mut self, arg: InternedTyId) -> InternedTyId {
-        let local = if arg.interner_id == self.interner.interner_id() {
+        let local = if arg.interner_id == self.interner.interner_id()
+            && let Some(kind) = self.interner.get(arg)
+            && !matches!(kind, TyKind::Error)
+        {
             arg
-        } else if let Some(source) = self.known_type_interners.get(&arg.interner_id).copied() {
-            nia_ty::import_type_into(&mut self.interner, source, arg)
+        } else if let Some(source) = self.known_interner_containing_ty(arg).cloned()
+            && let Some(kind) = source.get(arg)
+            && !matches!(kind, TyKind::Error)
+        {
+            nia_ty::import_type_into(&mut self.interner, &source, arg)
+        } else if arg.interner_id == self.interner.interner_id() && self.interner.get(arg).is_some()
+        {
+            arg
+        } else if let Some(source) = self.known_interner_containing_ty(arg).cloned() {
+            nia_ty::import_type_into(&mut self.interner, &source, arg)
         } else {
             arg
         };
@@ -511,20 +620,14 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn cached_ty_contains_generic_param(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = &self.interner;
-        let known_type_interners = &self.known_type_interners;
+        let current_interner = self.interner.clone();
         contains_generic_param(
             ty,
             &mut |ty| {
                 (ty.interner_id == current_interner.interner_id())
                     .then(|| current_interner.get(ty).cloned())
                     .flatten()
-                    .or_else(|| {
-                        known_type_interners
-                            .get(&ty.interner_id)
-                            .and_then(|interner| interner.get(ty))
-                            .cloned()
-                    })
+                    .or_else(|| self.ty_kind(ty).cloned())
                     .or_else(|| Some(TyKind::GenericParam("<unknown>".to_string())))
             },
             None,
@@ -532,19 +635,30 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     fn cached_ty_contains_unresolved_projection(&mut self, ty: InternedTyId) -> bool {
-        let current_interner = &self.interner;
-        let known_type_interners = &self.known_type_interners;
+        let current_interner = self.interner.clone();
         contains_unresolved_projection(ty, &mut |ty| {
             (ty.interner_id == current_interner.interner_id())
                 .then(|| current_interner.get(ty).cloned())
                 .flatten()
-                .or_else(|| {
-                    known_type_interners
-                        .get(&ty.interner_id)
-                        .and_then(|interner| interner.get(ty))
-                        .cloned()
-                })
+                .or_else(|| self.ty_kind(ty).cloned())
         })
+    }
+
+    fn cached_ty_is_error(&mut self, ty: InternedTyId) -> bool {
+        matches!(self.ty_kind(ty), Some(TyKind::Error))
+    }
+
+    fn import_monomorphized_instance_args(&mut self, args: &[InternedTyId]) -> Vec<InternedTyId> {
+        args.iter()
+            .copied()
+            .map(|arg| {
+                self.monomorphization
+                    .type_interners
+                    .get(&arg.interner_id)
+                    .map(|source| nia_ty::import_type_into(&mut self.interner, source, arg))
+                    .unwrap_or(arg)
+            })
+            .collect()
     }
 }
 

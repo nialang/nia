@@ -1,0 +1,122 @@
+pub enum Error: i32 {
+    Invalid = 1,
+    InvalidAlignment = 2,
+    OutOfMemory = 3,
+    System = 4,
+    _,
+}
+
+pub enum Order: i32 {
+    Less = 1,
+    Equal = 2,
+    Greater = 3,
+}
+
+pub struct Layout {
+    size: usize,
+    align: usize,
+}
+
+pub struct Block {
+    ptr: &mut u8,
+    layout: Layout,
+}
+
+extend usize {
+    fn is_power_of_two(self) bool {
+        if self == 0 {
+            false
+        } else {
+            var n = self;
+            while n > 1usize {
+                if n % 2usize != 0usize {
+                    return false;
+                }
+                n = n / 2usize;
+            }
+            true
+        }
+    }
+}
+
+extend Layout {
+    pub fn init(size: usize, align: usize) Error!Layout {
+        if align == 0 {
+            Error::InvalidAlignment!
+        } else if not align.is_power_of_two() {
+            Error::InvalidAlignment!
+        } else {
+            !{ size: size, align: align }
+        }
+    }
+
+    pub fn of[T]() Error!Layout
+    where T: Sized
+    {
+        Layout::init(@size[T](), @align[T]())
+    }
+
+    pub fn array[T](count: usize) Error!Layout
+    where T: Sized
+    {
+        let elem_len = @size[T]();
+        if elem_len != 0usize and count != 0usize {
+            let size = elem_len * count;
+            if size / elem_len != count {
+                return Error::OutOfMemory!;
+            }
+            Layout::init(size, @align[T]())
+        } else {
+            Layout::init(0, @align[T]())
+        }
+    }
+
+    pub fn size(&self) usize {
+        self.size
+    }
+
+    pub fn align(&self) usize {
+        self.align
+    }
+
+    pub fn is_empty(&self) bool {
+        self.size == 0
+    }
+}
+
+extend Block {
+    pub fn init(ptr: &mut u8, layout: Layout) Block {
+        { ptr: ptr, layout: layout }
+    }
+
+    pub fn ptr(&self) &mut u8 {
+        self.ptr
+    }
+
+    pub fn layout(&self) Layout {
+        self.layout
+    }
+
+    pub fn size(&self) usize {
+        self.layout.size()
+    }
+
+    pub fn align(&self) usize {
+        self.layout.align()
+    }
+
+    pub fn is_empty(&self) bool {
+        self.layout.is_empty()
+    }
+
+    pub fn bytes(&self) &mut [u8] {
+        &mut self.ptr[0..self.size()]
+    }
+
+    pub fn as_slice[T](&self) &mut [T]
+    where T: Sized
+    {
+        var ptr = self.ptr as &mut T;
+        &mut ptr[0..(self.size() / @size[T]())]
+    }
+}

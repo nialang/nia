@@ -686,7 +686,7 @@ impl<'a> BodyChecker<'a> {
         signature: &FunctionSignature,
     ) -> Option<HashMap<String, InternedTyId>> {
         let mut substitutions =
-            self.extension_target_substitutions(context.method_id, context.receiver_ty);
+            self.extension_target_substitutions(context.method_id, context.receiver_ty)?;
         let method_arg_count = context.lowered_method_args.len();
         if context.method_args.is_some() && signature.generics.len() != method_arg_count {
             self.diagnostics.push(Diagnostic::user_error_at("E0301", 
@@ -717,13 +717,13 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         method_id: GlobalDefId,
         receiver_ty: InternedTyId,
-    ) -> HashMap<String, InternedTyId> {
+    ) -> Option<HashMap<String, InternedTyId>> {
         let Some(target_ty) = self.extension_target_ty_for_method(method_id) else {
-            return HashMap::new();
+            return Some(HashMap::new());
         };
         let mut substitutions = HashMap::new();
-        self.match_receiver_target(target_ty, receiver_ty, &mut substitutions);
-        substitutions
+        self.match_receiver_target(target_ty, receiver_ty, &mut substitutions)
+            .then_some(substitutions)
     }
 
     fn extension_method_where_predicates_hold(

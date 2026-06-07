@@ -2681,6 +2681,64 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_cross_module_generic_memory_intrinsic_keeps_param_locals() {
+    let root = temp_dir("emit_exe_cross_module_generic_memory_intrinsic_keeps_param_locals");
+    let main = root.join("main.nia");
+    let helper = root.join("helper.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &helper,
+        r#"
+pub fn copy_prefix[T](to: &mut [T], from: &[T]) void
+where T: Sized
+{
+    @memcpy(to, from);
+}
+"#,
+    )
+    .expect("write helper source");
+    std::fs::write(
+        &main,
+        r#"
+import helper;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var dest: [2]u8 = [0; 2];
+    let source: [2]u8 = [b'a', b'b'];
+    helper::copy_prefix[u8](&mut dest[..], &source[..]);
+    if dest[0] != b'a' or dest[1] != b'b' {
+        return process::ExitCode::init(1)!;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write main source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-M")
+        .arg(format!("helper={}", helper.display()))
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_std_array_list_push_pop_and_deinit() {
     let root = temp_dir("emit_exe_std_array_list_push_pop_and_deinit");
     let main = root.join("main.nia");
