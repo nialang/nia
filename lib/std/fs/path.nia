@@ -1,0 +1,67 @@
+import std.fs.types;
+import std.result;
+import std.unicode;
+
+using types::{EncodedPath, Error, Path, PathError};
+
+extend Path {
+    pub fn init(text: &[char]) Path {
+        { text: text }
+    }
+
+    pub fn text(&self) &[char] {
+        self.text
+    }
+
+    pub fn encode(&self, storage: &mut [u8]) Error!EncodedPath {
+        self.encode_bytes(storage).map_err[Error](&PathError::as_fs_error)
+    }
+
+    pub fn encode_bytes(&self, storage: &mut [u8]) PathError!EncodedPath {
+        var out = 0usize;
+        var index = 0usize;
+        while index < self.text.len() {
+            let ch = self.text[index];
+            if ch as u32 == 0u32 {
+                return PathError::Invalid!;
+            }
+            let encoded = ch.encode_utf8();
+            if out + encoded.len() >= storage.len() {
+                return PathError::TooLong!;
+            }
+            let bytes = encoded.bytes();
+            var byte_index = 0usize;
+            while byte_index < bytes.len() {
+                storage[out] = bytes[byte_index];
+                out += 1usize;
+                byte_index += 1usize;
+            }
+            index += 1usize;
+        }
+        if out >= storage.len() {
+            return PathError::TooLong!;
+        }
+        storage[out] = 0u8;
+        !EncodedPath::init(storage.get_ptr_read())
+    }
+}
+
+extend EncodedPath {
+    pub fn init(ptr: &u8) EncodedPath {
+        { ptr: ptr }
+    }
+
+    pub fn ptr(&self) &u8 {
+        self.ptr
+    }
+}
+
+extend PathError {
+    pub fn as_fs_error(self) Error {
+        switch self {
+            PathError::Invalid => Error::Invalid,
+            PathError::TooLong => Error::TooLong,
+            _ => Error::Invalid,
+        }
+    }
+}
