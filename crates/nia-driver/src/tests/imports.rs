@@ -662,6 +662,170 @@ extend math::Point {
 }
 
 #[test]
+fn imports_public_extension_associated_comptime_values() {
+    let root = temp_dir("imports_public_extension_associated_comptime_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+
+fn main() usize {
+    math::Marker::LIMIT
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub struct Marker {}
+
+extend Marker {
+    pub comptime let LIMIT: usize = 123usize;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn imports_public_extension_associated_comptime_values_with_builtin_initializer() {
+    let root =
+        temp_dir("imports_public_extension_associated_comptime_values_with_builtin_initializer");
+    write(
+        &root.join("main.nia"),
+        r#"
+import .math;
+
+fn main() usize {
+    math::Marker::LIMIT
+}
+"#,
+    );
+    write(
+        &root.join("math.nia"),
+        r#"
+pub struct Marker {}
+
+extend Marker {
+    pub comptime let LIMIT: usize = if @builtin().target.pointer_width == 64 {
+        18446744073709551615usize
+    } else {
+        4294967295usize
+    };
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_math_usize_max_remains_available_with_array_list_imported() {
+    let root = temp_dir("std_math_usize_max_remains_available_with_array_list_imported");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.array_list;
+import std.math;
+
+fn main() usize {
+    usize::MAX
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn std_math_usize_max_can_be_compared() {
+    let root = temp_dir("std_math_usize_max_can_be_compared");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.math;
+
+fn main() bool {
+    1usize != usize::MAX
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn primitive_integer_limits_are_builtin_associated_values() {
+    let root = temp_dir("primitive_integer_limits_are_builtin_associated_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() bool {
+    usize::MIN == 0usize
+        and usize::MAX > 0usize
+        and isize::MIN < 0isize
+        and i32::MAX == 2147483647i32
+        and i32::MIN < 0i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn lowercase_primitive_integer_limits_are_not_builtin_associated_values() {
+    let root = temp_dir("lowercase_primitive_integer_limits_are_not_builtin_associated_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() usize {
+    usize::max
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("qualified access is not a value expression")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn u128_max_is_not_a_truncated_builtin_associated_value() {
+    let root = temp_dir("u128_max_is_not_a_truncated_builtin_associated_value");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() u128 {
+    u128::MAX
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("qualified access is not a value expression")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn imports_public_extension_methods_through_import_closure() {
     let root = temp_dir("imports_public_extension_methods_through_import_closure");
     write(

@@ -33,6 +33,26 @@ pub struct ExtensionMethods {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionAssociatedValue {
+    pub name: String,
+    pub def_id: GlobalDefId,
+    pub impl_index: usize,
+    pub target_ty: InternedTyId,
+    pub visibility: Visibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ExtensionAssociatedValues {
+    by_module: HashMap<ModuleId, Vec<ExtensionAssociatedValue>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisibleExtensionAssociatedValue {
+    pub name: String,
+    pub def_id: GlobalDefId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionMethod {
     pub name: String,
     pub def_id: GlobalDefId,
@@ -68,6 +88,7 @@ pub struct VisibleExtensionTarget {
     pub impl_index: usize,
     pub target_ty: InternedTyId,
     pub methods: Vec<VisibleExtensionMethod>,
+    pub associated_values: Vec<VisibleExtensionAssociatedValue>,
 }
 
 impl ExtensionMethods {
@@ -113,6 +134,34 @@ impl ExtensionMethods {
     }
 }
 
+impl ExtensionAssociatedValues {
+    pub fn insert(&mut self, module_id: ModuleId, value: ExtensionAssociatedValue) {
+        self.by_module.entry(module_id).or_default().push(value);
+    }
+
+    pub fn visible_values(
+        &self,
+        current_module: ModuleId,
+        imported_modules: impl IntoIterator<Item = ModuleId>,
+    ) -> Vec<ExtensionAssociatedValue> {
+        let mut values = Vec::new();
+        if let Some(module_values) = self.by_module.get(&current_module) {
+            values.extend(module_values.iter().cloned());
+        }
+        for module_id in imported_modules {
+            if let Some(module_values) = self.by_module.get(&module_id) {
+                values.extend(
+                    module_values
+                        .iter()
+                        .filter(|value| value.visibility == Visibility::Public)
+                        .cloned(),
+                );
+            }
+        }
+        values
+    }
+}
+
 impl VisibleExtensionMethods {
     pub fn insert(
         &mut self,
@@ -132,6 +181,29 @@ impl VisibleExtensionMethods {
             impl_index,
             target_ty,
             methods: vec![method],
+            associated_values: Vec::new(),
+        });
+    }
+
+    pub fn insert_associated_value(
+        &mut self,
+        impl_index: usize,
+        target_ty: InternedTyId,
+        value: VisibleExtensionAssociatedValue,
+    ) {
+        if let Some(existing) = self
+            .targets
+            .iter_mut()
+            .find(|item| item.impl_index == impl_index && item.target_ty == target_ty)
+        {
+            existing.associated_values.push(value);
+            return;
+        }
+        self.targets.push(VisibleExtensionTarget {
+            impl_index,
+            target_ty,
+            methods: Vec::new(),
+            associated_values: vec![value],
         });
     }
 
@@ -178,5 +250,23 @@ impl VisibleExtensionMethods {
 
     pub fn targets(&self) -> &[VisibleExtensionTarget] {
         &self.targets
+    }
+
+    pub fn associated_value(
+        &self,
+        target_ty: InternedTyId,
+        name: &str,
+    ) -> Option<VisibleExtensionAssociatedValue> {
+        let mut matches = self
+            .targets
+            .iter()
+            .filter(|item| item.target_ty == target_ty)
+            .flat_map(|item| item.associated_values.iter())
+            .filter(|value| value.name == name);
+        let first = matches.next()?.clone();
+        if matches.next().is_some() {
+            return None;
+        }
+        Some(first)
     }
 }

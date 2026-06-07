@@ -80,6 +80,7 @@ impl<'a> BodyChecker<'a> {
                     StaticInit::Byte(0)
                 }),
             ExprKind::Builtin { .. } => match self.builtin_value(expr) {
+                Some(BuiltinValue::Int(value)) => StaticInit::Int(*value),
                 Some(BuiltinValue::Usize(value)) => StaticInit::Int(*value as i128),
                 Some(BuiltinValue::Layout { .. }) => {
                     self.diagnostics.push(Diagnostic::user_error_at(
@@ -99,6 +100,12 @@ impl<'a> BodyChecker<'a> {
                 }
             },
             ExprKind::Ident(_) | ExprKind::Qualified { .. } => {
+                if let Some(BuiltinValue::Int(value)) = self.builtin_value(expr) {
+                    return StaticInit::Int(*value);
+                }
+                if let Some(BuiltinValue::Usize(value)) = self.builtin_value(expr) {
+                    return StaticInit::Int(*value as i128);
+                }
                 if let Some(value) = self.static_comptime_int(expr) {
                     return StaticInit::Int(value);
                 }

@@ -6,7 +6,10 @@ use nia_defs::{DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::InternedTyId;
 use nia_local_resolve::LocalUse;
-use nia_sema_ir::{BracketSuffixResolution, BuiltinOperatorOp, ComptimeIfSelection};
+use nia_sema_ir::{
+    BracketSuffixResolution, BuiltinAssociatedValue, BuiltinOperatorOp, BuiltinValue,
+    ComptimeIfSelection,
+};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, BuiltinTrait, PrimitiveTy, RangeTyKind, TraitId, TyKind};
 use nia_value_resolve::ValueNameResolution;
@@ -196,7 +199,9 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Call { callee, args } => self.check_call(expr, callee, args, expected),
             ExprKind::Field { lhs, name } => self.check_field_access(expr, lhs, name),
             ExprKind::Qualified { lhs, name } => {
-                if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {
+                if let Some(ty) = self.check_builtin_associated_value(expr) {
+                    ty
+                } else if let Some(ty) = self.check_enum_variant_access(expr.span, lhs, name) {
                     ty
                 } else if self
                     .values
@@ -278,6 +283,25 @@ impl<'a> BodyChecker<'a> {
         };
         self.record_expr_node_type(expr, ty);
         ty
+    }
+
+    fn check_builtin_associated_value(&mut self, expr: &Expr) -> Option<InternedTyId> {
+        let value = self
+            .semantic_uses
+            .node_builtin_associated_value(&expr.node_key)?;
+        match value {
+            BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } => {
+                let ty = self.primitive(primitive);
+                let value = kind.value(primitive, self.target.pointer_width)?;
+                let builtin = if primitive == PrimitiveTy::Usize {
+                    BuiltinValue::Usize(u64::try_from(value).ok()?)
+                } else {
+                    BuiltinValue::Int(value)
+                };
+                self.record_builtin_node_value(expr, builtin);
+                Some(ty)
+            }
+        }
     }
 
     fn expected_comptime_expr_runtime_projection(

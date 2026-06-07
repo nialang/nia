@@ -18,6 +18,7 @@ nia-local-resolve.workspace = true
 nia-node-id.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true
+nia-target-config.workspace = true
 nia-value-resolve.workspace = true
 
 [dev-dependencies]

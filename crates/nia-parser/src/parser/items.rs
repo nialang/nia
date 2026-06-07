@@ -474,6 +474,7 @@ impl Parser {
         let where_clause = self.parse_where_clause();
         self.expect(TokenKind::LBrace, "expected `{` after extend target")?;
         let mut associated_types = Vec::new();
+        let mut associated_values = Vec::new();
         let mut methods = Vec::new();
         while !self.at(TokenKind::RBrace) && !self.at(TokenKind::Eof) {
             let vis = if self.eat(TokenKind::Pub).is_some() {
@@ -492,8 +493,19 @@ impl Parser {
                 if let Some(function) = self.parse_function(false, self.at_comptime_fn()) {
                     methods.push(ExtendMethod { vis, function });
                 }
+            } else if self.at(TokenKind::Comptime) {
+                let start = self.peek().span.start;
+                if let Some(binding) = self.parse_binding(false) {
+                    let span = Span::new(start, self.previous_end());
+                    associated_values.push(nia_ast::ExtendAssociatedValue { vis, binding, span });
+                }
+            } else if self.at(TokenKind::Let) || self.at(TokenKind::Var) {
+                self.error_here(
+                    "extend value members must be declared as `comptime let` or `comptime var`",
+                );
+                self.recover_to_member_boundary();
             } else {
-                self.error_here("expected associated type or method in extend block");
+                self.error_here("expected associated type, associated comptime value, or method in extend block");
                 self.recover_to_member_boundary();
             }
         }
@@ -504,6 +516,7 @@ impl Parser {
             trait_ref,
             where_clause,
             associated_types,
+            associated_values,
             methods,
         })
     }

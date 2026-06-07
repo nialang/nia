@@ -196,6 +196,14 @@ impl<'a> LocalResolver<'a> {
                     self.resolve_type(trait_ref);
                 }
                 self.resolve_where_clause(&extend.where_clause);
+                for associated_value in &extend.associated_values {
+                    if let Some(ty) = &associated_value.binding.ty {
+                        self.resolve_type(ty);
+                    }
+                    if let Some(value) = &associated_value.binding.value {
+                        self.resolve_expr(value);
+                    }
+                }
                 for method in &extend.methods {
                     self.resolve_function(&method.function);
                 }

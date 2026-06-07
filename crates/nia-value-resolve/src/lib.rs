@@ -3,19 +3,25 @@ use std::collections::HashMap;
 
 use nia_ast::{Expr, ExprKind, Module, Visibility};
 use nia_ast_walk::{Visitor, walk_expr, walk_where_clause};
-use nia_defs::{DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces};
+use nia_defs::{
+    DefCollection, DefKind, ModuleUsingScope, PublicNamespace, PublicSurfaces,
+    VisibleExtensionMethods,
+};
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::DefId;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_imports::ImportAliasMap;
 use nia_item_tree::{ActiveModuleItemTree, ItemTreeNode, ItemTreeNodeKind, ModuleItemTree};
 use nia_node_id::NodeKey;
+use nia_sema_ir::{BuiltinAssociatedValue, PrimitiveIntLimit, supports_primitive_int_limit};
 use nia_span::Span;
+use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValueResolution {
     pub node_names: HashMap<NodeKey, ValueNameResolution>,
     pub node_qualified_values: HashMap<NodeKey, GlobalDefId>,
+    pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
     /// For spans whose value resolves to an enum variant (brought in via
     /// `using` or accessed as `mod::Enum::Variant`), the parent enum's
     /// GlobalDefId so consumers can type the bare ident as that enum.
@@ -42,6 +48,7 @@ pub enum ValueNameResolution {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinResolution {
     Builtin,
+    ComptimeError,
     SizeOf,
     AlignOf,
     Asm,
@@ -81,6 +88,8 @@ pub fn resolve_module_values_with_imports(
         program_defs,
         None,
         None,
+        None,
+        None,
     )
 }
 
@@ -100,6 +109,8 @@ pub fn resolve_module_values_with_context(
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
+        None,
+        None,
     )
 }
 
@@ -114,6 +125,8 @@ pub fn resolve_module_values_from_item_tree(
         ProgramDefsContext::empty(),
         None,
         None,
+        None,
+        None,
     )
 }
 
@@ -125,6 +138,30 @@ pub fn resolve_module_values_from_active_item_tree(
     public_surfaces: &PublicSurfaces,
     using_scope: &ModuleUsingScope,
 ) -> ValueResolution {
+    let empty_extensions = VisibleExtensionMethods::default();
+    let empty_interner = TyInterner::default();
+    resolve_module_values_from_active_item_tree_with_extensions(
+        item_tree,
+        defs,
+        imports,
+        program_defs,
+        public_surfaces,
+        using_scope,
+        &empty_extensions,
+        &empty_interner,
+    )
+}
+
+pub fn resolve_module_values_from_active_item_tree_with_extensions(
+    item_tree: &ActiveModuleItemTree,
+    defs: &DefCollection,
+    imports: &ImportAliasMap,
+    program_defs: ProgramDefsContext<'_>,
+    public_surfaces: &PublicSurfaces,
+    using_scope: &ModuleUsingScope,
+    extensions: &VisibleExtensionMethods,
+    extension_interner: &TyInterner,
+) -> ValueResolution {
     resolve_module_values_from_items(
         &item_tree.items,
         defs,
@@ -132,6 +169,8 @@ pub fn resolve_module_values_from_active_item_tree(
         program_defs,
         Some(public_surfaces),
         Some(using_scope),
+        Some(extensions),
+        Some(extension_interner),
     )
 }
 
@@ -142,6 +181,8 @@ fn resolve_module_values_from_item_tree_inner(
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
+    extensions: Option<&VisibleExtensionMethods>,
+    extension_interner: Option<&TyInterner>,
 ) -> ValueResolution {
     resolve_module_values_from_items(
         &item_tree.items,
@@ -150,6 +191,8 @@ fn resolve_module_values_from_item_tree_inner(
         program_defs,
         public_surfaces,
         using_scope,
+        extensions,
+        extension_interner,
     )
 }
 
@@ -160,6 +203,8 @@ fn resolve_module_values_from_items(
     program_defs: ProgramDefsContext<'_>,
     public_surfaces: Option<&PublicSurfaces>,
     using_scope: Option<&ModuleUsingScope>,
+    extensions: Option<&VisibleExtensionMethods>,
+    extension_interner: Option<&TyInterner>,
 ) -> ValueResolution {
     let mut resolver = ValueResolver {
         defs,
@@ -167,8 +212,11 @@ fn resolve_module_values_from_items(
         program_defs,
         public_surfaces,
         using_scope,
+        extensions,
+        extension_interner,
         node_names: HashMap::new(),
         node_qualified_values: HashMap::new(),
+        node_builtin_associated_values: HashMap::new(),
         node_variant_enums: HashMap::new(),
         node_qualified_type_prefixes: HashMap::new(),
         node_builtins: HashMap::new(),
@@ -180,6 +228,7 @@ fn resolve_module_values_from_items(
     ValueResolution {
         node_names: resolver.node_names,
         node_qualified_values: resolver.node_qualified_values,
+        node_builtin_associated_values: resolver.node_builtin_associated_values,
         node_variant_enums: resolver.node_variant_enums,
         node_qualified_type_prefixes: resolver.node_qualified_type_prefixes,
         node_builtins: resolver.node_builtins,
@@ -193,8 +242,11 @@ struct ValueResolver<'a> {
     program_defs: ProgramDefsContext<'a>,
     public_surfaces: Option<&'a PublicSurfaces>,
     using_scope: Option<&'a ModuleUsingScope>,
+    extensions: Option<&'a VisibleExtensionMethods>,
+    extension_interner: Option<&'a TyInterner>,
     node_names: HashMap<NodeKey, ValueNameResolution>,
     node_qualified_values: HashMap<NodeKey, GlobalDefId>,
+    node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
     node_variant_enums: HashMap<NodeKey, GlobalDefId>,
     node_qualified_type_prefixes: HashMap<NodeKey, GlobalDefId>,
     node_builtins: HashMap<NodeKey, BuiltinResolution>,
@@ -205,6 +257,7 @@ struct ValueResolver<'a> {
 enum ResolvedNamespace {
     Module(ModuleId),
     Type(GlobalDefId),
+    Primitive(PrimitiveTy),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -294,6 +347,14 @@ impl<'a> ValueResolver<'a> {
                 for associated_type in &extend.associated_types {
                     self.visit_type(&associated_type.ty);
                 }
+                for associated_value in &extend.associated_values {
+                    if let Some(ty) = &associated_value.binding.ty {
+                        self.visit_type(ty);
+                    }
+                    if let Some(value) = &associated_value.binding.value {
+                        self.visit_expr(value);
+                    }
+                }
                 for method in &extend.methods {
                     self.visit_function(&method.function);
                 }
@@ -367,6 +428,9 @@ impl<'a> ValueResolver<'a> {
             ResolvedNamespace::Type(type_id) => {
                 self.resolve_type_qualified_value(&expr.node_key, type_id, final_segment);
             }
+            ResolvedNamespace::Primitive(primitive) => {
+                self.resolve_primitive_qualified_value(&expr.node_key, primitive, final_segment);
+            }
         }
     }
 
@@ -416,6 +480,9 @@ impl<'a> ValueResolver<'a> {
             self.insert_qualified_type_prefix(segment.node_key, type_id);
             return Some(ResolvedNamespace::Type(type_id));
         }
+        if let Some(primitive) = primitive_type(segment.name) {
+            return Some(ResolvedNamespace::Primitive(primitive));
+        }
         None
     }
 
@@ -462,7 +529,7 @@ impl<'a> ValueResolver<'a> {
                 }
                 Some(ResolvedNamespace::Type(GlobalDefId { module_id, def_id }))
             }
-            ResolvedNamespace::Type(_) => None,
+            ResolvedNamespace::Type(_) | ResolvedNamespace::Primitive(_) => None,
         }
     }
 
@@ -566,22 +633,61 @@ impl<'a> ValueResolver<'a> {
         let Some(def) = target_defs.defs.get(type_id.def_id) else {
             return;
         };
-        if def.kind != DefKind::Enum {
+        if def.kind == DefKind::Enum
+            && let Some(enum_scope) = target_defs.scopes.enum_members.get(&type_id.def_id)
+            && let Some(variant_def_id) = enum_scope.variants.get(name.name)
+        {
+            let variant_id = GlobalDefId {
+                module_id: type_id.module_id,
+                def_id: variant_def_id,
+            };
+            self.insert_qualified_value(node_key, variant_id);
+            self.insert_variant_enum(node_key, type_id);
             return;
         }
-        let Some(enum_scope) = target_defs.scopes.enum_members.get(&type_id.def_id) else {
+        let Some(target_ty) = self.nominal_extension_target_ty(type_id) else {
             return;
         };
-        if let Some(variant_def_id) = enum_scope.variants.get(name.name) {
-            self.insert_qualified_value(
-                node_key,
-                GlobalDefId {
-                    module_id: type_id.module_id,
-                    def_id: variant_def_id,
-                },
-            );
-            self.insert_variant_enum(node_key, type_id);
+        self.resolve_associated_value(node_key, target_ty, name.name);
+    }
+
+    fn resolve_primitive_qualified_value(
+        &mut self,
+        node_key: &NodeKey,
+        primitive: PrimitiveTy,
+        name: PathSegment<'_>,
+    ) {
+        let Some(interner) = self.extension_interner else {
+            return;
+        };
+        if let Some(value) = primitive_associated_value(primitive, name.name) {
+            self.insert_builtin_associated_value(node_key, value);
+            return;
         }
+        let target_ty = interner.primitive(primitive);
+        self.resolve_associated_value(node_key, target_ty, name.name);
+    }
+
+    fn resolve_associated_value(
+        &mut self,
+        node_key: &NodeKey,
+        target_ty: nia_ids::InternedTyId,
+        name: &str,
+    ) {
+        let Some(extensions) = self.extensions else {
+            return;
+        };
+        if let Some(value) = extensions.associated_value(target_ty, name) {
+            self.insert_qualified_value(node_key, value.def_id);
+        }
+    }
+
+    fn nominal_extension_target_ty(&self, type_id: GlobalDefId) -> Option<nia_ids::InternedTyId> {
+        let interner = self.extension_interner?;
+        interner.iter().find_map(|(ty, kind)| match kind {
+            TyKind::Nominal { def_id, args } if *def_id == type_id && args.is_empty() => Some(ty),
+            _ => None,
+        })
     }
 
     fn resolve_ident(&mut self, name: &str, node_key: &NodeKey) -> ValueNameResolution {
@@ -617,6 +723,7 @@ impl<'a> ValueResolver<'a> {
     fn resolve_builtin(&mut self, name: &str, span: Span) -> BuiltinResolution {
         match name {
             "builtin" => BuiltinResolution::Builtin,
+            "error" => BuiltinResolution::ComptimeError,
             "size" => BuiltinResolution::SizeOf,
             "align" => BuiltinResolution::AlignOf,
             "asm" => BuiltinResolution::Asm,
@@ -649,6 +756,15 @@ impl<'a> ValueResolver<'a> {
     fn insert_qualified_value(&mut self, node_key: &NodeKey, global_id: GlobalDefId) {
         self.node_qualified_values
             .insert(node_key.clone(), global_id);
+    }
+
+    fn insert_builtin_associated_value(
+        &mut self,
+        node_key: &NodeKey,
+        value: BuiltinAssociatedValue,
+    ) {
+        self.node_builtin_associated_values
+            .insert(node_key.clone(), value);
     }
 
     fn insert_variant_enum(&mut self, node_key: &NodeKey, enum_id: GlobalDefId) {
@@ -696,6 +812,43 @@ fn qualified_path_text(segments: &[PathSegment<'_>]) -> String {
         .map(|segment| segment.name)
         .collect::<Vec<_>>()
         .join("::")
+}
+
+fn primitive_type(name: &str) -> Option<PrimitiveTy> {
+    Some(match name {
+        "i8" => PrimitiveTy::I8,
+        "i16" => PrimitiveTy::I16,
+        "i32" => PrimitiveTy::I32,
+        "i64" => PrimitiveTy::I64,
+        "i128" => PrimitiveTy::I128,
+        "isize" => PrimitiveTy::Isize,
+        "u8" => PrimitiveTy::U8,
+        "u16" => PrimitiveTy::U16,
+        "u32" => PrimitiveTy::U32,
+        "u64" => PrimitiveTy::U64,
+        "u128" => PrimitiveTy::U128,
+        "usize" => PrimitiveTy::Usize,
+        "f32" => PrimitiveTy::F32,
+        "f64" => PrimitiveTy::F64,
+        "bool" => PrimitiveTy::Bool,
+        "char" => PrimitiveTy::Char,
+        "void" => PrimitiveTy::Void,
+        "!" => PrimitiveTy::Never,
+        _ => return None,
+    })
+}
+
+fn primitive_associated_value(
+    primitive: PrimitiveTy,
+    name: &str,
+) -> Option<BuiltinAssociatedValue> {
+    let kind = match name {
+        "MIN" => PrimitiveIntLimit::Min,
+        "MAX" => PrimitiveIntLimit::Max,
+        _ => return None,
+    };
+    supports_primitive_int_limit(primitive)
+        .then_some(BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind })
 }
 
 #[cfg(test)]
@@ -752,6 +905,7 @@ fn main() usize {
     var a = @size[usize]();
     var b = @align[usize]();
     var c = @unknown[usize]();
+    comptime let d: usize = @error("bad");
     a + b + c
 }
 "#,
@@ -776,6 +930,12 @@ fn main() usize {
                 .node_builtins
                 .values()
                 .any(|builtin| matches!(builtin, BuiltinResolution::AlignOf))
+        );
+        assert!(
+            resolved
+                .node_builtins
+                .values()
+                .any(|builtin| matches!(builtin, BuiltinResolution::ComptimeError))
         );
     }
 

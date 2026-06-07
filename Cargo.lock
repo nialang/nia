@@ -740,7 +740,9 @@ dependencies = [
  "nia-item-tree",
  "nia-node-id",
  "nia-parser",
+ "nia-sema-ir",
  "nia-span",
+ "nia-ty",
 ]
 
 [[package]]

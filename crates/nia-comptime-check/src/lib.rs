@@ -28,7 +28,7 @@ use nia_sema::{
     ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
     check_exact_arity, check_required_field_set, check_value_field_set,
 };
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
 use nia_trait_solve::{TraitGoal, TraitSolverContext};
@@ -352,6 +352,12 @@ impl ComptimeModuleLowerer<'_> {
                     self.lower_function(function)
                 }
                 ItemKind::Extend(extend) => {
+                    for associated_value in &extend.associated_values {
+                        self.lower_global_initializer(
+                            associated_value.span,
+                            &associated_value.binding,
+                        );
+                    }
                     for method in &extend.methods {
                         if method.function.is_comptime {
                             self.lower_function(&method.function);
@@ -486,6 +492,13 @@ impl ComptimeModuleLowerer<'_> {
                 SemanticValueUse::Local(_) => {}
             }
         }
+        builder.extend_node_builtin_associated_values(
+            self.input
+                .semantic_uses
+                .node_builtin_associated_values
+                .iter()
+                .map(|(key, value)| (key.clone(), *value)),
+        );
         builder.extend_node_local_defs(
             self.input
                 .semantic_uses
@@ -2271,6 +2284,14 @@ impl Analyzer<'_> {
                         })
                         .map(ComptimeValueType::Runtime)
                 }),
+            ComptimeNameResolution::BuiltinAssociatedValue(value) => {
+                let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, .. } = value;
+                Some(ComptimeValueType::Runtime(
+                    self.source_interner_for_module(self.current_execution_module_id())
+                        .unwrap_or(self.input.interner)
+                        .primitive(primitive),
+                ))
+            }
         }
     }
 
@@ -2406,6 +2427,11 @@ impl Analyzer<'_> {
             }
             ResolvedComptimeExprKind::BuiltinValue(ValueBuiltin::Builtin) => {
                 Some(self.builtin_comptime_type())
+            }
+            ResolvedComptimeExprKind::BuiltinValue(ValueBuiltin::Error) => None,
+            ResolvedComptimeExprKind::CompileError { message } => {
+                let _ = self.resolved_comptime_expr_type(message, None);
+                expected.map(ComptimeValueType::Runtime)
             }
             ResolvedComptimeExprKind::Call { callee, args, .. }
                 if args.is_empty()
@@ -4615,6 +4641,10 @@ impl ComptimeCommonEnv for Analyzer<'_> {
             ValueBuiltin::Builtin => {
                 Ok(nia_target_config::builtin_comptime_value(self.input.target))
             }
+            ValueBuiltin::Error => Err(ComptimeError {
+                span,
+                message: "builtin `@error` must be called with a message".to_string(),
+            }),
         }
     }
 
@@ -4765,6 +4795,17 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
                     message: "resolved comptime expression can only use comptime bindings"
                         .to_string(),
                 })
+            }
+            ComptimeNameResolution::BuiltinAssociatedValue(value) => {
+                let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
+                let Some(value) = kind.value(primitive, self.input.target.pointer_width) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin associated value is not representable at comptime"
+                            .to_string(),
+                    });
+                };
+                Ok(ComptimeValue::Int(value))
             }
         }
     }

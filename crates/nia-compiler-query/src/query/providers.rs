@@ -371,9 +371,13 @@ pub(super) fn provide_extension_methods(db: &QueryDb<DriverContext>) -> Extensio
             },
         )
         .collect::<Vec<_>>();
-    let (methods, diagnostics) = collect_extension_methods(&inputs);
+    let (methods, mut diagnostics) = collect_extension_methods(&inputs);
+    let (associated_values, associated_value_diagnostics) =
+        collect_extension_associated_values(&inputs);
+    diagnostics.extend(associated_value_diagnostics);
     ExtensionMethodsQueryValue {
         methods,
+        associated_values,
         diagnostics,
     }
 }
@@ -394,6 +398,7 @@ pub(super) fn provide_visible_extensions(
         &defs,
         &normalizations,
         &extensions.methods,
+        &extensions.associated_values,
     )
 }
 
@@ -408,7 +413,8 @@ pub(super) fn provide_value_resolution(
     let public = db.query(PublicSurfaceQuery);
     let empty_using = ModuleUsingScope::default();
     let using_scope = public.using_scopes.get(&module_id).unwrap_or(&empty_using);
-    nia_value_resolve::resolve_module_values_from_active_item_tree(
+    let visible_extensions = db.query(VisibleExtensionsQuery(module_id));
+    nia_value_resolve::resolve_module_values_from_active_item_tree_with_extensions(
         &active_item_tree,
         &defs,
         &imports,
@@ -417,6 +423,8 @@ pub(super) fn provide_value_resolution(
         },
         &public.surfaces,
         using_scope,
+        &visible_extensions.methods,
+        &visible_extensions.interner,
     )
 }
 
@@ -455,6 +463,12 @@ pub(super) fn provide_semantic_use_table(
             .node_qualified_values
             .iter()
             .map(|(key, global_id)| (key.clone(), *global_id)),
+    );
+    builder.extend_node_builtin_associated_values(
+        values
+            .node_builtin_associated_values
+            .iter()
+            .map(|(key, value)| (key.clone(), *value)),
     );
     for (key, resolution) in &values.node_names {
         match resolution {
@@ -666,6 +680,7 @@ pub(super) fn provide_static_check(
         &comptime,
         &program_defs,
         &program_comptime,
+        &db.context().target,
     )
 }
 

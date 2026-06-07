@@ -557,6 +557,16 @@ fn eval_resolved_comptime_expr_flow(
         ResolvedComptimeExprKind::StructLiteral { fields, .. } => {
             return eval_resolved_struct_literal_flow(fields, env);
         }
+        ResolvedComptimeExprKind::CompileError { message } => {
+            let value = eval_resolved_value_or_return_flow!(message, env);
+            let Some(message) = comptime_error_message(&value) else {
+                return Err(ComptimeError {
+                    span,
+                    message: "builtin `@error` requires a comptime string message".to_string(),
+                });
+            };
+            return Err(ComptimeError { span, message });
+        }
         ResolvedComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
             env.resolve_resolved_layout_builtin(span, *builtin, type_arg)?
         }
@@ -790,6 +800,19 @@ fn eval_comptime_expr_flow(
         }
         EarlyComptimeExprKind::StructLiteral { fields, .. } => {
             return eval_struct_literal_flow(fields, env);
+        }
+        EarlyComptimeExprKind::CompileError { message } => {
+            let value = eval_value_or_return_flow!(message, env);
+            let Some(message) = comptime_error_message(&value) else {
+                return Err(ComptimeError {
+                    span: expr.span,
+                    message: "builtin `@error` requires a comptime string message".to_string(),
+                });
+            };
+            return Err(ComptimeError {
+                span: expr.span,
+                message,
+            });
         }
         EarlyComptimeExprKind::LayoutBuiltin { builtin, type_arg } => {
             env.resolve_layout_builtin(expr.span, *builtin, type_arg)?
@@ -3530,6 +3553,14 @@ fn char_array_to_string(values: &[ComptimeValue]) -> Option<String> {
         out.push(char::from_u32(value)?);
     }
     Some(out)
+}
+
+fn comptime_error_message(value: &ComptimeValue) -> Option<String> {
+    match value {
+        ComptimeValue::String(value) => Some(value.clone()),
+        ComptimeValue::Array(values) => char_array_to_string(values),
+        _ => None,
+    }
 }
 
 pub fn eval_string_literal(literal: &ComptimeStringLiteral) -> Option<String> {

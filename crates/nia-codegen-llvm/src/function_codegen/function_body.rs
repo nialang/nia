@@ -536,6 +536,20 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         value: Option<&FunctionExpr>,
     ) -> Result<(), Diagnostic> {
         if let Some(value) = value {
+            if self.is_zero_sized(value.ty) {
+                self.emit_effect_expr(value)?;
+                self.emit_function_tail_defers(body, block, span)?;
+                if self.is_never(self.function.return_type) {
+                    self.builder
+                        .build_unreachable()
+                        .map_err(|_| self.error(span, "failed to build never return"))?;
+                } else {
+                    self.builder
+                        .build_return(None)
+                        .map_err(|_| self.error(span, "failed to build void return"))?;
+                }
+                return Ok(());
+            }
             if self.emit_indirect_aggregate_literal_return(body, block, span, value)? {
                 return Ok(());
             }
@@ -715,6 +729,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         ptr: nia_llvm::values::PointerValue<'ctx>,
         value: &FunctionExpr,
     ) -> Result<(), Diagnostic> {
+        if self.is_zero_sized(value.ty) {
+            self.emit_effect_expr(value)?;
+            return Ok(());
+        }
         if self.emit_aggregate_literal_into(ptr, value)? {
             return Ok(());
         }
@@ -898,6 +916,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if *op == nia_ast::AssignOp::Assign
                     && self.emit_direct_store_expr(expr.span, place, rhs)?
                 {
+                    return Ok(());
+                }
+                if self.is_zero_sized(rhs.ty) {
+                    self.emit_effect_expr(rhs)?;
                     return Ok(());
                 }
                 let value = self.emit_expr(rhs)?;

@@ -114,6 +114,10 @@ impl nia_comptime_engine::ComptimeCommonEnv for TargetComptimeEnv<'_> {
         let _ = span;
         match builtin {
             nia_ids::ValueBuiltin::Builtin => Ok(builtin_comptime_value(self.config)),
+            nia_ids::ValueBuiltin::Error => Err(nia_comptime_engine::ComptimeError {
+                span,
+                message: "builtin `@error` must be called with a message".to_string(),
+            }),
         }
     }
 
@@ -409,6 +413,13 @@ impl Pruner<'_> {
                 }]
             }
             ItemKind::Extend(mut extend) => {
+                for associated_value in &mut extend.associated_values {
+                    associated_value.binding.value = associated_value
+                        .binding
+                        .value
+                        .take()
+                        .map(|value| self.prune_expr(value));
+                }
                 for method in &mut extend.methods {
                     method.function.body = method
                         .function

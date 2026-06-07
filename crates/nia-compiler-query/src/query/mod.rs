@@ -4,9 +4,10 @@ use crate::{
     module_diagnostics,
     program_signatures::{
         ExtensionModuleInput, ModuleSignatureInput, VisibleExtensionsForModule,
-        collect_extension_methods, collect_program_comptimes, collect_program_enums,
-        collect_program_functions, collect_program_globals, collect_program_structs,
-        collect_program_traits, collect_program_unions, visible_extensions_for_module,
+        collect_extension_associated_values, collect_extension_methods, collect_program_comptimes,
+        collect_program_enums, collect_program_functions, collect_program_globals,
+        collect_program_structs, collect_program_traits, collect_program_unions,
+        visible_extensions_for_module,
     },
     public_surface::compute_public_surfaces,
 };

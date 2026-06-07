@@ -382,6 +382,10 @@ pub fn check_module_bodies_with_program_signatures_and_layouts(
             node_trait_object_upcasts: checker.node_trait_object_upcasts,
             node_comptime_if_selections: checker.node_comptime_if_selections,
             node_builtin_values: checker.node_builtin_values,
+            node_builtin_associated_values: input
+                .semantic_uses
+                .node_builtin_associated_values
+                .clone(),
             node_array_repeat_counts: checker.node_array_repeat_counts,
             node_switch_pattern_values: checker.node_switch_pattern_values,
             node_resolved_calls: checker.node_resolved_calls,
@@ -635,6 +639,9 @@ impl<'a> BodyChecker<'a> {
         }
         for item in &module.items {
             if let ItemKind::Extend(extend) = &item.kind {
+                for associated_value in &extend.associated_values {
+                    self.check_comptime_binding(associated_value.span, &associated_value.binding);
+                }
                 for method in &extend.methods {
                     self.check_function_def(method.function.span, &method.function);
                 }

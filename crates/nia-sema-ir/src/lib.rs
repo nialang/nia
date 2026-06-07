@@ -5,11 +5,12 @@ use nia_ast::{BinaryOp, ReceiverKind, UnaryOp};
 use nia_ids::{BuiltinTraitMethod, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId};
 use nia_node_id::NodeKey;
 use nia_span::Span;
-use nia_ty::{BuiltinTrait, TraitId};
+use nia_ty::{BuiltinTrait, PrimitiveTy, TraitId};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticUseTable {
     pub node_value_uses: HashMap<NodeKey, SemanticValueUse>,
+    pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
     pub node_local_defs: HashMap<NodeKey, LocalId>,
     pub node_type_uses: HashMap<NodeKey, InternedTyId>,
 }
@@ -21,6 +22,10 @@ impl SemanticUseTable {
 
     pub fn node_value_use(&self, key: &NodeKey) -> Option<SemanticValueUse> {
         self.node_value_uses.get(key).copied()
+    }
+
+    pub fn node_builtin_associated_value(&self, key: &NodeKey) -> Option<BuiltinAssociatedValue> {
+        self.node_builtin_associated_values.get(key).copied()
     }
 
     pub fn node_local_def(&self, key: &NodeKey) -> Option<LocalId> {
@@ -53,6 +58,21 @@ impl SemanticUseTableBuilder {
             .node_value_uses
             .entry(key)
             .or_insert(SemanticValueUse::Global(global_id));
+    }
+
+    pub fn insert_node_builtin_associated_value(
+        &mut self,
+        key: NodeKey,
+        value: BuiltinAssociatedValue,
+    ) {
+        self.table.node_builtin_associated_values.insert(key, value);
+    }
+
+    pub fn extend_node_builtin_associated_values(
+        &mut self,
+        values: impl IntoIterator<Item = (NodeKey, BuiltinAssociatedValue)>,
+    ) {
+        self.table.node_builtin_associated_values.extend(values);
     }
 
     pub fn extend_node_global_value_uses(
@@ -97,6 +117,73 @@ pub enum SemanticValueUse {
     Global(GlobalDefId),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinAssociatedValue {
+    PrimitiveIntLimit {
+        primitive: PrimitiveTy,
+        kind: PrimitiveIntLimit,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimitiveIntLimit {
+    Min,
+    Max,
+}
+
+impl PrimitiveIntLimit {
+    pub fn value(self, primitive: PrimitiveTy, pointer_width: u32) -> Option<i128> {
+        let (min, max) = primitive_int_range(primitive, pointer_width)?;
+        Some(match self {
+            PrimitiveIntLimit::Min => min,
+            PrimitiveIntLimit::Max => max,
+        })
+    }
+}
+
+pub fn supports_primitive_int_limit(primitive: PrimitiveTy) -> bool {
+    primitive_int_range(primitive, 64).is_some()
+}
+
+fn primitive_int_range(primitive: PrimitiveTy, pointer_width: u32) -> Option<(i128, i128)> {
+    match primitive {
+        PrimitiveTy::I8 => Some((i8::MIN as i128, i8::MAX as i128)),
+        PrimitiveTy::I16 => Some((i16::MIN as i128, i16::MAX as i128)),
+        PrimitiveTy::I32 => Some((i32::MIN as i128, i32::MAX as i128)),
+        PrimitiveTy::I64 => Some((i64::MIN as i128, i64::MAX as i128)),
+        PrimitiveTy::I128 => Some((i128::MIN, i128::MAX)),
+        PrimitiveTy::Isize => signed_integer_range(pointer_width),
+        PrimitiveTy::U8 => Some((0, u8::MAX as i128)),
+        PrimitiveTy::U16 => Some((0, u16::MAX as i128)),
+        PrimitiveTy::U32 => Some((0, u32::MAX as i128)),
+        PrimitiveTy::U64 => Some((0, u64::MAX as i128)),
+        PrimitiveTy::Usize => unsigned_integer_range(pointer_width),
+        PrimitiveTy::U128 => None,
+        PrimitiveTy::F32
+        | PrimitiveTy::F64
+        | PrimitiveTy::Bool
+        | PrimitiveTy::Char
+        | PrimitiveTy::Void
+        | PrimitiveTy::Never => None,
+    }
+}
+
+fn signed_integer_range(bits: u32) -> Option<(i128, i128)> {
+    match bits {
+        1..=127 => Some((-(1i128 << (bits - 1)), (1i128 << (bits - 1)) - 1)),
+        128 => Some((i128::MIN, i128::MAX)),
+        _ => None,
+    }
+}
+
+fn unsigned_integer_range(bits: u32) -> Option<(i128, i128)> {
+    match bits {
+        1..=126 => Some((0, (1i128 << bits) - 1)),
+        127 | 128 => Some((0, i128::MAX)),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SemanticFacts {
     pub local_types: HashMap<LocalId, InternedTyId>,
@@ -109,6 +196,7 @@ pub struct SemanticFacts {
     pub node_trait_object_upcasts: HashMap<NodeKey, TraitObjectUpcast>,
     pub node_comptime_if_selections: HashMap<NodeKey, ComptimeIfSelection>,
     pub node_builtin_values: HashMap<NodeKey, BuiltinValue>,
+    pub node_builtin_associated_values: HashMap<NodeKey, BuiltinAssociatedValue>,
     pub node_array_repeat_counts: HashMap<NodeKey, u64>,
     pub node_switch_pattern_values: HashMap<NodeKey, i128>,
     pub node_resolved_calls: HashMap<NodeKey, ResolvedCall>,
@@ -124,6 +212,7 @@ pub enum ComptimeIfSelection {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuiltinValue {
+    Int(i128),
     Usize(u64),
     Layout {
         builtin: LayoutBuiltin,

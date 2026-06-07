@@ -259,6 +259,14 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
                         for associated_type in &extend.associated_types {
                             lowerer.lower_type_in_context(&associated_type.ty, TypeContext::Value);
                         }
+                        for associated_value in &extend.associated_values {
+                            if let Some(ty) = &associated_value.binding.ty {
+                                lowerer.lower_type_in_context(ty, TypeContext::Value);
+                            }
+                            if let Some(value) = &associated_value.binding.value {
+                                lowerer.visit_expr(value);
+                            }
+                        }
                         if let Some(trait_scope) = trait_scope {
                             lowerer.with_associated_type_scope(trait_scope, |lowerer| {
                                 for method in &extend.methods {
@@ -450,6 +458,14 @@ impl TypeLowerer<'_> {
                         lowerer.lower_where_clause(&extend.where_clause);
                         for associated_type in &extend.associated_types {
                             lowerer.lower_type_in_context(&associated_type.ty, TypeContext::Value);
+                        }
+                        for associated_value in &extend.associated_values {
+                            if let Some(ty) = &associated_value.binding.ty {
+                                lowerer.lower_type_in_context(ty, TypeContext::Value);
+                            }
+                            if let Some(value) = &associated_value.binding.value {
+                                lowerer.visit_expr(value);
+                            }
                         }
                         if let Some(trait_scope) = trait_scope {
                             lowerer.with_associated_type_scope(trait_scope, |lowerer| {
