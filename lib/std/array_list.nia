@@ -1,4 +1,5 @@
 import std.mem;
+import std.math;
 
 pub struct ArrayList[T]
 where T: Sized
@@ -288,15 +289,14 @@ where T: Sized
             }
         }
         let half = needed / 2usize;
-        let extra = half + init_capacity;
-        if extra < half {
-            return mem::Error::OutOfMemory!;
+        let extra = switch half.checked_add(init_capacity) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        switch needed.checked_add(extra) {
+            ?capacity => !capacity,
+            null => mem::Error::OutOfMemory!,
         }
-        let capacity = needed + extra;
-        if capacity < needed {
-            return mem::Error::OutOfMemory!;
-        }
-        !capacity
     }
 
     fn grow_to_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
@@ -362,8 +362,14 @@ where T: Sized
         }
 
         let byte_offset = ptr - base;
-        let alloc_bytes = self.capacity * item_size;
-        let item_bytes = items.len() * item_size;
+        let alloc_bytes = switch self.capacity.checked_mul(item_size) {
+            ?value => value,
+            null => return false,
+        };
+        let item_bytes = switch items.len().checked_mul(item_size) {
+            ?value => value,
+            null => return false,
+        };
         if byte_offset > alloc_bytes {
             return false;
         }
