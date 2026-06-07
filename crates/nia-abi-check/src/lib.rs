@@ -6,7 +6,7 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::GlobalDefId;
 use nia_item_signatures::{FunctionSignature, ItemSignatures, StructSignature, UnionSignature};
 use nia_span::Span;
-use nia_ty::{PrimitiveTy, TyInterner, TyKind};
+use nia_ty::{ArrayLenTy, PrimitiveTy, TyInterner, TyKind};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProgramAbiSignatures<'a> {
@@ -67,6 +67,29 @@ struct AbiChecker<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExternTyContext {
+    StructField,
+    FunctionParameter,
+    FunctionReturn,
+    FunctionPointerParameter,
+    FunctionPointerReturn,
+    Global,
+}
+
+impl ExternTyContext {
+    fn description(self) -> &'static str {
+        match self {
+            Self::StructField => "extern struct field",
+            Self::FunctionParameter => "extern parameter",
+            Self::FunctionReturn => "extern return type",
+            Self::FunctionPointerParameter => "extern function pointer parameter",
+            Self::FunctionPointerReturn => "extern function pointer return type",
+            Self::Global => "extern global",
+        }
+    }
+}
+
 impl AbiChecker<'_> {
     fn check(&mut self) {
         for (def_id, signature) in &self.signatures.functions {
@@ -88,7 +111,7 @@ impl AbiChecker<'_> {
 
     fn check_extern_struct(&mut self, signature: &nia_item_signatures::StructSignature) {
         for field in &signature.fields {
-            self.check_extern_ty(field.span, field.ty, "extern struct field");
+            self.check_extern_ty(field.span, field.ty, ExternTyContext::StructField);
         }
     }
 
@@ -101,7 +124,7 @@ impl AbiChecker<'_> {
             ));
             return;
         };
-        self.check_extern_ty(signature.span, ty, "extern global");
+        self.check_extern_ty(signature.span, ty, ExternTyContext::Global);
     }
 
     fn check_extern_function(&mut self, def_id: DefId, signature: &FunctionSignature) {
@@ -127,7 +150,7 @@ impl AbiChecker<'_> {
             ));
         }
         for param in &signature.params {
-            self.check_extern_ty(param.span, param.ty, "extern parameter");
+            self.check_extern_ty(param.span, param.ty, ExternTyContext::FunctionParameter);
         }
         if self.is_never(signature.return_type) {
             self.diagnostics.push(Diagnostic::user_error_at(
@@ -136,7 +159,11 @@ impl AbiChecker<'_> {
                 "extern return type cannot use `never`",
             ));
         } else if !self.is_void(signature.return_type) {
-            self.check_extern_ty(signature.span, signature.return_type, "extern return type");
+            self.check_extern_ty(
+                signature.span,
+                signature.return_type,
+                ExternTyContext::FunctionReturn,
+            );
         }
         if let Some(def) = self.defs.defs.get(def_id)
             && def.parent.is_some()
@@ -149,57 +176,58 @@ impl AbiChecker<'_> {
         }
     }
 
-    fn check_extern_ty(&mut self, span: Span, ty: nia_ids::InternedTyId, context: &str) {
+    fn check_extern_ty(&mut self, span: Span, ty: nia_ids::InternedTyId, context: ExternTyContext) {
+        let context_desc = context.description();
         match self.interner.get(ty) {
             Some(TyKind::Primitive(PrimitiveTy::Bool)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0501",
                     span,
-                    format!("{context} cannot use `bool` directly"),
+                    format!("{context_desc} cannot use `bool` directly"),
                 ))
             }
             Some(TyKind::Primitive(PrimitiveTy::Char)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0501",
                     span,
-                    format!("{context} cannot use `char` directly"),
+                    format!("{context_desc} cannot use `char` directly"),
                 ))
             }
             Some(TyKind::Primitive(PrimitiveTy::Void)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0501",
                     span,
-                    format!("{context} cannot use `void` directly"),
+                    format!("{context_desc} cannot use `void` directly"),
                 ))
             }
             Some(TyKind::Primitive(PrimitiveTy::Never)) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0501",
                     span,
-                    format!("{context} cannot use `never` directly"),
+                    format!("{context_desc} cannot use `never` directly"),
                 ))
             }
             Some(TyKind::Primitive(_)) | Some(TyKind::Pointer { .. }) => {}
             Some(TyKind::Slice { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use nia slice directly"),
+                format!("{context_desc} cannot use nia slice directly"),
             )),
             Some(TyKind::SlicePointee { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use unsized slice pointee directly"),
+                format!("{context_desc} cannot use unsized slice pointee directly"),
             )),
             Some(TyKind::TraitObject { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use nia trait object directly"),
+                format!("{context_desc} cannot use nia trait object directly"),
             )),
             Some(TyKind::TraitObjectPointee { .. }) => {
                 self.diagnostics.push(Diagnostic::user_error_at(
                     "E0501",
                     span,
-                    format!("{context} cannot use unsized trait object pointee directly"),
+                    format!("{context_desc} cannot use unsized trait object pointee directly"),
                 ))
             }
             Some(TyKind::FunctionPointer {
@@ -211,42 +239,61 @@ impl AbiChecker<'_> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0501",
                         span,
-                        format!("{context} cannot use variadic function pointer"),
+                        format!("{context_desc} cannot use variadic function pointer"),
                     ));
                 }
                 for param in params {
-                    self.check_extern_ty(span, *param, "extern function pointer parameter");
+                    self.check_extern_ty(span, *param, ExternTyContext::FunctionPointerParameter);
                 }
                 if !self.is_void(*return_type) {
-                    self.check_extern_ty(span, *return_type, "extern function pointer return type");
+                    self.check_extern_ty(
+                        span,
+                        *return_type,
+                        ExternTyContext::FunctionPointerReturn,
+                    );
                 }
             }
-            Some(TyKind::Array { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
-                "E0501",
-                span,
-                format!("{context} cannot use array by value"),
-            )),
+            Some(TyKind::Array { len, elem }) => {
+                if context == ExternTyContext::StructField {
+                    if matches!(len, ArrayLenTy::Infer) {
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0501",
+                            span,
+                            "extern struct field cannot use inferred array length",
+                        ));
+                    }
+                    self.check_extern_ty(span, *elem, ExternTyContext::StructField);
+                } else {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0501",
+                        span,
+                        format!("{context_desc} cannot use array by value"),
+                    ));
+                }
+            }
             Some(TyKind::Range { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use range by value"),
+                format!("{context_desc} cannot use range by value"),
             )),
             Some(TyKind::Optional { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use optional by value"),
+                format!("{context_desc} cannot use optional by value"),
             )),
             Some(TyKind::ErrorUnion { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use error union by value"),
+                format!("{context_desc} cannot use error union by value"),
             )),
             Some(TyKind::Nominal { def_id, .. }) => {
                 if self.is_enum_def(*def_id) {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0501",
                         span,
-                        format!("{context} cannot use enum directly; use its backing integer type"),
+                        format!(
+                            "{context_desc} cannot use enum directly; use its backing integer type"
+                        ),
                     ));
                 }
                 if self.is_union_def(*def_id) {
@@ -254,7 +301,7 @@ impl AbiChecker<'_> {
                     self.diagnostics.push(Diagnostic::user_error_at(
                         "E0501",
                         span,
-                        format!("{context} cannot use union by value"),
+                        format!("{context_desc} cannot use union by value"),
                     ));
                 }
                 if let Some(signature) = self.struct_signature(*def_id) {
@@ -262,13 +309,13 @@ impl AbiChecker<'_> {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             "E0501",
                             span,
-                            format!("{context} cannot use empty struct by value"),
+                            format!("{context_desc} cannot use empty struct by value"),
                         ));
                     } else if !signature.is_extern {
                         self.diagnostics.push(Diagnostic::user_error_at(
                             "E0501",
                             span,
-                            format!("{context} cannot use normal Nia struct by value"),
+                            format!("{context_desc} cannot use normal Nia struct by value"),
                         ));
                     }
                 }
@@ -276,22 +323,22 @@ impl AbiChecker<'_> {
             Some(TyKind::BuiltinTrait { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use trait type directly"),
+                format!("{context_desc} cannot use trait type directly"),
             )),
             Some(TyKind::GenericParam(_)) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use generic parameter"),
+                format!("{context_desc} cannot use generic parameter"),
             )),
             Some(TyKind::Projection { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use unresolved associated type projection"),
+                format!("{context_desc} cannot use unresolved associated type projection"),
             )),
             Some(TyKind::ComptimeOnly) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
-                format!("{context} cannot use comptime-only value"),
+                format!("{context_desc} cannot use comptime-only value"),
             )),
             Some(TyKind::Error) | None => {}
         }
@@ -392,5 +439,26 @@ extern fn bad_union(bits: Bits);
                 checked.diagnostics
             );
         }
+    }
+
+    #[test]
+    fn allows_fixed_arrays_inside_extern_structs() {
+        let (module, errors) = parse_module(
+            r#"
+extern struct Header {
+    tag: u32,
+    reserved: [4]u64,
+}
+
+extern fn consume(header: Header);
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        let signatures = collect_item_signatures(&module, &defs, &lowered);
+        let checked = check_module_abi(&defs, &lowered.interner, &signatures);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     }
 }

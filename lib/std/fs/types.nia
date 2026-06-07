@@ -39,6 +39,18 @@ pub enum OpenMode: i32 {
     _,
 }
 
+pub enum FileKind: i32 {
+    BlockDevice = 1,
+    CharacterDevice = 2,
+    Directory = 3,
+    NamedPipe = 4,
+    Symlink = 5,
+    File = 6,
+    UnixSocket = 7,
+    Unknown = 255,
+    _,
+}
+
 pub struct Path {
     text: &[char],
 }
@@ -57,11 +69,32 @@ pub struct File {
     handle: os::FileDescriptor,
 }
 
+pub struct Timestamp {
+    seconds: i64,
+    nanos: u32,
+}
+
+pub struct Metadata {
+    kind: FileKind,
+    inode: u64,
+    nlink: u32,
+    size: u64,
+    mode: u32,
+    block_size: u32,
+    atime: ?Timestamp,
+    mtime: Timestamp,
+    ctime: Timestamp,
+}
+
 pub struct OpenOptions {
     mode: OpenMode,
 }
 
 pub struct OpenDirOptions {
+    follow_symlinks: bool,
+}
+
+pub struct MetadataOptions {
     follow_symlinks: bool,
 }
 
@@ -102,5 +135,123 @@ extend os::Error {
             os::Error::NotEmpty => Error::NotEmpty,
             _ => Error::System,
         }
+    }
+}
+
+extend os::FileKind {
+    pub fn as_fs_file_kind(self) FileKind {
+        switch self {
+            os::FileKind::BlockDevice => FileKind::BlockDevice,
+            os::FileKind::CharacterDevice => FileKind::CharacterDevice,
+            os::FileKind::Directory => FileKind::Directory,
+            os::FileKind::NamedPipe => FileKind::NamedPipe,
+            os::FileKind::Symlink => FileKind::Symlink,
+            os::FileKind::File => FileKind::File,
+            os::FileKind::UnixSocket => FileKind::UnixSocket,
+            _ => FileKind::Unknown,
+        }
+    }
+}
+
+extend os::Timestamp {
+    pub fn as_fs_timestamp(&self) Timestamp {
+        Timestamp::init(self.seconds(), self.nanos())
+    }
+}
+
+extend os::FileMetadata {
+    pub fn as_fs_metadata(&self) Metadata {
+        var atime: ?Timestamp = null;
+        switch self.atime() {
+            ?value => atime = ?value.as_fs_timestamp(),
+            null => {},
+        }
+        Metadata::init(
+            self.kind().as_fs_file_kind(),
+            self.inode(),
+            self.nlink(),
+            self.size(),
+            self.mode(),
+            self.block_size(),
+            atime,
+            self.mtime().as_fs_timestamp(),
+            self.ctime().as_fs_timestamp(),
+        )
+    }
+}
+
+extend Timestamp {
+    pub fn init(seconds: i64, nanos: u32) Timestamp {
+        { seconds: seconds, nanos: nanos }
+    }
+
+    pub fn seconds(&self) i64 {
+        self.seconds
+    }
+
+    pub fn nanos(&self) u32 {
+        self.nanos
+    }
+}
+
+extend Metadata {
+    pub fn init(
+        kind: FileKind,
+        inode: u64,
+        nlink: u32,
+        size: u64,
+        mode: u32,
+        block_size: u32,
+        atime: ?Timestamp,
+        mtime: Timestamp,
+        ctime: Timestamp,
+    ) Metadata {
+        {
+            kind: kind,
+            inode: inode,
+            nlink: nlink,
+            size: size,
+            mode: mode,
+            block_size: block_size,
+            atime: atime,
+            mtime: mtime,
+            ctime: ctime,
+        }
+    }
+
+    pub fn kind(&self) FileKind {
+        self.kind
+    }
+
+    pub fn inode(&self) u64 {
+        self.inode
+    }
+
+    pub fn nlink(&self) u32 {
+        self.nlink
+    }
+
+    pub fn size(&self) u64 {
+        self.size
+    }
+
+    pub fn mode(&self) u32 {
+        self.mode
+    }
+
+    pub fn block_size(&self) u32 {
+        self.block_size
+    }
+
+    pub fn atime(&self) ?Timestamp {
+        self.atime
+    }
+
+    pub fn mtime(&self) Timestamp {
+        self.mtime
+    }
+
+    pub fn ctime(&self) Timestamp {
+        self.ctime
     }
 }
