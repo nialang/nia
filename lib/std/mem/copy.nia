@@ -5,7 +5,11 @@ using types::Order;
 pub fn copy_forwards[T](to: &mut [T], from: &[T]) void
 where T: Sized
 {
-    @memcpy(to, from);
+    var index = 0usize;
+    while index < from.len() {
+        to[index] = from[index];
+        index += 1usize;
+    }
 }
 
 pub fn copy_backwards[T](to: &mut [T], from: &[T]) void
