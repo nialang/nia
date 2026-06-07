@@ -7,10 +7,11 @@ import std.io;
 import std.array_list;
 import std.fs;
 import std.fmt;
+import std.math;
 import std.mem;
 import std.os;
 import std.process;
 import std.result;
 import std.unicode;
 
-pub using {array_list, fmt, fs, io, mem, os, process, result, unicode};
+pub using {array_list, fmt, fs, io, math, mem, os, process, result, unicode};

@@ -1018,6 +1018,95 @@ pub fn main(init: std::process::Init) std::process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_can_use_std_math_usize_helpers() {
+    let root = temp_dir("emit_exe_can_use_std_math_usize_helpers");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.math;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    if 0usize.is_power_of_two() {
+        return process::ExitCode::init(1)!;
+    }
+    if not 4096usize.is_power_of_two() {
+        return process::ExitCode::init(2)!;
+    }
+    switch 10usize.checked_add(5usize) {
+        ?value => {
+            if value != 15usize {
+                return process::ExitCode::init(3)!;
+            }
+        },
+        null => return process::ExitCode::init(4)!,
+    }
+    switch 18446744073709551615usize.checked_add(1usize) {
+        ?value => {
+            _ = value;
+            return process::ExitCode::init(5)!;
+        },
+        null => {},
+    }
+    switch 12usize.checked_mul(3usize) {
+        ?value => {
+            if value != 36usize {
+                return process::ExitCode::init(6)!;
+            }
+        },
+        null => return process::ExitCode::init(7)!,
+    }
+    switch 4611686018427387904usize.checked_mul(4usize) {
+        ?value => {
+            _ = value;
+            return process::ExitCode::init(8)!;
+        },
+        null => {},
+    }
+    switch 17usize.align_forward(8usize) {
+        ?value => {
+            if value != 24usize {
+                return process::ExitCode::init(9)!;
+            }
+        },
+        null => return process::ExitCode::init(10)!,
+    }
+    switch 17usize.align_forward(3usize) {
+        ?value => {
+            _ = value;
+            return process::ExitCode::init(11)!;
+        },
+        null => {},
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_exposes_process_args_without_raw_argv() {
     let root = temp_dir("emit_exe_exposes_process_args_without_raw_argv");
     let main = root.join("main.nia");

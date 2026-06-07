@@ -1,3 +1,5 @@
+import std.math;
+
 pub enum Error: i32 {
     Invalid = 1,
     InvalidAlignment = 2,
@@ -22,23 +24,6 @@ pub struct Block {
     layout: Layout,
 }
 
-extend usize {
-    fn is_power_of_two(self) bool {
-        if self == 0 {
-            false
-        } else {
-            var n = self;
-            while n > 1usize {
-                if n % 2usize != 0usize {
-                    return false;
-                }
-                n = n / 2usize;
-            }
-            true
-        }
-    }
-}
-
 extend Layout {
     pub fn init(size: usize, align: usize) Error!Layout {
         if align == 0 {
@@ -60,15 +45,11 @@ extend Layout {
     where T: Sized
     {
         let elem_len = @size[T]();
-        if elem_len != 0usize and count != 0usize {
-            let size = elem_len * count;
-            if size / elem_len != count {
-                return Error::OutOfMemory!;
-            }
-            Layout::init(size, @align[T]())
-        } else {
-            Layout::init(0, @align[T]())
-        }
+        let size = switch elem_len.checked_mul(count) {
+            ?value => value,
+            null => return Error::OutOfMemory!,
+        };
+        Layout::init(size, @align[T]())
     }
 
     pub fn size(&self) usize {
