@@ -245,6 +245,10 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_dynamic_trait_object_projection(candidate, elem);
                 self.interner.intern(TyKind::Array { len, elem })
@@ -322,6 +326,36 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_dynamic_trait_object_projection(candidate, arg))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| {
+                                self.normalize_dynamic_trait_object_projection(candidate, arg)
+                            })
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_dynamic_trait_object_projection(candidate, binding.ty),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     associated_type_bindings,

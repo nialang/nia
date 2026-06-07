@@ -185,11 +185,23 @@ impl AbiChecker<'_> {
                 span,
                 format!("{context} cannot use nia slice directly"),
             )),
+            Some(TyKind::SlicePointee { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
+                "E0501",
+                span,
+                format!("{context} cannot use unsized slice pointee directly"),
+            )),
             Some(TyKind::TraitObject { .. }) => self.diagnostics.push(Diagnostic::user_error_at(
                 "E0501",
                 span,
                 format!("{context} cannot use nia trait object directly"),
             )),
+            Some(TyKind::TraitObjectPointee { .. }) => {
+                self.diagnostics.push(Diagnostic::user_error_at(
+                    "E0501",
+                    span,
+                    format!("{context} cannot use unsized trait object pointee directly"),
+                ))
+            }
             Some(TyKind::FunctionPointer {
                 params,
                 return_type,

@@ -235,18 +235,30 @@ impl FunctionLowerer {
     ) -> Option<FunctionExpr> {
         match pattern {
             TypedSwitchPattern::Default => None,
-            TypedSwitchPattern::OptionalSome { span, .. } => {
-                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 1))
-            }
-            TypedSwitchPattern::OptionalNull { span } => {
-                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 0))
-            }
-            TypedSwitchPattern::ErrorOk { span, .. } => {
-                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 0))
-            }
-            TypedSwitchPattern::ErrorErr { span, .. } => {
-                Some(self.tagged_union_tag_condition(target, *span, context.bool_ty, 1))
-            }
+            TypedSwitchPattern::OptionalSome { span, .. } => Some(self.tagged_union_tag_condition(
+                target,
+                *span,
+                context.bool_ty,
+                FunctionOptionalTag::Some.discriminant(),
+            )),
+            TypedSwitchPattern::OptionalNull { span } => Some(self.tagged_union_tag_condition(
+                target,
+                *span,
+                context.bool_ty,
+                FunctionOptionalTag::Null.discriminant(),
+            )),
+            TypedSwitchPattern::ErrorOk { span, .. } => Some(self.tagged_union_tag_condition(
+                target,
+                *span,
+                context.bool_ty,
+                FunctionErrorUnionTag::Ok.discriminant(),
+            )),
+            TypedSwitchPattern::ErrorErr { span, .. } => Some(self.tagged_union_tag_condition(
+                target,
+                *span,
+                context.bool_ty,
+                FunctionErrorUnionTag::Err.discriminant(),
+            )),
             TypedSwitchPattern::Expr(pattern) => {
                 let pattern = self.lower_value_expr(
                     pattern,
@@ -407,7 +419,7 @@ impl FunctionLowerer {
         }
     }
 
-    fn tagged_union_tag_condition(
+    pub(super) fn tagged_union_tag_condition(
         &self,
         target: &FunctionExpr,
         span: Span,
@@ -572,8 +584,10 @@ impl FunctionLowerer {
             for stmt in &body.stmts {
                 match &stmt.kind {
                     TypedStmtKind::ForIn(for_stmt) => {
-                        *max_id = (*max_id).max(for_stmt.local_id.0.saturating_add(1));
-                        visit_for_iterator(&for_stmt.iter, max_id);
+                        if let Some(binding) = &for_stmt.binding {
+                            *max_id = (*max_id).max(binding.local_id.0.saturating_add(1));
+                        }
+                        visit_expr(&for_stmt.iter, max_id);
                         visit_body(&for_stmt.body, max_id);
                     }
                     TypedStmtKind::While(while_stmt) => {
@@ -708,8 +722,11 @@ impl FunctionLowerer {
                                     }
                                 }
                                 TypedStmtKind::ForIn(for_stmt) => {
-                                    *max_id = (*max_id).max(for_stmt.local_id.0.saturating_add(1));
-                                    visit_for_iterator(&for_stmt.iter, max_id);
+                                    if let Some(binding) = &for_stmt.binding {
+                                        *max_id =
+                                            (*max_id).max(binding.local_id.0.saturating_add(1));
+                                    }
+                                    visit_expr(&for_stmt.iter, max_id);
                                     visit_body(&for_stmt.body, max_id);
                                 }
                                 TypedStmtKind::While(while_stmt) => {
@@ -758,15 +775,6 @@ impl FunctionLowerer {
                 | TypedExprKind::FunctionInstance { .. }
                 | TypedExprKind::EnumVariant(_)
                 | TypedExprKind::BuiltinValue(_) => {}
-            }
-        }
-
-        pub(super) fn visit_for_iterator(iter: &TypedForIterator, max_id: &mut u32) {
-            match iter {
-                TypedForIterator::Range(range) => {
-                    visit_expr(&range.expr, max_id);
-                }
-                TypedForIterator::Expr(expr) => visit_expr(expr, max_id),
             }
         }
 

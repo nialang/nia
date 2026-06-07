@@ -94,13 +94,13 @@ fn resolves_continue_to_loop_continue_branch() {
 }
 
 #[test]
-fn lowers_for_in_range_binding_step_and_edges() {
+fn lowers_for_in_iterator_next_payload_and_edges() {
     let span = Span::default();
     let ty = InternedTyId::new(ModuleId(0), TyInternerIndex::from_interner_index(0));
     let body = TypedBody {
         span,
         locals: Vec::new(),
-        stmts: vec![for_range_stmt(
+        stmts: vec![for_iterator_stmt(
             LocalId(0),
             TypedBody {
                 span,
@@ -124,36 +124,87 @@ fn lowers_for_in_range_binding_step_and_edges() {
         function_body.blocks[0].terminator,
         FunctionTerminator::Next { .. }
     ));
-    let loop_target = only_next_target(&function_body, function_body.blocks[0].id);
-    let loop_target = only_next_target(&function_body, loop_target);
-    let loop_block = function_body.block(loop_target).expect("loop header");
+    let next_block = function_body
+        .blocks
+        .iter()
+        .find(|block| {
+            block.ops.iter().any(|op| {
+                matches!(
+                    op,
+                    FunctionOp::Binding(binding) if binding.name == "__for_next"
+                )
+            })
+        })
+        .expect("iterator next block");
+    assert!(
+        function_body
+            .blocks
+            .iter()
+            .flat_map(|block| &block.ops)
+            .any(|op| {
+                matches!(
+                    op,
+                    FunctionOp::Binding(binding) if binding.name == "__for_iter" && !binding.is_let
+                )
+            })
+    );
+    assert!(next_block.ops.iter().any(|op| {
+        matches!(
+            op,
+            FunctionOp::Binding(binding)
+                if binding.name == "__for_next"
+                    && matches!(
+                        binding.value.as_ref().map(|value| &value.kind),
+                        Some(FunctionExprKind::Call {
+                            callee: FunctionCallee::BuiltinPlaceMethod {
+                                trait_id: nia_ids::BuiltinTrait::Iterator,
+                                method: nia_ids::BuiltinTraitMethod::IteratorNext,
+                                ..
+                            },
+                            ..
+                        })
+                    )
+        )
+    }));
+    let loop_block = function_body
+        .block(only_next_target(&function_body, next_block.id))
+        .expect("loop header");
     let FunctionTerminator::Loop {
         body,
         continue_target,
         break_target,
+        header,
         ..
-    } = loop_block.terminator
+    } = &loop_block.terminator
     else {
         panic!("expected loop terminator");
     };
-    assert_eq!(loop_block.terminator.successors(), vec![body, break_target]);
+    assert!(matches!(header, FunctionForHeader::Condition(_)));
+    assert_eq!(
+        loop_block.terminator.successors(),
+        vec![*body, *break_target]
+    );
+    let body_block = function_body.block(*body).expect("loop body block");
+    assert!(body_block.ops.iter().any(|op| {
+        matches!(
+            op,
+            FunctionOp::Binding(binding)
+                if matches!(
+                    binding.value.as_ref().map(|value| &value.kind),
+                    Some(FunctionExprKind::TaggedUnionPayload { .. })
+                )
+        )
+    }));
     let continue_block = function_body
         .blocks
         .iter()
-        .find(|block| block.id == continue_target)
+        .find(|block| block.id == *continue_target)
         .expect("continue block");
-    assert!(matches!(
-        continue_block.ops[0],
-        FunctionOp::StoreLocal { .. }
-    ));
-    let step_branch = only_next_target(&function_body, continue_block.id);
-    assert_eq!(
-        function_body
-            .block(step_branch)
-            .expect("step branch block")
+    assert!(
+        continue_block
             .terminator
-            .successors(),
-        vec![loop_block.id]
+            .successors()
+            .contains(&next_block.id)
     );
 }
 

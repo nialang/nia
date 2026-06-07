@@ -82,6 +82,7 @@ pub enum BuiltinTrait {
     Slice,
     GetPtrRead,
     GetPtr,
+    Iterator,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -156,6 +157,7 @@ pub enum BuiltinTraitMethod {
     Slice,
     GetPtrRead,
     GetPtr,
+    IteratorNext,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -169,6 +171,7 @@ pub enum BuiltinReceiverKind {
 pub enum BuiltinAssociatedType {
     Output,
     Target,
+    Item,
 }
 
 impl BuiltinAssociatedType {
@@ -176,6 +179,7 @@ impl BuiltinAssociatedType {
         match name {
             "Output" => Some(Self::Output),
             "Target" => Some(Self::Target),
+            "Item" => Some(Self::Item),
             _ => None,
         }
     }
@@ -184,6 +188,7 @@ impl BuiltinAssociatedType {
         match self {
             Self::Output => "Output",
             Self::Target => "Target",
+            Self::Item => "Item",
         }
     }
 }
@@ -194,168 +199,269 @@ pub struct BuiltinSupertrait {
     pub preserves_trait_args: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinTraitMethodDescriptor {
+    pub name: &'static str,
+    pub trait_id: BuiltinTrait,
+    pub param_count: usize,
+    pub receiver_kind: BuiltinReceiverKind,
+    pub place_receiver_kind: Option<BuiltinReceiverKind>,
+    pub is_value_operator: bool,
+    pub is_place_method: bool,
+}
+
 impl BuiltinTraitMethod {
+    const DESCRIPTORS: &'static [(Self, BuiltinTraitMethodDescriptor)] = &[
+        (
+            Self::Add,
+            BuiltinTraitMethodDescriptor::value_operator("add", BuiltinTrait::Add, 2),
+        ),
+        (
+            Self::Sub,
+            BuiltinTraitMethodDescriptor::value_operator("sub", BuiltinTrait::Sub, 2),
+        ),
+        (
+            Self::Mul,
+            BuiltinTraitMethodDescriptor::value_operator("mul", BuiltinTrait::Mul, 2),
+        ),
+        (
+            Self::Div,
+            BuiltinTraitMethodDescriptor::value_operator("div", BuiltinTrait::Div, 2),
+        ),
+        (
+            Self::Rem,
+            BuiltinTraitMethodDescriptor::value_operator("rem", BuiltinTrait::Rem, 2),
+        ),
+        (
+            Self::Neg,
+            BuiltinTraitMethodDescriptor::value_operator("neg", BuiltinTrait::Neg, 1),
+        ),
+        (
+            Self::Not,
+            BuiltinTraitMethodDescriptor::value_operator("not", BuiltinTrait::Not, 1),
+        ),
+        (
+            Self::BitNot,
+            BuiltinTraitMethodDescriptor::value_operator("bit_not", BuiltinTrait::BitNot, 1),
+        ),
+        (
+            Self::BitAnd,
+            BuiltinTraitMethodDescriptor::value_operator("bit_and", BuiltinTrait::BitAnd, 2),
+        ),
+        (
+            Self::BitOr,
+            BuiltinTraitMethodDescriptor::value_operator("bit_or", BuiltinTrait::BitOr, 2),
+        ),
+        (
+            Self::BitXor,
+            BuiltinTraitMethodDescriptor::value_operator("bit_xor", BuiltinTrait::BitXor, 2),
+        ),
+        (
+            Self::Shl,
+            BuiltinTraitMethodDescriptor::value_operator("shl", BuiltinTrait::Shl, 2),
+        ),
+        (
+            Self::Shr,
+            BuiltinTraitMethodDescriptor::value_operator("shr", BuiltinTrait::Shr, 2),
+        ),
+        (
+            Self::Eq,
+            BuiltinTraitMethodDescriptor::value_operator("eq", BuiltinTrait::Eq, 2),
+        ),
+        (
+            Self::Ne,
+            BuiltinTraitMethodDescriptor::value_operator("ne", BuiltinTrait::Eq, 2),
+        ),
+        (
+            Self::Lt,
+            BuiltinTraitMethodDescriptor::value_operator("lt", BuiltinTrait::Ord, 2),
+        ),
+        (
+            Self::Le,
+            BuiltinTraitMethodDescriptor::value_operator("le", BuiltinTrait::Ord, 2),
+        ),
+        (
+            Self::Gt,
+            BuiltinTraitMethodDescriptor::value_operator("gt", BuiltinTrait::Ord, 2),
+        ),
+        (
+            Self::Ge,
+            BuiltinTraitMethodDescriptor::value_operator("ge", BuiltinTrait::Ord, 2),
+        ),
+        (
+            Self::DerefRead,
+            BuiltinTraitMethodDescriptor::place(
+                "deref_read",
+                BuiltinTrait::DerefRead,
+                1,
+                BuiltinReceiverKind::RefReadOnly,
+                Some(BuiltinReceiverKind::RefReadOnly),
+            ),
+        ),
+        (
+            Self::Deref,
+            BuiltinTraitMethodDescriptor::place(
+                "deref",
+                BuiltinTrait::Deref,
+                1,
+                BuiltinReceiverKind::Value,
+                Some(BuiltinReceiverKind::Ref),
+            ),
+        ),
+        (
+            Self::IndexRead,
+            BuiltinTraitMethodDescriptor::place(
+                "index_read",
+                BuiltinTrait::IndexRead,
+                2,
+                BuiltinReceiverKind::RefReadOnly,
+                Some(BuiltinReceiverKind::RefReadOnly),
+            ),
+        ),
+        (
+            Self::Index,
+            BuiltinTraitMethodDescriptor::place(
+                "index",
+                BuiltinTrait::Index,
+                2,
+                BuiltinReceiverKind::Value,
+                Some(BuiltinReceiverKind::Ref),
+            ),
+        ),
+        (
+            Self::SliceRead,
+            BuiltinTraitMethodDescriptor::place(
+                "slice_read",
+                BuiltinTrait::SliceRead,
+                2,
+                BuiltinReceiverKind::RefReadOnly,
+                None,
+            ),
+        ),
+        (
+            Self::Slice,
+            BuiltinTraitMethodDescriptor::place(
+                "slice",
+                BuiltinTrait::Slice,
+                2,
+                BuiltinReceiverKind::Ref,
+                None,
+            ),
+        ),
+        (
+            Self::GetPtrRead,
+            BuiltinTraitMethodDescriptor::place(
+                "get_ptr_read",
+                BuiltinTrait::GetPtrRead,
+                1,
+                BuiltinReceiverKind::RefReadOnly,
+                None,
+            ),
+        ),
+        (
+            Self::GetPtr,
+            BuiltinTraitMethodDescriptor::place(
+                "get_ptr",
+                BuiltinTrait::GetPtr,
+                1,
+                BuiltinReceiverKind::Ref,
+                None,
+            ),
+        ),
+        (
+            Self::IteratorNext,
+            BuiltinTraitMethodDescriptor::place(
+                "next",
+                BuiltinTrait::Iterator,
+                1,
+                BuiltinReceiverKind::Ref,
+                None,
+            ),
+        ),
+    ];
+
+    pub fn descriptor(self) -> BuiltinTraitMethodDescriptor {
+        Self::DESCRIPTORS
+            .iter()
+            .find_map(|(method, descriptor)| (*method == self).then_some(*descriptor))
+            .expect("missing builtin trait method descriptor")
+    }
+
     pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "add" => Some(Self::Add),
-            "sub" => Some(Self::Sub),
-            "mul" => Some(Self::Mul),
-            "div" => Some(Self::Div),
-            "rem" => Some(Self::Rem),
-            "neg" => Some(Self::Neg),
-            "not" => Some(Self::Not),
-            "bit_not" => Some(Self::BitNot),
-            "bit_and" => Some(Self::BitAnd),
-            "bit_or" => Some(Self::BitOr),
-            "bit_xor" => Some(Self::BitXor),
-            "shl" => Some(Self::Shl),
-            "shr" => Some(Self::Shr),
-            "eq" => Some(Self::Eq),
-            "ne" => Some(Self::Ne),
-            "lt" => Some(Self::Lt),
-            "le" => Some(Self::Le),
-            "gt" => Some(Self::Gt),
-            "ge" => Some(Self::Ge),
-            "deref_read" => Some(Self::DerefRead),
-            "deref" => Some(Self::Deref),
-            "index_read" => Some(Self::IndexRead),
-            "index" => Some(Self::Index),
-            "slice_read" => Some(Self::SliceRead),
-            "slice" => Some(Self::Slice),
-            "get_ptr_read" => Some(Self::GetPtrRead),
-            "get_ptr" => Some(Self::GetPtr),
-            _ => None,
-        }
+        Self::DESCRIPTORS
+            .iter()
+            .find_map(|(method, descriptor)| (descriptor.name == name).then_some(*method))
     }
 
     pub fn name(self) -> &'static str {
-        match self {
-            Self::Add => "add",
-            Self::Sub => "sub",
-            Self::Mul => "mul",
-            Self::Div => "div",
-            Self::Rem => "rem",
-            Self::Neg => "neg",
-            Self::Not => "not",
-            Self::BitNot => "bit_not",
-            Self::BitAnd => "bit_and",
-            Self::BitOr => "bit_or",
-            Self::BitXor => "bit_xor",
-            Self::Shl => "shl",
-            Self::Shr => "shr",
-            Self::Eq => "eq",
-            Self::Ne => "ne",
-            Self::Lt => "lt",
-            Self::Le => "le",
-            Self::Gt => "gt",
-            Self::Ge => "ge",
-            Self::DerefRead => "deref_read",
-            Self::Deref => "deref",
-            Self::IndexRead => "index_read",
-            Self::Index => "index",
-            Self::SliceRead => "slice_read",
-            Self::Slice => "slice",
-            Self::GetPtrRead => "get_ptr_read",
-            Self::GetPtr => "get_ptr",
-        }
+        self.descriptor().name
     }
 
     pub fn param_count(self) -> usize {
-        match self {
-            Self::Neg
-            | Self::Not
-            | Self::BitNot
-            | Self::DerefRead
-            | Self::Deref
-            | Self::GetPtrRead
-            | Self::GetPtr => 1,
-            Self::SliceRead | Self::Slice => 2,
-            _ => 2,
-        }
+        self.descriptor().param_count
     }
 
     pub fn receiver_kind(self) -> BuiltinReceiverKind {
-        match self {
-            Self::DerefRead | Self::IndexRead | Self::SliceRead | Self::GetPtrRead => {
-                BuiltinReceiverKind::RefReadOnly
-            }
-            Self::Slice | Self::GetPtr => BuiltinReceiverKind::Ref,
-            _ => BuiltinReceiverKind::Value,
-        }
+        self.descriptor().receiver_kind
     }
 
     pub fn place_receiver_kind(self) -> Option<BuiltinReceiverKind> {
-        match self {
-            Self::DerefRead | Self::IndexRead => Some(BuiltinReceiverKind::RefReadOnly),
-            Self::Deref | Self::Index => Some(BuiltinReceiverKind::Ref),
-            _ => None,
-        }
+        self.descriptor().place_receiver_kind
     }
 
     pub fn trait_id(self) -> BuiltinTrait {
-        match self {
-            Self::Add => BuiltinTrait::Add,
-            Self::Sub => BuiltinTrait::Sub,
-            Self::Mul => BuiltinTrait::Mul,
-            Self::Div => BuiltinTrait::Div,
-            Self::Rem => BuiltinTrait::Rem,
-            Self::Neg => BuiltinTrait::Neg,
-            Self::Not => BuiltinTrait::Not,
-            Self::BitNot => BuiltinTrait::BitNot,
-            Self::BitAnd => BuiltinTrait::BitAnd,
-            Self::BitOr => BuiltinTrait::BitOr,
-            Self::BitXor => BuiltinTrait::BitXor,
-            Self::Shl => BuiltinTrait::Shl,
-            Self::Shr => BuiltinTrait::Shr,
-            Self::Eq | Self::Ne => BuiltinTrait::Eq,
-            Self::Lt | Self::Le | Self::Gt | Self::Ge => BuiltinTrait::Ord,
-            Self::DerefRead => BuiltinTrait::DerefRead,
-            Self::Deref => BuiltinTrait::Deref,
-            Self::IndexRead => BuiltinTrait::IndexRead,
-            Self::Index => BuiltinTrait::Index,
-            Self::SliceRead => BuiltinTrait::SliceRead,
-            Self::Slice => BuiltinTrait::Slice,
-            Self::GetPtrRead => BuiltinTrait::GetPtrRead,
-            Self::GetPtr => BuiltinTrait::GetPtr,
-        }
+        self.descriptor().trait_id
     }
 
     pub fn is_value_operator(self) -> bool {
-        matches!(
-            self,
-            Self::Add
-                | Self::Sub
-                | Self::Mul
-                | Self::Div
-                | Self::Rem
-                | Self::Neg
-                | Self::Not
-                | Self::BitNot
-                | Self::BitAnd
-                | Self::BitOr
-                | Self::BitXor
-                | Self::Shl
-                | Self::Shr
-                | Self::Eq
-                | Self::Ne
-                | Self::Lt
-                | Self::Le
-                | Self::Gt
-                | Self::Ge
-        )
+        self.descriptor().is_value_operator
     }
 
     pub fn is_place_method(self) -> bool {
-        matches!(
-            self,
-            Self::SliceRead | Self::Slice | Self::GetPtrRead | Self::GetPtr
-        )
+        self.descriptor().is_place_method
+    }
+}
+
+impl BuiltinTraitMethodDescriptor {
+    const fn value_operator(
+        name: &'static str,
+        trait_id: BuiltinTrait,
+        param_count: usize,
+    ) -> Self {
+        Self {
+            name,
+            trait_id,
+            param_count,
+            receiver_kind: BuiltinReceiverKind::Value,
+            place_receiver_kind: None,
+            is_value_operator: true,
+            is_place_method: false,
+        }
+    }
+
+    const fn place(
+        name: &'static str,
+        trait_id: BuiltinTrait,
+        param_count: usize,
+        receiver_kind: BuiltinReceiverKind,
+        place_receiver_kind: Option<BuiltinReceiverKind>,
+    ) -> Self {
+        Self {
+            name,
+            trait_id,
+            param_count,
+            receiver_kind,
+            place_receiver_kind,
+            is_value_operator: false,
+            is_place_method: true,
+        }
     }
 }
 
 impl BuiltinTrait {
     pub const OUTPUT_ASSOC_TYPE: &'static str = "Output";
     pub const TARGET_ASSOC_TYPE: &'static str = "Target";
+    pub const ITEM_ASSOC_TYPE: &'static str = "Item";
 
     const ADD_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Add];
     const SUB_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Sub];
@@ -386,8 +492,10 @@ impl BuiltinTrait {
     const SLICE_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::Slice];
     const GET_PTR_READ_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtrRead];
     const GET_PTR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::GetPtr];
+    const ITERATOR_METHODS: [BuiltinTraitMethod; 1] = [BuiltinTraitMethod::IteratorNext];
     const OUTPUT_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Output];
     const TARGET_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Target];
+    const ITEM_ASSOC_TYPES: [BuiltinAssociatedType; 1] = [BuiltinAssociatedType::Item];
     const NO_ASSOC_TYPES: [BuiltinAssociatedType; 0] = [];
     const DEREF_SUPERTRAITS: [BuiltinSupertrait; 1] = [BuiltinSupertrait {
         trait_id: Self::DerefRead,
@@ -407,7 +515,7 @@ impl BuiltinTrait {
     }];
     const NO_SUPERTRAITS: [BuiltinSupertrait; 0] = [];
 
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::Add,
         Self::Sub,
         Self::Mul,
@@ -433,97 +541,259 @@ impl BuiltinTrait {
         Self::Slice,
         Self::GetPtrRead,
         Self::GetPtr,
+        Self::Iterator,
     ];
 
+    const DESCRIPTORS: &'static [(Self, BuiltinTraitDescriptor)] = &[
+        Self::descriptor_entry(
+            Self::Add,
+            "Add",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::ADD_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Sub,
+            "Sub",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::SUB_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Mul,
+            "Mul",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::MUL_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Div,
+            "Div",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::DIV_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Rem,
+            "Rem",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::REM_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Neg,
+            "Neg",
+            0,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::NEG_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Not,
+            "Not",
+            0,
+            &Self::NO_ASSOC_TYPES,
+            &Self::NOT_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::BitNot,
+            "BitNot",
+            0,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::BIT_NOT_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::BitAnd,
+            "BitAnd",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::BIT_AND_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::BitOr,
+            "BitOr",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::BIT_OR_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::BitXor,
+            "BitXor",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::BIT_XOR_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Shl,
+            "Shl",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::SHL_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Shr,
+            "Shr",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::SHR_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Eq,
+            "Eq",
+            1,
+            &Self::NO_ASSOC_TYPES,
+            &Self::EQ_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Ord,
+            "Ord",
+            1,
+            &Self::NO_ASSOC_TYPES,
+            &Self::ORD_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Sized,
+            "Sized",
+            0,
+            &Self::NO_ASSOC_TYPES,
+            &Self::NO_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Unsized,
+            "Unsized",
+            0,
+            &Self::NO_ASSOC_TYPES,
+            &Self::NO_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::DerefRead,
+            "DerefRead",
+            0,
+            &Self::TARGET_ASSOC_TYPES,
+            &Self::DEREF_READ_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Deref,
+            "Deref",
+            0,
+            &Self::TARGET_ASSOC_TYPES,
+            &Self::DEREF_METHODS,
+            &Self::DEREF_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::IndexRead,
+            "IndexRead",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::INDEX_READ_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Index,
+            "Index",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::INDEX_METHODS,
+            &Self::INDEX_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::SliceRead,
+            "SliceRead",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::SLICE_READ_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Slice,
+            "Slice",
+            1,
+            &Self::OUTPUT_ASSOC_TYPES,
+            &Self::SLICE_METHODS,
+            &Self::SLICE_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::GetPtrRead,
+            "GetPtrRead",
+            0,
+            &Self::TARGET_ASSOC_TYPES,
+            &Self::GET_PTR_READ_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::GetPtr,
+            "GetPtr",
+            0,
+            &Self::TARGET_ASSOC_TYPES,
+            &Self::GET_PTR_METHODS,
+            &Self::GET_PTR_SUPERTRAITS,
+        ),
+        Self::descriptor_entry(
+            Self::Iterator,
+            "Iterator",
+            0,
+            &Self::ITEM_ASSOC_TYPES,
+            &Self::ITERATOR_METHODS,
+            &Self::NO_SUPERTRAITS,
+        ),
+    ];
+
+    const fn descriptor_entry(
+        trait_id: Self,
+        name: &'static str,
+        generic_count: usize,
+        associated_types: &'static [BuiltinAssociatedType],
+        required_methods: &'static [BuiltinTraitMethod],
+        supertraits: &'static [BuiltinSupertrait],
+    ) -> (Self, BuiltinTraitDescriptor) {
+        (
+            trait_id,
+            BuiltinTraitDescriptor {
+                name,
+                generic_count,
+                associated_types,
+                required_methods,
+                supertraits,
+            },
+        )
+    }
+
+    pub fn descriptor(self) -> BuiltinTraitDescriptor {
+        Self::DESCRIPTORS
+            .iter()
+            .find_map(|(trait_id, descriptor)| (*trait_id == self).then_some(*descriptor))
+            .expect("missing builtin trait descriptor")
+    }
+
     pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "Add" => Some(Self::Add),
-            "Sub" => Some(Self::Sub),
-            "Mul" => Some(Self::Mul),
-            "Div" => Some(Self::Div),
-            "Rem" => Some(Self::Rem),
-            "Neg" => Some(Self::Neg),
-            "Not" => Some(Self::Not),
-            "BitNot" => Some(Self::BitNot),
-            "BitAnd" => Some(Self::BitAnd),
-            "BitOr" => Some(Self::BitOr),
-            "BitXor" => Some(Self::BitXor),
-            "Shl" => Some(Self::Shl),
-            "Shr" => Some(Self::Shr),
-            "Eq" => Some(Self::Eq),
-            "Ord" => Some(Self::Ord),
-            "Sized" => Some(Self::Sized),
-            "Unsized" => Some(Self::Unsized),
-            "DerefRead" => Some(Self::DerefRead),
-            "Deref" => Some(Self::Deref),
-            "IndexRead" => Some(Self::IndexRead),
-            "Index" => Some(Self::Index),
-            "SliceRead" => Some(Self::SliceRead),
-            "Slice" => Some(Self::Slice),
-            "GetPtrRead" => Some(Self::GetPtrRead),
-            "GetPtr" => Some(Self::GetPtr),
-            _ => None,
-        }
+        Self::DESCRIPTORS
+            .iter()
+            .find_map(|(trait_id, descriptor)| (descriptor.name == name).then_some(*trait_id))
     }
 
     pub fn name(self) -> &'static str {
-        match self {
-            Self::Add => "Add",
-            Self::Sub => "Sub",
-            Self::Mul => "Mul",
-            Self::Div => "Div",
-            Self::Rem => "Rem",
-            Self::Neg => "Neg",
-            Self::Not => "Not",
-            Self::BitNot => "BitNot",
-            Self::BitAnd => "BitAnd",
-            Self::BitOr => "BitOr",
-            Self::BitXor => "BitXor",
-            Self::Shl => "Shl",
-            Self::Shr => "Shr",
-            Self::Eq => "Eq",
-            Self::Ord => "Ord",
-            Self::Sized => "Sized",
-            Self::Unsized => "Unsized",
-            Self::DerefRead => "DerefRead",
-            Self::Deref => "Deref",
-            Self::IndexRead => "IndexRead",
-            Self::Index => "Index",
-            Self::SliceRead => "SliceRead",
-            Self::Slice => "Slice",
-            Self::GetPtrRead => "GetPtrRead",
-            Self::GetPtr => "GetPtr",
-        }
+        self.descriptor().name
     }
 
     pub fn generic_count(self) -> usize {
-        match self {
-            Self::Add
-            | Self::Sub
-            | Self::Mul
-            | Self::Div
-            | Self::Rem
-            | Self::BitAnd
-            | Self::BitOr
-            | Self::BitXor
-            | Self::Shl
-            | Self::Shr
-            | Self::Eq
-            | Self::Ord
-            | Self::IndexRead
-            | Self::Index
-            | Self::SliceRead
-            | Self::Slice => 1,
-            Self::Neg
-            | Self::Not
-            | Self::BitNot
-            | Self::Sized
-            | Self::Unsized
-            | Self::DerefRead
-            | Self::Deref
-            | Self::GetPtrRead
-            | Self::GetPtr => 0,
-        }
+        self.descriptor().generic_count
     }
 
     pub fn has_associated_type(self, name: &str) -> bool {
@@ -533,67 +803,23 @@ impl BuiltinTrait {
     }
 
     pub fn associated_types(self) -> &'static [BuiltinAssociatedType] {
-        match self {
-            Self::Add
-            | Self::Sub
-            | Self::Mul
-            | Self::Div
-            | Self::Rem
-            | Self::Neg
-            | Self::BitNot
-            | Self::BitAnd
-            | Self::BitOr
-            | Self::BitXor
-            | Self::Shl
-            | Self::Shr
-            | Self::IndexRead
-            | Self::Index
-            | Self::SliceRead
-            | Self::Slice => &Self::OUTPUT_ASSOC_TYPES,
-            Self::DerefRead | Self::Deref | Self::GetPtrRead | Self::GetPtr => {
-                &Self::TARGET_ASSOC_TYPES
-            }
-            Self::Not | Self::Eq | Self::Ord | Self::Sized | Self::Unsized => &Self::NO_ASSOC_TYPES,
-        }
+        self.descriptor().associated_types
     }
 
     pub fn required_methods(self) -> &'static [BuiltinTraitMethod] {
-        match self {
-            Self::Add => &Self::ADD_METHODS,
-            Self::Sub => &Self::SUB_METHODS,
-            Self::Mul => &Self::MUL_METHODS,
-            Self::Div => &Self::DIV_METHODS,
-            Self::Rem => &Self::REM_METHODS,
-            Self::Neg => &Self::NEG_METHODS,
-            Self::Not => &Self::NOT_METHODS,
-            Self::BitNot => &Self::BIT_NOT_METHODS,
-            Self::BitAnd => &Self::BIT_AND_METHODS,
-            Self::BitOr => &Self::BIT_OR_METHODS,
-            Self::BitXor => &Self::BIT_XOR_METHODS,
-            Self::Shl => &Self::SHL_METHODS,
-            Self::Shr => &Self::SHR_METHODS,
-            Self::Eq => &Self::EQ_METHODS,
-            Self::Ord => &Self::ORD_METHODS,
-            Self::Sized => &Self::NO_METHODS,
-            Self::Unsized => &Self::NO_METHODS,
-            Self::DerefRead => &Self::DEREF_READ_METHODS,
-            Self::Deref => &Self::DEREF_METHODS,
-            Self::IndexRead => &Self::INDEX_READ_METHODS,
-            Self::Index => &Self::INDEX_METHODS,
-            Self::SliceRead => &Self::SLICE_READ_METHODS,
-            Self::Slice => &Self::SLICE_METHODS,
-            Self::GetPtrRead => &Self::GET_PTR_READ_METHODS,
-            Self::GetPtr => &Self::GET_PTR_METHODS,
-        }
+        self.descriptor().required_methods
     }
 
     pub fn supertraits(self) -> &'static [BuiltinSupertrait] {
-        match self {
-            Self::Deref => &Self::DEREF_SUPERTRAITS,
-            Self::Index => &Self::INDEX_SUPERTRAITS,
-            Self::Slice => &Self::SLICE_SUPERTRAITS,
-            Self::GetPtr => &Self::GET_PTR_SUPERTRAITS,
-            _ => &Self::NO_SUPERTRAITS,
-        }
+        self.descriptor().supertraits
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltinTraitDescriptor {
+    pub name: &'static str,
+    pub generic_count: usize,
+    pub associated_types: &'static [BuiltinAssociatedType],
+    pub required_methods: &'static [BuiltinTraitMethod],
+    pub supertraits: &'static [BuiltinSupertrait],
 }

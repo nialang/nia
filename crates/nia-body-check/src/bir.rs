@@ -7,10 +7,10 @@ use nia_ast::{
 use nia_body_ir::{
     BuiltinConst, BuiltinOperator, BuiltinPlaceMethod, MemoryIntrinsicOp, PlaceBase, PlaceElem,
     TypedArrayElements, TypedBinding, TypedBody, TypedCallee, TypedExpr, TypedExprKind,
-    TypedFieldInit, TypedForIn, TypedForIterator, TypedLocal, TypedLocalKind, TypedLoop,
-    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPlace, TypedRange,
-    TypedRangeIteratorKind, TypedSliceRange, TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm,
-    TypedSwitchArmBody, TypedSwitchPattern, TypedWhile,
+    TypedFieldInit, TypedForBinding, TypedForIn, TypedLocal, TypedLocalKind, TypedLoop,
+    TypedMemoryIntrinsic, TypedMemoryIntrinsicSource, TypedPlace, TypedRange, TypedSliceRange,
+    TypedStmt, TypedStmtKind, TypedSwitch, TypedSwitchArm, TypedSwitchArmBody, TypedSwitchPattern,
+    TypedWhile,
 };
 use nia_ids::{BuiltinReceiverKind, BuiltinTraitMethod, TraitId};
 use nia_local_resolve::{LocalKind, LocalUse};
@@ -19,7 +19,7 @@ use nia_sema_ir::{
 };
 use nia_span::Span;
 use nia_trait_solve::TraitResolution;
-use nia_ty::{BuiltinTrait, RangeTyKind, TyKind};
+use nia_ty::{BuiltinTrait, TyKind};
 use nia_value_resolve::ValueNameResolution;
 
 use crate::literals::{
@@ -137,18 +137,20 @@ impl<'a> BodyChecker<'a> {
             StmtKind::Continue => TypedStmtKind::Continue,
             StmtKind::Defer(expr) => TypedStmtKind::Defer(self.lower_expr(expr)),
             StmtKind::ForIn(for_stmt) => {
-                let local_id = self
-                    .local_def(&for_stmt.binding.node_key)
-                    .unwrap_or(nia_ids::LocalId(u32::MAX));
+                let local_id = self.local_def(&for_stmt.pattern.node_key);
+                let binding = for_stmt.pattern.name().and_then(|name| {
+                    Some(TypedForBinding {
+                        local_id: local_id?,
+                        name: name.to_string(),
+                    })
+                });
                 TypedStmtKind::ForIn(Box::new(TypedForIn {
-                    local_id,
-                    name: for_stmt.binding.name.clone(),
-                    ty: self
-                        .local_types
-                        .get(&local_id)
-                        .copied()
+                    binding,
+                    pattern_kind: for_stmt.pattern.kind,
+                    ty: local_id
+                        .and_then(|local_id| self.local_types.get(&local_id).copied())
                         .unwrap_or_else(|| self.error()),
-                    iter: self.lower_for_iterator(&for_stmt.iter),
+                    iter: self.lower_expr(&for_stmt.iter),
                     body: self.lower_body(&for_stmt.body),
                 }))
             }
@@ -164,33 +166,6 @@ impl<'a> BodyChecker<'a> {
             span: stmt.span,
             kind,
         }
-    }
-
-    fn lower_for_iterator(&mut self, iter: &Expr) -> TypedForIterator {
-        let ty = self.expr_ty(iter).unwrap_or_else(|| self.error());
-        if let Some(TyKind::Range { kind, .. }) =
-            self.interner.get(self.normalization.normalize(ty)).cloned()
-            && matches!(
-                kind,
-                RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From
-            )
-        {
-            let iterator_kind = match kind {
-                RangeTyKind::Exclusive => TypedRangeIteratorKind::Exclusive,
-                RangeTyKind::Inclusive => TypedRangeIteratorKind::Inclusive,
-                RangeTyKind::From => TypedRangeIteratorKind::From,
-                _ => unreachable!("range iterator kind checked above"),
-            };
-            return TypedForIterator::Range(nia_body_ir::TypedRangeIterator {
-                span: iter.span,
-                ty,
-                expr: self.lower_expr(iter),
-                kind: iterator_kind,
-                has_end: kind != RangeTyKind::From,
-                inclusive: kind == RangeTyKind::Inclusive,
-            });
-        }
-        TypedForIterator::Expr(self.lower_expr(iter))
     }
 
     fn lower_binding_stmt(&mut self, stmt: &Stmt, binding: &BindingStmt) -> Option<TypedBinding> {

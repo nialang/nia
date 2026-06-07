@@ -160,6 +160,7 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
                 size: owner.layouts.target.pointer_size * 2,
                 align: owner.layouts.target.pointer_align,
             }),
+            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. }) => None,
             Some(TyKind::Range { bound: None, .. }) => Some(TypeLayout { size: 0, align: 1 }),
             Some(TyKind::Range {
                 bound: Some(bound), ..

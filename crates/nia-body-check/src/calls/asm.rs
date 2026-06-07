@@ -118,7 +118,9 @@ impl<'a> BodyChecker<'a> {
             Some(
                 TyKind::Array { .. }
                 | TyKind::Slice { .. }
+                | TyKind::SlicePointee { .. }
                 | TyKind::TraitObject { .. }
+                | TyKind::TraitObjectPointee { .. }
                 | TyKind::Optional { .. }
                 | TyKind::ErrorUnion { .. },
             ) => {

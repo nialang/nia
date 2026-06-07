@@ -527,8 +527,9 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
     let program_defs = db.query(ProgramDefsByIdQuery);
     let program_type_lowerings = db.query(ProgramTypeLoweringsQuery);
     let program_type_normalizations = db.query(ProgramTypeNormalizationsQuery);
+    let program_signatures = db.query(ProgramSignaturesQuery);
     let module_ids = db.query(ParseOkModuleIdsQuery);
-    let program_signatures = module_ids
+    let program_item_signatures = module_ids
         .iter()
         .copied()
         .map(|module_id| (module_id, db.query(ItemSignaturesQuery(module_id))))
@@ -554,7 +555,8 @@ pub(super) fn provide_comptime(db: &QueryDb<DriverContext>, module_id: ModuleId)
                 defs: Some(&program_defs),
                 type_lowerings: Some(&program_type_lowerings),
                 type_normalizations: Some(&program_type_normalizations),
-                signatures: Some(&program_signatures),
+                signatures: Some(&program_item_signatures),
+                trait_impls: &program_signatures.trait_impls,
             },
         });
     comptime.diagnostics.extend(module.diagnostics);

@@ -762,7 +762,7 @@ fn builtin_trait_impls_cannot_overlap_compiler_proven_impls() {
     write(
         &root.join("main.nia"),
         r#"
-extend[T] &[T] : GetPtrRead {
+extend[T] [T] : GetPtrRead {
     type Target = T;
 
     fn get_ptr_read(& self) & T {
@@ -774,7 +774,7 @@ extend[T] [4]T : SliceRead[..] {
     type Output = & [T];
 
     fn slice_read(& self, range: ..) & [T] {
-        & self[..]
+        self.slice_read(range)
     }
 }
 
@@ -793,7 +793,7 @@ fn main() i32 { 0 }
                 .contains("overlaps a compiler-proven implementation")
         })
         .count();
-    assert!(overlap_count >= 2, "{:?}", program.diagnostics);
+    assert_eq!(overlap_count, 1, "{:?}", program.diagnostics);
 }
 
 #[test]
@@ -935,6 +935,72 @@ fn main() i32 { 0 }
             .diagnostic
             .summary
             .contains("overlaps a compiler-proven implementation")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_iterator_requires_optional_item_return() {
+    let root = temp_dir("builtin_iterator_requires_optional_item_return");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) i32 {
+        1
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains(
+                "implementation of trait method `next` does not match the trait signature"
+            )),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn builtin_iterator_requires_mutable_receiver() {
+    let root = temp_dir("builtin_iterator_requires_mutable_receiver");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&self) ?i32 {
+        null
+    }
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains(
+                "implementation of trait method `next` does not match the trait signature"
+            )),
         "{:?}",
         program.diagnostics
     );

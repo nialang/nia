@@ -303,6 +303,33 @@ fn take(xs: &[i32], ys: &mut [i32]) usize {
 }
 
 #[test]
+fn parses_slice_pointee_type_and_extend_target() {
+    let (module, errors) = parse_module(
+        r#"
+fn take(xs: [i32]) void {}
+
+extend[T] [T] {
+    fn len2(& self) usize {
+        self.len()
+    }
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    assert!(matches!(
+        function.params[0].ty.as_ref().map(|ty| &ty.kind),
+        Some(TypeKind::SlicePointee { .. })
+    ));
+    let ItemKind::Extend(extend) = &module.items[1].kind else {
+        panic!("expected extend");
+    };
+    assert!(matches!(extend.target.kind, TypeKind::SlicePointee { .. }));
+}
+
+#[test]
 fn parses_bit_not_unary_operator() {
     let (module, errors) = parse_module(
         r#"

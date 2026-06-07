@@ -59,6 +59,10 @@ impl<'a> TypeNormalizer<'a> {
                 let elem = self.normalize_ty(elem, stack);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.normalize_ty(elem, stack);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty(elem, stack);
                 let len = self.normalize_array_len(len, stack);
@@ -141,6 +145,34 @@ impl<'a> TypeNormalizer<'a> {
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty(arg, stack))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.normalize_ty(arg, stack))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_ty(binding.ty, stack),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -230,6 +262,10 @@ impl<'a> TypeNormalizer<'a> {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_ty_with_substitutions(elem, substitutions, stack);
                 let len = self.normalize_array_len_with_substitutions(len, substitutions, stack);
@@ -316,6 +352,36 @@ impl<'a> TypeNormalizer<'a> {
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_ty_with_substitutions(arg, substitutions, stack))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| {
+                                self.normalize_ty_with_substitutions(arg, substitutions, stack)
+                            })
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_ty_with_substitutions(binding.ty, substitutions, stack),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     associated_type_bindings,

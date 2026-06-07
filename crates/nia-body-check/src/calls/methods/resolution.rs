@@ -103,9 +103,12 @@ impl<'a> BodyChecker<'a> {
         target_ty: InternedTyId,
         method_id: GlobalDefId,
     ) -> InternedTyId {
-        let Some(TyKind::TraitObject { .. }) = self.interner.get(target_ty) else {
+        if !matches!(
+            self.interner.get(target_ty),
+            Some(TyKind::TraitObjectPointee { .. } | TyKind::SlicePointee { .. })
+        ) {
             return target_ty;
-        };
+        }
         self.resolved_function_signature(method_id)
             .and_then(|resolved| {
                 resolved
@@ -129,13 +132,8 @@ impl<'a> BodyChecker<'a> {
         if self.match_type_pattern(candidate_target_ty, receiver_ty, substitutions) {
             return true;
         }
-        if self
-            .trait_object_extension_target_matches_object_receiver(candidate_target_ty, receiver_ty)
-        {
-            return true;
-        }
         if self.trait_object_extension_target_matches_receiver(
-            candidate_target_ty,
+            target_ty,
             receiver_ty,
             substitutions,
         ) {
@@ -153,50 +151,16 @@ impl<'a> BodyChecker<'a> {
         false
     }
 
-    fn trait_object_extension_target_matches_object_receiver(
-        &mut self,
-        target_ty: InternedTyId,
-        receiver_ty: InternedTyId,
-    ) -> bool {
-        let (
-            Some(TyKind::TraitObject {
-                is_readonly: target_readonly,
-                trait_id: target_trait,
-                trait_args: target_args,
-                associated_type_bindings: target_bindings,
-            }),
-            Some(TyKind::TraitObject {
-                is_readonly: receiver_readonly,
-                trait_id: receiver_trait,
-                trait_args: receiver_args,
-                associated_type_bindings: receiver_bindings,
-            }),
-        ) = (
-            self.interner.get(target_ty).cloned(),
-            self.interner
-                .get(self.normalization.normalize(receiver_ty))
-                .cloned(),
-        )
-        else {
-            return false;
-        };
-        target_trait == receiver_trait
-            && target_args == receiver_args
-            && target_bindings == receiver_bindings
-            && (target_readonly || !receiver_readonly)
-    }
-
     fn trait_object_extension_target_matches_receiver(
         &mut self,
         target_ty: InternedTyId,
         receiver_ty: InternedTyId,
         substitutions: &mut HashMap<String, InternedTyId>,
     ) -> bool {
-        let Some(TyKind::TraitObject {
+        let Some(TyKind::TraitObjectPointee {
             trait_id,
             trait_args,
             associated_type_bindings,
-            ..
         }) = self.interner.get(target_ty).cloned()
         else {
             return false;
@@ -601,6 +565,12 @@ impl<'a> BodyChecker<'a> {
                 }) if general_const == specific_const
                     && self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
             ),
+            Some(TyKind::SlicePointee { elem: general_elem }) => matches!(
+                self.interner.get(specific),
+                Some(TyKind::SlicePointee {
+                    elem: specific_elem,
+                }) if self.pattern_subsumes_inner(*general_elem, *specific_elem, substitutions)
+            ),
             Some(TyKind::Array {
                 len: general_len,
                 elem: general_elem,
@@ -727,6 +697,56 @@ impl<'a> BodyChecker<'a> {
                     associated_type_bindings: specific_bindings,
                 }) if general_const == specific_const
                     && general_trait == specific_trait
+                    && general_args.len() == specific_args.len()
+                    && general_bindings.len() == specific_bindings.len() =>
+                {
+                    general_args
+                        .iter()
+                        .zip(specific_args)
+                        .all(|(general, specific)| {
+                            self.pattern_subsumes_inner(*general, *specific, substitutions)
+                        })
+                        && general_bindings.iter().all(|general_binding| {
+                            specific_bindings
+                                .iter()
+                                .find(|specific_binding| {
+                                    general_binding.name == specific_binding.name
+                                        && general_binding.trait_id == specific_binding.trait_id
+                                        && general_binding.trait_args.len()
+                                            == specific_binding.trait_args.len()
+                                        && general_binding
+                                            .trait_args
+                                            .iter()
+                                            .zip(&specific_binding.trait_args)
+                                            .all(|(general, specific)| {
+                                                self.pattern_subsumes_inner(
+                                                    *general,
+                                                    *specific,
+                                                    substitutions,
+                                                )
+                                            })
+                                })
+                                .is_some_and(|specific_binding| {
+                                    self.pattern_subsumes_inner(
+                                        general_binding.ty,
+                                        specific_binding.ty,
+                                        substitutions,
+                                    )
+                                })
+                        })
+                }
+                _ => false,
+            },
+            Some(TyKind::TraitObjectPointee {
+                trait_id: general_trait,
+                trait_args: general_args,
+                associated_type_bindings: general_bindings,
+            }) => match self.interner.get(specific) {
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: specific_trait,
+                    trait_args: specific_args,
+                    associated_type_bindings: specific_bindings,
+                }) if general_trait == specific_trait
                     && general_args.len() == specific_args.len()
                     && general_bindings.len() == specific_bindings.len() =>
                 {
@@ -950,6 +970,11 @@ impl<'a> BodyChecker<'a> {
                 }) if is_readonly == pattern_const
                     && self.match_type_pattern(*pattern_elem, *elem, substitutions)
             ),
+            Some(TyKind::SlicePointee { elem: pattern_elem }) => matches!(
+                self.interner.get(actual),
+                Some(TyKind::SlicePointee { elem })
+                    if self.match_type_pattern(*pattern_elem, *elem, substitutions)
+            ),
             Some(TyKind::Array {
                 len: pattern_len,
                 elem: pattern_elem,
@@ -1045,6 +1070,56 @@ impl<'a> BodyChecker<'a> {
                     associated_type_bindings,
                 }) if is_readonly == pattern_const
                     && trait_id == pattern_trait
+                    && pattern_args.len() == trait_args.len()
+                    && pattern_bindings.len() == associated_type_bindings.len() =>
+                {
+                    pattern_args
+                        .iter()
+                        .zip(trait_args)
+                        .all(|(pattern, actual)| {
+                            self.match_type_pattern(*pattern, *actual, substitutions)
+                        })
+                        && pattern_bindings.iter().all(|pattern_binding| {
+                            associated_type_bindings
+                                .iter()
+                                .find(|actual_binding| {
+                                    pattern_binding.name == actual_binding.name
+                                        && pattern_binding.trait_id == actual_binding.trait_id
+                                        && pattern_binding.trait_args.len()
+                                            == actual_binding.trait_args.len()
+                                        && pattern_binding
+                                            .trait_args
+                                            .iter()
+                                            .zip(&actual_binding.trait_args)
+                                            .all(|(pattern, actual)| {
+                                                self.match_type_pattern(
+                                                    *pattern,
+                                                    *actual,
+                                                    substitutions,
+                                                )
+                                            })
+                                })
+                                .is_some_and(|actual_binding| {
+                                    self.match_type_pattern(
+                                        pattern_binding.ty,
+                                        actual_binding.ty,
+                                        substitutions,
+                                    )
+                                })
+                        })
+                }
+                _ => false,
+            },
+            Some(TyKind::TraitObjectPointee {
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                associated_type_bindings: pattern_bindings,
+            }) => match self.interner.get(actual) {
+                Some(TyKind::TraitObjectPointee {
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }) if trait_id == pattern_trait
                     && pattern_args.len() == trait_args.len()
                     && pattern_bindings.len() == associated_type_bindings.len() =>
                 {

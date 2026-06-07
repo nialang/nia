@@ -49,18 +49,30 @@ pub struct BindingStmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ForInStmt {
-    pub binding: ForBinding,
+    pub pattern: ForPattern,
     pub iter: Expr,
     pub body: Block,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ForBinding {
+pub struct ForPattern {
     pub span: Span,
     pub node_key: NodeKey,
-    pub name: String,
-    pub ty: Option<TypeRef>,
-    pub is_let: bool,
+    pub name: Option<String>,
+    pub kind: ForPatternKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForPatternKind {
+    Value,
+    Pointer,
+    MutPointer,
+}
+
+impl ForPattern {
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

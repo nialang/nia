@@ -176,8 +176,12 @@ extend[T] Ptr[T] {
     fn is_null(self) bool { self as usize == 0 }
 }
 
-extend[T] & [T] {
-    fn size(self) usize { self.len() }
+extend[T] [T] {
+    fn size(& self) usize { self.len() }
+}
+
+extend[T] &[T] {
+    fn ref_size(& self) usize { self.*.len() }
 }
 
 extend[T] [3]T {
@@ -193,13 +197,135 @@ fn inc(value: i32) i32 { value + 1 }
 fn main(ptr: &i32, xs: & [i32], triple: [3]i32) i32 {
     if 0.is_zero() {}
     if ptr.is_null() {}
-    {}.unit() + xs.size() as i32 + triple.first() + (& inc).apply(1)
+    {}.unit() + xs.size() as i32 + xs.ref_size() as i32 + triple.first() + (& inc).apply(1)
 }
 "#,
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
     assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn supports_for_discard_pattern_without_binding_local() {
+    let root = temp_dir("supports_for_discard_pattern_without_binding_local");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {
+    current: i32,
+    end: i32,
+}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+fn main() i32 {
+    var total = 0;
+    var iter = Counter { current: 0, end: 3 };
+    for _ in iter {
+        total += 1;
+    }
+    total
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn rejects_for_pointer_pattern_for_non_pointer_items() {
+    let root = temp_dir("rejects_for_pointer_pattern_for_non_pointer_items");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        null
+    }
+}
+
+fn main() void {
+    var iter = Counter {};
+    for &value in iter {}
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("for pattern requires iterator item to be a read-only pointer")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn rejects_for_binding_type_annotations() {
+    let root = temp_dir("rejects_for_binding_type_annotations");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() void {
+    for value: usize in 0..3 {}
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("for patterns do not support type annotations")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn rejects_unsized_slice_pointee_as_value_type() {
+    let root = temp_dir("rejects_unsized_slice_pointee_as_value_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn take(xs: [i32]) i32 {
+    0
+}
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("slice pointee types are unsized")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

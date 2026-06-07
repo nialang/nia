@@ -74,34 +74,17 @@ pub struct TypedBinding {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypedForIn {
-    pub local_id: LocalId,
-    pub name: String,
+    pub binding: Option<TypedForBinding>,
+    pub pattern_kind: nia_ast::ForPatternKind,
     pub ty: InternedTyId,
-    pub iter: TypedForIterator,
+    pub iter: TypedExpr,
     pub body: TypedBody,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TypedForIterator {
-    Range(TypedRangeIterator),
-    Expr(TypedExpr),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TypedRangeIterator {
-    pub span: Span,
-    pub ty: InternedTyId,
-    pub expr: TypedExpr,
-    pub kind: TypedRangeIteratorKind,
-    pub has_end: bool,
-    pub inclusive: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TypedRangeIteratorKind {
-    Exclusive,
-    Inclusive,
-    From,
+pub struct TypedForBinding {
+    pub local_id: LocalId,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]

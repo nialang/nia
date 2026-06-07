@@ -112,15 +112,15 @@ extend[E] char : Format[E] {
     }
 }
 
-extend[E] &[char] : Format[E] {
+extend[E] [char] : Format[E] {
     fn format(&self, formatter: &mut Formatter[E]) E!void {
-        formatter.write_text(self.*)
+        formatter.write_text(self)
     }
 }
 
-extend[E] &[u8] : Format[E] {
+extend[E] [u8] : Format[E] {
     fn format(&self, formatter: &mut Formatter[E]) E!void {
-        formatter.write_bytes(self.*)
+        formatter.write_bytes(self)
     }
 }
 

@@ -317,6 +317,10 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Array { len, elem })
@@ -395,6 +399,34 @@ impl<'a> BodyChecker<'a> {
                     associated_type_bindings,
                 })
             }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.substitute_ty(arg, substitutions))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.substitute_ty(binding.ty, substitutions),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -453,11 +485,10 @@ impl<'a> BodyChecker<'a> {
                 })
             }
             DefKind::Method => {
-                if let Some(TyKind::TraitObject {
+                if let Some(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     associated_type_bindings,
-                    ..
                 }) = self
                     .method_owner_trait_object_type(def_id)
                     .and_then(|ty| self.interner.get(self.normalization.normalize(ty)).cloned())
@@ -744,7 +775,11 @@ impl<'a> BodyChecker<'a> {
     ) {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty).cloned() {
-            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
+            Some(
+                TyKind::Pointer { elem, .. }
+                | TyKind::Slice { elem, .. }
+                | TyKind::SlicePointee { elem },
+            ) => {
                 self.check_type_projection_obligations(span, elem, obligations);
             }
             Some(TyKind::Array { elem, .. }) => {
@@ -788,6 +823,11 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 associated_type_bindings,
                 ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
             }) => {
                 for arg in &trait_args {
                     self.check_type_projection_obligations(span, *arg, obligations);

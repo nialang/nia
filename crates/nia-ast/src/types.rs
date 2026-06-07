@@ -31,6 +31,9 @@ pub enum TypeKind {
         is_readonly: bool,
         elem: Box<TypeRef>,
     },
+    SlicePointee {
+        elem: Box<TypeRef>,
+    },
     Array {
         len: ArrayLen,
         elem: Box<TypeRef>,

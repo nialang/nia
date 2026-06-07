@@ -277,6 +277,7 @@ dependencies = [
  "nia-sema-ir",
  "nia-span",
  "nia-target-config",
+ "nia-trait-solve",
  "nia-ty",
  "nia-type-lower",
  "nia-type-normalize",

@@ -558,16 +558,23 @@ impl ResolvedComptimeForIn {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedComptimeForBinding {
     span: Span,
-    name: String,
-    local_id: LocalId,
+    name: Option<String>,
+    local_id: Option<LocalId>,
+    pattern_kind: nia_ast::ForPatternKind,
 }
 
 impl ResolvedComptimeForBinding {
-    pub fn new(span: Span, name: String, local_id: LocalId) -> Self {
+    pub fn new(
+        span: Span,
+        name: Option<String>,
+        local_id: Option<LocalId>,
+        pattern_kind: nia_ast::ForPatternKind,
+    ) -> Self {
         Self {
             span,
             name,
             local_id,
+            pattern_kind,
         }
     }
 
@@ -575,12 +582,16 @@ impl ResolvedComptimeForBinding {
         self.span
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
-    pub fn local_id(&self) -> LocalId {
+    pub fn local_id(&self) -> Option<LocalId> {
         self.local_id
+    }
+
+    pub fn pattern_kind(&self) -> nia_ast::ForPatternKind {
+        self.pattern_kind
     }
 }
 
@@ -804,9 +815,6 @@ pub enum ResolvedComptimeExprKind {
         name: String,
     },
     Len {
-        lhs: Box<ResolvedComptimeExpr>,
-    },
-    RangeIter {
         lhs: Box<ResolvedComptimeExpr>,
     },
     Index {
@@ -1121,8 +1129,9 @@ pub struct EarlyComptimeForIn {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EarlyComptimeForBinding {
     pub span: Span,
-    pub name: String,
+    pub name: Option<String>,
     pub local_id: Option<LocalId>,
+    pub pattern_kind: nia_ast::ForPatternKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1252,9 +1261,6 @@ pub enum EarlyComptimeExprKind {
         name: String,
     },
     Len {
-        lhs: Box<EarlyComptimeExpr>,
-    },
-    RangeIter {
         lhs: Box<EarlyComptimeExpr>,
     },
     Index {
@@ -1869,14 +1875,6 @@ fn lower_call_with_context(
             lhs: Box::new(lower_expr_internal(lhs, context)?),
         });
     }
-    if args.is_empty()
-        && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
-        && name == "iter"
-    {
-        return Ok(EarlyComptimeExprKind::RangeIter {
-            lhs: Box::new(lower_expr_internal(lhs, context)?),
-        });
-    }
     let (callee, type_args) = match &callee.kind {
         nia_ast::ExprKind::BracketSuffix {
             callee: generic_callee,
@@ -2202,12 +2200,19 @@ fn resolve_comptime_binding(
 fn resolve_comptime_for_in(
     for_in: EarlyComptimeForIn,
 ) -> Result<ResolvedComptimeForIn, ComptimeLowerError> {
-    let local_id = for_in
-        .binding
-        .local_id
-        .ok_or_else(|| unresolved_error(for_in.binding.span, "comptime for binding"))?;
+    if for_in.binding.name.is_some() && for_in.binding.local_id.is_none() {
+        return Err(unresolved_error(
+            for_in.binding.span,
+            "comptime for binding",
+        ));
+    }
     Ok(ResolvedComptimeForIn::new(
-        ResolvedComptimeForBinding::new(for_in.binding.span, for_in.binding.name, local_id),
+        ResolvedComptimeForBinding::new(
+            for_in.binding.span,
+            for_in.binding.name,
+            for_in.binding.local_id,
+            for_in.binding.pattern_kind,
+        ),
         resolve_expr(for_in.iter)?,
         resolve_comptime_block(for_in.body)?,
     ))
@@ -2233,9 +2238,6 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
             name,
         },
         EarlyComptimeExprKind::Len { lhs } => ResolvedComptimeExprKind::Len {
-            lhs: Box::new(resolve_expr(*lhs)?),
-        },
-        EarlyComptimeExprKind::RangeIter { lhs } => ResolvedComptimeExprKind::RangeIter {
             lhs: Box::new(resolve_expr(*lhs)?),
         },
         EarlyComptimeExprKind::Index { lhs, index } => ResolvedComptimeExprKind::Index {
@@ -2679,9 +2681,14 @@ fn lower_stmt_with_context(
         nia_ast::StmtKind::Continue => EarlyComptimeStmtKind::Continue,
         nia_ast::StmtKind::ForIn(for_in) => EarlyComptimeStmtKind::ForIn(EarlyComptimeForIn {
             binding: EarlyComptimeForBinding {
-                span: for_in.binding.span,
-                name: for_in.binding.name.clone(),
-                local_id: lower_local_id(context, &for_in.binding.node_key, for_in.binding.span)?,
+                span: for_in.pattern.span,
+                name: for_in.pattern.name.clone(),
+                local_id: if for_in.pattern.name.is_some() {
+                    lower_local_id(context, &for_in.pattern.node_key, for_in.pattern.span)?
+                } else {
+                    None
+                },
+                pattern_kind: for_in.pattern.kind,
             },
             iter: lower_expr_internal(&for_in.iter, context)?,
             body: lower_block_with_context(&for_in.body, context)?,

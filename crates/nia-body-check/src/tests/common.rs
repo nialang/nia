@@ -3,12 +3,15 @@ pub(super) use crate::*;
 pub(super) use nia_defs::{
     DefKind, ModuleId, VisibleExtensionMethod, VisibleExtensionMethods, collect_module_defs,
 };
-pub(super) use nia_item_signatures::{ProgramSignatureMaps, collect_item_signatures};
+pub(super) use nia_item_signatures::{
+    ProgramSignatureMaps, ProgramTraitImplSignature, collect_item_signatures,
+};
 pub(super) use nia_local_resolve::resolve_module_locals;
 pub(super) use nia_node_id::{NodeOriginTable, NodePosition, SyntaxKind};
 pub(super) use nia_parser::{parse_module, parse_module_syntax_with_origins};
 pub(super) use nia_sema_ir::{BracketSuffixResolution, BuiltinValue, SemanticUseTable};
 pub(super) use nia_source::{SourceId, SourceRevision, SourceVersion};
+pub(super) use nia_ty::{TraitId, TyKind};
 pub(super) use nia_type_lower::lower_module_types;
 pub(super) use nia_type_resolve::resolve_module_types;
 pub(super) use std::collections::HashMap;
@@ -119,6 +122,7 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
         &signatures,
         nia_layout::TargetDataLayout::LP64,
     );
+    let trait_impls = single_module_trait_impls(ModuleId(0), &signatures, &lowered);
     let origins = NodeOriginTable::default();
     check_module_bodies_with_program_signatures_and_layouts(BodyCheckInput {
         source_version: None,
@@ -147,13 +151,53 @@ pub(super) fn pipeline(source: &str) -> BodyCheck {
             unions: &HashMap::new(),
             enums: &HashMap::new(),
             traits: &HashMap::new(),
-            trait_impls: &[],
+            trait_impls: &trait_impls,
         },
         program_comptime: ProgramComptimeMaps {
             comptimes: &HashMap::new(),
             modules: &HashMap::new(),
         },
     })
+}
+
+fn single_module_trait_impls(
+    module_id: ModuleId,
+    signatures: &nia_item_signatures::ItemSignatures,
+    lowered: &nia_type_lower::TypeLowering,
+) -> Vec<ProgramTraitImplSignature> {
+    signatures
+        .trait_impls
+        .iter()
+        .enumerate()
+        .filter_map(|(local_index, impl_signature)| {
+            let trait_ty = impl_signature.trait_ty?;
+            let (trait_id, trait_args) = trait_id_and_args(&lowered.interner, trait_ty)?;
+            Some(ProgramTraitImplSignature {
+                module_id,
+                local_index,
+                generics: impl_signature.generics.clone(),
+                target_ty: impl_signature.target_ty,
+                trait_id,
+                trait_args,
+                where_predicates: impl_signature.where_predicates.clone(),
+                associated_types: impl_signature.associated_types.clone(),
+                interner: lowered.interner.clone(),
+            })
+        })
+        .collect()
+}
+
+fn trait_id_and_args(
+    interner: &nia_ty::TyInterner,
+    ty: nia_ids::InternedTyId,
+) -> Option<(TraitId, Vec<nia_ids::InternedTyId>)> {
+    match interner.get(ty) {
+        Some(TyKind::Nominal { def_id, args }) => Some((TraitId::Source(*def_id), args.clone())),
+        Some(TyKind::BuiltinTrait { trait_id, args }) => {
+            Some((TraitId::Builtin(*trait_id), args.clone()))
+        }
+        _ => None,
+    }
 }
 
 pub(super) fn semantic_use_table(

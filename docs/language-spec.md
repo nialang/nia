@@ -1463,39 +1463,51 @@ Nia has three loop forms: `for-in`, `while`, and `loop`.
 Iterator loop:
 
 ```nia
-for i in 0..10 {
-    printf(& int_fmt[0], i);
+for item in iter {
+    consume(item);
 }
 ```
 
-`for name in expr` requires `expr` to be an iterator expression. The loop does
-not implicitly call `.iter()` or `.iter_read()` and does not infer mutable
-iteration from the source expression. Ranges with a start bound are iterator
-values directly, whether written inline or stored in a range-typed value.
-Start-bound ranges also provide the compiler built-in method `.iter()`, which
-returns the same range iterator value. Collection iteration should be written
-explicitly through iterator-producing methods such as `xs.iter()` or
-`xs.iter_read()` once those methods are provided.
+`for pattern in expr` requires `expr` to implement the builtin `Iterator`
+trait. The loop does not perform ordinary method lookup for a method named
+`next`, does not bind to any standard-library module path, and does not
+implicitly call `.iter()` or `.iter_read()`. Collection and range iteration
+must be expressed by values or adapters that explicitly implement `Iterator`.
 
-The loop binding may be annotated:
+The builtin iterator protocol is:
 
 ```nia
-for i: usize in 0..len {
-    printf(& int_fmt[0], i);
+trait Iterator {
+    type Item;
+    fn next(&mut self) ?Item;
 }
 ```
 
-The annotation is the expected iterator item type. It is not an implicit
-conversion applied to each yielded value. For range iterator expressions, the
-annotation supplies the expected bound type to the range expression, so integer
-literals and other context-sensitive bounds are checked as that type. For
-example, `for i: usize in 0..len` checks the lower bound `0` as `usize`, and
-requires `len` to be compatible with `usize`.
+`Item` may be a value type, `&T`, or `&mut T`. Fallible iteration is not part
+of the base `for` protocol.
 
-If the iterator expression already has a fixed item type, the annotation must
-match that item type. Future iterator-producing methods and user iterator
-protocols follow the same rule: the annotation constrains the produced item
-type, not the final type after conversion.
+The loop pattern may be a value binding, a pointer binding, a mutable pointer
+binding, or a discard:
+
+```nia
+for x in values {}
+for &x in pointer_values {}
+for &mut x in mutable_pointer_values {}
+for _ in values {}
+```
+
+`&x` and `&mut x` are pointer patterns. They require the iterator item type to
+be `&T` or `&mut T` respectively, and bind `x` as that pointer value. They do
+not introduce a separate reference concept and do not copy the pointed-to value.
+
+For-in bindings do not support type annotations. Write the iterator expression
+so that its item type is clear:
+
+```nia
+for i in 0usize..len {
+    printf(& int_fmt[0], i);
+}
+```
 
 Condition loop:
 
@@ -1720,7 +1732,6 @@ Nia provides a small builtin surface:
 @builtin().target.endian
 @builtin().target.pointer_width
 value.len()
-range.iter()
 slice.get_ptr_read()
 slice.get_ptr()
 @asm({...})
@@ -1750,9 +1761,6 @@ generic function is instantiated.
 it returns `N`; for `&[T]` and `&mut [T]`, it returns the runtime slice
 length. `len` is not a trait method and user types cannot implement a built-in
 `Len` capability.
-
-`range.iter()` is a compiler built-in method for start-bound ranges. It returns
-the same range value as an iterator value.
 
 `slice.get_ptr_read()` and `slice.get_ptr()` call the built-in `GetPtrRead`
 and `GetPtr` trait methods. `&[T]` and `&mut [T]` have compiler-proven

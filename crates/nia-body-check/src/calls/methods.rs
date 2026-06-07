@@ -119,7 +119,6 @@ impl<'a> BodyChecker<'a> {
     ) -> Option<InternedTyId> {
         let method = match name {
             "len" => BuiltinMethod::Len,
-            "iter" => BuiltinMethod::RangeIter,
             _ => return None,
         };
         self.check_call_arg_count(span, args.len(), 0, false);
@@ -134,26 +133,6 @@ impl<'a> BodyChecker<'a> {
                 match self.interner.get(self.normalization.normalize(receiver_ty)) {
                     Some(TyKind::Array { .. }) | Some(TyKind::Slice { .. }) => {
                         self.primitive(PrimitiveTy::Usize)
-                    }
-                    _ => return None,
-                }
-            }
-            BuiltinMethod::RangeIter => {
-                match self.interner.get(self.normalization.normalize(receiver_ty)) {
-                    Some(TyKind::Range {
-                        kind:
-                            nia_ty::RangeTyKind::Exclusive
-                            | nia_ty::RangeTyKind::Inclusive
-                            | nia_ty::RangeTyKind::From,
-                        bound: Some(_),
-                    }) => receiver_ty,
-                    Some(TyKind::Range { .. }) => {
-                        self.diagnostics.push(Diagnostic::user_error_at(
-                            "E0301",
-                            span,
-                            "range.iter() requires a start bound",
-                        ));
-                        return Some(self.error());
                     }
                     _ => return None,
                 }

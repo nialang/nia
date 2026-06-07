@@ -560,6 +560,10 @@ impl<'a> TypeLowerer<'a> {
                     elem,
                 })
             }
+            TypeKind::SlicePointee { elem } => {
+                let elem = self.lower_type_in_context(elem, TypeContext::Value);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             TypeKind::Array { len, elem } => {
                 let len = self.lower_array_len(len);
                 let elem = self.lower_type_in_context(elem, TypeContext::Value);
@@ -807,8 +811,7 @@ impl<'a> TypeLowerer<'a> {
             let object_args = self
                 .lower_trait_object_args(span, segment, TraitId::Source(def_id))
                 .unwrap_or_default();
-            return self.interner.intern(TyKind::TraitObject {
-                is_readonly: false,
+            return self.interner.intern(TyKind::TraitObjectPointee {
                 trait_id: TraitId::Source(def_id),
                 trait_args: object_args.trait_args,
                 associated_type_bindings: object_args.associated_type_bindings,
@@ -1036,7 +1039,15 @@ impl<'a> TypeLowerer<'a> {
         context: TypeContext,
     ) -> InternedTyId {
         if context == TypeContext::ExtendTarget {
-            return self.lower_builtin_trait_object(span, false, segment, trait_id);
+            let object_args = self
+                .lower_trait_object_args(span, segment, TraitId::Builtin(trait_id))
+                .unwrap_or_default();
+            self.check_builtin_trait_arg_count(span, trait_id, object_args.trait_args.len());
+            return self.interner.intern(TyKind::TraitObjectPointee {
+                trait_id: TraitId::Builtin(trait_id),
+                trait_args: object_args.trait_args,
+                associated_type_bindings: object_args.associated_type_bindings,
+            });
         }
         let mut args = Vec::new();
         let mut seen_assoc_bindings = HashSet::new();
@@ -1361,6 +1372,12 @@ impl<'a> TypeLowerer<'a> {
             Some(TyKind::Primitive(PrimitiveTy::Never)) => {
                 Some("`never` is not valid as a value, field, parameter, or array element type")
             }
+            Some(TyKind::SlicePointee { .. }) => Some(
+                "slice pointee types are unsized and not valid as values, fields, parameters, or array elements; use `&[T]` or `&mut [T]` for a slice value",
+            ),
+            Some(TyKind::TraitObjectPointee { .. }) => Some(
+                "trait object pointee types are unsized and not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
+            ),
             Some(TyKind::BuiltinTrait { .. }) => Some(
                 "trait types are not valid as values, fields, parameters, or array elements; use `&Trait[...]` or `&mut Trait[...]` for a trait object",
             ),
@@ -1541,6 +1558,41 @@ extend Sink : Writer {
             })
             .count();
         assert!(shorthand_projections >= 2, "{:?}", lowered.node_type_uses);
+    }
+
+    #[test]
+    fn lowers_slice_extend_target_to_slice_pointee() {
+        let (module, errors) = parse_module(
+            r#"
+extend[T] [T] {
+    fn len2(& self) usize {
+        self.len()
+    }
+}
+"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+        let defs = collect_module_defs(ModuleId(0), &module);
+        let resolved = resolve_module_types(&module, &defs);
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let lowered = lower_module_types_with_id(ModuleId(0), &module, &resolved);
+        assert!(lowered.diagnostics.is_empty(), "{:?}", lowered.diagnostics);
+        let nia_ast::ItemKind::Extend(extend) = &module.items[0].kind else {
+            panic!("expected extend");
+        };
+        let target_ty = lowered
+            .node_type_uses
+            .get(&extend.target.node_key)
+            .copied()
+            .expect("expected lowered extend target");
+        assert!(matches!(
+            lowered.interner.get(target_ty),
+            Some(TyKind::SlicePointee { .. })
+        ));
     }
 
     #[test]

@@ -472,6 +472,12 @@ impl<'a> ModuleLowerer<'a> {
                 let instantiated = self.interner.intern(TyKind::Slice { is_readonly, elem });
                 self.finish_type_instantiation(key, instantiated, can_use_cache)
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem =
+                    self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
+                let instantiated = self.interner.intern(TyKind::SlicePointee { elem });
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem =
                     self.instantiate_ty_with_id_inner(elem, substitutions, active_projections);
@@ -586,6 +592,49 @@ impl<'a> ModuleLowerer<'a> {
                     .collect();
                 let instantiated = self.interner.intern(TyKind::TraitObject {
                     is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                });
+                self.finish_type_instantiation(key, instantiated, can_use_cache)
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .iter()
+                    .copied()
+                    .map(|arg| {
+                        self.instantiate_ty_with_id_inner(arg, substitutions, active_projections)
+                    })
+                    .collect::<Vec<_>>();
+                let associated_type_bindings = associated_type_bindings
+                    .iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .iter()
+                            .copied()
+                            .map(|arg| {
+                                self.instantiate_ty_with_id_inner(
+                                    arg,
+                                    substitutions,
+                                    active_projections,
+                                )
+                            })
+                            .collect(),
+                        name: binding.name.clone(),
+                        ty: self.instantiate_ty_with_id_inner(
+                            binding.ty,
+                            substitutions,
+                            active_projections,
+                        ),
+                    })
+                    .collect();
+                let instantiated = self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -874,6 +923,14 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::SlicePointee { elem: pattern_elem }) => {
+                match self.ty_kind(actual).cloned() {
+                    Some(TyKind::SlicePointee { elem }) => {
+                        self.match_extension_type_pattern(pattern_elem, elem, substitutions)
+                    }
+                    _ => false,
+                }
+            }
             Some(TyKind::Array {
                 len: pattern_len,
                 elem: pattern_elem,
@@ -1002,6 +1059,45 @@ impl<'a> ModuleLowerer<'a> {
                 }
                 _ => false,
             },
+            Some(TyKind::TraitObjectPointee {
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                associated_type_bindings: pattern_bindings,
+            }) => match self.ty_kind(actual).cloned() {
+                Some(TyKind::TraitObjectPointee {
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }) if trait_id == pattern_trait
+                    && pattern_args.len() == trait_args.len()
+                    && pattern_bindings.len() == associated_type_bindings.len() =>
+                {
+                    pattern_args
+                        .iter()
+                        .zip(trait_args)
+                        .all(|(pattern, actual)| {
+                            self.match_extension_type_pattern(*pattern, actual, substitutions)
+                        })
+                        && pattern_bindings.iter().all(|pattern_binding| {
+                            associated_type_bindings
+                                .iter()
+                                .find(|actual_binding| {
+                                    self.associated_type_binding_keys_match(
+                                        pattern_binding,
+                                        actual_binding,
+                                    )
+                                })
+                                .is_some_and(|actual_binding| {
+                                    self.match_extension_type_pattern(
+                                        pattern_binding.ty,
+                                        actual_binding.ty,
+                                        substitutions,
+                                    )
+                                })
+                        })
+                }
+                _ => false,
+            },
             Some(TyKind::Projection {
                 self_ty: pattern_self,
                 trait_id: pattern_trait,
@@ -1040,9 +1136,11 @@ impl<'a> ModuleLowerer<'a> {
     ) -> bool {
         match self.extension_ty_kind(pattern) {
             Some(TyKind::GenericParam(name)) => substitutions.contains_key(name),
-            Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
-                self.extension_pattern_generics_are_bound(*elem, substitutions)
-            }
+            Some(
+                TyKind::Pointer { elem, .. }
+                | TyKind::Slice { elem, .. }
+                | TyKind::SlicePointee { elem },
+            ) => self.extension_pattern_generics_are_bound(*elem, substitutions),
             Some(TyKind::Array { elem, .. }) => {
                 self.extension_pattern_generics_are_bound(*elem, substitutions)
             }
@@ -1070,6 +1168,11 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .all(|arg| self.extension_pattern_generics_are_bound(*arg, substitutions)),
             Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..

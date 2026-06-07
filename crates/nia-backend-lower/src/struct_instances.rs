@@ -495,6 +495,7 @@ impl<'a> ModuleLowerer<'a> {
         match self.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
             | Some(TyKind::Array { elem, .. }) => {
                 self.collect_struct_instance_ty(elem, seen, out);
             }
@@ -536,6 +537,11 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..
@@ -929,6 +935,7 @@ impl<'a> ModuleLowerer<'a> {
         match self.interner.get(ty).cloned() {
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
             | Some(TyKind::Array { elem, .. }) => {
                 self.collect_union_instance_ty(elem, seen, out);
             }
@@ -970,6 +977,11 @@ impl<'a> ModuleLowerer<'a> {
                 }
             }
             Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..

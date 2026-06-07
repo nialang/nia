@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionBinding, FunctionBlockId, FunctionBody, FunctionDeferBody, FunctionExpr,
-    FunctionExprKind, FunctionForHeader, FunctionIrError, FunctionOp, FunctionScopeId,
-    FunctionTerminator, FunctionTryKind, validate_function_body,
+    FunctionBinding, FunctionBlockId, FunctionBody, FunctionDeferBody, FunctionErrorUnionTag,
+    FunctionExpr, FunctionExprKind, FunctionForHeader, FunctionIrError, FunctionOp,
+    FunctionOptionalTag, FunctionScopeId, FunctionTerminator, FunctionTryKind,
+    validate_function_body,
 };
 use nia_llvm::{IntPredicate, basic_block::BasicBlock, values::IntValue};
 use nia_span::Span;
@@ -369,10 +370,14 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             .map_err(|_| self.error(span, "failed to extract propagation tag"))?
             .into_int_value()?;
         let failure_tag = match kind {
-            FunctionTryKind::Optional => 0,
-            FunctionTryKind::ErrorUnion => 1,
+            FunctionTryKind::Optional => FunctionOptionalTag::Null.discriminant(),
+            FunctionTryKind::ErrorUnion => FunctionErrorUnionTag::Err.discriminant(),
         };
-        let failure_tag = self.module.context.i8_type().const_int(failure_tag, false);
+        let failure_tag = self
+            .module
+            .context
+            .i8_type()
+            .const_int(failure_tag.into(), false);
         let is_failure = self
             .builder
             .build_int_compare(IntPredicate::EQ, tag, failure_tag, "try.failed")
@@ -433,14 +438,23 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                     ty: return_ty,
                     kind: FunctionExprKind::Null,
                 };
-                self.emit_tagged_union_into(&expr, 0, None, return_ptr)?;
+                self.emit_tagged_union_into(
+                    &expr,
+                    FunctionOptionalTag::Null.discriminant(),
+                    None,
+                    return_ptr,
+                )?;
             }
             FunctionTryKind::ErrorUnion => {
                 let tag_ptr = self
                     .builder
                     .build_struct_gep(return_llvm_ty, return_ptr, 0, "try.return.tag")
                     .map_err(|_| self.error(span, "failed to build propagation return tag"))?;
-                let tag = self.module.context.i8_type().const_int(1, false);
+                let tag = self
+                    .module
+                    .context
+                    .i8_type()
+                    .const_int(FunctionErrorUnionTag::Err.discriminant().into(), false);
                 self.builder
                     .build_store(tag_ptr, tag)
                     .map_err(|_| self.error(span, "failed to store propagation return tag"))?;
@@ -821,19 +835,39 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 Ok(true)
             }
             FunctionExprKind::Null => {
-                self.emit_tagged_union_into(value, 0, None, ptr)?;
+                self.emit_tagged_union_into(
+                    value,
+                    FunctionOptionalTag::Null.discriminant(),
+                    None,
+                    ptr,
+                )?;
                 Ok(true)
             }
             FunctionExprKind::OptionalSome { expr } => {
-                self.emit_tagged_union_into(value, 1, Some(expr), ptr)?;
+                self.emit_tagged_union_into(
+                    value,
+                    FunctionOptionalTag::Some.discriminant(),
+                    Some(expr),
+                    ptr,
+                )?;
                 Ok(true)
             }
             FunctionExprKind::ErrorOk { expr } => {
-                self.emit_tagged_union_into(value, 0, Some(expr), ptr)?;
+                self.emit_tagged_union_into(
+                    value,
+                    FunctionErrorUnionTag::Ok.discriminant(),
+                    Some(expr),
+                    ptr,
+                )?;
                 Ok(true)
             }
             FunctionExprKind::ErrorErr { expr } => {
-                self.emit_tagged_union_into(value, 1, Some(expr), ptr)?;
+                self.emit_tagged_union_into(
+                    value,
+                    FunctionErrorUnionTag::Err.discriminant(),
+                    Some(expr),
+                    ptr,
+                )?;
                 Ok(true)
             }
             _ => Ok(false),

@@ -8,17 +8,21 @@ use nia_comptime_ir::{
     ResolvedComptimeArrayElements, ResolvedComptimeArrayElementsKind, ResolvedComptimeAssignTarget,
     ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding, ResolvedComptimeBlock,
     ResolvedComptimeEnum, ResolvedComptimeEnumVariant, ResolvedComptimeExpr,
-    ResolvedComptimeExprKind, ResolvedComptimeFieldInit, ResolvedComptimeLocalInitializer,
-    ResolvedComptimeModule, ResolvedComptimeParam, ResolvedComptimeStmtKind,
-    ResolvedComptimeSwitch, ResolvedComptimeSwitchArmBody, ResolvedComptimeSwitchArmBodyKind,
-    ResolvedComptimeSwitchPattern, ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
+    ResolvedComptimeExprKind, ResolvedComptimeFieldInit, ResolvedComptimeFunction,
+    ResolvedComptimeLocalInitializer, ResolvedComptimeModule, ResolvedComptimeParam,
+    ResolvedComptimeStmtKind, ResolvedComptimeSwitch, ResolvedComptimeSwitchArmBody,
+    ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPattern,
+    ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
 };
 use nia_defs::{DefCollection, DefId, DefKind};
 use nia_diagnostic::Diagnostic;
 use nia_ids::{
     GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ModuleId, ValueBuiltin,
 };
-use nia_item_signatures::{FunctionSignature, ItemSignatures};
+use nia_item_signatures::{
+    FunctionSignature, ItemSignatures, ProgramEnumSignature, ProgramTraitImplSignature,
+    WherePredicateSignature,
+};
 use nia_local_resolve::{LocalKind, LocalResolution};
 use nia_sema::{
     ArityCheck, ArrayLiteralLenCheck, FieldSetCheck, NamedField, check_array_literal_len,
@@ -27,7 +31,8 @@ use nia_sema::{
 use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_target_config::TargetConfig;
-use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TyInterner, TyKind, import_type_into};
+use nia_trait_solve::{TraitGoal, TraitSolverContext};
+use nia_ty::{ArrayLenTy, PrimitiveTy, RangeTyKind, TraitId, TyInterner, TyKind, import_type_into};
 use nia_value_resolve::ValueResolution;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -219,6 +224,7 @@ pub struct ComptimeProgramContext<'a> {
     pub type_lowerings: Option<&'a HashMap<ModuleId, nia_type_lower::TypeLowering>>,
     pub type_normalizations: Option<&'a HashMap<ModuleId, nia_type_normalize::TypeNormalization>>,
     pub signatures: Option<&'a HashMap<ModuleId, ItemSignatures>>,
+    pub trait_impls: &'a [ProgramTraitImplSignature],
 }
 
 impl<'a> ComptimeProgramContext<'a> {
@@ -229,6 +235,7 @@ impl<'a> ComptimeProgramContext<'a> {
             type_lowerings: None,
             type_normalizations: None,
             signatures: None,
+            trait_impls: &[],
         }
     }
 }
@@ -249,6 +256,7 @@ pub fn lower_module_comptime(input: ComptimeModuleInput<'_>) -> ComptimeModuleLo
 #[derive(Debug, Clone, Default)]
 pub struct TypedComptimeFrame {
     pub module_id: Option<ModuleId>,
+    pub function_id: Option<GlobalDefId>,
     pub local_types: HashMap<LocalId, ComptimeValueType>,
     pub type_substitutions: HashMap<String, InternedTyId>,
 }
@@ -531,12 +539,14 @@ impl ComptimeModuleLowerer<'_> {
             | nia_ast::StmtKind::Return(Some(expr))
             | nia_ast::StmtKind::Defer(expr) => self.collect_expr_locals(expr, out),
             nia_ast::StmtKind::ForIn(for_stmt) => {
-                if let Some(local_id) = self
-                    .input
-                    .semantic_uses
-                    .node_local_def(&for_stmt.binding.node_key)
-                {
-                    out.insert(local_id);
+                if for_stmt.pattern.name().is_some() {
+                    if let Some(local_id) = self
+                        .input
+                        .semantic_uses
+                        .node_local_def(&for_stmt.pattern.node_key)
+                    {
+                        out.insert(local_id);
+                    }
                 }
                 self.collect_expr_locals(&for_stmt.iter, out);
                 self.collect_block_locals(&for_stmt.body, out);
@@ -800,6 +810,7 @@ struct Analyzer<'a> {
 #[derive(Debug, Clone, Default)]
 struct ComptimeCallFrame {
     module_id: Option<ModuleId>,
+    function_id: Option<GlobalDefId>,
     locals: HashMap<LocalId, ComptimeValue>,
     local_types: HashMap<LocalId, ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
@@ -810,6 +821,7 @@ impl From<TypedComptimeFrame> for ComptimeCallFrame {
     fn from(frame: TypedComptimeFrame) -> Self {
         Self {
             module_id: frame.module_id,
+            function_id: frame.function_id,
             locals: HashMap::new(),
             local_types: frame.local_types,
             mutable_locals: HashSet::new(),
@@ -857,6 +869,10 @@ impl Analyzer<'_> {
     }
 
     fn analyze_module(&mut self) {
+        let functions = self.input.module.functions().clone();
+        for (function_id, function) in functions {
+            self.check_comptime_function_body(function_id, &function);
+        }
         let enums = self.input.module.enums().to_vec();
         for item_enum in &enums {
             self.eval_enum(item_enum);
@@ -899,6 +915,30 @@ impl Analyzer<'_> {
                 .unwrap_or(Span::new(0, 0));
             let _ = self.eval_key(ComptimeKey::Local(local_id), span);
         }
+    }
+
+    fn check_comptime_function_body(
+        &mut self,
+        function_id: GlobalDefId,
+        function: &ResolvedComptimeFunction,
+    ) {
+        let mut frame = ComptimeCallFrame {
+            module_id: Some(function_id.module_id),
+            function_id: Some(function_id),
+            ..ComptimeCallFrame::default()
+        };
+        for param in function.params() {
+            if let Some(ty) = param.ty() {
+                frame
+                    .local_types
+                    .insert(param.local_id(), ComptimeValueType::Runtime(ty));
+            }
+        }
+        self.call_locals.push(frame);
+        let _ = self.with_execution_module(function_id.module_id, |this| {
+            this.check_resolved_comptime_block(function.body())
+        });
+        self.call_locals.pop();
     }
 
     fn eval_enum(&mut self, item_enum: &ResolvedComptimeEnum) {
@@ -1716,6 +1756,13 @@ impl Analyzer<'_> {
             .unwrap_or(self.input.defs.module_id)
     }
 
+    fn current_execution_function_id(&self) -> Option<GlobalDefId> {
+        self.call_locals
+            .iter()
+            .rev()
+            .find_map(|frame| frame.function_id)
+    }
+
     fn interner_for_module(&self, module_id: ModuleId) -> Option<&TyInterner> {
         self.working_interners.get(&module_id)
     }
@@ -1743,6 +1790,42 @@ impl Analyzer<'_> {
         } else {
             self.input.program.signatures?.get(&module_id)
         }
+    }
+
+    fn program_enum_signatures(&self) -> HashMap<GlobalDefId, ProgramEnumSignature> {
+        let mut enums = HashMap::new();
+        if let Some(signatures) = self.input.program.signatures {
+            for (module_id, signatures) in signatures {
+                for (def_id, signature) in &signatures.enums {
+                    let Some(normalization) = self.type_normalization_for_module(*module_id) else {
+                        continue;
+                    };
+                    enums.insert(
+                        GlobalDefId {
+                            module_id: *module_id,
+                            def_id: *def_id,
+                        },
+                        ProgramEnumSignature {
+                            signature: signature.clone(),
+                            interner: normalization.interner.clone(),
+                        },
+                    );
+                }
+            }
+        }
+        for (def_id, signature) in &self.input.signatures.enums {
+            enums.insert(
+                GlobalDefId {
+                    module_id: self.input.defs.module_id,
+                    def_id: *def_id,
+                },
+                ProgramEnumSignature {
+                    signature: signature.clone(),
+                    interner: self.input.interner.clone(),
+                },
+            );
+        }
+        enums
     }
 
     fn type_normalization_for_module(
@@ -1891,7 +1974,8 @@ impl Analyzer<'_> {
             }
             Some(TyKind::Optional { elem })
             | Some(TyKind::Pointer { elem, .. })
-            | Some(TyKind::Slice { elem, .. }) => {
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem }) => {
                 self.collect_array_len_const_exprs_in_ty_inner(elem, out, seen);
             }
             Some(TyKind::ErrorUnion { error, value }) => {
@@ -1937,6 +2021,11 @@ impl Analyzer<'_> {
                 }
             }
             Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..
@@ -2279,10 +2368,6 @@ impl Analyzer<'_> {
                 let lhs_ty = self.resolved_comptime_expr_type(lhs, None)?;
                 self.comptime_len_type(lhs_ty)
             }
-            ResolvedComptimeExprKind::RangeIter { lhs } => {
-                let lhs_ty = self.resolved_comptime_expr_type(lhs, None)?;
-                self.comptime_range_iter_type(lhs_ty)
-            }
             ResolvedComptimeExprKind::Cast { expr: inner, ty } => {
                 self.resolved_comptime_cast_type(inner, *ty)
             }
@@ -2419,19 +2504,6 @@ impl Analyzer<'_> {
             | ComptimeValueType::Int
             | ComptimeValueType::Bool
             | ComptimeValueType::String => None,
-        }
-    }
-
-    fn comptime_range_iter_type(&mut self, lhs: ComptimeValueType) -> Option<ComptimeValueType> {
-        let ComptimeValueType::Runtime(ty) = lhs else {
-            return None;
-        };
-        match self.ty_kind(ty)? {
-            TyKind::Range {
-                kind: RangeTyKind::Exclusive | RangeTyKind::Inclusive | RangeTyKind::From,
-                bound: Some(_),
-            } => Some(ComptimeValueType::Runtime(ty)),
-            _ => None,
         }
     }
 
@@ -2771,6 +2843,7 @@ impl Analyzer<'_> {
             Some(TyKind::GenericParam(_)) => true,
             Some(TyKind::Pointer { elem, .. })
             | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem })
             | Some(TyKind::Array { elem, .. })
             | Some(TyKind::Optional { elem }) => self.type_contains_generic_inner(elem, seen),
             Some(TyKind::Range { bound, .. }) => {
@@ -2794,6 +2867,11 @@ impl Analyzer<'_> {
                 .into_iter()
                 .any(|arg| self.type_contains_generic_inner(arg, seen)),
             Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..
@@ -3359,10 +3437,19 @@ impl Analyzer<'_> {
         for_in: &nia_comptime_ir::ResolvedComptimeForIn,
     ) -> Option<()> {
         let iter_ty = self.resolved_comptime_expr_type(for_in.iter(), None)?;
-        let binding_ty = self.comptime_for_in_binding_type(iter_ty)?;
+        let Some(binding_ty) = self.comptime_for_in_binding_type(iter_ty) else {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                for_in.iter().span(),
+                "comptime for-in expects an Iterator".to_string(),
+            ));
+            return None;
+        };
         self.push_typed_comptime_scope();
         let result = (|| {
-            self.bind_comptime_local_type(for_in.binding().local_id(), binding_ty);
+            if let Some(local_id) = for_in.binding().local_id() {
+                self.bind_comptime_local_type(local_id, binding_ty);
+            }
             for stmt in for_in.body().stmts() {
                 self.check_resolved_comptime_stmt(stmt)?;
             }
@@ -3379,22 +3466,259 @@ impl Analyzer<'_> {
         &mut self,
         iter_ty: ComptimeValueType,
     ) -> Option<ComptimeValueType> {
-        match iter_ty {
-            ComptimeValueType::Array { elem, .. } => Some(*elem),
-            ComptimeValueType::Runtime(ty) => match self.ty_kind(ty)? {
-                TyKind::Range {
-                    bound: Some(bound), ..
-                } => {
-                    let bound = self
-                        .import_ty_into_module_or_none(bound, self.current_execution_module_id())?;
-                    Some(ComptimeValueType::Runtime(bound))
+        let ComptimeValueType::Runtime(iter_ty) = iter_ty else {
+            return None;
+        };
+        let iter_ty =
+            self.import_ty_into_module_or_none(iter_ty, self.current_execution_module_id())?;
+        if !self.proves_trait_obligation(
+            iter_ty,
+            TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            Vec::new(),
+        ) {
+            return None;
+        }
+        let item = self.intern_current_ty(TyKind::Projection {
+            self_ty: iter_ty,
+            trait_id: TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            trait_args: Vec::new(),
+            name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+        })?;
+        Some(ComptimeValueType::Runtime(self.normalize_projection(item)))
+    }
+
+    fn intern_current_ty(&mut self, kind: TyKind) -> Option<InternedTyId> {
+        let module_id = self.current_execution_module_id();
+        self.ensure_working_interner(module_id)?;
+        self.working_interners
+            .get_mut(&module_id)
+            .map(|interner| interner.intern(kind))
+    }
+
+    fn normalize_projection(&mut self, ty: InternedTyId) -> InternedTyId {
+        self.normalize_projection_inner(ty, &mut HashSet::new())
+    }
+
+    fn normalize_projection_inner(
+        &mut self,
+        ty: InternedTyId,
+        active: &mut HashSet<(InternedTyId, TraitId, Vec<InternedTyId>, String)>,
+    ) -> InternedTyId {
+        let ty = self.normalized_ty(ty);
+        match self.ty_kind(ty) {
+            Some(TyKind::Projection {
+                self_ty,
+                trait_id,
+                trait_args,
+                name,
+            }) => {
+                let self_ty = self.normalize_projection_inner(self_ty, active);
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection_inner(arg, active))
+                    .collect::<Vec<_>>();
+                let key = (self_ty, trait_id, trait_args.clone(), name.clone());
+                let projection = self
+                    .intern_current_ty(TyKind::Projection {
+                        self_ty,
+                        trait_id,
+                        trait_args: trait_args.clone(),
+                        name: name.clone(),
+                    })
+                    .unwrap_or(ty);
+                if !active.insert(key.clone()) {
+                    return projection;
                 }
-                _ => None,
-            },
-            ComptimeValueType::Struct(_)
-            | ComptimeValueType::Int
-            | ComptimeValueType::Bool
-            | ComptimeValueType::String => None,
+                let normalized = self
+                    .resolve_associated_type_projection(self_ty, trait_id, &trait_args, &name)
+                    .map(|resolved| self.normalize_projection_inner(resolved, active))
+                    .unwrap_or(projection);
+                active.remove(&key);
+                normalized
+            }
+            Some(TyKind::Pointer { is_readonly, elem }) => {
+                let elem = self.normalize_projection_inner(elem, active);
+                self.intern_current_ty(TyKind::Pointer { is_readonly, elem })
+                    .unwrap_or(ty)
+            }
+            Some(TyKind::Optional { elem }) => {
+                let elem = self.normalize_projection_inner(elem, active);
+                self.intern_current_ty(TyKind::Optional { elem })
+                    .unwrap_or(ty)
+            }
+            Some(TyKind::ErrorUnion { error, value }) => {
+                let error = self.normalize_projection_inner(error, active);
+                let value = self.normalize_projection_inner(value, active);
+                self.intern_current_ty(TyKind::ErrorUnion { error, value })
+                    .unwrap_or(ty)
+            }
+            _ => ty,
+        }
+    }
+
+    fn normalized_ty(&self, ty: InternedTyId) -> InternedTyId {
+        self.normalized_for_module(ty.interner_id)
+            .and_then(|normalized| normalized.get(&ty).copied())
+            .unwrap_or(ty)
+    }
+
+    fn proves_trait_obligation(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+    ) -> bool {
+        let Some(module_id) = self.ensure_trait_solver_module(self_ty, &trait_args) else {
+            return false;
+        };
+        let assumptions = self.current_trait_goals();
+        let program_enums = self.program_enum_signatures();
+        let normalized = self
+            .normalized_for_module(module_id)
+            .cloned()
+            .unwrap_or_default();
+        let local_enums = self
+            .signatures_for_module(module_id)
+            .map(|signatures| signatures.enums.clone())
+            .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let Some(interner) = self.working_interners.get_mut(&module_id) else {
+            return false;
+        };
+        let normalization = nia_type_normalize::TypeNormalization {
+            interner: interner.clone(),
+            normalized,
+            diagnostics: Vec::new(),
+        };
+        let context = TraitSolverContext {
+            normalization: &normalization,
+            trait_impls: self.input.program.trait_impls,
+            layouts: None,
+            local_module_id: module_id,
+            local_enums: &local_enums,
+            program_enums: Some(&program_enums),
+        };
+        let mut solver = context.solver(interner, &assumptions);
+        solver.proves(TraitGoal {
+            self_ty,
+            trait_id,
+            trait_args,
+        })
+    }
+
+    fn resolve_associated_type_projection(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        name: &str,
+    ) -> Option<InternedTyId> {
+        let module_id = self.ensure_trait_solver_module(self_ty, trait_args)?;
+        let assumptions = self.current_trait_goals();
+        let program_enums = self.program_enum_signatures();
+        let normalized = self
+            .normalized_for_module(module_id)
+            .cloned()
+            .unwrap_or_default();
+        let local_enums = self
+            .signatures_for_module(module_id)
+            .map(|signatures| signatures.enums.clone())
+            .unwrap_or_else(|| self.input.signatures.enums.clone());
+        let interner = self.working_interners.get_mut(&module_id)?;
+        let normalization = nia_type_normalize::TypeNormalization {
+            interner: interner.clone(),
+            normalized,
+            diagnostics: Vec::new(),
+        };
+        let context = TraitSolverContext {
+            normalization: &normalization,
+            trait_impls: self.input.program.trait_impls,
+            layouts: None,
+            local_module_id: module_id,
+            local_enums: &local_enums,
+            program_enums: Some(&program_enums),
+        };
+        let mut solver = context.solver(interner, &assumptions);
+        solver.resolve_associated_type(self_ty, trait_id, trait_args, name)
+    }
+
+    fn ensure_trait_solver_module(
+        &mut self,
+        self_ty: InternedTyId,
+        trait_args: &[InternedTyId],
+    ) -> Option<ModuleId> {
+        let module_id = self_ty.interner_id;
+        self.ensure_working_interner(module_id)?;
+        for arg in trait_args {
+            self.ensure_working_interner(arg.interner_id)?;
+        }
+        Some(module_id)
+    }
+
+    fn current_trait_goals(&mut self) -> Vec<TraitGoal> {
+        let Some(function_id) = self.current_execution_function_id() else {
+            return Vec::new();
+        };
+        let Some(signature) = self
+            .signatures_for_module(function_id.module_id)
+            .and_then(|signatures| signatures.functions.get(&function_id.def_id))
+            .cloned()
+        else {
+            return Vec::new();
+        };
+        let substitutions = self
+            .call_locals
+            .iter()
+            .rev()
+            .find(|frame| frame.function_id == Some(function_id))
+            .map(|frame| frame.type_substitutions.clone())
+            .unwrap_or_default();
+        self.trait_goals_from_where_predicates(&signature.where_predicates, &substitutions)
+    }
+
+    fn trait_goals_from_where_predicates(
+        &mut self,
+        predicates: &[WherePredicateSignature],
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> Vec<TraitGoal> {
+        let mut goals = Vec::new();
+        for predicate in predicates {
+            let self_ty = self.substitute_ty_generics_from_map(predicate.ty, substitutions);
+            for bound in &predicate.bounds {
+                let trait_ty = self.substitute_ty_generics_from_map(bound.trait_ty, substitutions);
+                let Some((trait_id, trait_args)) = self.trait_id_and_args(trait_ty) else {
+                    continue;
+                };
+                goals.push(TraitGoal {
+                    self_ty,
+                    trait_id,
+                    trait_args,
+                });
+            }
+        }
+        goals
+    }
+
+    fn substitute_ty_generics_from_map(
+        &mut self,
+        ty: InternedTyId,
+        substitutions: &HashMap<String, InternedTyId>,
+    ) -> InternedTyId {
+        let module_id = ty.interner_id;
+        if self.ensure_working_interner(module_id).is_none() {
+            return ty;
+        }
+        let interner = self
+            .working_interners
+            .get_mut(&module_id)
+            .expect("working interner must exist");
+        substitute_ty_generics_in_interner(interner, ty, &|name| substitutions.get(name).copied())
+    }
+
+    fn trait_id_and_args(&self, ty: InternedTyId) -> Option<(TraitId, Vec<InternedTyId>)> {
+        match self.ty_kind(ty)? {
+            TyKind::Nominal { def_id, args } => Some((TraitId::Source(def_id), args)),
+            TyKind::BuiltinTrait { trait_id, args } => Some((TraitId::Builtin(trait_id), args)),
+            _ => None,
         }
     }
 
@@ -3852,6 +4176,17 @@ impl Analyzer<'_> {
                     )?;
                 }
             }
+            TyKind::SlicePointee { elem } => {
+                if let Some(TyKind::SlicePointee { elem: actual_elem }) = self.ty_kind(actual_ty) {
+                    self.infer_generics_from_tys(
+                        span,
+                        target_module_id,
+                        elem,
+                        actual_elem,
+                        substitutions,
+                    )?;
+                }
+            }
             TyKind::Array { len, elem } => {
                 if let Some(TyKind::Array {
                     len: actual_len,
@@ -3989,12 +4324,24 @@ impl Analyzer<'_> {
                 trait_args,
                 associated_type_bindings,
                 ..
+            }
+            | TyKind::TraitObjectPointee {
+                trait_args,
+                associated_type_bindings,
+                ..
             } => {
-                if let Some(TyKind::TraitObject {
-                    trait_args: actual_trait_args,
-                    associated_type_bindings: actual_bindings,
-                    ..
-                }) = self.ty_kind(actual_ty)
+                if let Some(
+                    TyKind::TraitObject {
+                        trait_args: actual_trait_args,
+                        associated_type_bindings: actual_bindings,
+                        ..
+                    }
+                    | TyKind::TraitObjectPointee {
+                        trait_args: actual_trait_args,
+                        associated_type_bindings: actual_bindings,
+                        ..
+                    },
+                ) = self.ty_kind(actual_ty)
                     && trait_args.len() == actual_trait_args.len()
                     && associated_type_bindings.len() == actual_bindings.len()
                 {
@@ -4125,6 +4472,10 @@ fn substitute_ty_generics_in_interner(
             let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
             interner.intern(TyKind::Slice { is_readonly, elem })
         }
+        Some(TyKind::SlicePointee { elem }) => {
+            let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
+            interner.intern(TyKind::SlicePointee { elem })
+        }
         Some(TyKind::Array { len, elem }) => {
             let elem = substitute_ty_generics_in_interner(interner, elem, lookup);
             interner.intern(TyKind::Array { len, elem })
@@ -4198,6 +4549,34 @@ fn substitute_ty_generics_in_interner(
                 .collect();
             interner.intern(TyKind::TraitObject {
                 is_readonly,
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            })
+        }
+        Some(TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_args = trait_args
+                .into_iter()
+                .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                .collect();
+            let associated_type_bindings = associated_type_bindings
+                .into_iter()
+                .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                    trait_id: binding.trait_id,
+                    trait_args: binding
+                        .trait_args
+                        .into_iter()
+                        .map(|arg| substitute_ty_generics_in_interner(interner, arg, lookup))
+                        .collect(),
+                    name: binding.name,
+                    ty: substitute_ty_generics_in_interner(interner, binding.ty, lookup),
+                })
+                .collect();
+            interner.intern(TyKind::TraitObjectPointee {
                 trait_id,
                 trait_args,
                 associated_type_bindings,
@@ -4326,6 +4705,7 @@ impl ComptimeCommonEnv for Analyzer<'_> {
         &mut self,
         span: Span,
         module_id: ModuleId,
+        function_id: Option<GlobalDefId>,
         substitutions: Vec<(String, InternedTyId)>,
     ) -> Result<(), ComptimeError> {
         let Some(frame) = self.call_locals.last_mut() else {
@@ -4335,6 +4715,7 @@ impl ComptimeCommonEnv for Analyzer<'_> {
             });
         };
         frame.module_id = Some(module_id);
+        frame.function_id = function_id;
         frame.type_substitutions.extend(substitutions);
         Ok(())
     }
@@ -4468,6 +4849,7 @@ impl ResolvedComptimeEnv for Analyzer<'_> {
         };
         let value = nia_comptime_engine::eval_resolved_comptime_function_call(
             span,
+            function_id,
             function_id.module_id,
             &function,
             type_substitutions.into_iter().collect(),

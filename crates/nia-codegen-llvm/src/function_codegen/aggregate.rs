@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use nia_diagnostic::Diagnostic;
-use nia_function_ir::{FunctionArrayElements, FunctionExpr, FunctionFieldInit};
+use nia_function_ir::{
+    FunctionArrayElements, FunctionErrorUnionTag, FunctionExpr, FunctionFieldInit,
+    FunctionOptionalTag,
+};
 use nia_ids::{GlobalDefId, InternedTyId};
 use nia_llvm::values::{BasicValueEnum, PointerValue};
 use nia_span::Span;
@@ -137,7 +140,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         &mut self,
         expr: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.emit_tagged_union(expr, 0, None)
+        self.emit_tagged_union(expr, FunctionOptionalTag::Null.discriminant(), None)
     }
 
     pub(super) fn emit_optional_some(
@@ -145,16 +148,16 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         expr: &FunctionExpr,
         value: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.emit_tagged_union(expr, 1, Some(value))
+        self.emit_tagged_union(expr, FunctionOptionalTag::Some.discriminant(), Some(value))
     }
 
     pub(super) fn emit_error_union_value(
         &mut self,
         expr: &FunctionExpr,
-        tag: u8,
+        tag: FunctionErrorUnionTag,
         value: &FunctionExpr,
     ) -> Result<BasicValueEnum<'ctx>, Diagnostic> {
-        self.emit_tagged_union(expr, tag, Some(value))
+        self.emit_tagged_union(expr, tag.discriminant(), Some(value))
     }
 
     fn emit_tagged_union(

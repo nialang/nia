@@ -233,7 +233,6 @@ pub enum ResolvedCall {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinMethod {
     Len,
-    RangeIter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -329,7 +328,8 @@ impl BuiltinOperatorOp {
             | BuiltinTraitMethod::SliceRead
             | BuiltinTraitMethod::Slice
             | BuiltinTraitMethod::GetPtrRead
-            | BuiltinTraitMethod::GetPtr => None,
+            | BuiltinTraitMethod::GetPtr
+            | BuiltinTraitMethod::IteratorNext => None,
         }
     }
 }

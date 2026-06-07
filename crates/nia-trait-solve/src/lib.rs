@@ -220,6 +220,7 @@ where
             }
             BuiltinTrait::GetPtrRead => self.can_be_slice(self_ty, false),
             BuiltinTrait::GetPtr => self.can_be_slice(self_ty, true),
+            BuiltinTrait::Iterator => false,
         }
     }
 
@@ -251,6 +252,10 @@ where
                     elem: right_elem,
                 }),
             ) => left_const == right_const && self.patterns_can_match(*left_elem, *right_elem),
+            (
+                Some(TyKind::SlicePointee { elem: left_elem }),
+                Some(TyKind::SlicePointee { elem: right_elem }),
+            ) => self.patterns_can_match(*left_elem, *right_elem),
             (
                 Some(TyKind::Array {
                     elem: left_elem, ..
@@ -591,7 +596,10 @@ where
                     && (self.is_numeric(self_ty) || self.is_char(self_ty))
             }
             BuiltinTrait::Sized => goal.trait_args.is_empty() && self.layout_of(self_ty),
-            BuiltinTrait::Unsized => goal.trait_args.is_empty() && self.is_generic_param(self_ty),
+            BuiltinTrait::Unsized => {
+                goal.trait_args.is_empty()
+                    && (self.is_generic_param(self_ty) || self.is_unsized_pointee(self_ty))
+            }
             BuiltinTrait::DerefRead => {
                 goal.trait_args.is_empty()
                     && self.intrinsic_deref_target_ty(self_ty, false).is_some()
@@ -636,6 +644,7 @@ where
                 goal.trait_args.is_empty()
                     && self.intrinsic_get_ptr_target_ty(self_ty, true).is_some()
             }
+            BuiltinTrait::Iterator => false,
         }
     }
 
@@ -876,6 +885,10 @@ where
                 }),
             ) => left_const == right_const && self.types_equivalent(*left_elem, *right_elem),
             (
+                Some(TyKind::SlicePointee { elem: left_elem }),
+                Some(TyKind::SlicePointee { elem: right_elem }),
+            ) => self.types_equivalent(*left_elem, *right_elem),
+            (
                 Some(TyKind::Array {
                     len: left_len,
                     elem: left_elem,
@@ -957,6 +970,51 @@ where
                         .iter()
                         .zip(right_args)
                         .all(|(left, right)| self.types_equivalent(*left, *right))
+            }
+            (
+                Some(TyKind::TraitObject {
+                    is_readonly: left_readonly,
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    associated_type_bindings: left_bindings,
+                }),
+                Some(TyKind::TraitObject {
+                    is_readonly: right_readonly,
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    associated_type_bindings: right_bindings,
+                }),
+            ) => {
+                left_readonly == right_readonly
+                    && left_trait == right_trait
+                    && left_args.len() == right_args.len()
+                    && left_bindings.len() == right_bindings.len()
+                    && left_args
+                        .iter()
+                        .zip(right_args)
+                        .all(|(left, right)| self.types_equivalent(*left, *right))
+                    && self.associated_type_bindings_equivalent(left_bindings, right_bindings)
+            }
+            (
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: left_trait,
+                    trait_args: left_args,
+                    associated_type_bindings: left_bindings,
+                }),
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: right_trait,
+                    trait_args: right_args,
+                    associated_type_bindings: right_bindings,
+                }),
+            ) => {
+                left_trait == right_trait
+                    && left_args.len() == right_args.len()
+                    && left_bindings.len() == right_bindings.len()
+                    && left_args
+                        .iter()
+                        .zip(right_args)
+                        .all(|(left, right)| self.types_equivalent(*left, *right))
+                    && self.associated_type_bindings_equivalent(left_bindings, right_bindings)
             }
             (
                 Some(TyKind::Projection {
@@ -1098,6 +1156,11 @@ where
                 }) if is_readonly == actual_readonly
                     && self.match_impl_pattern(elem, actual_elem, substitutions)
             ),
+            Some(TyKind::SlicePointee { elem }) => matches!(
+                self.interner.get(actual).cloned(),
+                Some(TyKind::SlicePointee { elem: actual_elem })
+                    if self.match_impl_pattern(elem, actual_elem, substitutions)
+            ),
             Some(TyKind::Array { len, elem }) => match self.interner.get(actual).cloned() {
                 Some(TyKind::Array {
                     len: actual_len,
@@ -1224,6 +1287,47 @@ where
                 }
                 _ => false,
             },
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => match self.interner.get(actual).cloned() {
+                Some(TyKind::TraitObjectPointee {
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    associated_type_bindings: actual_bindings,
+                }) if trait_id == actual_trait
+                    && trait_args.len() == actual_args.len()
+                    && associated_type_bindings.len() == actual_bindings.len() =>
+                {
+                    trait_args.iter().zip(actual_args).all(|(arg, actual_arg)| {
+                        self.match_impl_pattern(*arg, actual_arg, substitutions)
+                    }) && associated_type_bindings.iter().all(|binding| {
+                        actual_bindings
+                            .iter()
+                            .find(|actual_binding| {
+                                binding.name == actual_binding.name
+                                    && binding.trait_id == actual_binding.trait_id
+                                    && binding.trait_args.len() == actual_binding.trait_args.len()
+                            })
+                            .is_some_and(|actual_binding| {
+                                binding
+                                    .trait_args
+                                    .iter()
+                                    .zip(&actual_binding.trait_args)
+                                    .all(|(arg, actual_arg)| {
+                                        self.match_impl_pattern(*arg, *actual_arg, substitutions)
+                                    })
+                                    && self.match_impl_pattern(
+                                        binding.ty,
+                                        actual_binding.ty,
+                                        substitutions,
+                                    )
+                            })
+                    })
+                }
+                _ => false,
+            },
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -1267,6 +1371,10 @@ where
             Some(TyKind::Slice { is_readonly, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
+            }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.substitute_ty(elem, substitutions);
+                self.interner.intern(TyKind::SlicePointee { elem })
             }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.substitute_ty(elem, substitutions);
@@ -1346,6 +1454,34 @@ where
                     associated_type_bindings,
                 })
             }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.substitute_ty(arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.substitute_ty(arg, substitutions))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.substitute_ty(binding.ty, substitutions),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -1418,6 +1554,36 @@ where
 
     fn is_generic_param(&self, ty: InternedTyId) -> bool {
         matches!(self.kind(ty), Some(TyKind::GenericParam(_)))
+    }
+
+    fn is_unsized_pointee(&self, ty: InternedTyId) -> bool {
+        matches!(
+            self.kind(ty),
+            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. })
+        )
+    }
+
+    fn associated_type_bindings_equivalent(
+        &self,
+        left_bindings: &[nia_ty::AssociatedTypeBindingTy],
+        right_bindings: &[nia_ty::AssociatedTypeBindingTy],
+    ) -> bool {
+        left_bindings.iter().all(|left| {
+            right_bindings
+                .iter()
+                .find(|right| {
+                    left.name == right.name
+                        && left.trait_id == right.trait_id
+                        && left.trait_args.len() == right.trait_args.len()
+                })
+                .is_some_and(|right| {
+                    left.trait_args
+                        .iter()
+                        .zip(&right.trait_args)
+                        .all(|(left, right)| self.types_equivalent(*left, *right))
+                        && self.types_equivalent(left.ty, right.ty)
+                })
+        })
     }
 
     fn bool(&self) -> InternedTyId {

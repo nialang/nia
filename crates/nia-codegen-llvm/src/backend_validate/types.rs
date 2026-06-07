@@ -46,7 +46,9 @@ impl BackendValidator<'_> {
             return;
         };
         match kind {
-            TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. } => {
+            TyKind::Pointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem } => {
                 self.validate_type(elem, span);
             }
             TyKind::Array { len, elem } => {
@@ -89,6 +91,11 @@ impl BackendValidator<'_> {
                 }
             }
             TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..
@@ -204,6 +211,7 @@ impl BackendValidator<'_> {
             TyKind::Slice { .. } | TyKind::TraitObject { .. } => {
                 Some(TypeLayout { size: 16, align: 8 })
             }
+            TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. } => None,
             TyKind::Range { bound: None, .. } => Some(TypeLayout { size: 0, align: 1 }),
             TyKind::Range {
                 kind,

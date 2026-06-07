@@ -15,9 +15,7 @@ mod type_support;
 
 pub use nia_ty::import_type_into;
 
-use nia_ast::{
-    BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, SliceRange, Stmt, StmtKind,
-};
+use nia_ast::{BindingStmt, Block, Expr, ExprKind, FunctionItem, ItemKind, Module, Stmt, StmtKind};
 use nia_body_ir::BodyIr;
 use nia_comptime_check::ComptimeCheck;
 use nia_comptime_ir::ResolvedComptimeModule;
@@ -41,7 +39,7 @@ use nia_sema_ir::{
 use nia_source::SourceVersion;
 use nia_span::Span;
 use nia_target_config::TargetConfig;
-use nia_ty::{PrimitiveTy, RangeTyKind, TyInterner, TyKind};
+use nia_ty::{PrimitiveTy, TyInterner, TyKind};
 use nia_type_lower::TypeLowering;
 use nia_type_normalize::TypeNormalization;
 use nia_value_resolve::ValueResolution;
@@ -449,6 +447,7 @@ struct BodyChecker<'a> {
 #[derive(Debug, Clone, Default)]
 struct ComptimeCallFrame {
     module_id: Option<ModuleId>,
+    function_id: Option<GlobalDefId>,
     locals: HashMap<LocalId, nia_comptime_check::ComptimeValue>,
     local_types: HashMap<LocalId, nia_comptime_check::ComptimeValueType>,
     mutable_locals: HashSet<LocalId>,
@@ -942,22 +941,12 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Break | StmtKind::Continue => {}
             StmtKind::ForIn(for_stmt) => {
-                let explicit_binding_ty = for_stmt
-                    .binding
-                    .ty
-                    .as_ref()
-                    .map(|explicit| self.ty_for_type(explicit));
-                let expected_iter_ty = explicit_binding_ty
-                    .and_then(|item_ty| self.expected_for_iterator_ty(&for_stmt.iter, item_ty));
-                let iter_ty = self.check_expr_with_expected(&for_stmt.iter, expected_iter_ty);
+                let iter_ty = self.check_expr(&for_stmt.iter);
                 let item_ty = self.for_iterator_item_type(&for_stmt.iter, iter_ty);
-                let binding_ty = if let Some(explicit_ty) = explicit_binding_ty {
-                    self.expect_type(for_stmt.binding.span, explicit_ty, item_ty, "for binding");
-                    explicit_ty
-                } else {
-                    item_ty
-                };
-                if let Some(local_id) = self.local_def(&for_stmt.binding.node_key) {
+                let binding_ty = self.check_for_pattern(&for_stmt.pattern, item_ty);
+                if for_stmt.pattern.name().is_some()
+                    && let Some(local_id) = self.local_def(&for_stmt.pattern.node_key)
+                {
                     self.local_types.insert(local_id, binding_ty);
                 }
                 self.check_block(&for_stmt.body);
@@ -978,61 +967,77 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn expected_for_iterator_ty(
-        &mut self,
-        iter: &Expr,
-        item_ty: InternedTyId,
-    ) -> Option<InternedTyId> {
-        let ExprKind::Range(range) = &iter.kind else {
-            return None;
-        };
-        let kind = self.for_range_kind(range)?;
-        Some(self.interner.intern(TyKind::Range {
-            kind,
-            bound: Some(item_ty),
-        }))
-    }
-
-    fn for_range_kind(&self, range: &SliceRange) -> Option<RangeTyKind> {
-        match (range.start.is_some(), range.end.is_some(), range.inclusive) {
-            (true, true, false) => Some(RangeTyKind::Exclusive),
-            (true, true, true) => Some(RangeTyKind::Inclusive),
-            (true, false, false) => Some(RangeTyKind::From),
-            _ => None,
-        }
-    }
-
     fn for_iterator_item_type(&mut self, iter: &Expr, iter_ty: InternedTyId) -> InternedTyId {
-        match self.interner.get(iter_ty).cloned() {
-            Some(TyKind::Range {
-                kind:
-                    nia_ty::RangeTyKind::Exclusive
-                    | nia_ty::RangeTyKind::Inclusive
-                    | nia_ty::RangeTyKind::From,
-                bound: Some(bound),
-            }) => bound,
-            Some(TyKind::Range { bound: Some(_), .. }) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
-                    iter.span,
-                    "for-in range iterator requires a start bound",
-                ));
-                self.error()
-            }
-            Some(TyKind::Range { bound: None, .. }) => {
-                self.diagnostics.push(Diagnostic::user_error_at(
-                    "E0301",
-                    iter.span,
-                    "unbounded range cannot be used as a for iterator",
-                ));
-                self.error()
-            }
-            Some(_) | None => {
-                self.diagnostics.push(Diagnostic::user_error_at("E0301", 
-                    iter.span,
-                    "for-in expects an iterator expression; only bounded ranges are supported currently",
-                ));
-                self.error()
+        if !self.current_context_proves_trait_obligation(
+            iter_ty,
+            nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            Vec::new(),
+        ) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                iter.span,
+                format!(
+                    "for-in expects an Iterator, found `{}`",
+                    self.ty_name(iter_ty)
+                ),
+            ));
+            return self.error();
+        }
+        let item = self.interner.intern(TyKind::Projection {
+            self_ty: iter_ty,
+            trait_id: nia_ty::TraitId::Builtin(nia_ty::BuiltinTrait::Iterator),
+            trait_args: Vec::new(),
+            name: nia_ty::BuiltinTrait::ITEM_ASSOC_TYPE.to_string(),
+        });
+        self.normalize_projection(item)
+    }
+
+    fn check_for_pattern(
+        &mut self,
+        pattern: &nia_ast::ForPattern,
+        item_ty: InternedTyId,
+    ) -> InternedTyId {
+        match pattern.kind {
+            nia_ast::ForPatternKind::Value => item_ty,
+            nia_ast::ForPatternKind::Pointer | nia_ast::ForPatternKind::MutPointer => {
+                let expected_readonly = matches!(pattern.kind, nia_ast::ForPatternKind::Pointer);
+                match self
+                    .interner
+                    .get(self.normalization.normalize(item_ty))
+                    .cloned()
+                {
+                    Some(TyKind::Pointer { is_readonly, .. })
+                        if is_readonly == expected_readonly =>
+                    {
+                        item_ty
+                    }
+                    Some(TyKind::Pointer { .. }) => {
+                        let expected = if expected_readonly {
+                            "`&x`"
+                        } else {
+                            "`&mut x`"
+                        };
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0301",
+                            pattern.span,
+                            format!("for pattern {expected} does not match iterator item type"),
+                        ));
+                        self.error()
+                    }
+                    _ => {
+                        let expected = if expected_readonly {
+                            "read-only pointer"
+                        } else {
+                            "mutable pointer"
+                        };
+                        self.diagnostics.push(Diagnostic::user_error_at(
+                            "E0301",
+                            pattern.span,
+                            format!("for pattern requires iterator item to be a {expected}"),
+                        ));
+                        self.error()
+                    }
+                }
             }
         }
     }

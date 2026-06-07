@@ -20,6 +20,7 @@ nia-sema.workspace = true
 nia-sema-ir.workspace = true
 nia-span.workspace = true
 nia-target-config.workspace = true
+nia-trait-solve.workspace = true
 nia-ty.workspace = true
 nia-type-lower.workspace = true
 nia-type-normalize.workspace = true

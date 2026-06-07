@@ -3,21 +3,20 @@ use nia_comptime_ir::{
     ComptimeAssignOp, ComptimeBinaryOp, ComptimeNameResolution, ComptimeStringLiteral,
     ComptimeUnaryOp, EarlyComptimeArrayElements, EarlyComptimeAssign, EarlyComptimeAssignPathElem,
     EarlyComptimeAssignTarget, EarlyComptimeBinding, EarlyComptimeBlock, EarlyComptimeExpr,
-    EarlyComptimeExprKind, EarlyComptimeForBinding, EarlyComptimeForIn, EarlyComptimeFunction,
-    EarlyComptimeName, EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange,
-    EarlyComptimeStmt, EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm,
-    EarlyComptimeSwitchArmBody, EarlyComptimeSwitchPattern, EarlyComptimeTypeArg,
-    ResolvedComptimeArrayElements, ResolvedComptimeArrayElementsKind, ResolvedComptimeAssign,
-    ResolvedComptimeAssignPathElem, ResolvedComptimeAssignPathElemKind,
-    ResolvedComptimeAssignTarget, ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding,
-    ResolvedComptimeBlock, ResolvedComptimeExpr, ResolvedComptimeExprKind,
-    ResolvedComptimeFieldInit, ResolvedComptimeForBinding, ResolvedComptimeForIn,
-    ResolvedComptimeFunction, ResolvedComptimeParam, ResolvedComptimeRange,
+    EarlyComptimeExprKind, EarlyComptimeForIn, EarlyComptimeFunction, EarlyComptimeName,
+    EarlyComptimeParam, EarlyComptimeRange, EarlyComptimeSliceRange, EarlyComptimeStmt,
+    EarlyComptimeStmtKind, EarlyComptimeSwitch, EarlyComptimeSwitchArm, EarlyComptimeSwitchArmBody,
+    EarlyComptimeSwitchPattern, EarlyComptimeTypeArg, ResolvedComptimeArrayElements,
+    ResolvedComptimeArrayElementsKind, ResolvedComptimeAssign, ResolvedComptimeAssignPathElem,
+    ResolvedComptimeAssignPathElemKind, ResolvedComptimeAssignTarget,
+    ResolvedComptimeAssignTargetKind, ResolvedComptimeBinding, ResolvedComptimeBlock,
+    ResolvedComptimeExpr, ResolvedComptimeExprKind, ResolvedComptimeFieldInit,
+    ResolvedComptimeForIn, ResolvedComptimeFunction, ResolvedComptimeParam, ResolvedComptimeRange,
     ResolvedComptimeSliceRange, ResolvedComptimeStmt, ResolvedComptimeStmtKind,
     ResolvedComptimeSwitch, ResolvedComptimeSwitchArm, ResolvedComptimeSwitchArmBody,
     ResolvedComptimeSwitchArmBodyKind, ResolvedComptimeSwitchPatternKind, ResolvedComptimeTypeArg,
 };
-use nia_ids::{InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
+use nia_ids::{GlobalDefId, InternedTyId, LayoutBuiltin, ModuleId, ValueBuiltin};
 use nia_sema::{ArityCheck, NamedField, check_exact_arity, check_unique_field_set};
 use nia_span::Span;
 use std::collections::BTreeMap;
@@ -138,10 +137,12 @@ pub trait ComptimeCommonEnv {
         &mut self,
         span: Span,
         module_id: ModuleId,
+        function_id: Option<GlobalDefId>,
         substitutions: Vec<(String, InternedTyId)>,
     ) -> Result<(), ComptimeError> {
         let _ = span;
         let _ = module_id;
+        let _ = function_id;
         let _ = substitutions;
         Ok(())
     }
@@ -544,17 +545,6 @@ fn eval_resolved_comptime_expr_flow(
                 }
             }
         }
-        ResolvedComptimeExprKind::RangeIter { lhs } => {
-            match eval_resolved_value_or_return_flow!(lhs, env) {
-                range @ ComptimeValue::Range(_) => range,
-                _ => {
-                    return Err(ComptimeError {
-                        span: span,
-                        message: "comptime range.iter requires a range value".to_string(),
-                    });
-                }
-            }
-        }
         ResolvedComptimeExprKind::Index { lhs, index } => {
             return eval_resolved_array_index_flow(span, lhs, index, env);
         }
@@ -786,15 +776,6 @@ fn eval_comptime_expr_flow(
                 return Err(ComptimeError {
                     span: expr.span,
                     message: "comptime len requires an array value".to_string(),
-                });
-            }
-        },
-        EarlyComptimeExprKind::RangeIter { lhs } => match eval_value_or_return_flow!(lhs, env) {
-            range @ ComptimeValue::Range(_) => range,
-            _ => {
-                return Err(ComptimeError {
-                    span: expr.span,
-                    message: "comptime range.iter requires a range value".to_string(),
                 });
             }
         },
@@ -1959,7 +1940,8 @@ fn eval_comptime_function_call(
         });
     }
     env.push_comptime_scope(span)?;
-    if let Err(err) = env.bind_function_context(span, function_module_id, type_substitutions) {
+    if let Err(err) = env.bind_function_context(span, function_module_id, None, type_substitutions)
+    {
         env.pop_comptime_scope();
         return Err(err);
     }
@@ -2007,6 +1989,7 @@ pub fn eval_early_comptime_function_call(
 
 pub fn eval_resolved_comptime_function_call(
     span: Span,
+    function_id: GlobalDefId,
     function_module_id: ModuleId,
     function: &ResolvedComptimeFunction,
     type_substitutions: Vec<(String, InternedTyId)>,
@@ -2015,6 +1998,7 @@ pub fn eval_resolved_comptime_function_call(
 ) -> Result<ComptimeValue, ComptimeError> {
     eval_resolved_comptime_function_call_inner(
         span,
+        function_id,
         function_module_id,
         function.params(),
         function.body(),
@@ -2026,6 +2010,7 @@ pub fn eval_resolved_comptime_function_call(
 
 fn eval_resolved_comptime_function_call_inner(
     span: Span,
+    function_id: GlobalDefId,
     function_module_id: ModuleId,
     params: &[ResolvedComptimeParam],
     body: &ResolvedComptimeBlock,
@@ -2044,7 +2029,12 @@ fn eval_resolved_comptime_function_call_inner(
         });
     }
     env.push_comptime_scope(span)?;
-    if let Err(err) = env.bind_function_context(span, function_module_id, type_substitutions) {
+    if let Err(err) = env.bind_function_context(
+        span,
+        function_module_id,
+        Some(function_id),
+        type_substitutions,
+    ) {
         env.pop_comptime_scope();
         return Err(err);
     }
@@ -2890,8 +2880,8 @@ fn eval_for_in_stmt(
     for_in: &EarlyComptimeForIn,
     env: &mut impl EarlyComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let iter = match eval_comptime_expr_flow(&for_in.iter, env)? {
-        ComptimeEvalFlow::Value(value) => value,
+    match eval_comptime_expr_flow(&for_in.iter, env)? {
+        ComptimeEvalFlow::Value(_) => {}
         flow @ (ComptimeEvalFlow::Return(_)
         | ComptimeEvalFlow::Propagate(_)
         | ComptimeEvalFlow::Break
@@ -2902,22 +2892,14 @@ fn eval_for_in_stmt(
                 message: "comptime for-in iterator requires a value".to_string(),
             });
         }
-    };
-    match iter {
-        ComptimeValue::Array(values) => {
-            eval_for_in_values(span, &for_in.binding, &for_in.body, values, env)
-        }
-        ComptimeValue::Range(range) => {
-            eval_for_in_range(span, &for_in.binding, &for_in.body, &range, env)
-        }
-        _ => Err(ComptimeError {
-            span: for_in.iter.span(),
-            message: "comptime for-in requires an array or range value".to_string(),
-        }),
     }
-    .map(|flow| match flow {
-        ComptimeEvalFlow::Break => ComptimeEvalFlow::Void,
-        flow => flow,
+    let _ = span;
+    let _ = &for_in.binding;
+    let _ = &for_in.body;
+    let _ = env;
+    Err(ComptimeError {
+        span: for_in.iter.span(),
+        message: "comptime for-in Iterator execution is not implemented yet".to_string(),
     })
 }
 
@@ -2926,8 +2908,8 @@ fn eval_resolved_for_in_stmt(
     for_in: &ResolvedComptimeForIn,
     env: &mut impl ResolvedComptimeEnv,
 ) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let iter = match eval_resolved_comptime_expr_flow(for_in.iter(), env)? {
-        ComptimeEvalFlow::Value(value) => value,
+    match eval_resolved_comptime_expr_flow(for_in.iter(), env)? {
+        ComptimeEvalFlow::Value(_) => {}
         flow @ (ComptimeEvalFlow::Return(_)
         | ComptimeEvalFlow::Propagate(_)
         | ComptimeEvalFlow::Break
@@ -2938,171 +2920,15 @@ fn eval_resolved_for_in_stmt(
                 message: "comptime for-in iterator requires a value".to_string(),
             });
         }
-    };
-    match iter {
-        ComptimeValue::Array(values) => {
-            eval_resolved_for_in_values(span, for_in.binding(), for_in.body(), values, env)
-        }
-        ComptimeValue::Range(range) => {
-            eval_resolved_for_in_range(span, for_in.binding(), for_in.body(), &range, env)
-        }
-        _ => Err(ComptimeError {
-            span: for_in.iter().span(),
-            message: "comptime for-in requires an array or range value".to_string(),
-        }),
     }
-    .map(|flow| match flow {
-        ComptimeEvalFlow::Break => ComptimeEvalFlow::Void,
-        flow => flow,
-    })
-}
-
-fn eval_for_in_values(
-    span: Span,
-    binding: &EarlyComptimeForBinding,
-    body: &EarlyComptimeBlock,
-    values: Vec<ComptimeValue>,
-    env: &mut impl EarlyComptimeEnv,
-) -> Result<ComptimeEvalFlow, ComptimeError> {
-    for value in values {
-        match eval_for_in_iteration(span, binding, body, value, env)? {
-            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
-            flow @ (ComptimeEvalFlow::Break
-            | ComptimeEvalFlow::Return(_)
-            | ComptimeEvalFlow::Propagate(_)) => return Ok(flow),
-        }
-    }
-    Ok(ComptimeEvalFlow::Void)
-}
-
-fn eval_resolved_for_in_values(
-    span: Span,
-    binding: &ResolvedComptimeForBinding,
-    body: &ResolvedComptimeBlock,
-    values: Vec<ComptimeValue>,
-    env: &mut impl ResolvedComptimeEnv,
-) -> Result<ComptimeEvalFlow, ComptimeError> {
-    for value in values {
-        match eval_resolved_for_in_iteration(span, binding, body, value, env)? {
-            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
-            flow @ (ComptimeEvalFlow::Break
-            | ComptimeEvalFlow::Return(_)
-            | ComptimeEvalFlow::Propagate(_)) => return Ok(flow),
-        }
-    }
-    Ok(ComptimeEvalFlow::Void)
-}
-
-fn eval_for_in_range(
-    span: Span,
-    binding: &EarlyComptimeForBinding,
-    body: &EarlyComptimeBlock,
-    range: &ComptimeRangeValue,
-    env: &mut impl EarlyComptimeEnv,
-) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let Some(mut current) = range.start else {
-        return Err(ComptimeError {
-            span,
-            message: "comptime for-in range requires a start bound".to_string(),
-        });
-    };
-    for _ in 0..COMPTIME_LOOP_LIMIT {
-        if let Some(end) = range.end {
-            let done = if range.inclusive {
-                current > end
-            } else {
-                current >= end
-            };
-            if done {
-                return Ok(ComptimeEvalFlow::Void);
-            }
-        }
-        match eval_for_in_iteration(span, binding, body, ComptimeValue::Int(current), env)? {
-            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
-            flow @ (ComptimeEvalFlow::Break
-            | ComptimeEvalFlow::Return(_)
-            | ComptimeEvalFlow::Propagate(_)) => return Ok(flow),
-        }
-        current = current.checked_add(1).ok_or_else(|| ComptimeError {
-            span,
-            message: "integer overflow in comptime for-in range".to_string(),
-        })?;
-    }
+    let _ = span;
+    let _ = for_in.binding();
+    let _ = for_in.body();
+    let _ = env;
     Err(ComptimeError {
-        span,
-        message: format!("comptime for-in range exceeded {COMPTIME_LOOP_LIMIT} iterations"),
+        span: for_in.iter().span(),
+        message: "comptime for-in Iterator execution is not implemented yet".to_string(),
     })
-}
-
-fn eval_resolved_for_in_range(
-    span: Span,
-    binding: &ResolvedComptimeForBinding,
-    body: &ResolvedComptimeBlock,
-    range: &ComptimeRangeValue,
-    env: &mut impl ResolvedComptimeEnv,
-) -> Result<ComptimeEvalFlow, ComptimeError> {
-    let Some(mut current) = range.start else {
-        return Err(ComptimeError {
-            span,
-            message: "comptime for-in range requires a start bound".to_string(),
-        });
-    };
-    for _ in 0..COMPTIME_LOOP_LIMIT {
-        if let Some(end) = range.end {
-            let done = if range.inclusive {
-                current > end
-            } else {
-                current >= end
-            };
-            if done {
-                return Ok(ComptimeEvalFlow::Void);
-            }
-        }
-        match eval_resolved_for_in_iteration(span, binding, body, ComptimeValue::Int(current), env)?
-        {
-            ComptimeEvalFlow::Value(_) | ComptimeEvalFlow::Void | ComptimeEvalFlow::Continue => {}
-            flow @ (ComptimeEvalFlow::Break
-            | ComptimeEvalFlow::Return(_)
-            | ComptimeEvalFlow::Propagate(_)) => return Ok(flow),
-        }
-        current = current.checked_add(1).ok_or_else(|| ComptimeError {
-            span,
-            message: "integer overflow in comptime for-in range".to_string(),
-        })?;
-    }
-    Err(ComptimeError {
-        span,
-        message: format!("comptime for-in range exceeded {COMPTIME_LOOP_LIMIT} iterations"),
-    })
-}
-
-fn eval_for_in_iteration(
-    span: Span,
-    binding: &EarlyComptimeForBinding,
-    body: &EarlyComptimeBlock,
-    value: ComptimeValue,
-    env: &mut impl EarlyComptimeEnv,
-) -> Result<ComptimeEvalFlow, ComptimeError> {
-    env.push_comptime_scope(span)?;
-    let bind_result = env.bind_pattern_local(binding.span, &binding.name, binding.local_id, value);
-    let result = bind_result.and_then(|()| eval_function_block(body, env));
-    env.pop_comptime_scope();
-    result
-}
-
-fn eval_resolved_for_in_iteration(
-    span: Span,
-    binding: &ResolvedComptimeForBinding,
-    body: &ResolvedComptimeBlock,
-    value: ComptimeValue,
-    env: &mut impl ResolvedComptimeEnv,
-) -> Result<ComptimeEvalFlow, ComptimeError> {
-    env.push_comptime_scope(span)?;
-    let bind_result =
-        env.bind_resolved_pattern_local(binding.span(), binding.name(), binding.local_id(), value);
-    let result = bind_result.and_then(|()| eval_resolved_function_block(body, env));
-    env.pop_comptime_scope();
-    result
 }
 
 fn eval_while_stmt(

@@ -293,9 +293,9 @@ impl MonoCollector<'_> {
         };
         match kind {
             TyKind::GenericParam(_) => true,
-            TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. } => {
-                self.ty_contains_generic_param(module_id, *elem)
-            }
+            TyKind::Pointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem } => self.ty_contains_generic_param(module_id, *elem),
             TyKind::Array { elem, .. } => self.ty_contains_generic_param(module_id, *elem),
             TyKind::Range { bound, .. } => {
                 bound.is_some_and(|bound| self.ty_contains_generic_param(module_id, bound))
@@ -319,6 +319,11 @@ impl MonoCollector<'_> {
                 .iter()
                 .any(|arg| self.ty_contains_generic_param(module_id, *arg)),
             TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..
@@ -504,7 +509,9 @@ impl MonoCollector<'_> {
         };
         let next = remaining - 1;
         match kind {
-            TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. } => {
+            TyKind::Pointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem } => {
                 self.ty_exceeds_instance_depth(module_id, *elem, next)
             }
             TyKind::Array { elem, .. } => self.ty_exceeds_instance_depth(module_id, *elem, next),
@@ -530,6 +537,11 @@ impl MonoCollector<'_> {
                 .iter()
                 .any(|arg| self.ty_exceeds_instance_depth(module_id, *arg, next)),
             TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..
@@ -635,6 +647,11 @@ impl MonoCollector<'_> {
                 let elem =
                     self.instantiate_ty_inner(module_id, elem, substitutions, active_projections);
                 self.intern_working_ty(module_id, TyKind::Slice { is_readonly, elem })
+            }
+            TyKind::SlicePointee { elem } => {
+                let elem =
+                    self.instantiate_ty_inner(module_id, elem, substitutions, active_projections);
+                self.intern_working_ty(module_id, TyKind::SlicePointee { elem })
             }
             TyKind::Array { len, elem } => {
                 let elem =
@@ -831,6 +848,56 @@ impl MonoCollector<'_> {
                     },
                 )
             }
+            TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            } => {
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| {
+                        self.instantiate_ty_inner(
+                            module_id,
+                            *arg,
+                            substitutions,
+                            active_projections,
+                        )
+                    })
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .iter()
+                    .map(|binding| AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .iter()
+                            .map(|arg| {
+                                self.instantiate_ty_inner(
+                                    module_id,
+                                    *arg,
+                                    substitutions,
+                                    active_projections,
+                                )
+                            })
+                            .collect(),
+                        name: binding.name.clone(),
+                        ty: self.instantiate_ty_inner(
+                            module_id,
+                            binding.ty,
+                            substitutions,
+                            active_projections,
+                        ),
+                    })
+                    .collect();
+                self.intern_working_ty(
+                    module_id,
+                    TyKind::TraitObjectPointee {
+                        trait_id,
+                        trait_args,
+                        associated_type_bindings,
+                    },
+                )
+            }
             TyKind::Primitive(_) | TyKind::ComptimeOnly | TyKind::Error => ty,
         };
         if can_use_cache {
@@ -895,6 +962,9 @@ impl MonoCollector<'_> {
             },
             TyKind::Slice { is_readonly, elem } => TyKind::Slice {
                 is_readonly,
+                elem: self.import_ty_to_module(target_module_id, elem),
+            },
+            TyKind::SlicePointee { elem } => TyKind::SlicePointee {
                 elem: self.import_ty_to_module(target_module_id, elem),
             },
             TyKind::Array { len, elem } => TyKind::Array {
@@ -963,6 +1033,30 @@ impl MonoCollector<'_> {
                     })
                     .collect(),
                 is_readonly,
+            },
+            TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            } => TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args: trait_args
+                    .into_iter()
+                    .map(|arg| self.import_ty_to_module(target_module_id, arg))
+                    .collect(),
+                associated_type_bindings: associated_type_bindings
+                    .into_iter()
+                    .map(|binding| AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.import_ty_to_module(target_module_id, arg))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.import_ty_to_module(target_module_id, binding.ty),
+                    })
+                    .collect(),
             },
             TyKind::Projection {
                 self_ty,
