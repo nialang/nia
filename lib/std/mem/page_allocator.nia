@@ -20,7 +20,7 @@ extend PageAllocator : Allocator {
         if layout.is_empty() {
             !empty_block(layout)
         } else {
-            let ptr = os::map_pages(layout.size(), layout.align()).map_err[types::Error](&os::Error::as_mem_error).?;
+            let ptr = os::map_pages(layout.size(), layout.align()).map_err[types::Error](&os::Error::as_page_allocator_error).?;
             !Block::init(ptr, layout)
         }
     }
@@ -62,7 +62,7 @@ extend PageAllocator : Allocator {
         if block.layout().is_empty() {
             !{}
         } else {
-            os::unmap_pages(block.ptr(), block.size()).map_err[types::Error](&os::Error::as_mem_error)
+            os::unmap_pages(block.ptr(), block.size()).map_err[types::Error](&os::Error::as_page_allocator_error)
         }
     }
 }
@@ -72,7 +72,7 @@ fn empty_block(layout: Layout) Block {
 }
 
 extend os::Error {
-    fn as_mem_error(self) types::Error {
+    fn as_page_allocator_error(self) types::Error {
         switch self {
             os::Error::Invalid => types::Error::Invalid,
             os::Error::NoMemory => types::Error::OutOfMemory,

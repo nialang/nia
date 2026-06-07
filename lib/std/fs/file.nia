@@ -71,38 +71,11 @@ extend File {
         File::init(os::FileDescriptor::stderr())
     }
 
+    pub fn handle(&self) os::FileDescriptor {
+        self.handle
+    }
+
     pub fn close(&self) Error!void {
         self.handle.close().map_err[Error](&os::Error::as_fs_error)
-    }
-
-    pub fn write_some(&self, bytes: &[u8]) Error!usize {
-        self.handle.write_some(bytes).map_err[Error](&os::Error::as_fs_error)
-    }
-
-    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
-        self.handle.read_some(bytes).map_err[Error](&os::Error::as_fs_error)
-    }
-}
-
-extend os::Error {
-    pub fn as_fs_error(self) Error {
-        switch self {
-            os::Error::PermissionDenied => Error::PermissionDenied,
-            os::Error::NoEntry => Error::NotFound,
-            os::Error::Interrupted => Error::Interrupted,
-            os::Error::Io => Error::Io,
-            os::Error::BadFd => Error::BadFd,
-            os::Error::Again => Error::Again,
-            os::Error::NoMemory => Error::OutOfMemory,
-            os::Error::Access => Error::Access,
-            os::Error::Fault => Error::Fault,
-            os::Error::Busy => Error::Busy,
-            os::Error::Exists => Error::AlreadyExists,
-            os::Error::Invalid => Error::Invalid,
-            os::Error::NoSpace => Error::NoSpace,
-            os::Error::BrokenPipe => Error::BrokenPipe,
-            os::Error::OutOfRange => Error::OutOfRange,
-            _ => Error::System,
-        }
     }
 }

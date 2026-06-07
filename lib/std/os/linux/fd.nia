@@ -1,6 +1,5 @@
 import std.os.linux.syscall;
 import std.os.linux.types;
-import std.os.linux.util;
 
 using types::{Error, FileDescriptor, OpenMode};
 

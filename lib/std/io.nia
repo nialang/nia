@@ -2,9 +2,12 @@ import std.io.buffered;
 import std.io.file_adapter;
 import std.io.fixed_buffer;
 import std.io.limit;
+import std.io.runtime;
 import std.io.traits;
 
 pub using traits::{BufferError, Reader, Writer};
 pub using fixed_buffer::{DiscardingWriter, FixedBufferReader, FixedBufferWriter};
 pub using buffered::{BufferedReader, BufferedWriter};
+pub using file_adapter::{FileReader, FileWriter};
 pub using limit::{Limit, LimitedReader};
+pub using runtime::{BlockingIo, Io};

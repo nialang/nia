@@ -96,6 +96,100 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emits_std_file_writer_through_process_io_capability() {
+    let root = temp_dir("emits_std_file_writer_through_process_io_capability");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import std;
+
+using std::{fs, io, process};
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var file = fs::File::stdout();
+    var buffer: [0]u8 = [];
+    var stdout = file.writer(init.io(), &mut buffer[..]);
+    switch stdout.write_all(b"nia\n") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_freestanding_executable_with_options(
+        main.to_string_lossy().into_owned(),
+        nia_driver::NiaOptimizationLevel::default(),
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = output
+        .modules
+        .iter()
+        .map(|module| module.ir.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(ir.contains("syscall"), "{ir}");
+    assert!(ir.contains("write_some"), "{ir}");
+    assert!(ir.contains("FileWriter"), "{ir}");
+}
+
+#[test]
+fn emits_std_buffered_file_writer_flush_through_process_io() {
+    let root = temp_dir("emits_std_buffered_file_writer_flush_through_process_io");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+import std;
+
+using std::{fs, io, process};
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var file = fs::File::stdout();
+    var buffer: [64]u8 = [0; 64];
+    var raw_buffer: [0]u8 = [];
+    var raw = file.writer(init.io(), &mut raw_buffer[..]);
+    var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
+    switch stdout.write_all(b"nia\n") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_freestanding_executable_with_options(
+        main.to_string_lossy().into_owned(),
+        nia_driver::NiaOptimizationLevel::default(),
+    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = output
+        .modules
+        .iter()
+        .map(|module| module.ir.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(ir.contains("BufferedWriter"), "{ir}");
+    assert!(ir.contains("flush"), "{ir}");
+    assert!(ir.contains("write_some"), "{ir}");
+}
+
+#[test]
 fn emits_ref_receiver_method_with_struct_arg_and_nested_tagged_payload() {
     let root = temp_dir("emits_ref_receiver_method_with_struct_arg_and_nested_tagged_payload");
     let main = root.join("main.nia");
@@ -273,6 +367,32 @@ fn main() i32 {
     assert!(ir.contains("arraytmp"), "{ir}");
     assert!(ir.contains("insertvalue"), "{ir}");
     assert!(ir.contains("getelementptr"), "{ir}");
+}
+
+#[test]
+fn emits_zero_length_array_slice_without_indexing_empty_storage() {
+    let root = temp_dir("emits_zero_length_array_slice_without_indexing_empty_storage");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() usize {
+    var bytes: [0]u8 = [];
+    var slice = &mut bytes[..];
+    slice.len()
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("%zst.local = alloca i8"), "{ir}");
+    assert!(!ir.contains("getelementptr {}, ptr %zst.local"), "{ir}");
 }
 
 #[test]

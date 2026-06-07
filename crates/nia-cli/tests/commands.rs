@@ -1226,8 +1226,9 @@ import std.io;
 import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
-    var stdout = fs::File::stdout();
+    var file = fs::File::stdout();
+    var buffer: [0]u8 = [];
+    var stdout = file.writer(init.io(), &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -1269,11 +1270,16 @@ fn emit_exe_can_format_to_stdout() {
 import std;
 
 pub fn main(init: std::process::Init) std::process::ExitCode!void {
-    _ = init;
-    var stdout = std::fs::File::stdout();
+    var file = std::fs::File::stdout();
+    var buffer: [128]u8 = [0; 128];
+    var stdout = file.writer(init.io(), &mut buffer[..]);
     switch stdout.print("A¢€😀, {}\n", [&'λ']) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
+    }
+    switch stdout.flush() {
+        !ok => _ = ok,
+        error! => return std::process::ExitCode::init(2)!,
     }
     !{}
 }
@@ -1628,7 +1634,6 @@ import std.io;
 import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
     var path = fs::Path::init("data.txt");
     var cwd = fs::Dir::cwd();
     var file: fs::File;
@@ -1636,34 +1641,42 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(1)!,
     }
-    switch file.write_all(b"nia fs") {
+    var write_buffer: [64]u8 = [0; 64];
+    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    switch writer.write_all(b"nia fs") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(2)!,
     }
-    switch file.close() {
+    switch writer.flush() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
     }
 
     var opened: fs::File;
     switch cwd.open_file(path, fs::OpenOptions::read_only()) {
         !value => opened = value,
-        error! => return process::ExitCode::init(4)!,
-    }
-    var bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
-    switch opened.read_exact(&mut bytes[..]) {
-        !ok => _ = ok,
         error! => return process::ExitCode::init(5)!,
+    }
+    var read_buffer: [64]u8 = [0; 64];
+    var reader = opened.reader(init.io(), &mut read_buffer[..]);
+    var bytes: [6]u8 = [0, 0, 0, 0, 0, 0];
+    switch reader.read_exact(&mut bytes[..]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
     }
     switch opened.close() {
         !ok => _ = ok,
-        error! => return process::ExitCode::init(6)!,
+        error! => return process::ExitCode::init(7)!,
     }
     var expected = b"nia fs";
     var index = 0usize;
     while index < bytes.len() {
         if bytes[index] != expected[index] {
-            return process::ExitCode::init(7)!;
+            return process::ExitCode::init(8)!;
         }
         index += 1usize;
     }
@@ -1713,7 +1726,6 @@ import std.io;
 import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
     var path = fs::Path::init("nia-λ.txt");
     var cwd = fs::Dir::cwd();
     var file: fs::File;
@@ -1721,13 +1733,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(1)!,
     }
-    switch file.write_all(b"ok") {
+    var buffer: [64]u8 = [0; 64];
+    var writer = file.writer(init.io(), &mut buffer[..]);
+    switch writer.write_all(b"ok") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(2)!,
     }
-    switch file.close() {
+    switch writer.flush() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
     }
     !{}
 }
