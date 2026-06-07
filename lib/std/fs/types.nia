@@ -1,0 +1,62 @@
+import std.os;
+
+pub enum Error: i32 {
+    PermissionDenied = 1,
+    NotFound = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    OutOfMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    AlreadyExists = 17,
+    Invalid = 22,
+    NoSpace = 28,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    TooLong = 36,
+    System = 255,
+    _,
+}
+
+pub enum PathError: i32 {
+    Invalid = 1,
+    TooLong = 36,
+    _,
+}
+
+pub enum OpenMode: i32 {
+    ReadOnly = 0,
+    WriteOnly = 1,
+    ReadWrite = 2,
+    _,
+}
+
+pub struct Path {
+    text: &[char],
+}
+
+pub struct EncodedPath {
+    ptr: &u8,
+}
+
+pub struct Dir {
+    handle: os::FileDescriptor,
+}
+
+pub struct File {
+    handle: os::FileDescriptor,
+}
+
+pub struct OpenOptions {
+    mode: OpenMode,
+}
+
+pub struct CreateOptions {
+    read: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+}

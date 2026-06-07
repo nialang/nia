@@ -1,0 +1,51 @@
+import std.os.linux.types;
+
+using types::Error;
+
+extend Error {
+    pub fn from_code(code: i32) Error {
+        code as Error
+    }
+}
+
+extend isize {
+    pub fn syscall_error(self) Error {
+        Error::from_code((0isize - self) as i32)
+    }
+}
+
+pub fn is_power_of_two(value: usize) bool {
+    if value == 0 {
+        false
+    } else {
+        var n = value;
+        while n > 1usize {
+            if n % 2usize != 0usize {
+                return false;
+            }
+            n = n / 2usize;
+        }
+        true
+    }
+}
+
+pub fn checked_add(lhs: usize, rhs: usize) Error!usize {
+    let sum = lhs + rhs;
+    if sum < lhs {
+        Error::OutOfRange!
+    } else {
+        !sum
+    }
+}
+
+pub fn align_forward(value: usize, align: usize) Error!usize {
+    if align == 0 {
+        return Error::Invalid!;
+    }
+    let remainder = value % align;
+    if remainder == 0 {
+        !value
+    } else {
+        checked_add(value, align - remainder)
+    }
+}

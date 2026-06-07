@@ -1,0 +1,5 @@
+comptime if @builtin().target.arch == "x86_64" {
+    import std.os.linux.x86_64.syscall as platform;
+}
+
+pub using platform::{syscall1, syscall2, syscall3, syscall4, syscall6};

@@ -1,0 +1,94 @@
+import std.os.linux.syscall;
+import std.os.linux.types;
+import std.os.linux.util;
+
+using types::{Error, FileDescriptor, OpenMode};
+
+extend FileDescriptor {
+    pub fn init(fd: i32) FileDescriptor {
+        { fd: fd }
+    }
+
+    pub fn stdin() FileDescriptor {
+        FileDescriptor::init(0)
+    }
+
+    pub fn stdout() FileDescriptor {
+        FileDescriptor::init(1)
+    }
+
+    pub fn stderr() FileDescriptor {
+        FileDescriptor::init(2)
+    }
+
+    pub fn raw(&self) i32 {
+        self.fd
+    }
+
+    pub fn write_some(&self, bytes: &[u8]) Error!usize {
+        let ptr = bytes.get_ptr_read();
+        let ret = syscall::syscall3(1, self.fd as usize, ptr as usize, bytes.len());
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !(ret as usize)
+        }
+    }
+
+    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
+        let ptr = bytes.get_ptr();
+        let ret = syscall::syscall3(0, self.fd as usize, ptr as usize, bytes.len());
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !(ret as usize)
+        }
+    }
+
+    pub fn close(&self) Error!void {
+        let ret = syscall::syscall1(3, self.fd as usize);
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !{}
+        }
+    }
+}
+
+pub fn cwd() FileDescriptor {
+    FileDescriptor::init(-100)
+}
+
+pub fn open_at(
+    dir: FileDescriptor,
+    path: &u8,
+    mode: OpenMode,
+    create: bool,
+    truncate: bool,
+    exclusive: bool,
+    permissions: u32,
+) Error!FileDescriptor {
+    var flags = mode as i32;
+    if create {
+        flags = flags + 0o100;
+    }
+    if exclusive {
+        flags = flags + 0o200;
+    }
+    if truncate {
+        flags = flags + 0o1000;
+    }
+
+    let ret = syscall::syscall4(
+        257,
+        dir.raw() as usize,
+        path as usize,
+        flags as usize,
+        permissions as usize,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !FileDescriptor::init(ret as i32)
+    }
+}

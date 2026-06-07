@@ -1,0 +1,31 @@
+pub comptime let max_path_bytes: usize = 4096usize;
+
+pub enum Error: i32 {
+    PermissionDenied = 1,
+    NoEntry = 2,
+    Interrupted = 4,
+    Io = 5,
+    BadFd = 9,
+    Again = 11,
+    NoMemory = 12,
+    Access = 13,
+    Fault = 14,
+    Busy = 16,
+    Exists = 17,
+    Invalid = 22,
+    NoSpace = 28,
+    BrokenPipe = 32,
+    OutOfRange = 34,
+    _,
+}
+
+pub enum OpenMode: i32 {
+    ReadOnly = 0,
+    WriteOnly = 1,
+    ReadWrite = 2,
+    _,
+}
+
+pub struct FileDescriptor {
+    fd: i32,
+}

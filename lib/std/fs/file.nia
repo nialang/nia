@@ -1,0 +1,108 @@
+import std.fs.options;
+import std.fs.path;
+import std.fs.types;
+import std.os;
+import std.result;
+
+using types::{CreateOptions, Dir, EncodedPath, Error, File, OpenOptions, Path};
+
+extend Dir {
+    pub fn init(handle: os::FileDescriptor) Dir {
+        { handle: handle }
+    }
+
+    pub fn cwd() Dir {
+        Dir::init(os::cwd())
+    }
+
+    pub fn open_file(&self, path: Path, options: OpenOptions) Error!File {
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let encoded = path.encode(&mut storage[..]).?;
+        self.open_encoded_file(encoded, options)
+    }
+
+    pub fn create_file(&self, path: Path, options: CreateOptions) Error!File {
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let encoded = path.encode(&mut storage[..]).?;
+        self.create_encoded_file(encoded, options)
+    }
+
+    pub fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {
+        let handle = os::open_at(
+            self.handle,
+            path.ptr(),
+            options.os_mode(),
+            false,
+            false,
+            false,
+            0,
+        ).map_err[Error](&os::Error::as_fs_error).?;
+        !File::init(handle)
+    }
+
+    pub fn create_encoded_file(&self, path: EncodedPath, options: CreateOptions) Error!File {
+        let handle = os::open_at(
+            self.handle,
+            path.ptr(),
+            options.os_mode(),
+            true,
+            options.truncate(),
+            options.is_exclusive(),
+            options.permissions(),
+        ).map_err[Error](&os::Error::as_fs_error).?;
+        !File::init(handle)
+    }
+}
+
+extend File {
+    pub fn init(handle: os::FileDescriptor) File {
+        { handle: handle }
+    }
+
+    pub fn stdin() File {
+        File::init(os::FileDescriptor::stdin())
+    }
+
+    pub fn stdout() File {
+        File::init(os::FileDescriptor::stdout())
+    }
+
+    pub fn stderr() File {
+        File::init(os::FileDescriptor::stderr())
+    }
+
+    pub fn close(&self) Error!void {
+        self.handle.close().map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn write_some(&self, bytes: &[u8]) Error!usize {
+        self.handle.write_some(bytes).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn read_some(&self, bytes: &mut [u8]) Error!usize {
+        self.handle.read_some(bytes).map_err[Error](&os::Error::as_fs_error)
+    }
+}
+
+extend os::Error {
+    pub fn as_fs_error(self) Error {
+        switch self {
+            os::Error::PermissionDenied => Error::PermissionDenied,
+            os::Error::NoEntry => Error::NotFound,
+            os::Error::Interrupted => Error::Interrupted,
+            os::Error::Io => Error::Io,
+            os::Error::BadFd => Error::BadFd,
+            os::Error::Again => Error::Again,
+            os::Error::NoMemory => Error::OutOfMemory,
+            os::Error::Access => Error::Access,
+            os::Error::Fault => Error::Fault,
+            os::Error::Busy => Error::Busy,
+            os::Error::Exists => Error::AlreadyExists,
+            os::Error::Invalid => Error::Invalid,
+            os::Error::NoSpace => Error::NoSpace,
+            os::Error::BrokenPipe => Error::BrokenPipe,
+            os::Error::OutOfRange => Error::OutOfRange,
+            _ => Error::System,
+        }
+    }
+}

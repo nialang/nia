@@ -1,0 +1,94 @@
+import std.os.linux.syscall;
+import std.os.linux.types;
+import std.os.linux.util;
+
+using types::Error;
+
+comptime let native_page_size: usize = 4096usize;
+
+fn raw_map_pages(len: usize) Error!&mut u8 {
+    let prot_read_write = 3usize;
+    let private_anonymous = 34usize;
+    let ret = syscall::syscall6(
+        9,
+        0,
+        len,
+        prot_read_write,
+        private_anonymous,
+        (-1isize) as usize,
+        0,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !((ret as usize) as &mut u8)
+    }
+}
+
+fn raw_unmap_pages(ptr: &mut u8, len: usize) Error!void {
+    let ret = syscall::syscall3(11, ptr as usize, len, 0);
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        !{}
+    }
+}
+
+pub fn page_size() usize {
+    native_page_size
+}
+
+pub fn page_aligned_len(len: usize) Error!usize {
+    util::align_forward(len, page_size())
+}
+
+pub fn map_pages(len: usize, align: usize) Error!&mut u8 {
+    if len == 0 {
+        return Error::Invalid!;
+    }
+    if align == 0 or not util::is_power_of_two(align) {
+        return Error::Invalid!;
+    }
+
+    let aligned_len = page_aligned_len(len).?;
+    var extra = 0usize;
+    if align > page_size() {
+        extra = align - page_size();
+    }
+    let map_len = util::checked_add(aligned_len, extra).?;
+    let mapped = raw_map_pages(map_len).?;
+    let mapped_addr = mapped as usize;
+    var result_addr: usize;
+    switch util::align_forward(mapped_addr, align) {
+        !value => result_addr = value,
+        err! => {
+            switch raw_unmap_pages(mapped, map_len) {
+                !ok => _ = ok,
+                error! => {},
+            }
+            return err!;
+        },
+    }
+
+    let drop_len = result_addr - mapped_addr;
+    if drop_len != 0 {
+        raw_unmap_pages(mapped, drop_len).?;
+    }
+
+    let remaining_len = map_len - drop_len;
+    if remaining_len > aligned_len {
+        let suffix = (result_addr + aligned_len) as &mut u8;
+        raw_unmap_pages(suffix, remaining_len - aligned_len).?;
+    }
+
+    !(result_addr as &mut u8)
+}
+
+pub fn unmap_pages(ptr: &mut u8, len: usize) Error!void {
+    if len == 0 {
+        Error::Invalid!
+    } else {
+        let aligned_len = page_aligned_len(len).?;
+        raw_unmap_pages(ptr, aligned_len)
+    }
+}
