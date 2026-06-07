@@ -497,7 +497,10 @@ mod tests {
     use std::{
         fs,
         path::{Path, PathBuf},
+        sync::atomic::{AtomicUsize, Ordering},
     };
+
+    static TEMP_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
     fn query_loader_loads_import_graph_once() {
@@ -873,8 +876,12 @@ comptime if @builtin().target.os == "definitely-not-the-host-os" {
 
     fn temp_dir(name: &str) -> PathBuf {
         let mut dir = std::env::temp_dir();
-        dir.push(format!("nia_loader_query_{name}_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        dir.push(format!(
+            "nia_loader_query_{name}_{}_{:?}_{id}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
