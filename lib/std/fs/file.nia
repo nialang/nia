@@ -4,7 +4,7 @@ import std.fs.types;
 import std.os;
 import std.result;
 
-using types::{CreateDirOptions, CreateOptions, Dir, EncodedPath, Error, File, OpenOptions, Path};
+using types::{CreateDirOptions, CreateOptions, Dir, EncodedPath, Error, File, OpenDirOptions, OpenOptions, Path};
 
 extend Dir {
     pub fn init(handle: os::FileDescriptor) Dir {
@@ -19,6 +19,12 @@ extend Dir {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.open_encoded_file(encoded, options)
+    }
+
+    pub fn open_dir(&self, path: Path, options: OpenDirOptions) Error!Dir {
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let encoded = path.encode(&mut storage[..]).?;
+        self.open_encoded_dir(encoded, options)
     }
 
     pub fn create_file(&self, path: Path, options: CreateOptions) Error!File {
@@ -70,6 +76,15 @@ extend Dir {
         !File::init(handle)
     }
 
+    pub fn open_encoded_dir(&self, path: EncodedPath, options: OpenDirOptions) Error!Dir {
+        let handle = os::open_dir_at(
+            self.handle,
+            path.ptr(),
+            options.follow_symlinks(),
+        ).map_err[Error](&os::Error::as_fs_error).?;
+        !Dir::init(handle)
+    }
+
     pub fn create_encoded_file(&self, path: EncodedPath, options: CreateOptions) Error!File {
         let handle = os::open_at(
             self.handle,
@@ -106,6 +121,10 @@ extend Dir {
             new_dir.handle,
             new_path.ptr(),
         ).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn close(&self) Error!void {
+        self.handle.close().map_err[Error](&os::Error::as_fs_error)
     }
 }
 

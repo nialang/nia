@@ -59,6 +59,10 @@ pub struct OpenOptions {
     mode: OpenMode,
 }
 
+pub struct OpenDirOptions {
+    follow_symlinks: bool,
+}
+
 pub struct CreateOptions {
     read: bool,
     truncate: bool,
