@@ -538,7 +538,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if let Some(value) = value {
             if self.is_zero_sized(value.ty) {
                 self.emit_effect_expr(value)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
                 self.emit_function_tail_defers(body, block, span)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
                 if self.is_never(self.function.return_type) {
                     self.builder
                         .build_unreachable()
@@ -603,7 +609,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         };
         if self.is_zero_sized(value.ty) {
             self.emit_effect_expr(value)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
             self.emit_function_tail_defers(body, block, span)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
             self.builder
                 .build_return(None)
                 .map_err(|_| self.error(span, "failed to build void return"))?;
@@ -696,6 +708,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if let Some(value) = &binding.value {
             if self.is_zero_sized(binding.ty) {
                 self.emit_effect_expr(value)?;
+                if self.current_block_has_terminator() {
+                    return Ok(());
+                }
                 return Ok(());
             }
             let Some(ptr) = self.locals.get(&binding.local_id).copied() else {
@@ -714,6 +729,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<(), Diagnostic> {
         if self.is_zero_sized(value.ty) {
             self.emit_effect_expr(value)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
             return Ok(());
         }
         let Some(ptr) = self.locals.get(&local_id).copied() else {
@@ -731,6 +749,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     ) -> Result<(), Diagnostic> {
         if self.is_zero_sized(value.ty) {
             self.emit_effect_expr(value)?;
+            if self.current_block_has_terminator() {
+                return Ok(());
+            }
             return Ok(());
         }
         if self.emit_aggregate_literal_into(ptr, value)? {
@@ -920,6 +941,9 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 }
                 if self.is_zero_sized(rhs.ty) {
                     self.emit_effect_expr(rhs)?;
+                    if self.current_block_has_terminator() {
+                        return Ok(());
+                    }
                     return Ok(());
                 }
                 let value = self.emit_expr(rhs)?;
@@ -930,6 +954,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 let _ = self.emit_call_raw(expr, callee, args)?;
                 Ok(())
             }
+            FunctionExprKind::Trap => self.emit_trap(expr.span),
             FunctionExprKind::InlineAsm(asm) => self.emit_inline_asm(asm),
             FunctionExprKind::ArrayLiteral { elems } => self.emit_array_literal_effects(elems),
             FunctionExprKind::StructLiteral { fields, .. } => {

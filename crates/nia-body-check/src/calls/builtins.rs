@@ -30,6 +30,14 @@ impl<'a> BodyChecker<'a> {
             ));
             return self.error();
         }
+        if matches!(resolution, BuiltinResolution::Trap) {
+            self.diagnostics.push(Diagnostic::user_error_at(
+                "E0301",
+                span,
+                "builtin `@trap` must be called",
+            ));
+            return self.error();
+        }
         let Some(type_arg) = type_arg else {
             self.diagnostics.push(Diagnostic::user_error_at(
                 "E0301",
@@ -40,7 +48,9 @@ impl<'a> BodyChecker<'a> {
         };
         let ty = self.ty_for_type(type_arg);
         let builtin = match resolution {
-            BuiltinResolution::Builtin | BuiltinResolution::ComptimeError => return self.error(),
+            BuiltinResolution::Builtin
+            | BuiltinResolution::ComptimeError
+            | BuiltinResolution::Trap => return self.error(),
             BuiltinResolution::SizeOf => {
                 self.require_sized_type(type_arg.span, ty, name);
                 LayoutBuiltin::Size
@@ -128,6 +138,26 @@ impl<'a> BodyChecker<'a> {
                     "builtin `@error` can only be evaluated at comptime",
                 ));
                 self.error()
+            }
+            BuiltinResolution::Trap => {
+                if type_arg.is_some() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
+                        builtin_span,
+                        "builtin `@trap` does not take a type argument",
+                    ));
+                }
+                if !args.is_empty() {
+                    self.diagnostics.push(Diagnostic::user_error_at(
+                        "E0301",
+                        call_span,
+                        "builtin `@trap` does not take value arguments",
+                    ));
+                    for arg in args {
+                        self.check_expr(arg);
+                    }
+                }
+                self.never()
             }
             BuiltinResolution::SizeOf | BuiltinResolution::AlignOf => {
                 if !args.is_empty() {

@@ -192,6 +192,7 @@ pub enum TypedExprKind {
     },
     EnumVariant(GlobalDefId),
     BuiltinValue(BuiltinConst),
+    Trap,
     Range(TypedRange),
     InlineAsm(TypedInlineAsm),
     MemoryIntrinsic(TypedMemoryIntrinsic),

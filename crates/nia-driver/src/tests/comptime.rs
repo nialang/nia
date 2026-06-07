@@ -4732,3 +4732,77 @@ fn main() usize {
         program.diagnostics
     );
 }
+
+#[test]
+fn trap_builtin_is_never_typed() {
+    let root = temp_dir("trap_builtin_is_never_typed");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() i32 {
+    @trap()
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn trap_builtin_must_be_called() {
+    let root = temp_dir("trap_builtin_must_be_called");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() void {
+    @trap;
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("builtin `@trap` must be called")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn trap_builtin_rejects_arguments() {
+    let root = temp_dir("trap_builtin_rejects_arguments");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn value_arg() void {
+    @trap(1);
+}
+
+fn type_arg() void {
+    @trap[usize]();
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("builtin `@trap` does not take value arguments")),
+        "{:?}",
+        program.diagnostics
+    );
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("builtin `@trap` does not take a type argument")),
+        "{:?}",
+        program.diagnostics
+    );
+}

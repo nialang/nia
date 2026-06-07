@@ -743,6 +743,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Call { callee, args } => {
                 if let ExprKind::Builtin { name, .. } = &callee.kind {
                     match (name.as_str(), args.as_slice()) {
+                        ("trap", []) => TypedExprKind::Trap,
                         (_, []) => self.lower_expr(callee).kind,
                         ("asm", [arg]) => self.lower_inline_asm(arg),
                         ("memcpy", [dest, source]) => {

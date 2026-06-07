@@ -226,6 +226,7 @@ pub enum FunctionExprKind {
     },
     EnumVariant(nia_ids::GlobalDefId),
     BuiltinValue(FunctionBuiltinValue),
+    Trap,
     Range(FunctionRange),
     RangeBound {
         range: Box<FunctionExpr>,

@@ -241,7 +241,8 @@ impl BackendValidator<'_> {
             | FunctionExprKind::Bool(_)
             | FunctionExprKind::Null
             | FunctionExprKind::Local(_)
-            | FunctionExprKind::BuiltinValue(_) => {}
+            | FunctionExprKind::BuiltinValue(_)
+            | FunctionExprKind::Trap => {}
             FunctionExprKind::EnumVariant(def_id) => {
                 self.validate_enum_variant_ref(
                     *def_id,

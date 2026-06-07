@@ -32,7 +32,8 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if layout.size == 0 {
                     return Ok(());
                 }
-                let size = self.byte_len(memory.span, source_len, layout.size)?;
+                let len = self.min_slice_len(memory.span, dest_len, source_len)?;
+                let size = self.byte_len(memory.span, len, layout.size)?;
                 match memory.op {
                     FunctionMemoryIntrinsicOp::Copy => {
                         self.emit_forward_byte_copy(memory.span, dest_ptr, source_ptr, size)?;
@@ -373,6 +374,28 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let ptr = self.extract_slice_ptr(span, slice)?;
         let len = self.extract_slice_len(span, slice)?;
         Ok((ptr, len))
+    }
+
+    fn min_slice_len(
+        &self,
+        span: Span,
+        dest_len: IntValue<'ctx>,
+        source_len: IntValue<'ctx>,
+    ) -> Result<IntValue<'ctx>, Diagnostic> {
+        let dest_shorter = self
+            .builder
+            .build_int_compare(IntPredicate::ULT, dest_len, source_len, "mem.dest.shorter")
+            .map_err(|_| self.error(span, "failed to compare memory intrinsic lengths"))?;
+        self.builder
+            .build_select(
+                dest_shorter.into(),
+                dest_len.into(),
+                source_len.into(),
+                "mem.copy.len",
+            )
+            .map_err(|_| self.error(span, "failed to select memory intrinsic length"))?
+            .into_int_value()
+            .map_err(|_| self.error(span, "memory intrinsic length is not an integer"))
     }
 
     fn byte_len(

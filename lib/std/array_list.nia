@@ -28,6 +28,10 @@ where T: Sized
         !list
     }
 
+    pub fn from_owned_slice(items: &mut [T]) ArrayList[T] {
+        { items: items, capacity: items.len() }
+    }
+
     pub fn deinit(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
         self.free_items(allocator).?;
         self.items = dangling_slice[T](0);
@@ -66,6 +70,49 @@ where T: Sized
 
     pub fn clear_and_free(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
         self.deinit(allocator)
+    }
+
+    pub fn into_owned_slice(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut [T] {
+        let len = self.len();
+        if @size[T]() == 0usize {
+            self.items = dangling_slice[T](0);
+            self.capacity = 0;
+            return !dangling_slice[T](len);
+        }
+
+        let old_block = self.allocated_block().?;
+        let layout = mem::Layout::array[T](len).?;
+        switch allocator.remap(old_block, layout) {
+            ?block => {
+                self.items = dangling_slice[T](0);
+                self.capacity = 0;
+                return !block_items[T](block, len);
+            },
+            null => {},
+        }
+
+        let new_block = allocator.alloc(layout).?;
+        var new_items = block_items[T](new_block, len);
+        mem::copy_forwards[T](new_items, self.as_slice());
+        switch allocator.free(old_block) {
+            !ok => _ = ok,
+            err! => {
+                switch allocator.free(new_block) {
+                    !ok => _ = ok,
+                    error! => {},
+                }
+                return err!;
+            },
+        }
+        self.items = dangling_slice[T](0);
+        self.capacity = 0;
+        !new_items
+    }
+
+    pub fn clone(&self, allocator: &mut mem::Allocator) mem::Error!ArrayList[T] {
+        var cloned = ArrayList[T]::init_capacity(allocator, self.capacity()).?;
+        cloned.append_slice_assume_capacity(self.as_slice());
+        !cloned
     }
 
     pub fn push(&mut self, allocator: &mut mem::Allocator, value: T) mem::Error!void {

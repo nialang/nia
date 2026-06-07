@@ -4194,7 +4194,15 @@ fn main() bool {
             builtin_value: ValueBuiltin,
         ) -> Result<ComptimeValue, ComptimeError> {
             let _ = span;
-            let ValueBuiltin::Builtin = builtin_value;
+            match builtin_value {
+                ValueBuiltin::Builtin => {}
+                ValueBuiltin::Error => {
+                    return Err(ComptimeError {
+                        span,
+                        message: "`@error` is not available in this test environment".to_string(),
+                    });
+                }
+            }
             let mut target = BTreeMap::new();
             target.insert("os".to_string(), ComptimeValue::String("linux".to_string()));
             target.insert("pointer_width".to_string(), ComptimeValue::Int(64));
