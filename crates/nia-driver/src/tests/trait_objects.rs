@@ -3,6 +3,118 @@ use super::common::*;
 use crate::check_program;
 
 #[test]
+fn trait_object_extension_methods_resolve_on_object_values() {
+    let root = temp_dir("trait_object_extension_methods_resolve_on_object_values");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Allocator {
+    fn alloc(&mut self) i32;
+}
+
+extend Allocator {
+    fn alloc_twice(&mut self) i32 {
+        self.alloc() + self.alloc()
+    }
+}
+
+struct PageAllocator {
+    value: i32,
+}
+
+extend PageAllocator : Allocator {
+    fn alloc(&mut self) i32 {
+        self.value
+    }
+}
+
+fn use_allocator(allocator: &mut Allocator) i32 {
+    allocator.alloc_twice()
+}
+
+fn main() i32 {
+    var allocator: PageAllocator = { value: 21 };
+    use_allocator(&mut allocator)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn readonly_trait_object_extension_methods_resolve_on_readonly_objects() {
+    let root = temp_dir("readonly_trait_object_extension_methods_resolve_on_readonly_objects");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Source {
+    fn get(&self) i32;
+}
+
+extend Source {
+    fn get_plus_one(&self) i32 {
+        self.get() + 1
+    }
+}
+
+struct Counter {
+    value: i32,
+}
+
+extend Counter : Source {
+    fn get(&self) i32 {
+        self.value
+    }
+}
+
+fn read(source: &Source) i32 {
+    source.get_plus_one()
+}
+
+fn main() i32 {
+    var counter: Counter = { value: 41 };
+    read(&counter)
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn bare_trait_is_still_not_a_value_type() {
+    let root = temp_dir("bare_trait_is_still_not_a_value_type");
+    write(
+        &root.join("main.nia"),
+        r#"
+trait Allocator {}
+
+fn main() i32 {
+    var allocator: Allocator;
+    0
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.code.as_str() == "E0202"
+                && diagnostic
+                    .diagnostic
+                    .summary
+                    .contains("trait types are not valid as values")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
 fn trait_object_supertrait_upcast_is_recorded() {
     let root = temp_dir("trait_object_supertrait_upcast_is_recorded");
     write(

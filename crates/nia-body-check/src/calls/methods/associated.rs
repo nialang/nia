@@ -181,24 +181,6 @@ impl<'a> BodyChecker<'a> {
         Some(self.normalize_projection(return_type))
     }
 
-    pub(in crate::calls) fn receiver_ty_for_target(
-        &mut self,
-        target_ty: InternedTyId,
-        receiver: ReceiverKind,
-    ) -> InternedTyId {
-        match receiver {
-            ReceiverKind::Value => target_ty,
-            ReceiverKind::RefReadOnly => self.interner.intern(nia_ty::TyKind::Pointer {
-                is_readonly: true,
-                elem: target_ty,
-            }),
-            ReceiverKind::Ref => self.interner.intern(nia_ty::TyKind::Pointer {
-                is_readonly: false,
-                elem: target_ty,
-            }),
-        }
-    }
-
     pub(in crate::calls::methods) fn associated_target_ty(
         &mut self,
         ty_expr: &Expr,

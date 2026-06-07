@@ -404,6 +404,14 @@ pub(crate) fn collect_extension_methods(
                 let Some(method_id) = module.defs.def_nodes.get(&method.function.node_key) else {
                     continue;
                 };
+                let mut impl_generics = extend.generics.clone();
+                if matches!(
+                    module.lowering.interner.get(target_ty),
+                    Some(TyKind::TraitObject { .. })
+                ) && !impl_generics.iter().any(|generic| generic == "Self")
+                {
+                    impl_generics.push("Self".to_string());
+                }
                 extensions.insert(
                     module.module.id,
                     ExtensionMethod {
@@ -413,7 +421,7 @@ pub(crate) fn collect_extension_methods(
                             def_id: method_id,
                         },
                         impl_index,
-                        impl_generics: extend.generics.clone(),
+                        impl_generics,
                         target_ty,
                         trait_id,
                         trait_args: trait_args.clone(),

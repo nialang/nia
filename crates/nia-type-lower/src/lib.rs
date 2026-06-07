@@ -161,6 +161,7 @@ enum TypeContext {
     Alias,
     SizeQuery,
     TraitBound,
+    ExtendTarget,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -246,7 +247,8 @@ impl<'ast> Visitor<'ast> for TypeLowerer<'_> {
             }
             ItemKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |lowerer| {
-                    let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
+                    let self_ty =
+                        lowerer.lower_type_in_context(&extend.target, TypeContext::ExtendTarget);
                     let trait_scope = extend.trait_ref.as_ref().and_then(|trait_ref| {
                         let trait_ty =
                             lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
@@ -437,7 +439,8 @@ impl TypeLowerer<'_> {
             }
             ItemTreeNodeKind::Extend(extend) => {
                 self.with_generics(&extend.generics, |lowerer| {
-                    let self_ty = lowerer.lower_type_in_context(&extend.target, TypeContext::Value);
+                    let self_ty =
+                        lowerer.lower_type_in_context(&extend.target, TypeContext::ExtendTarget);
                     let trait_scope = extend.trait_ref.as_ref().and_then(|trait_ref| {
                         let trait_ty =
                             lowerer.lower_type_in_context(trait_ref, TypeContext::TraitBound);
@@ -599,9 +602,13 @@ impl<'a> TypeLowerer<'a> {
                     Some(TypeNameResolution::Primitive(primitive)) => {
                         self.interner.primitive(lower_primitive(primitive))
                     }
-                    Some(TypeNameResolution::BuiltinTrait(trait_id)) => {
-                        self.lower_builtin_trait_type(ty.span, type_segment, trait_id, context)
-                    }
+                    Some(TypeNameResolution::BuiltinTrait(trait_id)) => self
+                        .lower_builtin_trait_or_extend_target_type(
+                            ty.span,
+                            type_segment,
+                            trait_id,
+                            context,
+                        ),
                     Some(TypeNameResolution::GenericParam) => self
                         .interner
                         .intern(TyKind::GenericParam(first.name.clone())),
@@ -796,6 +803,17 @@ impl<'a> TypeLowerer<'a> {
             }
         }
         self.check_type_arg_count(span, def_id, args.len());
+        if context == TypeContext::ExtendTarget && self.is_trait_def(def_id) {
+            let object_args = self
+                .lower_trait_object_args(span, segment, TraitId::Source(def_id))
+                .unwrap_or_default();
+            return self.interner.intern(TyKind::TraitObject {
+                is_readonly: false,
+                trait_id: TraitId::Source(def_id),
+                trait_args: object_args.trait_args,
+                associated_type_bindings: object_args.associated_type_bindings,
+            });
+        }
         self.interner.intern(TyKind::Nominal { def_id, args })
     }
 
@@ -1010,13 +1028,16 @@ impl<'a> TypeLowerer<'a> {
         format!("{trait_id:?}:{trait_args:?}:{name}")
     }
 
-    fn lower_builtin_trait_type(
+    fn lower_builtin_trait_or_extend_target_type(
         &mut self,
         span: Span,
         segment: &TypePathSegment,
         trait_id: BuiltinTrait,
         context: TypeContext,
     ) -> InternedTyId {
+        if context == TypeContext::ExtendTarget {
+            return self.lower_builtin_trait_object(span, false, segment, trait_id);
+        }
         let mut args = Vec::new();
         let mut seen_assoc_bindings = HashSet::new();
         let mut seen_assoc_binding = false;
