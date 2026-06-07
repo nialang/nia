@@ -251,6 +251,14 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                         for associated_type in &extend.associated_types {
                             resolver.visit_type(&associated_type.ty);
                         }
+                        for associated_value in &extend.associated_values {
+                            if let Some(ty) = &associated_value.binding.ty {
+                                resolver.visit_type(ty);
+                            }
+                            if let Some(value) = &associated_value.binding.value {
+                                resolver.visit_expr(value);
+                            }
+                        }
                         resolver.with_associated_types(associated_types, |resolver| {
                             for method in &extend.methods {
                                 resolver.visit_function(&method.function);
@@ -408,6 +416,14 @@ impl TypeResolver<'_> {
                         resolver.visit_where_clause(&extend.where_clause);
                         for associated_type in &extend.associated_types {
                             resolver.visit_type(&associated_type.ty);
+                        }
+                        for associated_value in &extend.associated_values {
+                            if let Some(ty) = &associated_value.binding.ty {
+                                resolver.visit_type(ty);
+                            }
+                            if let Some(value) = &associated_value.binding.value {
+                                resolver.visit_expr(value);
+                            }
                         }
                         resolver.with_associated_types(associated_types, |resolver| {
                             for method in &extend.methods {

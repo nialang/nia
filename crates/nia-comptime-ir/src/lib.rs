@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nia_ids::{GlobalConstExprId, GlobalDefId, InternedTyId, LayoutBuiltin, LocalId, ValueBuiltin};
 use nia_node_id::NodeKey;
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -833,6 +833,9 @@ pub enum ResolvedComptimeExprKind {
         ty: Option<InternedTyId>,
         fields: Vec<ResolvedComptimeFieldInit>,
     },
+    CompileError {
+        message: Box<ResolvedComptimeExpr>,
+    },
     BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
         builtin: LayoutBuiltin,
@@ -1279,6 +1282,9 @@ pub enum EarlyComptimeExprKind {
         ty: Option<InternedTyId>,
         fields: Vec<EarlyComptimeFieldInit>,
     },
+    CompileError {
+        message: Box<EarlyComptimeExpr>,
+    },
     BuiltinValue(ValueBuiltin),
     LayoutBuiltin {
         builtin: LayoutBuiltin,
@@ -1404,6 +1410,7 @@ pub enum EarlyComptimeArrayElements {
 pub enum ComptimeNameResolution {
     Local(LocalId),
     Global(GlobalDefId),
+    BuiltinAssociatedValue(BuiltinAssociatedValue),
 }
 
 impl From<SemanticValueUse> for ComptimeNameResolution {
@@ -1518,10 +1525,16 @@ impl ComptimeLowerContext for EarlyComptimeLowerInputs<'_> {
         key: &NodeKey,
         _span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
-        Ok(self
-            .semantic_uses
-            .and_then(|semantic_uses| semantic_uses.node_value_use(key))
-            .map(ComptimeNameResolution::from))
+        Ok(self.semantic_uses.and_then(|semantic_uses| {
+            semantic_uses
+                .node_builtin_associated_value(key)
+                .map(ComptimeNameResolution::BuiltinAssociatedValue)
+                .or_else(|| {
+                    semantic_uses
+                        .node_value_use(key)
+                        .map(ComptimeNameResolution::from)
+                })
+        }))
     }
 
     fn lower_local_use(
@@ -1565,6 +1578,9 @@ impl ComptimeLowerContext for ResolvedComptimeLowerInputs<'_> {
         key: &NodeKey,
         span: Span,
     ) -> Result<Option<ComptimeNameResolution>, ComptimeLowerError> {
+        if let Some(value) = self.semantic_uses.node_builtin_associated_value(key) {
+            return Ok(Some(ComptimeNameResolution::BuiltinAssociatedValue(value)));
+        }
         self.semantic_uses
             .node_value_use(key)
             .map(ComptimeNameResolution::from)
@@ -1858,14 +1874,30 @@ fn lower_call_with_context(
     args: &[nia_ast::Expr],
     context: &dyn ComptimeLowerContext,
 ) -> Result<EarlyComptimeExprKind, ComptimeLowerError> {
-    if let nia_ast::ExprKind::Builtin { name, type_arg } = &callee.kind
-        && type_arg.is_none()
-        && ValueBuiltin::from_name(name).is_none()
-    {
-        return Err(ComptimeLowerError {
-            span: callee.span,
-            message: format!("unsupported builtin call in comptime expression: @{name}"),
-        });
+    if let nia_ast::ExprKind::Builtin { name, type_arg } = &callee.kind {
+        if name == "error" {
+            if type_arg.is_some() {
+                return Err(ComptimeLowerError {
+                    span: callee.span,
+                    message: "builtin `@error` does not take a type argument".to_string(),
+                });
+            }
+            if args.len() != 1 {
+                return Err(ComptimeLowerError {
+                    span: callee.span,
+                    message: "builtin `@error` requires exactly one message argument".to_string(),
+                });
+            }
+            return Ok(EarlyComptimeExprKind::CompileError {
+                message: Box::new(lower_expr_internal(&args[0], context)?),
+            });
+        }
+        if type_arg.is_none() && ValueBuiltin::from_name(name).is_none() {
+            return Err(ComptimeLowerError {
+                span: callee.span,
+                message: format!("unsupported builtin call in comptime expression: @{name}"),
+            });
+        }
     }
     if args.is_empty()
         && let nia_ast::ExprKind::Field { lhs, name } = &callee.kind
@@ -2263,6 +2295,9 @@ pub fn resolve_expr(expr: EarlyComptimeExpr) -> Result<ResolvedComptimeExpr, Com
                     .collect::<Result<Vec<_>, _>>()?,
             }
         }
+        EarlyComptimeExprKind::CompileError { message } => ResolvedComptimeExprKind::CompileError {
+            message: Box::new(resolve_expr(*message)?),
+        },
         EarlyComptimeExprKind::BuiltinValue(builtin) => {
             ResolvedComptimeExprKind::BuiltinValue(builtin)
         }

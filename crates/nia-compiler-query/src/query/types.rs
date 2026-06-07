@@ -145,6 +145,7 @@ impl QueryKey<DriverContext> for ProgramSignaturesQuery {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct ExtensionMethodsQueryValue {
     pub(super) methods: nia_defs::ExtensionMethods,
+    pub(super) associated_values: nia_defs::ExtensionAssociatedValues,
     pub(super) diagnostics: Vec<Diagnostic>,
 }
 

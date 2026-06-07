@@ -5,8 +5,9 @@ mod extensions;
 mod public_surface;
 
 use nia_ast::{
-    EnumItem, ExtendAssociatedType, ExtendItem, FunctionItem, ImportPath, Module, StructItem,
-    TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem, Visibility,
+    BindingItem, EnumItem, ExtendAssociatedType, ExtendAssociatedValue, ExtendItem, FunctionItem,
+    ImportPath, Module, StructItem, TraitAssociatedType, TypeAliasItem, UnionItem, UsingItem,
+    Visibility,
 };
 use nia_diagnostic::Diagnostic;
 pub use nia_ids::{DefId, ModuleId};
@@ -15,7 +16,8 @@ use nia_node_id::NodeKey;
 use nia_span::Span;
 
 pub use extensions::{
-    AssociatedTypeBindingSignature, ExtensionMethod, ExtensionMethods, VisibleExtensionMethod,
+    AssociatedTypeBindingSignature, ExtensionAssociatedValue, ExtensionAssociatedValues,
+    ExtensionMethod, ExtensionMethods, VisibleExtensionAssociatedValue, VisibleExtensionMethod,
     VisibleExtensionMethods, VisibleExtensionTarget, WhereBoundSignature, WherePredicateSignature,
 };
 pub use public_surface::{
@@ -133,6 +135,7 @@ pub struct ModuleScope {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MemberScope {
     pub fields: NameTable,
+    pub values: NameTable,
     pub methods: NameTable,
 }
 
@@ -391,6 +394,9 @@ impl Collector {
         for associated_type in &extend.associated_types {
             self.collect_extend_associated_type(None, &mut members, associated_type);
         }
+        for associated_value in &extend.associated_values {
+            self.collect_extend_associated_value(None, &mut members, associated_value);
+        }
         for method in &extend.methods {
             self.collect_method(None, &mut members, &method.function, method.vis);
         }
@@ -468,6 +474,29 @@ impl Collector {
         );
     }
 
+    fn collect_extend_associated_value(
+        &mut self,
+        parent: Option<DefId>,
+        members: &mut MemberScope,
+        associated_value: &ExtendAssociatedValue,
+    ) {
+        let binding = &associated_value.binding;
+        let value_id = self.push_associated_value_def(
+            parent,
+            binding,
+            associated_value.vis,
+            associated_value.span,
+        );
+        self.def_nodes.insert(binding.node_key.clone(), value_id);
+        self.insert_member(
+            &mut members.values,
+            binding.name.clone(),
+            value_id,
+            associated_value.span,
+            "duplicate associated value definition",
+        );
+    }
+
     fn collect_trait_method(
         &mut self,
         parent: Option<DefId>,
@@ -519,6 +548,24 @@ impl Collector {
             method.span,
             "duplicate struct method",
         );
+    }
+
+    fn push_associated_value_def(
+        &mut self,
+        parent: Option<DefId>,
+        binding: &BindingItem,
+        visibility: Visibility,
+        span: Span,
+    ) -> DefId {
+        self.push_def(Def {
+            name: binding.name.clone(),
+            kind: DefKind::Comptime,
+            module_id: self.module_id,
+            parent,
+            generics: Vec::new(),
+            visibility,
+            span,
+        })
     }
 
     fn collect_enum(&mut self, item: &ItemTreeNode, item_enum: &EnumItem) {

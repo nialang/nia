@@ -120,19 +120,8 @@ where T: Sized
     }
 
     pub fn insert(&mut self, allocator: &mut mem::Allocator, index: usize, value: T) mem::Error!void {
-        if index > self.len() {
-            return mem::Error::Invalid!;
-        }
-        self.ensure_unused_capacity(allocator, 1usize).?;
-
-        let len = self.len();
-        let new_len = len + 1usize;
-        var items = self.allocated_items();
-        if index < len {
-            mem::copy_backwards[T](&mut items[(index + 1usize)..new_len], &items[index..len]);
-        }
-        items[index] = value;
-        self.items = &mut items[0..new_len];
+        var slots = self.add_many_at(allocator, index, 1usize).?;
+        slots[0] = value;
         !{}
     }
 
@@ -163,17 +152,8 @@ where T: Sized
     }
 
     fn insert_stable_slice(&mut self, allocator: &mut mem::Allocator, index: usize, values: &[T]) mem::Error!void {
-        let len = self.len();
-        self.ensure_unused_capacity(allocator, values.len()).?;
-        let new_len = len + values.len();
-        var items = self.allocated_items();
-        if values.len() != 0usize {
-            if index < len {
-                mem::copy_backwards[T](&mut items[(index + values.len())..new_len], &items[index..len]);
-            }
-            mem::copy_forwards[T](&mut items[index..(index + values.len())], values);
-        }
-        self.items = &mut items[0..new_len];
+        var slots = self.add_many_at(allocator, index, values.len()).?;
+        mem::copy_forwards[T](slots, values);
         !{}
     }
 
@@ -183,19 +163,19 @@ where T: Sized
 
     pub fn reserve_exact(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         let len = self.len();
-        let needed = len + additional;
-        if needed < len {
-            return mem::Error::OutOfMemory!;
-        }
+        let needed = switch len.checked_add(additional) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
         self.ensure_total_capacity_precise(allocator, needed)
     }
 
     pub fn ensure_unused_capacity(&mut self, allocator: &mut mem::Allocator, additional: usize) mem::Error!void {
         let len = self.len();
-        let needed = len + additional;
-        if needed < len {
-            return mem::Error::OutOfMemory!;
-        }
+        let needed = switch len.checked_add(additional) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
         self.ensure_total_capacity(allocator, needed)
     }
 
@@ -239,14 +219,19 @@ where T: Sized
     }
 
     fn append_stable_slice(&mut self, allocator: &mut mem::Allocator, items: &[T]) mem::Error!void {
-        let out = self.add_many_as_slice(allocator, items.len()).?;
+        var out = self.add_many_as_slice(allocator, items.len()).?;
         mem::copy_forwards[T](out, items);
         !{}
     }
 
     pub fn append_slice_assume_capacity(&mut self, items: &[T]) void {
-        let out = self.add_many_as_slice_assume_capacity(items.len());
+        var out = self.add_many_as_slice_assume_capacity(items.len());
         mem::copy_forwards[T](out, items);
+    }
+
+    pub fn append_assume_capacity(&mut self, value: T) void {
+        let slot = self.add_one_assume_capacity();
+        slot.* = value;
     }
 
     pub fn add_one(&mut self, allocator: &mut mem::Allocator) mem::Error!&mut T {
@@ -260,8 +245,14 @@ where T: Sized
     }
 
     pub fn add_many_as_slice(&mut self, allocator: &mut mem::Allocator, count: usize) mem::Error!&mut [T] {
-        self.ensure_unused_capacity(allocator, count).?;
-        !self.add_many_as_slice_assume_capacity(count)
+        let old_len = self.len();
+        let new_len = switch old_len.checked_add(count) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        self.resize(allocator, new_len).?;
+        var items = self.allocated_items();
+        !&mut items[old_len..new_len]
     }
 
     pub fn add_many_as_slice_assume_capacity(&mut self, count: usize) &mut [T] {
@@ -272,6 +263,39 @@ where T: Sized
         &mut items[old_len..new_len]
     }
 
+    pub fn add_many_at(&mut self, allocator: &mut mem::Allocator, index: usize, count: usize) mem::Error!&mut [T] {
+        if index > self.len() {
+            return mem::Error::Invalid!;
+        }
+        let new_len = switch self.len().checked_add(count) {
+            ?value => value,
+            null => return mem::Error::OutOfMemory!,
+        };
+        if self.capacity() < new_len {
+            let better_capacity = self.grown_capacity(new_len).?;
+            self.grow_to_capacity(allocator, better_capacity).?;
+        }
+        !self.add_many_at_assume_capacity(index, count)
+    }
+
+    pub fn add_many_at_assume_capacity(&mut self, index: usize, count: usize) &mut [T] {
+        let len = self.len();
+        let new_len = len + count;
+        var items = self.allocated_items();
+        if count != 0usize and index < len {
+            mem::copy_backwards[T](&mut items[(index + count)..new_len], &items[index..len]);
+        }
+        self.items = &mut items[0..new_len];
+        &mut items[index..(index + count)]
+    }
+
+    pub fn resize(&mut self, allocator: &mut mem::Allocator, new_len: usize) mem::Error!void {
+        self.ensure_total_capacity(allocator, new_len).?;
+        var items = self.allocated_items();
+        self.items = &mut items[0..new_len];
+        !{}
+    }
+
     pub fn shrink_retaining_capacity(&mut self, new_len: usize) void {
         if new_len < self.len() {
             var ptr = self.items.get_ptr();
@@ -279,14 +303,81 @@ where T: Sized
         }
     }
 
+    pub fn shrink_and_free(&mut self, allocator: &mut mem::Allocator, new_len: usize) mem::Error!void {
+        if new_len > self.len() {
+            return !{};
+        }
+        self.shrink_retaining_capacity(new_len);
+        self.shrink_to_len(allocator)
+    }
+
+    pub fn shrink_to_len(&mut self, allocator: &mut mem::Allocator) mem::Error!void {
+        self.shrink_to_capacity(allocator, self.len())
+    }
+
+    pub fn shrink_to_capacity(&mut self, allocator: &mut mem::Allocator, new_capacity: usize) mem::Error!void {
+        if new_capacity >= self.capacity() {
+            return !{};
+        }
+        let len = self.len();
+        if new_capacity < len {
+            self.shrink_retaining_capacity(new_capacity);
+        }
+        if @size[T]() == 0usize {
+            self.capacity = usize::MAX;
+            return !{};
+        }
+
+        let old_block = self.allocated_block().?;
+        let layout = mem::Layout::array[T](new_capacity).?;
+        switch allocator.remap(old_block, layout) {
+            ?block => {
+                self.set_allocated_block(block, new_capacity);
+                return !{};
+            },
+            null => {},
+        }
+
+        let new_block = allocator.alloc(layout).?;
+        var new_items = block_items[T](new_block, new_capacity);
+        mem::copy_forwards[T](&mut new_items[0..self.len()], self.as_slice());
+        switch allocator.free(old_block) {
+            !ok => _ = ok,
+            err! => {
+                switch allocator.free(new_block) {
+                    !ok => _ = ok,
+                    error! => {},
+                }
+                return err!;
+            },
+        }
+        self.set_allocated_block(new_block, new_capacity);
+        !{}
+    }
+
+    pub fn expand_to_capacity(&mut self) void {
+        var items = self.allocated_items();
+        self.items = &mut items[0..self.capacity];
+    }
+
+    pub fn allocated_slice(&mut self) &mut [T] {
+        self.allocated_items()
+    }
+
+    pub fn unused_capacity_slice(&mut self) &mut [T] {
+        var items = self.allocated_items();
+        &mut items[self.len()..self.capacity]
+    }
+
     fn grown_capacity(&self, needed: usize) mem::Error!usize {
+        if @size[T]() == 0usize {
+            return !usize::MAX;
+        }
         let elem_len = @size[T]();
         var init_capacity = 1usize;
-        if elem_len != 0usize {
-            init_capacity = 64usize / elem_len;
-            if init_capacity == 0usize {
-                init_capacity = 1usize;
-            }
+        init_capacity = 64usize / elem_len;
+        if init_capacity == 0usize {
+            init_capacity = 1usize;
         }
         let half = needed / 2usize;
         let extra = switch half.checked_add(init_capacity) {
@@ -300,6 +391,10 @@ where T: Sized
     }
 
     fn grow_to_capacity(&mut self, allocator: &mut mem::Allocator, capacity: usize) mem::Error!void {
+        if @size[T]() == 0usize {
+            self.capacity = usize::MAX;
+            return !{};
+        }
         let old_block = self.allocated_block().?;
         let layout = mem::Layout::array[T](capacity).?;
         switch allocator.remap(old_block, layout) {

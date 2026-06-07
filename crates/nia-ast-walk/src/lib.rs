@@ -87,6 +87,14 @@ pub fn walk_item<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, item: &'ast I
             for associated_type in &extend.associated_types {
                 visitor.visit_type(&associated_type.ty);
             }
+            for associated_value in &extend.associated_values {
+                if let Some(ty) = &associated_value.binding.ty {
+                    visitor.visit_type(ty);
+                }
+                if let Some(value) = &associated_value.binding.value {
+                    visitor.visit_expr(value);
+                }
+            }
             for method in &extend.methods {
                 visitor.visit_function(&method.function);
             }

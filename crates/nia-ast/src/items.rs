@@ -162,6 +162,7 @@ pub struct ExtendItem {
     pub trait_ref: Option<TypeRef>,
     pub where_clause: WhereClause,
     pub associated_types: Vec<ExtendAssociatedType>,
+    pub associated_values: Vec<ExtendAssociatedValue>,
     pub methods: Vec<ExtendMethod>,
 }
 
@@ -171,6 +172,13 @@ pub struct ExtendAssociatedType {
     pub ty: TypeRef,
     pub span: Span,
     pub node_key: NodeKey,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtendAssociatedValue {
+    pub vis: Visibility,
+    pub binding: BindingItem,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]

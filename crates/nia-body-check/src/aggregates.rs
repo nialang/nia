@@ -17,7 +17,7 @@ use nia_local_resolve::LocalKind;
 use nia_sema::{
     ArrayLiteralLenCheck, NamedField, check_array_literal_len, check_required_field_set,
 };
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
 use nia_ty::{ArrayLenTy, TyInterner, TyKind};
 
@@ -535,8 +535,13 @@ impl<'a> BodyChecker<'a> {
             .get(&def_id.module_id)
             .and_then(|comptime| comptime.typed_values.get(&ComptimeKey::Global(def_id)))
             .cloned()
+            && let Some(normalizations) = self.program.type_normalizations
+            && let Some(normalization) = normalizations.get(&def_id.module_id)
+            && let Some(ty) =
+                self.import_comptime_value_runtime_type(&normalization.interner, typed.ty)
+            && ty != self.error()
         {
-            return self.import_comptime_value_runtime_type(&program_signature.interner, typed.ty);
+            return Some(ty);
         }
         let ty = program_signature
             .signature
@@ -853,6 +858,17 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
                     message: "resolved comptime expression can only use comptime bindings"
                         .to_string(),
                 })
+            }
+            ComptimeNameResolution::BuiltinAssociatedValue(value) => {
+                let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
+                let Some(value) = kind.value(primitive, self.target.pointer_width) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin associated value is not representable at comptime"
+                            .to_string(),
+                    });
+                };
+                Ok(ComptimeValue::Int(value))
             }
         }
     }

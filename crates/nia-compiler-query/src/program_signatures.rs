@@ -3,8 +3,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::LoadedModule;
 use nia_defs::{
-    AssociatedTypeBindingSignature, DefCollection, ExtensionMethod, ExtensionMethods,
-    PublicNamespace, PublicSurfaces, VisibleExtensionMethod, VisibleExtensionMethods,
+    AssociatedTypeBindingSignature, DefCollection, ExtensionAssociatedValue,
+    ExtensionAssociatedValues, ExtensionMethod, ExtensionMethods, PublicNamespace, PublicSurfaces,
+    VisibleExtensionAssociatedValue, VisibleExtensionMethod, VisibleExtensionMethods,
     WhereBoundSignature, WherePredicateSignature,
 };
 use nia_diagnostic::Diagnostic;
@@ -434,6 +435,59 @@ pub(crate) fn collect_extension_methods(
         }
     }
     (extensions, diagnostics)
+}
+
+pub(crate) fn collect_extension_associated_values(
+    modules: &[ExtensionModuleInput<'_>],
+) -> (ExtensionAssociatedValues, Vec<Diagnostic>) {
+    let mut values = ExtensionAssociatedValues::default();
+    let mut diagnostics = Vec::new();
+    for module in modules {
+        let mut impl_index = 0;
+        for item in &module.module.module.items {
+            let nia_ast::ItemKind::Extend(extend) = &item.kind else {
+                continue;
+            };
+            let Some(target_ty) = lowered_type(module, &extend.target) else {
+                diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    extend.target.span,
+                    "extend target must resolve to a nominal type",
+                ));
+                continue;
+            };
+            let target_ty = module.normalization.normalize(target_ty);
+            if !is_extendable_target(&module.lowering.interner, target_ty) {
+                diagnostics.push(Diagnostic::user_error_at(
+                    "E0201",
+                    extend.target.span,
+                    "extend target must be an extendable value type",
+                ));
+                continue;
+            }
+            for associated_value in &extend.associated_values {
+                let binding = &associated_value.binding;
+                let Some(def_id) = module.defs.def_nodes.get(&binding.node_key) else {
+                    continue;
+                };
+                values.insert(
+                    module.module.id,
+                    ExtensionAssociatedValue {
+                        name: binding.name.clone(),
+                        def_id: GlobalDefId {
+                            module_id: module.module.id,
+                            def_id,
+                        },
+                        impl_index,
+                        target_ty,
+                        visibility: associated_value.vis,
+                    },
+                );
+            }
+            impl_index += 1;
+        }
+    }
+    (values, diagnostics)
 }
 
 #[derive(Clone, Copy)]
@@ -1753,6 +1807,7 @@ pub(crate) fn visible_extensions_for_module(
     defs_by_module: &HashMap<nia_ids::ModuleId, DefCollection>,
     normalizations: &HashMap<nia_ids::ModuleId, TypeNormalization>,
     extensions: &ExtensionMethods,
+    associated_values: &ExtensionAssociatedValues,
 ) -> VisibleExtensionsForModule {
     let imported_modules = transitive_import_closure(module_id, imports);
     let Some(current_normalization) = normalizations.get(&module_id) else {
@@ -1813,6 +1868,31 @@ pub(crate) fn visible_extensions_for_module(
                 is_callable: method.def_id.module_id == module_id
                     || method.visibility == nia_ast::Visibility::Public,
                 is_trait_witness: trait_is_visible,
+            },
+        );
+    }
+    for value in associated_values.visible_values(module_id, imported_modules.iter().copied()) {
+        let Some(value_defs) = defs_by_module.get(&value.def_id.module_id) else {
+            continue;
+        };
+        if value_defs.defs.get(value.def_id.def_id).is_none() {
+            continue;
+        }
+        let Some(value_normalization) = normalizations.get(&value.def_id.module_id) else {
+            continue;
+        };
+        let target_ty = value_normalization.normalize(value.target_ty);
+        let target_ty = import_type_into(
+            &mut target_interner,
+            &value_normalization.interner,
+            target_ty,
+        );
+        visible.insert_associated_value(
+            value.impl_index,
+            target_ty,
+            VisibleExtensionAssociatedValue {
+                name: value.name.clone(),
+                def_id: value.def_id,
             },
         );
     }

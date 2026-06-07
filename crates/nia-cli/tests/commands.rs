@@ -3021,6 +3021,86 @@ pub fn main(init: process::Init) process::ExitCode!void {
         return process::ExitCode::init(17)!;
     }
 
+    switch list.add_many_at(page, 2, 2) {
+        !slots => {
+            slots[0] = 21;
+            slots[1] = 22;
+        },
+        error! => return process::ExitCode::init(46)!,
+    }
+    if list.len() != 14 or list.as_slice()[2] != 21 or list.as_slice()[3] != 22 or list.as_slice()[4] != 20 {
+        return process::ExitCode::init(47)!;
+    }
+
+    list.append_assume_capacity(120);
+    if list.len() != 15 or list.as_slice()[14] != 120 {
+        return process::ExitCode::init(48)!;
+    }
+
+    switch list.resize(page, 18) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(49)!,
+    }
+    if list.len() != 18 {
+        return process::ExitCode::init(50)!;
+    }
+    var unused = list.unused_capacity_slice();
+    if unused.len() < 2 {
+        return process::ExitCode::init(51)!;
+    }
+    unused[0] = 180;
+    unused[1] = 190;
+    switch list.add_many_as_slice(page, 2) {
+        !slots => {
+            if slots[0] != 180 or slots[1] != 190 {
+                return process::ExitCode::init(52)!;
+            }
+        },
+        error! => return process::ExitCode::init(53)!,
+    }
+    if list.len() != 20 {
+        return process::ExitCode::init(54)!;
+    }
+
+    switch list.resize(page, 12) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(55)!,
+    }
+    if list.len() != 12 {
+        return process::ExitCode::init(56)!;
+    }
+
+    let before_shrink_capacity = list.capacity();
+    switch list.shrink_to_len(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(57)!,
+    }
+    if list.len() != 12 or list.capacity() > before_shrink_capacity or list.capacity() < list.len() {
+        return process::ExitCode::init(58)!;
+    }
+
+    switch list.reserve_exact(page, 4) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(59)!,
+    }
+    list.expand_to_capacity();
+    if list.len() != list.capacity() {
+        return process::ExitCode::init(60)!;
+    }
+
+    switch list.shrink_and_free(page, 10) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(61)!,
+    }
+    if list.len() != 10 or list.capacity() < 10 {
+        return process::ExitCode::init(62)!;
+    }
+
+    let allocated = list.allocated_slice();
+    if allocated.len() != list.capacity() {
+        return process::ExitCode::init(63)!;
+    }
+
     let retained_capacity = list.capacity();
     list.shrink_retaining_capacity(10);
     if list.len() != 10 or list.capacity() != retained_capacity {
@@ -3056,6 +3136,79 @@ pub fn main(init: process::Init) process::ExitCode!void {
     switch list.clear_and_free(page) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(25)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe).status().expect("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn emit_exe_std_array_list_handles_zero_sized_elements_without_allocation() {
+    let root = temp_dir("emit_exe_std_array_list_handles_zero_sized_elements_without_allocation");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.array_list;
+import std.mem;
+import std.process;
+
+struct Marker {}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var allocator = mem::PageAllocator::init();
+    let page = &mut allocator;
+    var list = array_list::ArrayList[Marker]::init();
+    switch list.reserve(page, 4) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(1)!,
+    }
+    if list.capacity() != usize::MAX {
+        return process::ExitCode::init(2)!;
+    }
+    switch list.push(page, {}) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    switch list.resize(page, 16) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
+    }
+    if list.len() != 16 or list.capacity() != usize::MAX {
+        return process::ExitCode::init(5)!;
+    }
+    switch list.shrink_and_free(page, 3) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
+    }
+    if list.len() != 3 or list.capacity() != usize::MAX {
+        return process::ExitCode::init(7)!;
+    }
+    switch list.deinit(page) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(8)!,
     }
     !{}
 }

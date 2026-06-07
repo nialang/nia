@@ -317,3 +317,26 @@ extend[T] Box[T] {
     assert_eq!(extend.generics, vec!["T"]);
     assert_eq!(extend.methods.len(), 1);
 }
+
+#[test]
+fn parses_extend_associated_comptime_values() {
+    let (module, errors) = parse_module(
+        r#"
+extend usize {
+    pub comptime let MAX: usize = 18446744073709551615usize;
+    comptime var shadow: usize = 1usize;
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Extend(extend) = &module.items[0].kind else {
+        panic!("expected extend");
+    };
+    assert_eq!(extend.associated_values.len(), 2);
+    assert_eq!(extend.associated_values[0].binding.name, "MAX");
+    assert!(extend.associated_values[0].binding.is_comptime);
+    assert!(extend.associated_values[0].binding.is_let);
+    assert_eq!(extend.associated_values[1].binding.name, "shadow");
+    assert!(extend.associated_values[1].binding.is_comptime);
+    assert!(!extend.associated_values[1].binding.is_let);
+}

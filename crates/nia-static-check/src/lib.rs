@@ -10,8 +10,9 @@ use nia_diagnostic::Diagnostic;
 use nia_ids::{GlobalDefId, ModuleId};
 use nia_item_signatures::ItemSignatures;
 use nia_local_resolve::{LocalResolution, LocalUse};
-use nia_sema_ir::{SemanticUseTable, SemanticValueUse};
+use nia_sema_ir::{BuiltinAssociatedValue, SemanticUseTable, SemanticValueUse};
 use nia_span::Span;
+use nia_target_config::TargetConfig;
 use nia_value_resolve::{ValueNameResolution, ValueResolution};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -29,6 +30,7 @@ pub fn check_module_static_initializers(
     comptime: &ComptimeCheck,
     program_defs: &HashMap<ModuleId, DefCollection>,
     program_comptime: &HashMap<ModuleId, ComptimeCheck>,
+    target: &TargetConfig,
 ) -> StaticCheck {
     let mut checker = StaticChecker {
         defs,
@@ -39,6 +41,7 @@ pub fn check_module_static_initializers(
         comptime,
         program_defs,
         program_comptime,
+        target,
         diagnostics: Vec::new(),
     };
     checker.check_module(module);
@@ -56,6 +59,7 @@ struct StaticChecker<'a> {
     comptime: &'a ComptimeCheck,
     program_defs: &'a HashMap<ModuleId, DefCollection>,
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+    target: &'a TargetConfig,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -328,6 +332,7 @@ impl StaticChecker<'_> {
             comptime: self.comptime,
             program_defs: self.program_defs,
             program_comptime: self.program_comptime,
+            target: self.target,
         };
         let expr =
             nia_comptime_ir::lower_expr_resolved_with_context(expr, &context).map_err(|err| {
@@ -439,6 +444,7 @@ struct StaticComptimeEnv<'a> {
     comptime: &'a ComptimeCheck,
     program_defs: &'a HashMap<ModuleId, DefCollection>,
     program_comptime: &'a HashMap<ModuleId, ComptimeCheck>,
+    target: &'a TargetConfig,
 }
 
 impl ComptimeCommonEnv for StaticComptimeEnv<'_> {}
@@ -462,6 +468,17 @@ impl ResolvedComptimeEnv for StaticComptimeEnv<'_> {
                     });
                 }
                 ComptimeKey::Global(global_id)
+            }
+            nia_comptime_ir::ComptimeNameResolution::BuiltinAssociatedValue(value) => {
+                let BuiltinAssociatedValue::PrimitiveIntLimit { primitive, kind } = value;
+                let Some(value) = kind.value(primitive, self.target.pointer_width) else {
+                    return Err(ComptimeError {
+                        span,
+                        message: "builtin associated value is not representable at comptime"
+                            .to_string(),
+                    });
+                };
+                return Ok(ComptimeValue::Int(value));
             }
         };
         self.value_for_key(key)
@@ -578,6 +595,7 @@ mod tests {
             &comptime,
             &HashMap::new(),
             &HashMap::new(),
+            &target,
         )
     }
 
@@ -598,6 +616,12 @@ mod tests {
                 .node_qualified_values
                 .iter()
                 .map(|(key, global_id)| (key.clone(), *global_id)),
+        );
+        builder.extend_node_builtin_associated_values(
+            values
+                .node_builtin_associated_values
+                .iter()
+                .map(|(key, value)| (key.clone(), *value)),
         );
         for (key, resolution) in &values.node_names {
             match resolution {

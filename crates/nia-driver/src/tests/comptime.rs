@@ -4643,3 +4643,92 @@ fn main() i32 {
         program.diagnostics
     );
 }
+
+#[test]
+fn comptime_error_builtin_reports_message() {
+    let root = temp_dir("comptime_error_builtin_reports_message");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let n: usize = @error("unsupported target");
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.diagnostic.summary.contains("unsupported target")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_error_builtin_is_pruned_by_comptime_if() {
+    let root = temp_dir("comptime_error_builtin_is_pruned_by_comptime_if");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let n: usize = comptime if true {
+    4usize
+} else {
+    @error("unreachable comptime branch")
+};
+
+fn main() usize { n }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+}
+
+#[test]
+fn comptime_error_builtin_requires_string_message() {
+    let root = temp_dir("comptime_error_builtin_requires_string_message");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime let n: usize = @error(10usize);
+
+fn main() i32 { 0 }
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("requires a comptime string message")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn error_builtin_is_not_runtime_panic() {
+    let root = temp_dir("error_builtin_is_not_runtime_panic");
+    write(
+        &root.join("main.nia"),
+        r#"
+fn main() usize {
+    @error("runtime panic")
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("can only be evaluated at comptime")),
+        "{:?}",
+        program.diagnostics
+    );
+}

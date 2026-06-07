@@ -431,6 +431,9 @@ impl<'a> SignatureCollector<'a> {
         for method in &extend.methods {
             self.collect_method(signatures, &method.function);
         }
+        for associated_value in &extend.associated_values {
+            self.collect_associated_comptime(signatures, associated_value);
+        }
     }
 
     fn collect_trait(
@@ -612,6 +615,26 @@ impl<'a> SignatureCollector<'a> {
             ComptimeSignature {
                 explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
                 span: item.span,
+            },
+        );
+    }
+
+    fn collect_associated_comptime(
+        &mut self,
+        signatures: &mut ItemSignatures,
+        associated_value: &nia_ast::ExtendAssociatedValue,
+    ) {
+        let binding = &associated_value.binding;
+        let Some(def_id) =
+            self.def_id_for_node(&binding.node_key, associated_value.span, DefKind::Comptime)
+        else {
+            return;
+        };
+        signatures.comptimes.insert(
+            def_id,
+            ComptimeSignature {
+                explicit_type: binding.ty.as_ref().map(|ty| self.ty_for_type(ty)),
+                span: associated_value.span,
             },
         );
     }

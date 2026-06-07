@@ -518,6 +518,9 @@ impl<'a> BodyChecker<'a> {
                 self.lower_ident_expr(expr)
             }
             ExprKind::Builtin { .. } => match self.builtin_value(expr) {
+                Some(BuiltinValue::Int(value)) => {
+                    TypedExprKind::BuiltinValue(BuiltinConst::Int(*value))
+                }
                 Some(BuiltinValue::Usize(value)) => {
                     TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
                 }
@@ -529,6 +532,23 @@ impl<'a> BodyChecker<'a> {
                 }
                 None => TypedExprKind::Error,
             },
+            ExprKind::Qualified { .. } if self.builtin_value(expr).is_some() => {
+                match self.builtin_value(expr) {
+                    Some(BuiltinValue::Int(value)) => {
+                        TypedExprKind::BuiltinValue(BuiltinConst::Int(*value))
+                    }
+                    Some(BuiltinValue::Usize(value)) => {
+                        TypedExprKind::BuiltinValue(BuiltinConst::Usize(*value))
+                    }
+                    Some(BuiltinValue::Layout { builtin, ty }) => {
+                        TypedExprKind::BuiltinValue(BuiltinConst::Layout {
+                            builtin: *builtin,
+                            ty: *ty,
+                        })
+                    }
+                    None => TypedExprKind::Error,
+                }
+            }
             ExprKind::TypeTarget { .. } => TypedExprKind::Error,
             ExprKind::BracketSuffix { callee, args } => {
                 match self.bracket_suffix_resolution(expr) {
