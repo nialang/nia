@@ -819,6 +819,45 @@ fn main(p: Pair) {}
 }
 
 #[test]
+fn std_linux_statx_layout_matches_kernel_abi() {
+    let root = temp_dir("std_linux_statx_layout_matches_kernel_abi");
+    write(
+        &root.join("main.nia"),
+        r#"
+import std.os.linux.stat;
+
+fn main() void {}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    let types_module = program
+        .modules
+        .iter()
+        .find(|module| module.path.as_str().ends_with("std/os/linux/stat.nia"))
+        .expect("std.os.linux.stat module");
+    let statx_id = types_module
+        .defs
+        .module_scope
+        .types
+        .get("Statx")
+        .expect("Statx def");
+    let statx_layout = types_module
+        .layouts
+        .structs
+        .get(&statx_id)
+        .expect("Statx layout");
+    assert_eq!(
+        statx_layout.layout,
+        nia_layout::TypeLayout {
+            size: 256,
+            align: 8
+        }
+    );
+}
+
+#[test]
 fn checks_cross_module_struct_literals() {
     let root = temp_dir("checks_cross_module_struct_literals");
     write(

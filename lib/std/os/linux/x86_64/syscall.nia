@@ -12,6 +12,7 @@ pub comptime let openat: usize = 257usize;
 pub comptime let mkdirat: usize = 258usize;
 pub comptime let unlinkat: usize = 263usize;
 pub comptime let renameat: usize = 264usize;
+pub comptime let statx: usize = 332usize;
 
 pub fn syscall1(number: usize, arg0: usize) isize {
     var ret: isize = 0;
@@ -88,6 +89,29 @@ pub fn syscall4(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usiz
             rsi: arg1,
             rdx: arg2,
             r10: arg3,
+        },
+        clobbers: [b"rcx", b"r11", b"memory"],
+        options: [b"volatile"],
+    });
+    ret
+}
+
+pub fn syscall5(number: usize, arg0: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
+    var ret: isize = 0;
+    @asm({
+        code:
+            b\\syscall
+        ,
+        outputs: {
+            rax: ret,
+        },
+        inputs: {
+            rax: number,
+            rdi: arg0,
+            rsi: arg1,
+            rdx: arg2,
+            r10: arg3,
+            r8: arg4,
         },
         clobbers: [b"rcx", b"r11", b"memory"],
         options: [b"volatile"],

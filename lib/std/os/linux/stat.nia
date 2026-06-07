@@ -1,0 +1,150 @@
+import std.os.linux.syscall;
+import std.os.linux.types;
+
+using types::{Error, FileDescriptor, FileKind, FileMetadata, Timestamp};
+
+comptime let at_symlink_no_follow: usize = 0x100usize;
+comptime let at_no_automount: usize = 0x800usize;
+comptime let at_empty_path: usize = 0x1000usize;
+comptime let statx_type: u32 = 0x00000001u32;
+comptime let statx_mode: u32 = 0x00000002u32;
+comptime let statx_nlink: u32 = 0x00000004u32;
+comptime let statx_atime: u32 = 0x00000020u32;
+comptime let statx_mtime: u32 = 0x00000040u32;
+comptime let statx_ctime: u32 = 0x00000080u32;
+comptime let statx_ino: u32 = 0x00000100u32;
+comptime let statx_size: u32 = 0x00000200u32;
+comptime let statx_blocks: u32 = 0x00000400u32;
+comptime let statx_request_basic: u32 =
+    statx_type | statx_mode | statx_nlink | statx_atime | statx_mtime | statx_ctime | statx_ino | statx_size | statx_blocks;
+comptime let statx_required_basic: u32 =
+    statx_type | statx_mode | statx_nlink | statx_mtime | statx_ctime | statx_ino | statx_size;
+comptime let s_ifmt: u16 = 0o170000u16;
+comptime let s_ififo: u16 = 0o010000u16;
+comptime let s_ifchr: u16 = 0o020000u16;
+comptime let s_ifdir: u16 = 0o040000u16;
+comptime let s_ifblk: u16 = 0o060000u16;
+comptime let s_ifreg: u16 = 0o100000u16;
+comptime let s_iflnk: u16 = 0o120000u16;
+comptime let s_ifsock: u16 = 0o140000u16;
+
+pub extern struct StatxTimestamp {
+    sec: i64,
+    nsec: u32,
+    reserved: i32,
+}
+
+pub extern struct Statx {
+    mask: u32,
+    blksize: u32,
+    attributes: u64,
+    nlink: u32,
+    uid: u32,
+    gid: u32,
+    mode: u16,
+    spare0: u16,
+    ino: u64,
+    size: u64,
+    blocks: u64,
+    attributes_mask: u64,
+    atime: StatxTimestamp,
+    btime: StatxTimestamp,
+    ctime: StatxTimestamp,
+    mtime: StatxTimestamp,
+    rdev_major: u32,
+    rdev_minor: u32,
+    dev_major: u32,
+    dev_minor: u32,
+    mnt_id: u64,
+    dio_mem_align: u32,
+    dio_offset_align: u32,
+    subvol: u64,
+    atomic_write_unit_min: u32,
+    atomic_write_unit_max: u32,
+    atomic_write_segments_max: u32,
+    dio_read_offset_align: u32,
+    atomic_write_unit_max_opt: u32,
+    spare2: [1]u32,
+    spare3: [8]u64,
+}
+
+pub fn metadata_fd(fd: FileDescriptor) Error!FileMetadata {
+    statx_at(fd, c"", at_empty_path, statx_request_basic)
+}
+
+pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+    var flags = at_no_automount;
+    if not follow_symlinks {
+        flags = flags | at_symlink_no_follow;
+    }
+    statx_at(dir, path, flags, statx_request_basic)
+}
+
+fn statx_at(dir: FileDescriptor, path: &u8, flags: usize, mask: u32) Error!FileMetadata {
+    var stx: Statx;
+    var bytes = &mut ((&mut stx as &mut u8)[0..@size[Statx]()]);
+    @memset(bytes, 0);
+    let ret = syscall::syscall5(
+        syscall::statx,
+        dir.raw() as usize,
+        path as usize,
+        flags,
+        mask as usize,
+        &mut stx as usize,
+    );
+    if ret < 0 {
+        ret.syscall_error()!
+    } else {
+        stx.as_metadata()
+    }
+}
+
+extend StatxTimestamp {
+    fn as_timestamp(&self) Timestamp {
+        Timestamp::init(self.sec, self.nsec)
+    }
+}
+
+extend Statx {
+    fn has_required_basic(&self) bool {
+        (self.mask & statx_required_basic) == statx_required_basic
+    }
+
+    fn kind(&self) FileKind {
+        switch self.mode & s_ifmt {
+            s_ifdir => FileKind::Directory,
+            s_ifchr => FileKind::CharacterDevice,
+            s_ifblk => FileKind::BlockDevice,
+            s_ifreg => FileKind::File,
+            s_ififo => FileKind::NamedPipe,
+            s_iflnk => FileKind::Symlink,
+            s_ifsock => FileKind::UnixSocket,
+            _ => FileKind::Unknown,
+        }
+    }
+
+    pub fn as_metadata(&self) Error!FileMetadata {
+        if not self.has_required_basic() {
+            return Error::Invalid!;
+        }
+        var atime: ?Timestamp = null;
+        if (self.mask & statx_atime) == statx_atime {
+            atime = ?self.atime.as_timestamp();
+        }
+        var block_size = 1u32;
+        if (self.mask & statx_blocks) == statx_blocks {
+            block_size = self.blksize;
+        }
+        !FileMetadata::init(
+            self.kind(),
+            self.ino,
+            self.nlink,
+            self.size,
+            self.mode as u32,
+            block_size,
+            atime,
+            self.mtime.as_timestamp(),
+            self.ctime.as_timestamp(),
+        )
+    }
+}

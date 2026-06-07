@@ -1,7 +1,7 @@
 import std.fs.types;
 import std.os;
 
-using types::{CreateDirOptions, CreateOptions, OpenDirOptions, OpenMode, OpenOptions};
+using types::{CreateDirOptions, CreateOptions, MetadataOptions, OpenDirOptions, OpenMode, OpenOptions};
 
 extend OpenOptions {
     pub fn read_only() OpenOptions {
@@ -36,6 +36,20 @@ extend OpenDirOptions {
     }
 
     pub fn no_follow() OpenDirOptions {
+        { follow_symlinks: false }
+    }
+
+    pub fn follow_symlinks(&self) bool {
+        self.follow_symlinks
+    }
+}
+
+extend MetadataOptions {
+    pub fn init() MetadataOptions {
+        { follow_symlinks: true }
+    }
+
+    pub fn no_follow() MetadataOptions {
         { follow_symlinks: false }
     }
 

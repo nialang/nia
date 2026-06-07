@@ -1,29 +1,10 @@
 import std.os.linux.syscall;
+import std.os.linux.stat;
 import std.os.linux.types;
 
-using types::{Error, FileDescriptor, OpenMode, SeekWhence};
+using types::{Error, FileDescriptor, FileMetadata, OpenMode, SeekWhence};
 
 extend FileDescriptor {
-    pub fn init(fd: i32) FileDescriptor {
-        { fd: fd }
-    }
-
-    pub fn stdin() FileDescriptor {
-        FileDescriptor::init(0)
-    }
-
-    pub fn stdout() FileDescriptor {
-        FileDescriptor::init(1)
-    }
-
-    pub fn stderr() FileDescriptor {
-        FileDescriptor::init(2)
-    }
-
-    pub fn raw(&self) i32 {
-        self.fd
-    }
-
     pub fn write_some(&self, bytes: &[u8]) Error!usize {
         let ptr = bytes.get_ptr_read();
         let ret = syscall::syscall3(syscall::write, self.fd as usize, ptr as usize, bytes.len());
@@ -92,6 +73,10 @@ extend FileDescriptor {
         } else {
             !{}
         }
+    }
+
+    pub fn metadata(&self) Error!FileMetadata {
+        stat::metadata_fd(FileDescriptor::init(self.fd))
     }
 }
 
@@ -207,4 +192,8 @@ pub fn rename_at(
     } else {
         !{}
     }
+}
+
+pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+    stat::metadata_at(dir, path, follow_symlinks)
 }

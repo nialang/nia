@@ -2,7 +2,7 @@ comptime if @builtin().target.os == "linux" {
     import std.os.linux as platform;
 }
 
-pub using platform::{Error, FileDescriptor, OpenMode, SeekWhence};
+pub using platform::{Error, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
 
 pub comptime let max_path_bytes: usize = platform::max_path_bytes;
 
@@ -53,6 +53,10 @@ pub fn rename_at(
     new_path: &u8,
 ) Error!void {
     platform::rename_at(old_dir, old_path, new_dir, new_path)
+}
+
+pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+    platform::metadata_at(dir, path, follow_symlinks)
 }
 
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {

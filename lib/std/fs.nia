@@ -10,9 +10,13 @@ pub using types::{
     EncodedPath,
     Error,
     File,
+    FileKind,
+    Metadata,
+    MetadataOptions,
     OpenDirOptions,
     OpenMode,
     OpenOptions,
     Path,
     PathError,
+    Timestamp,
 };

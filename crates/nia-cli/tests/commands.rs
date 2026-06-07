@@ -2370,6 +2370,115 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_file_metadata() {
+    let root = temp_dir("emit_exe_std_fs_file_metadata");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var path = fs::Path::init("data.txt");
+    var file: fs::File;
+    switch fs::File::create(path, fs::CreateOptions::read_write()) {
+        !value => file = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+
+    var write_buffer: [16]u8 = [0; 16];
+    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    switch writer.write_all(b"metadata") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch writer.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+
+    switch file.metadata() {
+        !metadata => {
+            if metadata.kind() != fs::FileKind::File {
+                return process::ExitCode::init(4)!;
+            }
+            if metadata.size() != 8u64 {
+                return process::ExitCode::init(5)!;
+            }
+            if metadata.nlink() == 0u32 {
+                return process::ExitCode::init(6)!;
+            }
+            if metadata.block_size() == 0u32 {
+                return process::ExitCode::init(7)!;
+            }
+        },
+        error! => return process::ExitCode::init(8)!,
+    }
+
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(9)!,
+    }
+    switch cwd.metadata(path, fs::MetadataOptions::init()) {
+        !metadata => {
+            if metadata.kind() != fs::FileKind::File {
+                return process::ExitCode::init(10)!;
+            }
+            if metadata.size() != 8u64 {
+                return process::ExitCode::init(11)!;
+            }
+            switch metadata.atime() {
+                ?time => {
+                    _ = time.seconds();
+                    _ = time.nanos();
+                },
+                null => {},
+            }
+            _ = metadata.mtime().seconds();
+            _ = metadata.ctime().nanos();
+        },
+        error! => return process::ExitCode::init(12)!,
+    }
+
+    switch cwd.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(13)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(14)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_open_std_fs_paths_from_text() {
     let root = temp_dir("emit_exe_can_open_std_fs_paths_from_text");
     let data_path = root.join("nia-λ.txt");

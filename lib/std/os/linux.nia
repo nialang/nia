@@ -1,9 +1,10 @@
 import std.os.linux.fd;
 import std.os.linux.mem as memory;
 import std.os.linux.process;
+import std.os.linux.stat;
 import std.os.linux.types;
 
-pub using types::{Error, FileDescriptor, OpenMode, SeekWhence};
+pub using types::{Error, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
 
 pub comptime let max_path_bytes: usize = types::max_path_bytes;
 
@@ -54,6 +55,10 @@ pub fn rename_at(
     new_path: &u8,
 ) Error!void {
     fd::rename_at(old_dir, old_path, new_dir, new_path)
+}
+
+pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Error!FileMetadata {
+    fd::metadata_at(dir, path, follow_symlinks)
 }
 
 pub fn map_pages(len: usize, align: usize) Error!&mut u8 {

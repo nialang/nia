@@ -4,7 +4,19 @@ import std.fs.types;
 import std.os;
 import std.result;
 
-using types::{CreateDirOptions, CreateOptions, Dir, EncodedPath, Error, File, OpenDirOptions, OpenOptions, Path};
+using types::{
+    CreateDirOptions,
+    CreateOptions,
+    Dir,
+    EncodedPath,
+    Error,
+    File,
+    Metadata,
+    MetadataOptions,
+    OpenDirOptions,
+    OpenOptions,
+    Path,
+};
 
 comptime let max_i64_as_u64: u64 = 9223372036854775807u64;
 
@@ -71,6 +83,12 @@ extend Dir {
         self.rename_encoded_to(old_encoded, new_dir, new_encoded)
     }
 
+    pub fn metadata(&self, path: Path, options: MetadataOptions) Error!Metadata {
+        var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
+        let encoded = path.encode(&mut storage[..]).?;
+        self.encoded_metadata(encoded, options)
+    }
+
     pub fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {
         let handle = os::open_at(
             self.handle,
@@ -129,6 +147,15 @@ extend Dir {
             new_dir.handle,
             new_path.ptr(),
         ).map_err[Error](&os::Error::as_fs_error)
+    }
+
+    pub fn encoded_metadata(&self, path: EncodedPath, options: MetadataOptions) Error!Metadata {
+        let metadata = os::metadata_at(
+            self.handle,
+            path.ptr(),
+            options.follow_symlinks(),
+        ).map_err[Error](&os::Error::as_fs_error).?;
+        !metadata.as_fs_metadata()
     }
 
     pub fn close(&self) Error!void {
@@ -191,10 +218,13 @@ extend File {
     }
 
     pub fn len(&self) Error!u64 {
-        let current = self.seek_by(0).?;
-        let end = self.seek_from_end(0).?;
-        _ = self.seek_to(current).?;
-        !end
+        let metadata = self.metadata().?;
+        !metadata.size()
+    }
+
+    pub fn metadata(&self) Error!Metadata {
+        let metadata = self.handle.metadata().map_err[Error](&os::Error::as_fs_error).?;
+        !metadata.as_fs_metadata()
     }
 
     pub fn truncate(&self, len: u64) Error!void {
