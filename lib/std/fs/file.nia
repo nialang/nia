@@ -16,6 +16,7 @@ using types::{
     OpenDirOptions,
     OpenOptions,
     Path,
+    DirIterator,
 };
 
 comptime let max_i64_as_u64: u64 = 9223372036854775807u64;
@@ -87,6 +88,14 @@ extend Dir {
         var storage: [os::max_path_bytes]u8 = [0; os::max_path_bytes];
         let encoded = path.encode(&mut storage[..]).?;
         self.encoded_metadata(encoded, options)
+    }
+
+    pub fn entries(&mut self, buffer: &mut [u8]) Error!DirIterator {
+        if buffer.len() == 0 {
+            Error::Invalid!
+        } else {
+            !DirIterator::init(os::DirectoryReader::init(self.handle, buffer))
+        }
     }
 
     pub fn open_encoded_file(&self, path: EncodedPath, options: OpenOptions) Error!File {

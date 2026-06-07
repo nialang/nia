@@ -75,6 +75,19 @@ pub struct FileMetadata {
     status_changed: ?Timestamp,
 }
 
+pub struct DirectoryEntry {
+    kind: FileKind,
+    name: &[u8],
+}
+
+pub struct DirectoryReader {
+    handle: FileHandle,
+    buffer: &mut [u8],
+    start: usize,
+    end: usize,
+    done: bool,
+}
+
 pub struct FileHandle {
     platform: platform::FileDescriptor,
 }
@@ -261,6 +274,12 @@ extend platform::FileMetadata {
     }
 }
 
+extend platform::DirectoryEntry {
+    fn as_os_directory_entry(&self) DirectoryEntry {
+        DirectoryEntry::init(self.kind().as_os_file_kind(), self.name())
+    }
+}
+
 extend Timestamp {
     pub fn init(seconds: i64, nanos: u32) Timestamp {
         { seconds: seconds, nanos: nanos }
@@ -272,6 +291,50 @@ extend Timestamp {
 
     pub fn nanos(&self) u32 {
         self.nanos
+    }
+}
+
+extend DirectoryEntry {
+    pub fn init(kind: FileKind, name: &[u8]) DirectoryEntry {
+        { kind: kind, name: name }
+    }
+
+    pub fn kind(&self) FileKind {
+        self.kind
+    }
+
+    pub fn name(&self) &[u8] {
+        self.name
+    }
+}
+
+extend DirectoryReader {
+    pub fn init(handle: FileHandle, buffer: &mut [u8]) DirectoryReader {
+        { handle: handle, buffer: buffer, start: 0, end: 0, done: false }
+    }
+
+    pub fn next(&mut self) Error!?DirectoryEntry {
+        if self.done {
+            return !null;
+        }
+        if self.start >= self.end {
+            self.start = 0;
+            self.end = self.handle.read_dir_entries(self.buffer).?;
+            if self.end == 0 {
+                self.done = true;
+                return !null;
+            }
+        }
+
+        let entry = switch platform::dir_entry_at(&self.buffer[0..self.end], self.start) {
+            ?value => value.as_os_directory_entry(),
+            null => return Error::Invalid!,
+        };
+        self.start = switch platform::dir_entry_next_offset(&self.buffer[0..self.end], self.start) {
+            ?value => value,
+            null => return Error::Invalid!,
+        };
+        !?entry
     }
 }
 
@@ -392,5 +455,9 @@ extend FileHandle {
     pub fn metadata(&self) Error!FileMetadata {
         let metadata = self.platform().metadata().map_err[Error](&platform::Errno::as_os_error).?;
         !metadata.as_os_metadata()
+    }
+
+    fn read_dir_entries(&self, buffer: &mut [u8]) Error!usize {
+        self.platform().read_dir_entries(buffer).map_err[Error](&platform::Errno::as_os_error)
     }
 }

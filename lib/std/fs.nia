@@ -7,6 +7,8 @@ pub using types::{
     CreateDirOptions,
     CreateOptions,
     Dir,
+    DirEntry,
+    DirIterator,
     EncodedPath,
     Error,
     File,

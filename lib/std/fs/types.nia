@@ -59,6 +59,17 @@ pub struct EncodedPath {
     ptr: &u8,
 }
 
+// DirEntry names point into the iterator buffer and are overwritten by later next calls.
+pub struct DirEntry {
+    kind: FileKind,
+    name: &[u8],
+}
+
+// DirIterator does not own the directory handle or caller-provided buffer.
+pub struct DirIterator {
+    reader: os::DirectoryReader,
+}
+
 // Dir owns its handle. Call close when the directory is no longer needed.
 pub struct Dir {
     handle: os::FileHandle,
@@ -182,6 +193,48 @@ extend os::FileMetadata {
             self.modified().as_fs_timestamp(),
             status_changed,
         )
+    }
+}
+
+extend os::DirectoryEntry {
+    pub fn as_fs_dir_entry(&self) DirEntry {
+        DirEntry::init(self.kind().as_fs_file_kind(), self.name())
+    }
+}
+
+extend DirEntry {
+    pub fn init(kind: FileKind, name: &[u8]) DirEntry {
+        { kind: kind, name: name }
+    }
+
+    pub fn kind(&self) FileKind {
+        self.kind
+    }
+
+    pub fn name(&self) &[u8] {
+        self.name
+    }
+
+    pub fn is_dot(&self) bool {
+        self.name.len() == 1usize and self.name[0] == b'.'
+    }
+
+    pub fn is_dot_dot(&self) bool {
+        self.name.len() == 2usize and self.name[0] == b'.' and self.name[1] == b'.'
+    }
+}
+
+extend DirIterator {
+    pub fn init(reader: os::DirectoryReader) DirIterator {
+        { reader: reader }
+    }
+
+    pub fn next(&mut self) Error!?DirEntry {
+        let entry = self.reader.next().map_err[Error](&os::Error::as_fs_error).?;
+        switch entry {
+            ?value => !?value.as_fs_dir_entry(),
+            null => !null,
+        }
     }
 }
 

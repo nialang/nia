@@ -4,7 +4,7 @@ import std.os.linux.process;
 import std.os.linux.stat;
 import std.os.linux.types;
 
-pub using types::{Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
+pub using types::{DirectoryEntry, Errno, FileDescriptor, FileKind, FileMetadata, OpenMode, SeekWhence, Timestamp};
 
 pub comptime let max_path_bytes: usize = types::max_path_bytes;
 
@@ -59,6 +59,14 @@ pub fn rename_at(
 
 pub fn metadata_at(dir: FileDescriptor, path: &u8, follow_symlinks: bool) Errno!FileMetadata {
     fd::metadata_at(dir, path, follow_symlinks)
+}
+
+pub fn dir_entry_at(buffer: &[u8], offset: usize) ?DirectoryEntry {
+    fd::dir_entry_at(buffer, offset)
+}
+
+pub fn dir_entry_next_offset(buffer: &[u8], offset: usize) ?usize {
+    fd::dir_entry_next_offset(buffer, offset)
 }
 
 pub fn map_pages(len: usize, align: usize) Errno!&mut u8 {

@@ -7,6 +7,7 @@ pub using platform::{
     fdatasync,
     exit,
     ftruncate,
+    getdents64,
     fsync,
     lseek,
     mkdirat,

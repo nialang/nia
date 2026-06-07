@@ -252,6 +252,74 @@ fn main() i32 {
             )],
         },
         EmitSmokeCase {
+            name: "cross_module_map_err_optional_payload",
+            root: "main.nia",
+            files: &[
+                (
+                    "main.nia",
+                    r#"
+import .facade;
+
+fn main() i32 {
+    facade::run()
+}
+"#,
+                ),
+                (
+                    "facade.nia",
+                    r#"
+import .result;
+
+enum A: i32 {
+    Bad = 1,
+    _
+}
+
+pub enum B: i32 {
+    Other = 2,
+    _
+}
+
+pub struct Item {
+    value: i32,
+}
+
+fn to_b(error: A) B {
+    _ = error;
+    B::Other
+}
+
+fn read() A!?Item {
+    !(?Item { value: 7 })
+}
+
+pub fn run() i32 {
+    switch read().map_err[B](&to_b) {
+        !maybe => switch maybe {
+            ?item => item.value,
+            null => 0,
+        },
+        err! => err as i32,
+    }
+}
+"#,
+                ),
+                (
+                    "result.nia",
+                    r#"
+extend[E, T] E!T {
+    pub fn map_err[E2](self, mapper: &fn(E) E2) E2!T {
+        switch self {
+            !value => !value,
+            err! => mapper(err)!,
+        }
+    }
+}
+"#,
+                ),
+            ],
+        },
+        EmitSmokeCase {
             name: "structural_associated_function_pointers",
             root: "main.nia",
             files: &[(

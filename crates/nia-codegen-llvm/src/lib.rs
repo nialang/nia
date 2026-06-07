@@ -5,6 +5,7 @@ mod literals;
 mod module_codegen;
 mod output;
 mod program_index;
+mod type_equiv;
 
 use backend_validate::validate_backend_program;
 use module_codegen::ModuleCodegen;

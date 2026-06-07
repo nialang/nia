@@ -2982,6 +2982,149 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_can_iterate_dir_entries() {
+    let root = temp_dir("emit_exe_std_fs_can_iterate_dir_entries");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.mem;
+import std.process;
+
+fn bytes_equal(left: &[u8], right: &[u8]) bool {
+    mem::equal[u8](left, right)
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+
+    switch cwd.create_dir(fs::Path::init("entries"), fs::CreateDirOptions::init()) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+
+    var first: fs::File;
+    switch cwd.create_file(fs::Path::init("entries/alpha.txt"), fs::CreateOptions::init()) {
+        !value => first = value,
+        error! => return process::ExitCode::init(3)!,
+    }
+    switch first.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
+    }
+
+    var second: fs::File;
+    switch cwd.create_file(fs::Path::init("entries/beta.txt"), fs::CreateOptions::init()) {
+        !value => second = value,
+        error! => return process::ExitCode::init(5)!,
+    }
+    switch second.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
+    }
+
+    var dir: fs::Dir;
+    switch cwd.open_dir(fs::Path::init("entries"), fs::OpenDirOptions::init()) {
+        !value => dir = value,
+        error! => return process::ExitCode::init(7)!,
+    }
+
+    var buffer: [1024]u8 = [0; 1024];
+    var iter: fs::DirIterator;
+    switch dir.entries(&mut buffer[..]) {
+        !value => iter = value,
+        error! => return process::ExitCode::init(8)!,
+    }
+
+    var saw_alpha = false;
+    var saw_beta = false;
+    var count = 0usize;
+    var done = false;
+    while not done {
+        switch iter.next() {
+            !entry => {
+                switch entry {
+                    ?value => {
+                        if not value.is_dot() and not value.is_dot_dot() {
+                            count += 1usize;
+                            if value.kind() != fs::FileKind::File and value.kind() != fs::FileKind::Unknown {
+                                return process::ExitCode::init(9)!;
+                            }
+                            if bytes_equal(value.name(), b"alpha.txt") {
+                                saw_alpha = true;
+                            } else if bytes_equal(value.name(), b"beta.txt") {
+                                saw_beta = true;
+                            }
+                        }
+                    },
+                    null => done = true,
+                }
+            },
+            error! => return process::ExitCode::init(10)!,
+        }
+    }
+
+    if count != 2usize {
+        return process::ExitCode::init(11)!;
+    }
+    if not saw_alpha or not saw_beta {
+        return process::ExitCode::init(12)!;
+    }
+
+    switch dir.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(13)!,
+    }
+    switch cwd.delete_file(fs::Path::init("entries/alpha.txt")) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(14)!,
+    }
+    switch cwd.delete_file(fs::Path::init("entries/beta.txt")) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(15)!,
+    }
+    switch cwd.delete_dir(fs::Path::init("entries")) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(16)!,
+    }
+    switch cwd.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(17)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
 fn emit_exe_can_allocate_with_std_mem_page_allocator() {
     let root = temp_dir("emit_exe_can_allocate_with_std_mem_page_allocator");
     let main = root.join("main.nia");
