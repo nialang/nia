@@ -82,12 +82,11 @@ fn std_io_file_writer_is_created_from_process_io_capability() {
         r#"
 import std;
 
-using std::{fs, io, process};
+using std::{io, process};
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = fs::File::stdout();
     var buffer: [0]u8 = [];
-    var stdout = file.writer(init.io(), &mut buffer[..]);
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -112,13 +111,12 @@ fn std_io_buffered_file_writer_flushes_explicitly_through_process_io() {
         r#"
 import std;
 
-using std::{fs, io, process};
+using std::{io, process};
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = fs::File::stdout();
     var buffer: [64]u8 = [0; 64];
     var raw_buffer: [0]u8 = [];
-    var raw = file.writer(init.io(), &mut raw_buffer[..]);
+    var raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
@@ -150,13 +148,16 @@ import std;
 
 using std::{fs, process};
 
-pub fn main(init: process::Init) process::ExitCode!void {
-    _ = init;
-    var stdout = fs::File::stdout();
-    switch stdout.write_all(b"nia\n") {
+fn reject_file_writer(file: fs::File) process::ExitCode!void {
+    switch file.write_all(b"nia\n") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
     }
+    !{}
+}
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    _ = init;
     !{}
 }
 "#,
@@ -184,12 +185,11 @@ fn std_io_file_reader_is_created_from_process_io_capability() {
         r#"
 import std;
 
-using std::{fs, process};
+using std::{io, process};
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = fs::File::stdin();
     var buffer: [64]u8 = [0; 64];
-    var reader = file.reader(init.io(), &mut buffer[..]);
+    var reader = io::FileReader::stdin(init.io(), &mut buffer[..]);
     var bytes: [1]u8 = [0];
     switch reader.read(&mut bytes[..]) {
         !ok => _ = ok,

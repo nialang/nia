@@ -9,14 +9,14 @@ using runtime::Io;
 
 pub struct FileWriter {
     io: &mut Io[Error = os::Error],
-    file: fs::File,
+    file: os::FileDescriptor,
     buffer: &mut [u8],
     len: usize,
 }
 
 pub struct FileReader {
     io: &mut Io[Error = os::Error],
-    file: fs::File,
+    file: os::FileDescriptor,
     buffer: &mut [u8],
     start: usize,
     end: usize,
@@ -24,17 +24,25 @@ pub struct FileReader {
 
 extend fs::File {
     pub fn writer(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
-        FileWriter::init(io, self.*, buffer)
+        FileWriter::init(io, self.handle(), buffer)
     }
 
     pub fn reader(&self, io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileReader {
-        FileReader::init(io, self.*, buffer)
+        FileReader::init(io, self.handle(), buffer)
     }
 }
 
 extend FileWriter {
-    pub fn init(io: &mut Io[Error = os::Error], file: fs::File, buffer: &mut [u8]) FileWriter {
+    pub fn init(io: &mut Io[Error = os::Error], file: os::FileDescriptor, buffer: &mut [u8]) FileWriter {
         { io: io, file: file, buffer: buffer, len: 0 }
+    }
+
+    pub fn stdout(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
+        FileWriter::init(io, os::FileDescriptor::stdout(), buffer)
+    }
+
+    pub fn stderr(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileWriter {
+        FileWriter::init(io, os::FileDescriptor::stderr(), buffer)
     }
 
     pub fn len(&self) usize {
@@ -51,7 +59,7 @@ extend FileWriter {
 
     fn write_direct(&mut self, bytes: &[u8]) fs::Error!usize {
         self.io.write_file(
-            self.file.handle(),
+            self.file,
             bytes,
         ).map_err[fs::Error](&os::Error::as_fs_error)
     }
@@ -113,8 +121,12 @@ extend FileWriter : Writer {
 }
 
 extend FileReader {
-    pub fn init(io: &mut Io[Error = os::Error], file: fs::File, buffer: &mut [u8]) FileReader {
+    pub fn init(io: &mut Io[Error = os::Error], file: os::FileDescriptor, buffer: &mut [u8]) FileReader {
         { io: io, file: file, buffer: buffer, start: 0, end: 0 }
+    }
+
+    pub fn stdin(io: &mut Io[Error = os::Error], buffer: &mut [u8]) FileReader {
+        FileReader::init(io, os::FileDescriptor::stdin(), buffer)
     }
 
     pub fn len(&self) usize {
@@ -136,7 +148,7 @@ extend FileReader {
 
     fn read_direct(&mut self, bytes: &mut [u8]) fs::Error!usize {
         self.io.read_file(
-            self.file.handle(),
+            self.file,
             bytes,
         ).map_err[fs::Error](&os::Error::as_fs_error)
     }

@@ -11,8 +11,14 @@ extend Dir {
         { handle: handle }
     }
 
-    pub fn cwd() Dir {
-        Dir::init(os::cwd())
+    pub fn cwd() Error!Dir {
+        let current = c".";
+        let handle = os::open_dir_at(
+            os::cwd(),
+            &current[0],
+            true,
+        ).map_err[Error](&os::Error::as_fs_error).?;
+        !Dir::init(handle)
     }
 
     pub fn open_file(&self, path: Path, options: OpenOptions) Error!File {
@@ -123,7 +129,7 @@ extend Dir {
         ).map_err[Error](&os::Error::as_fs_error)
     }
 
-    pub fn close(&self) Error!void {
+    pub fn deinit(&self) Error!void {
         self.handle.close().map_err[Error](&os::Error::as_fs_error)
     }
 }
@@ -133,23 +139,11 @@ extend File {
         { handle: handle }
     }
 
-    pub fn stdin() File {
-        File::init(os::FileDescriptor::stdin())
-    }
-
-    pub fn stdout() File {
-        File::init(os::FileDescriptor::stdout())
-    }
-
-    pub fn stderr() File {
-        File::init(os::FileDescriptor::stderr())
-    }
-
     pub fn handle(&self) os::FileDescriptor {
         self.handle
     }
 
-    pub fn close(&self) Error!void {
+    pub fn deinit(&self) Error!void {
         self.handle.close().map_err[Error](&os::Error::as_fs_error)
     }
 }
