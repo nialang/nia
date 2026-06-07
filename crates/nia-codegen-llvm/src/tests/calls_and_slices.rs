@@ -104,12 +104,11 @@ fn emits_std_file_writer_through_process_io_capability() {
         r#"
 import std;
 
-using std::{fs, io, process};
+using std::{io, process};
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = fs::File::stdout();
     var buffer: [0]u8 = [];
-    var stdout = file.writer(init.io(), &mut buffer[..]);
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -148,13 +147,12 @@ fn emits_std_buffered_file_writer_flush_through_process_io() {
         r#"
 import std;
 
-using std::{fs, io, process};
+using std::{io, process};
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = fs::File::stdout();
     var buffer: [64]u8 = [0; 64];
     var raw_buffer: [0]u8 = [];
-    var raw = file.writer(init.io(), &mut raw_buffer[..]);
+    var raw = io::FileWriter::stdout(init.io(), &mut raw_buffer[..]);
     var stdout = io::BufferedWriter[io::FileWriter]::init(&mut raw, &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,

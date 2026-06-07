@@ -47,10 +47,12 @@ pub struct EncodedPath {
     ptr: &u8,
 }
 
+// Dir owns its handle. Call deinit when the directory is no longer needed.
 pub struct Dir {
     handle: os::FileDescriptor,
 }
 
+// File owns its handle. Call deinit when the file is no longer needed.
 pub struct File {
     handle: os::FileDescriptor,
 }

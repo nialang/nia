@@ -1422,21 +1422,19 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
-fn emit_exe_can_write_stdout_through_std_fs() {
-    let root = temp_dir("emit_exe_can_write_stdout_through_std_fs");
+fn emit_exe_can_write_stdout_through_std_io() {
+    let root = temp_dir("emit_exe_can_write_stdout_through_std_io");
     let main = root.join("main.nia");
     let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
     std::fs::write(
         &main,
         r#"
-import std.fs;
 import std.io;
 import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
-    var file = fs::File::stdout();
     var buffer: [0]u8 = [];
-    var stdout = file.writer(init.io(), &mut buffer[..]);
+    var stdout = io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.write_all(b"nia\n") {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -1477,9 +1475,8 @@ fn emit_exe_can_format_to_stdout() {
 import std;
 
 pub fn main(init: std::process::Init) std::process::ExitCode!void {
-    var file = std::fs::File::stdout();
     var buffer: [128]u8 = [0; 128];
-    var stdout = file.writer(init.io(), &mut buffer[..]);
+    var stdout = std::io::FileWriter::stdout(init.io(), &mut buffer[..]);
     switch stdout.print("A¢€😀, {}\n", [&'λ']) {
         !ok => _ = ok,
         error! => return std::process::ExitCode::init(1)!,
@@ -2052,7 +2049,17 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var path = fs::Path::init("data.txt");
-    var cwd = fs::Dir::cwd();
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(90)!,
+    }
+    defer {
+        switch cwd.deinit() {
+            !ok => _ = ok,
+            error! => {},
+        };
+    };
     var file: fs::File;
     switch cwd.create_file(path, fs::CreateOptions::read_write()) {
         !value => file = value,
@@ -2068,7 +2075,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
     }
-    switch file.close() {
+    switch file.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(4)!,
     }
@@ -2085,7 +2092,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => _ = ok,
         error! => return process::ExitCode::init(6)!,
     }
-    switch opened.close() {
+    switch opened.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(7)!,
     }
@@ -2142,7 +2149,17 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     var path = fs::Path::init("nia-λ.txt");
-    var cwd = fs::Dir::cwd();
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(90)!,
+    }
+    defer {
+        switch cwd.deinit() {
+            !ok => _ = ok,
+            error! => {},
+        };
+    };
     var file: fs::File;
     switch cwd.create_file(path, fs::CreateOptions::init()) {
         !value => file = value,
@@ -2158,7 +2175,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
     }
-    switch file.close() {
+    switch file.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(4)!,
     }
@@ -2203,7 +2220,17 @@ import std.process;
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
     var path = fs::Path::init("bad\0path");
-    var cwd = fs::Dir::cwd();
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(90)!,
+    }
+    defer {
+        switch cwd.deinit() {
+            !ok => _ = ok,
+            error! => {},
+        };
+    };
     switch cwd.open_file(path, fs::OpenOptions::read_only()) {
         !file => {
             _ = file;
@@ -2315,13 +2342,23 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd = fs::Dir::cwd();
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(90)!,
+    }
+    defer {
+        switch cwd.deinit() {
+            !ok => _ = ok,
+            error! => {},
+        };
+    };
     var file: fs::File;
     switch cwd.create_file(fs::Path::init("delete-me.txt"), fs::CreateOptions::init()) {
         !value => file = value,
         error! => return process::ExitCode::init(1)!,
     }
-    switch file.close() {
+    switch file.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(2)!,
     }
@@ -2387,7 +2424,17 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd = fs::Dir::cwd();
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(90)!,
+    }
+    defer {
+        switch cwd.deinit() {
+            !ok => _ = ok,
+            error! => {},
+        };
+    };
 
     switch cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()) {
         !ok => _ = ok,
@@ -2399,7 +2446,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(2)!,
     }
-    switch file.close() {
+    switch file.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
     }
@@ -2421,7 +2468,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(6)!,
     }
-    switch file.close() {
+    switch file.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(7)!,
     }
@@ -2493,7 +2540,17 @@ import std.process;
 
 pub fn main(init: process::Init) process::ExitCode!void {
     _ = init;
-    var cwd = fs::Dir::cwd();
+    var cwd: fs::Dir;
+    switch fs::Dir::cwd() {
+        !value => cwd = value,
+        error! => return process::ExitCode::init(90)!,
+    }
+    defer {
+        switch cwd.deinit() {
+            !ok => _ = ok,
+            error! => {},
+        };
+    };
     switch cwd.create_dir(fs::Path::init("subdir"), fs::CreateDirOptions::init()) {
         !ok => _ = ok,
         error! => return process::ExitCode::init(1)!,
@@ -2510,7 +2567,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(3)!,
     }
-    switch file.close() {
+    switch file.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(4)!,
     }
@@ -2519,12 +2576,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(5)!,
     }
-    switch file.close() {
+    switch file.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(6)!,
     }
 
-    switch subdir.close() {
+    switch subdir.deinit() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(7)!,
     }

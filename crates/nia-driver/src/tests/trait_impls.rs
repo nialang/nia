@@ -391,7 +391,7 @@ pub enum Error: i32 {
 }
 
 extend FileDescriptor {
-    pub fn stdout() FileDescriptor {
+    pub fn standard_output() FileDescriptor {
         { raw: 1 }
     }
 }
@@ -409,8 +409,8 @@ pub struct File {
 }
 
 extend File {
-    pub fn stdout() File {
-        { handle: os::FileDescriptor::stdout() }
+    pub fn standard_output() File {
+        { handle: os::FileDescriptor::standard_output() }
     }
 }
 "#,
@@ -462,7 +462,7 @@ import .fs;
 import .io;
 
 fn main() void {
-    var stdout = fs::File::stdout();
+    var stdout = fs::File::standard_output();
     switch io::write_fully_with[fs::File](& stdout, b"nia\n") {
         !ok => _ = ok,
         error! => {},
