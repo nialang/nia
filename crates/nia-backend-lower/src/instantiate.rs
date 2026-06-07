@@ -128,7 +128,19 @@ impl<'a> ModuleLowerer<'a> {
     }
 
     pub(crate) fn import_instance_arg_type(&mut self, ty: InternedTyId) -> InternedTyId {
-        if ty.interner_id == self.interner.interner_id() {
+        if ty.interner_id == self.interner.interner_id()
+            && let Some(kind) = self.interner.get(ty)
+            && !matches!(kind, TyKind::Error)
+        {
+            return ty;
+        }
+        if let Some(interner) = self.known_interner_containing_ty(ty).cloned()
+            && let Some(kind) = interner.get(ty)
+            && !matches!(kind, TyKind::Error)
+        {
+            return nia_ty::import_type_into(&mut self.interner, &interner, ty);
+        }
+        if ty.interner_id == self.interner.interner_id() && self.interner.get(ty).is_some() {
             return ty;
         }
         if let Some(interner) = self.current_instantiated_body_interner
@@ -136,8 +148,8 @@ impl<'a> ModuleLowerer<'a> {
         {
             return nia_ty::import_type_into(&mut self.interner, interner, ty);
         }
-        if let Some(interner) = self.known_type_interners.get(&ty.interner_id).copied() {
-            return nia_ty::import_type_into(&mut self.interner, interner, ty);
+        if let Some(interner) = self.known_interner_containing_ty(ty).cloned() {
+            return nia_ty::import_type_into(&mut self.interner, &interner, ty);
         }
         ty
     }
@@ -174,6 +186,9 @@ impl<'a> ModuleLowerer<'a> {
         let previous_candidates = self.instance_extension_trait_method_candidates.take();
         let previous_interner = self.instance_extension_interner.take();
         let previous_function = self.current_instantiated_function.replace(function);
+        let previous_instantiation_module_id = self
+            .current_instantiation_module_id
+            .replace(instantiation_module_id);
         let previous_body_interner = self.current_instantiated_body_interner.take();
         let previous_substitutions = self.current_type_substitutions.take();
         self.current_instantiated_body_interner = self
@@ -231,9 +246,15 @@ impl<'a> ModuleLowerer<'a> {
         self.instance_extension_trait_method_candidates = previous_candidates;
         self.instance_extension_interner = previous_interner;
         self.current_instantiated_function = previous_function;
+        self.current_instantiation_module_id = previous_instantiation_module_id;
         self.current_instantiated_body_interner = previous_body_interner;
         self.current_type_substitutions = previous_substitutions;
         body
+    }
+
+    pub(super) fn current_arg_module_id(&self) -> ModuleId {
+        self.current_instantiation_module_id
+            .unwrap_or(self.input.module_id)
     }
 
     pub(crate) fn match_extension_trait_impl_candidate(
@@ -394,8 +415,7 @@ impl<'a> ModuleLowerer<'a> {
             {
                 return interner.get(ty).cloned();
             }
-            self.known_type_interners
-                .get(&ty.interner_id)
+            self.known_interner_containing_ty(ty)
                 .and_then(|interner| interner.get(ty).cloned())
                 .or_else(|| Some(TyKind::GenericParam("<unknown>".to_string())))
         };

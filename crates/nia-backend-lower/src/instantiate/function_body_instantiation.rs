@@ -204,16 +204,19 @@ impl<'a> ModuleLowerer<'a> {
                 FunctionExprKind::Function(def_id) => FunctionExprKind::Function(def_id),
                 FunctionExprKind::FunctionInstance {
                     def_id,
-                    arg_module_id,
+                    arg_module_id: _,
                     args,
-                } => FunctionExprKind::FunctionInstance {
-                    def_id,
-                    arg_module_id,
-                    args: args
+                } => {
+                    let args = args
                         .into_iter()
                         .map(|arg| self.instantiate_ty_with_id(arg, substitutions))
-                        .collect(),
-                },
+                        .collect::<Vec<_>>();
+                    FunctionExprKind::FunctionInstance {
+                        def_id,
+                        arg_module_id: self.current_arg_module_id(),
+                        args: self.canonicalize_instance_args(&args),
+                    }
+                }
                 FunctionExprKind::EnumVariant(def_id) => FunctionExprKind::EnumVariant(def_id),
                 FunctionExprKind::BuiltinValue(value) => FunctionExprKind::BuiltinValue(
                     self.instantiate_builtin_value(value, substitutions),
@@ -405,7 +408,7 @@ impl<'a> ModuleLowerer<'a> {
                                         kind: FunctionExprKind::Call {
                                             callee: FunctionCallee::Method {
                                                 def_id,
-                                                arg_module_id: self.input.module_id,
+                                                arg_module_id: self.current_arg_module_id(),
                                                 args: target_args,
                                                 receiver_kind: self
                                                     .receiver_kind_for_method(def_id)
@@ -504,7 +507,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionCallee::Function(def_id) => FunctionCallee::Function(def_id),
             FunctionCallee::FunctionInstance {
                 def_id,
-                arg_module_id,
+                arg_module_id: _,
                 args,
             } => {
                 let args = args
@@ -513,13 +516,13 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Vec<_>>();
                 FunctionCallee::FunctionInstance {
                     def_id,
-                    arg_module_id,
+                    arg_module_id: self.current_arg_module_id(),
                     args: self.canonicalize_instance_args(&args),
                 }
             }
             FunctionCallee::Method {
                 def_id,
-                arg_module_id,
+                arg_module_id: _,
                 args,
                 receiver_kind,
                 receiver,
@@ -530,7 +533,7 @@ impl<'a> ModuleLowerer<'a> {
                     .collect::<Vec<_>>();
                 FunctionCallee::Method {
                     def_id,
-                    arg_module_id,
+                    arg_module_id: self.current_arg_module_id(),
                     args: self.canonicalize_instance_args(&args),
                     receiver_kind,
                     receiver: Box::new(self.instantiate_expr(*receiver, substitutions)),
@@ -567,7 +570,7 @@ impl<'a> ModuleLowerer<'a> {
                     instance_args.extend(args);
                     FunctionCallee::Method {
                         def_id,
-                        arg_module_id: self.input.module_id,
+                        arg_module_id: self.current_arg_module_id(),
                         args: instance_args,
                         receiver_kind,
                         receiver,
@@ -580,7 +583,7 @@ impl<'a> ModuleLowerer<'a> {
                     instance_args.extend(args);
                     FunctionCallee::Method {
                         def_id: method_id,
-                        arg_module_id: self.input.module_id,
+                        arg_module_id: self.current_arg_module_id(),
                         args: instance_args,
                         receiver_kind,
                         receiver,
@@ -588,14 +591,15 @@ impl<'a> ModuleLowerer<'a> {
                 } else {
                     if self.trait_method_call_is_concrete(self_ty, &trait_args, &args) {
                         self.diagnostics
-                            .push(nia_diagnostic::Diagnostic::user_error_at(
+                            .push(nia_diagnostic::Diagnostic::user_error(
                                 "E0601",
-                                receiver.span,
                                 format!(
-                                    "no visible implementation found for trait method call `{}`",
-                                    method_name
+                                    "no visible implementation found for trait method call `{method_name}`"
                                 ),
-                            ));
+                            )
+                            .primary(receiver.span, format!("no implementation matched `{method_name}` for this receiver"))
+                            .debug("trait_id", trait_id)
+                            .finish());
                     }
                     FunctionCallee::TraitMethod {
                         trait_id,

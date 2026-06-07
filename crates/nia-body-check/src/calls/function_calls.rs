@@ -130,7 +130,7 @@ impl<'a> BodyChecker<'a> {
             let target_ty = self.ty_for_type(ty);
             let candidates = self.method_candidates_for_target(target_ty, name);
             let method_id = self.single_method_candidate(span, name, candidates)?;
-            let target_substitutions = self.extension_target_substitutions(method_id, target_ty);
+            let target_substitutions = self.extension_target_substitutions(method_id, target_ty)?;
             (Some(target_ty), method_id, target_substitutions)
         } else {
             let (nominal_def_id, type_args) = self.type_prefix_instance(ty_expr)?;
@@ -146,7 +146,7 @@ impl<'a> BodyChecker<'a> {
                 })
             });
             let target_substitutions = target_ty
-                .map(|target_ty| self.extension_target_substitutions(method_id, target_ty))
+                .and_then(|target_ty| self.extension_target_substitutions(method_id, target_ty))
                 .unwrap_or_default();
             (target_ty, method_id, target_substitutions)
         };

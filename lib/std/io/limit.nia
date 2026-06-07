@@ -1,0 +1,71 @@
+import std.io.traits;
+
+using traits::Reader;
+
+pub struct Limit {
+    remaining: ?usize,
+}
+
+pub struct LimitedReader[R] {
+    reader: &mut R,
+    limit: Limit,
+}
+
+extend Limit {
+    pub fn unlimited() Limit {
+        { remaining: null }
+    }
+
+    pub fn limited(remaining: usize) Limit {
+        { remaining: ?remaining }
+    }
+
+    pub fn remaining(&self) ?usize {
+        self.remaining
+    }
+}
+
+extend[R] LimitedReader[R]
+where R: Reader
+{
+    pub fn init(reader: &mut R, limit: Limit) LimitedReader[R] {
+        { reader: reader, limit: limit }
+    }
+
+    pub fn remaining(&self) ?usize {
+        self.limit.remaining()
+    }
+}
+
+extend[R] LimitedReader[R] : Reader
+where R: Reader
+{
+    type Error = [R as Reader]::Error;
+
+    pub fn end_of_stream(&self) Error {
+        self.reader.end_of_stream()
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        switch self.limit.remaining {
+            ?remaining => {
+                if remaining == 0 {
+                    !0
+                } else {
+                    var count = bytes.len();
+                    if count > remaining {
+                        count = remaining;
+                    }
+                    let chunk = &mut bytes[0..count];
+                    let n = self.reader.read(chunk).?;
+                    switch self.limit.remaining {
+                        ?current => self.limit = Limit::limited(current - n),
+                        null => {},
+                    }
+                    !n
+                }
+            },
+            null => self.reader.read(bytes),
+        }
+    }
+}

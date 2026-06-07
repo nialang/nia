@@ -462,7 +462,7 @@ impl<'a> ModuleLowerer<'a> {
                         instance_args.extend(args);
                         FunctionCallee::Method {
                             def_id,
-                            arg_module_id: self.input.module_id,
+                            arg_module_id: self.current_arg_module_id(),
                             args: instance_args,
                             receiver_kind,
                             receiver,
@@ -473,7 +473,7 @@ impl<'a> ModuleLowerer<'a> {
                         instance_args.extend(args);
                         FunctionCallee::Method {
                             def_id: method_id,
-                            arg_module_id: self.input.module_id,
+                            arg_module_id: self.current_arg_module_id(),
                             args: instance_args,
                             receiver_kind,
                             receiver,
@@ -667,7 +667,7 @@ impl<'a> ModuleLowerer<'a> {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
-                    arg_module_id: self.input.module_id,
+                    arg_module_id: self.current_arg_module_id(),
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -709,7 +709,7 @@ impl<'a> ModuleLowerer<'a> {
             return FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
-                    arg_module_id: self.input.module_id,
+                    arg_module_id: self.current_arg_module_id(),
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)
@@ -740,7 +740,7 @@ impl<'a> ModuleLowerer<'a> {
             FunctionExprKind::Call {
                 callee: FunctionCallee::Method {
                     def_id,
-                    arg_module_id: self.input.module_id,
+                    arg_module_id: self.current_arg_module_id(),
                     args: method_args,
                     receiver_kind: self
                         .receiver_kind_for_method(def_id)

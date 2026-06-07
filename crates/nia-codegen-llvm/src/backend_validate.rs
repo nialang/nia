@@ -11,14 +11,18 @@ use std::{
 };
 
 use crate::program_index::ProgramIndex;
-use nia_backend_ir::{BackendModule, BackendProgram, BackendTraitObjectVtableFunction};
+use nia_backend_ir::{
+    BackendModule, BackendParam, BackendProgram, BackendTraitObjectVtableFunction,
+};
 use nia_diagnostic::Diagnostic;
-use nia_ids::{GlobalDefId, InternedTyId, LocalId};
+use nia_function_ir::{FunctionBody, FunctionLocalKind};
+use nia_ids::{GlobalDefId, InternedTyId, LocalId, ModuleId};
 use nia_layout::TypeLayout;
 use nia_ty::PrimitiveTy;
 
-type InstanceKey = (GlobalDefId, Vec<InternedTyId>);
-type AggregateFieldsLookup = RefCell<HashMap<InstanceKey, Option<Vec<InternedTyId>>>>;
+type FunctionInstanceKey = (GlobalDefId, ModuleId, Vec<InternedTyId>);
+type AggregateInstanceKey = (GlobalDefId, Vec<InternedTyId>);
+type AggregateFieldsLookup = RefCell<HashMap<AggregateInstanceKey, Option<Vec<InternedTyId>>>>;
 
 pub(super) fn validate_backend_program(
     program: &BackendProgram,
@@ -47,7 +51,7 @@ pub(super) struct BackendValidator<'a> {
     seen_types: HashSet<InternedTyId>,
     layout_cache: RefCell<HashMap<InternedTyId, Option<TypeLayout>>>,
     same_type_cache: RefCell<HashMap<(InternedTyId, InternedTyId), bool>>,
-    function_instance_ref_cache: RefCell<HashMap<InstanceKey, bool>>,
+    function_instance_ref_cache: RefCell<HashMap<FunctionInstanceKey, bool>>,
     struct_fields_lookup_cache: AggregateFieldsLookup,
     union_fields_lookup_cache: AggregateFieldsLookup,
     local_tys: Vec<HashMap<LocalId, InternedTyId>>,
@@ -63,6 +67,7 @@ impl BackendValidator<'_> {
                     self.validate_runtime_type(param.local_ty, param.span);
                 }
                 if let Some(body) = &function.function_body {
+                    self.validate_function_param_locals(&function.params, body);
                     self.validate_function_body(body);
                 }
             }
@@ -74,6 +79,7 @@ impl BackendValidator<'_> {
                 self.validate_runtime_type(param.local_ty, param.span);
             }
             if let Some(body) = &function.function_body {
+                self.validate_function_param_locals(&function.params, body);
                 self.validate_function_body(body);
             }
         }
@@ -136,6 +142,40 @@ impl BackendValidator<'_> {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    fn validate_function_param_locals(&mut self, params: &[BackendParam], body: &FunctionBody) {
+        let param_locals = body
+            .locals
+            .iter()
+            .filter(|local| local.kind == FunctionLocalKind::Param)
+            .map(|local| (local.id, local.ty))
+            .collect::<HashMap<_, _>>();
+        for param in params {
+            let Some(local_id) = param.local_id else {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    "I0300",
+                    param.span,
+                    "backend IR function parameter with a body is missing its local binding",
+                ));
+                continue;
+            };
+            let Some(local_ty) = param_locals.get(&local_id).copied() else {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    "I0300",
+                    param.span,
+                    format!("backend IR function parameter references missing local {local_id:?}"),
+                ));
+                continue;
+            };
+            if !self.same_type(param.local_ty, local_ty) {
+                self.diagnostics.push(Diagnostic::internal_error_at(
+                    "I0300",
+                    param.span,
+                    "backend IR function parameter local type does not match its body local",
+                ));
             }
         }
     }

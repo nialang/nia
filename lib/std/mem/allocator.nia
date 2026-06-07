@@ -1,0 +1,91 @@
+import std.mem.copy;
+import std.mem.types;
+
+using types::{Block, Error, Layout};
+
+pub trait Allocator {
+    fn alloc(&mut self, layout: Layout) Error!Block;
+
+    fn free(&mut self, block: Block) Error!void;
+
+    fn resize(&mut self, block: Block, new_layout: Layout) bool {
+        _ = self;
+        if block.align() != new_layout.align() {
+            return false;
+        }
+        block.size() == new_layout.size()
+    }
+
+    fn remap(&mut self, block: Block, new_layout: Layout) ?Block {
+        if self.resize(block, new_layout) {
+            ?Block::init(block.ptr(), new_layout)
+        } else if block.is_empty() and new_layout.is_empty() {
+            ?empty_block(new_layout)
+        } else {
+            null
+        }
+    }
+
+    fn realloc(&mut self, block: Block, new_layout: Layout) Error!Block {
+        switch self.remap(block, new_layout) {
+            ?new_block => return !new_block,
+            null => {},
+        }
+        let new_block = self.alloc(new_layout).?;
+        block.copy_prefix_to(new_block);
+        self.free(block).?;
+        !new_block
+    }
+
+    fn alloc_bytes(&mut self, len: usize, align: usize) Error!Block {
+        let layout = Layout::init(len, align).?;
+        self.alloc(layout)
+    }
+}
+
+extend[A] A
+where A: Allocator
+{
+    pub fn alloc_slice[T](&mut self, len: usize) Error!&mut [T]
+    where T: Sized
+    {
+        let layout = Layout::array[T](len).?;
+        if layout.is_empty() {
+            return !dangling_slice[T](len);
+        }
+        switch self.alloc(layout) {
+            !block => !block.as_slice[T](),
+            err! => err!,
+        }
+    }
+
+    pub fn free_slice[T](&mut self, slice: &mut [T]) Error!void
+    where T: Sized
+    {
+        let layout = Layout::array[T](slice.len()).?;
+        self.free(Block::init(slice.get_ptr() as &mut u8, layout))
+    }
+}
+
+fn dangling_slice[T](len: usize) &mut [T]
+where T: Sized
+{
+    var ptr = @align[T]() as &mut T;
+    &mut ptr[0..len]
+}
+
+fn empty_block(layout: Layout) Block {
+    Block::init(layout.align() as &mut u8, layout)
+}
+
+extend Block {
+    fn copy_prefix_to(&self, to: Block) void {
+        var count = self.size();
+        if count > to.size() {
+            count = to.size();
+        }
+        let from_bytes = self.bytes();
+        var to_bytes = to.bytes();
+        copy::copy_forwards[u8](&mut to_bytes[0..count], &from_bytes[0..count]);
+    }
+}

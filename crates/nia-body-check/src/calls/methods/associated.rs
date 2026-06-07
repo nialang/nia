@@ -75,7 +75,13 @@ impl<'a> BodyChecker<'a> {
             ));
             return Some(self.error());
         };
-        let mut substitutions = self.extension_target_substitutions(method_id, target_ty);
+        let Some(mut substitutions) = self.extension_target_substitutions(method_id, target_ty)
+        else {
+            for arg in args {
+                self.check_expr(arg);
+            }
+            return Some(self.error());
+        };
         let Some(method_instantiation_args) = self.lowered_method_type_args(method_type_args)
         else {
             for arg in args {

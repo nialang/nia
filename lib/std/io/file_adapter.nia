@@ -1,0 +1,28 @@
+import std.fs;
+import std.io.traits;
+
+using traits::{Reader, Writer};
+
+extend fs::File : Writer {
+    type Error = fs::Error;
+
+    pub fn short_write(&self) Error {
+        fs::Error::Io
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+        self.write_some(bytes)
+    }
+}
+
+extend fs::File : Reader {
+    type Error = fs::Error;
+
+    pub fn end_of_stream(&self) Error {
+        fs::Error::Io
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        self.read_some(bytes)
+    }
+}

@@ -1,0 +1,171 @@
+import std.io.traits;
+import std.mem;
+
+using traits::{Reader, Writer};
+
+pub struct BufferedReader[R] {
+    reader: &mut R,
+    buffer: &mut [u8],
+    start: usize,
+    end: usize,
+}
+
+pub struct BufferedWriter[W] {
+    writer: &mut W,
+    buffer: &mut [u8],
+    len: usize,
+}
+
+extend[R] BufferedReader[R]
+where R: Reader
+{
+    pub fn init(reader: &mut R, buffer: &mut [u8]) BufferedReader[R] {
+        { reader: reader, buffer: buffer, start: 0, end: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.end - self.start
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn buffered(&self) &[u8] {
+        & self.buffer[self.start..self.end]
+    }
+
+    pub fn discard_buffered(&mut self) void {
+        self.start = 0;
+        self.end = 0;
+    }
+
+    fn read_buffered(&mut self, bytes: &mut [u8]) usize {
+        var count = bytes.len();
+        if count > self.len() {
+            count = self.len();
+        }
+
+        mem::copy_forwards[u8](&mut bytes[0..count], &self.buffer[self.start..(self.start + count)]);
+        self.start += count;
+        if self.start == self.end {
+            self.discard_buffered();
+        }
+        count
+    }
+}
+
+extend[R] BufferedReader[R] : Reader
+where R: Reader
+{
+    type Error = [R as Reader]::Error;
+
+    pub fn end_of_stream(&self) Error {
+        self.reader.end_of_stream()
+    }
+
+    pub fn read(&mut self, bytes: &mut [u8]) Error!usize {
+        if bytes.len() == 0 {
+            !0
+        } else if self.len() != 0 {
+            !self.read_buffered(bytes)
+        } else if bytes.len() >= self.buffer.len() {
+            self.reader.read(bytes)
+        } else {
+            self.start = 0;
+            self.end = self.reader.read(self.buffer).?;
+            if self.end == 0 {
+                !0
+            } else {
+                !self.read_buffered(bytes)
+            }
+        }
+    }
+}
+
+extend[W] BufferedWriter[W]
+where W: Writer
+{
+    pub fn init(writer: &mut W, buffer: &mut [u8]) BufferedWriter[W] {
+        { writer: writer, buffer: buffer, len: 0 }
+    }
+
+    pub fn len(&self) usize {
+        self.len
+    }
+
+    pub fn capacity(&self) usize {
+        self.buffer.len()
+    }
+
+    pub fn buffered(&self) &[u8] {
+        & self.buffer[0..self.len]
+    }
+
+    fn append_buffered(&mut self, bytes: &[u8]) void {
+        var index = 0usize;
+        while index < bytes.len() {
+            self.buffer[self.len + index] = bytes[index];
+            index += 1usize;
+        }
+        self.len += bytes.len();
+    }
+}
+
+extend[W] BufferedWriter[W] : Writer
+where W: Writer
+{
+    type Error = [W as Writer]::Error;
+
+    pub fn short_write(&self) Error {
+        self.writer.short_write()
+    }
+
+    pub fn write(&mut self, bytes: &[u8]) Error!usize {
+        if bytes.len() == 0 {
+            !0
+        } else if bytes.len() > self.buffer.len() {
+            self.flush().?;
+            self.writer.write(bytes)
+        } else {
+            let available = self.buffer.len() - self.len;
+            if bytes.len() > available {
+                self.flush().?;
+            }
+
+            self.append_buffered(bytes);
+            !bytes.len()
+        }
+    }
+
+    pub fn write_all(&mut self, bytes: &[u8]) Error!void {
+        if bytes.len() == 0 {
+            !{}
+        } else if bytes.len() > self.buffer.len() {
+            self.flush().?;
+            let n = self.writer.write(bytes).?;
+            if n != bytes.len() {
+                return self.short_write()!;
+            }
+            !{}
+        } else {
+            let available = self.buffer.len() - self.len;
+            if bytes.len() > available {
+                self.flush().?;
+            }
+            self.append_buffered(bytes);
+            !{}
+        }
+    }
+
+    pub fn flush(&mut self) Error!void {
+        if self.len != 0 {
+            let n = self.writer.write(& self.buffer[0..self.len]).?;
+            if n != self.len {
+                return self.short_write()!;
+            }
+            self.len = 0;
+        }
+        self.writer.flush()
+    }
+}
