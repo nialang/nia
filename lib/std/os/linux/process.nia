@@ -1,6 +1,6 @@
 import std.os.linux.syscall;
 
 pub fn exit(code: i32) void {
-    _ = syscall::syscall1(60, code as usize);
+    _ = syscall::syscall1(syscall::exit, code as usize);
     loop {}
 }

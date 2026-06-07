@@ -10,7 +10,7 @@ fn raw_map_pages(len: usize) Error!&mut u8 {
     let prot_read_write = 3usize;
     let private_anonymous = 34usize;
     let ret = syscall::syscall6(
-        9,
+        syscall::mmap,
         0,
         len,
         prot_read_write,
@@ -26,7 +26,7 @@ fn raw_map_pages(len: usize) Error!&mut u8 {
 }
 
 fn raw_unmap_pages(ptr: &mut u8, len: usize) Error!void {
-    let ret = syscall::syscall3(11, ptr as usize, len, 0);
+    let ret = syscall::syscall3(syscall::munmap, ptr as usize, len, 0);
     if ret < 0 {
         ret.syscall_error()!
     } else {

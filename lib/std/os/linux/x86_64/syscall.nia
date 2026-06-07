@@ -1,3 +1,14 @@
+pub comptime let read: usize = 0usize;
+pub comptime let write: usize = 1usize;
+pub comptime let close: usize = 3usize;
+pub comptime let mmap: usize = 9usize;
+pub comptime let munmap: usize = 11usize;
+pub comptime let exit: usize = 60usize;
+pub comptime let openat: usize = 257usize;
+pub comptime let mkdirat: usize = 258usize;
+pub comptime let unlinkat: usize = 263usize;
+pub comptime let renameat: usize = 264usize;
+
 pub fn syscall1(number: usize, arg0: usize) isize {
     var ret: isize = 0;
     @asm({

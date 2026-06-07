@@ -12,11 +12,16 @@ pub enum Error: i32 {
     Fault = 14,
     Busy = 16,
     AlreadyExists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
     Invalid = 22,
     NoSpace = 28,
+    ReadOnly = 30,
     BrokenPipe = 32,
     OutOfRange = 34,
     TooLong = 36,
+    NotEmpty = 39,
     System = 255,
     _,
 }
@@ -61,6 +66,10 @@ pub struct CreateOptions {
     permissions: u32,
 }
 
+pub struct CreateDirOptions {
+    permissions: u32,
+}
+
 extend os::Error {
     pub fn as_fs_error(self) Error {
         switch self {
@@ -75,10 +84,16 @@ extend os::Error {
             os::Error::Fault => Error::Fault,
             os::Error::Busy => Error::Busy,
             os::Error::Exists => Error::AlreadyExists,
+            os::Error::CrossDevice => Error::CrossDevice,
+            os::Error::NotDir => Error::NotDir,
+            os::Error::IsDir => Error::IsDir,
             os::Error::Invalid => Error::Invalid,
             os::Error::NoSpace => Error::NoSpace,
+            os::Error::ReadOnly => Error::ReadOnly,
             os::Error::BrokenPipe => Error::BrokenPipe,
             os::Error::OutOfRange => Error::OutOfRange,
+            os::Error::TooLong => Error::TooLong,
+            os::Error::NotEmpty => Error::NotEmpty,
             _ => Error::System,
         }
     }

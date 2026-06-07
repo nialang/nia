@@ -3,4 +3,15 @@ import std.fs.options;
 import std.fs.path;
 import std.fs.types;
 
-pub using types::{CreateOptions, Dir, EncodedPath, Error, File, OpenMode, OpenOptions, Path, PathError};
+pub using types::{
+    CreateDirOptions,
+    CreateOptions,
+    Dir,
+    EncodedPath,
+    Error,
+    File,
+    OpenMode,
+    OpenOptions,
+    Path,
+    PathError,
+};

@@ -1,4 +1,9 @@
 pub comptime let max_path_bytes: usize = 4096usize;
+pub comptime let at_fdcwd: i32 = -100;
+pub comptime let at_removedir: usize = 0x200usize;
+pub comptime let open_create: i32 = 0o100;
+pub comptime let open_exclusive: i32 = 0o200;
+pub comptime let open_truncate: i32 = 0o1000;
 
 pub enum Error: i32 {
     PermissionDenied = 1,
@@ -12,10 +17,16 @@ pub enum Error: i32 {
     Fault = 14,
     Busy = 16,
     Exists = 17,
+    CrossDevice = 18,
+    NotDir = 20,
+    IsDir = 21,
     Invalid = 22,
     NoSpace = 28,
+    ReadOnly = 30,
     BrokenPipe = 32,
     OutOfRange = 34,
+    TooLong = 36,
+    NotEmpty = 39,
     _,
 }
 
