@@ -2224,6 +2224,152 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_file_seek_len_truncate_and_sync() {
+    let root = temp_dir("emit_exe_std_fs_file_seek_len_truncate_and_sync");
+    let data_path = root.join("data.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var path = fs::Path::init("data.txt");
+    var file: fs::File;
+    switch fs::File::create(path, fs::CreateOptions::read_write()) {
+        !value => file = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+
+    var write_buffer: [16]u8 = [0; 16];
+    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    switch writer.write_all(b"abcdef") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch writer.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+
+    switch file.len() {
+        !value => {
+            if value != 6u64 {
+                return process::ExitCode::init(4)!;
+            }
+        },
+        error! => return process::ExitCode::init(5)!,
+    }
+    switch file.seek_by(0) {
+        !value => {
+            if value != 6u64 {
+                return process::ExitCode::init(6)!;
+            }
+        },
+        error! => return process::ExitCode::init(7)!,
+    }
+    switch file.seek_to(2u64) {
+        !value => {
+            if value != 2u64 {
+                return process::ExitCode::init(8)!;
+            }
+        },
+        error! => return process::ExitCode::init(9)!,
+    }
+    switch file.seek_by(1i64) {
+        !value => {
+            if value != 3u64 {
+                return process::ExitCode::init(10)!;
+            }
+        },
+        error! => return process::ExitCode::init(11)!,
+    }
+    switch file.seek_from_end(-2i64) {
+        !value => {
+            if value != 4u64 {
+                return process::ExitCode::init(12)!;
+            }
+        },
+        error! => return process::ExitCode::init(13)!,
+    }
+
+    switch file.truncate(4u64) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(14)!,
+    }
+    switch file.seek_to(9223372036854775808u64) {
+        !value => {
+            _ = value;
+            return process::ExitCode::init(20)!;
+        },
+        err! => {
+            if err != fs::Error::OutOfRange {
+                return process::ExitCode::init(21)!;
+            }
+        },
+    }
+    switch file.truncate(9223372036854775808u64) {
+        !ok => {
+            _ = ok;
+            return process::ExitCode::init(22)!;
+        },
+        err! => {
+            if err != fs::Error::OutOfRange {
+                return process::ExitCode::init(23)!;
+            }
+        },
+    }
+    switch file.len() {
+        !value => {
+            if value != 4u64 {
+                return process::ExitCode::init(15)!;
+            }
+        },
+        error! => return process::ExitCode::init(16)!,
+    }
+    switch file.sync_data() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(17)!,
+    }
+    switch file.sync() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(18)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(19)!,
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(std::fs::read(&data_path).expect("read data file"), b"abcd");
+}
+
+#[test]
 fn emit_exe_can_open_std_fs_paths_from_text() {
     let root = temp_dir("emit_exe_can_open_std_fs_paths_from_text");
     let data_path = root.join("nia-λ.txt");

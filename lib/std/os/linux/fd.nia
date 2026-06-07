@@ -1,7 +1,7 @@
 import std.os.linux.syscall;
 import std.os.linux.types;
 
-using types::{Error, FileDescriptor, OpenMode};
+using types::{Error, FileDescriptor, OpenMode, SeekWhence};
 
 extend FileDescriptor {
     pub fn init(fd: i32) FileDescriptor {
@@ -46,6 +46,47 @@ extend FileDescriptor {
 
     pub fn close(&self) Error!void {
         let ret = syscall::syscall1(syscall::close, self.fd as usize);
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !{}
+        }
+    }
+
+    pub fn seek(&self, offset: i64, whence: SeekWhence) Error!u64 {
+        let ret = syscall::syscall3(
+            syscall::lseek,
+            self.fd as usize,
+            offset as usize,
+            whence as usize,
+        );
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !(ret as u64)
+        }
+    }
+
+    pub fn truncate(&self, len: u64) Error!void {
+        let ret = syscall::syscall2(syscall::ftruncate, self.fd as usize, len as usize);
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !{}
+        }
+    }
+
+    pub fn sync(&self) Error!void {
+        let ret = syscall::syscall1(syscall::fsync, self.fd as usize);
+        if ret < 0 {
+            ret.syscall_error()!
+        } else {
+            !{}
+        }
+    }
+
+    pub fn sync_data(&self) Error!void {
+        let ret = syscall::syscall1(syscall::fdatasync, self.fd as usize);
         if ret < 0 {
             ret.syscall_error()!
         } else {

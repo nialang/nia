@@ -4,7 +4,11 @@ comptime if @builtin().target.arch == "x86_64" {
 
 pub using platform::{
     close,
+    fdatasync,
     exit,
+    ftruncate,
+    fsync,
+    lseek,
     mkdirat,
     mmap,
     munmap,

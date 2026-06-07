@@ -3,7 +3,7 @@ import std.os.linux.mem as memory;
 import std.os.linux.process;
 import std.os.linux.types;
 
-pub using types::{Error, FileDescriptor, OpenMode};
+pub using types::{Error, FileDescriptor, OpenMode, SeekWhence};
 
 pub comptime let max_path_bytes: usize = types::max_path_bytes;
 
