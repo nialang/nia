@@ -26,7 +26,7 @@ fn parses_for_in_binding_with_range_iterator() {
     let (module, errors) = parse_module(
         r#"
 fn main() {
-    for i: i32 in 0..10 {
+    for i in 0i32..10i32 {
         _ = i;
     }
 }
@@ -40,9 +40,42 @@ fn main() {
     let StmtKind::ForIn(for_stmt) = &body.stmts[0].kind else {
         panic!("expected for-in statement");
     };
-    assert_eq!(for_stmt.binding.name, "i");
-    assert!(for_stmt.binding.ty.is_some());
+    assert_eq!(for_stmt.pattern.name(), Some("i"));
+    assert_eq!(for_stmt.pattern.kind, ForPatternKind::Value);
     assert!(matches!(for_stmt.iter.kind, ExprKind::Range(_)));
+}
+
+#[test]
+fn parses_for_in_pointer_patterns() {
+    let (module, errors) = parse_module(
+        r#"
+fn main(xs: &[&i32], ys: &[&mut i32]) {
+    for &x in xs {}
+    for &mut y in ys {}
+    for _ in 0..3 {}
+}
+"#,
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let ItemKind::Function(function) = &module.items[0].kind else {
+        panic!("expected function");
+    };
+    let body = function.body.as_ref().expect("expected body");
+    let StmtKind::ForIn(first) = &body.stmts[0].kind else {
+        panic!("expected for-in statement");
+    };
+    assert_eq!(first.pattern.name(), Some("x"));
+    assert_eq!(first.pattern.kind, ForPatternKind::Pointer);
+    let StmtKind::ForIn(second) = &body.stmts[1].kind else {
+        panic!("expected for-in statement");
+    };
+    assert_eq!(second.pattern.name(), Some("y"));
+    assert_eq!(second.pattern.kind, ForPatternKind::MutPointer);
+    let StmtKind::ForIn(third) = &body.stmts[2].kind else {
+        panic!("expected for-in statement");
+    };
+    assert_eq!(third.pattern.name(), None);
+    assert_eq!(third.pattern.kind, ForPatternKind::Value);
 }
 
 #[test]
@@ -86,7 +119,24 @@ fn main() {
     assert!(
         errors
             .iter()
-            .any(|error| error.message.contains("var` is not allowed")),
+            .any(|error| error.message.contains("do not use `let` or `var`")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn rejects_for_in_binding_type_annotation() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main() {
+    for i: usize in 0..10 {}
+}
+"#,
+    );
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("do not support type annotations")),
         "{errors:?}"
     );
 }

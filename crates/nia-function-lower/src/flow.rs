@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::support::{LoweringContext, SwitchPatternConditionContext, SwitchStmtArmContext};
 use super::*;
-use nia_ast::BinaryOp;
 use nia_ids::TyInternerIndex;
-use nia_sema_ir::BuiltinOperatorOp;
 
 impl FunctionLowerer {
     pub(super) fn lower_body_into(
@@ -14,8 +12,19 @@ impl FunctionLowerer {
         blocks: &mut Vec<FunctionBlock>,
         fallthrough: Fallthrough,
     ) {
+        self.lower_body_into_with_ops(body, entry, scope, blocks, fallthrough, Vec::new());
+    }
+
+    fn lower_body_into_with_ops(
+        &mut self,
+        body: &TypedBody,
+        entry: FunctionBlockId,
+        scope: FunctionScopeId,
+        blocks: &mut Vec<FunctionBlock>,
+        fallthrough: Fallthrough,
+        mut ops: Vec<FunctionOp>,
+    ) {
         let mut current = entry;
-        let mut ops = Vec::new();
         for stmt in &body.stmts {
             if self.lower_stmt_into(stmt, scope, &mut current, &mut ops, blocks) {
                 return;
@@ -553,43 +562,13 @@ impl FunctionLowerer {
         ops: &mut Vec<FunctionOp>,
         blocks: &mut Vec<FunctionBlock>,
     ) {
-        let TypedForIterator::Range(range) = &for_stmt.iter else {
-            self.finish_block(
-                blocks,
-                *current,
-                scope,
-                span,
-                std::mem::take(ops),
-                FunctionTerminator::Error { span },
-            );
-            return;
-        };
-
-        let range_value = self.lower_value_expr(&range.expr, scope, current, ops, blocks);
-        let range_local = self.alloc_temp_local(range.span, range.ty);
+        let iter_value = self.lower_value_expr(&for_stmt.iter, scope, current, ops, blocks);
+        let iter_local = self.alloc_temp_local(for_stmt.iter.span, for_stmt.iter.ty);
         ops.push(FunctionOp::Binding(FunctionBinding {
-            local_id: range_local,
-            name: "__for_range".to_string(),
-            ty: range.ty,
-            value: Some(range_value),
-            is_let: true,
-        }));
-        let range_expr = FunctionExpr {
-            span: range.span,
-            ty: range.ty,
-            kind: FunctionExprKind::Local(range_local),
-        };
-        let start = self.range_bound_expr(
-            range.span,
-            for_stmt.ty,
-            range_expr.clone(),
-            FunctionRangeBound::Start,
-        );
-        ops.push(FunctionOp::Binding(FunctionBinding {
-            local_id: for_stmt.local_id,
-            name: for_stmt.name.clone(),
-            ty: for_stmt.ty,
-            value: Some(start),
+            local_id: iter_local,
+            name: "__for_iter".to_string(),
+            ty: for_stmt.iter.ty,
+            value: Some(iter_value),
             is_let: false,
         }));
 
@@ -606,30 +585,25 @@ impl FunctionLowerer {
             },
         );
 
-        let header_ops = Vec::new();
+        let mut header_ops = Vec::new();
         let header_current = loop_header;
-        let local = FunctionExpr {
+        let optional_item_ty = self.optional_ty(for_stmt.ty);
+        let next_local = self.alloc_temp_local(span, optional_item_ty);
+        let next_value =
+            self.iterator_next_expr(span, iter_local, for_stmt.iter.ty, optional_item_ty);
+        header_ops.push(FunctionOp::Binding(FunctionBinding {
+            local_id: next_local,
+            name: "__for_next".to_string(),
+            ty: next_value.ty,
+            value: Some(next_value),
+            is_let: true,
+        }));
+        let next_expr = FunctionExpr {
             span,
-            ty: for_stmt.ty,
-            kind: FunctionExprKind::Local(for_stmt.local_id),
+            ty: optional_item_ty,
+            kind: FunctionExprKind::Local(next_local),
         };
-        let header = if !range.has_end {
-            FunctionForHeader::Infinite
-        } else {
-            let end =
-                self.range_bound_expr(range.span, for_stmt.ty, range_expr, FunctionRangeBound::End);
-            FunctionForHeader::Condition(self.builtin_binary_expr(
-                span,
-                if range.inclusive {
-                    BinaryOp::Le
-                } else {
-                    BinaryOp::Lt
-                },
-                local,
-                end,
-                self.bool_ty(for_stmt.ty),
-            ))
-        };
+        let header = FunctionForHeader::Condition(self.optional_some_condition(span, &next_expr));
         let body_entry = self.alloc_block();
         let continue_target = self.alloc_block();
         let break_target = self.alloc_block();
@@ -652,37 +626,39 @@ impl FunctionLowerer {
             break_target,
             continue_target,
         });
+        let mut body_ops = Vec::new();
+        if let Some(binding) = &for_stmt.binding {
+            body_ops.push(FunctionOp::Binding(FunctionBinding {
+                local_id: binding.local_id,
+                name: binding.name.clone(),
+                ty: for_stmt.ty,
+                value: Some(FunctionExpr {
+                    span,
+                    ty: for_stmt.ty,
+                    kind: FunctionExprKind::TaggedUnionPayload {
+                        expr: Box::new(next_expr),
+                    },
+                }),
+                is_let: true,
+            }));
+        }
         let body_scope = self.alloc_scope(Some(scope), for_stmt.body.span);
-        self.lower_body_into(
+        self.lower_body_into_with_ops(
             &for_stmt.body,
             body_entry,
             body_scope,
             blocks,
             Fallthrough::Branch(continue_target),
+            body_ops,
         );
         self.loop_targets.pop();
 
-        let local = FunctionExpr {
-            span,
-            ty: for_stmt.ty,
-            kind: FunctionExprKind::Local(for_stmt.local_id),
-        };
-        let one = FunctionExpr {
-            span,
-            ty: for_stmt.ty,
-            kind: FunctionExprKind::Integer("1".to_string()),
-        };
-        let value = self.builtin_binary_expr(span, BinaryOp::Add, local, one, for_stmt.ty);
         self.finish_block(
             blocks,
             continue_target,
             scope,
             span,
-            vec![FunctionOp::StoreLocal {
-                local_id: for_stmt.local_id,
-                value,
-                span,
-            }],
+            Vec::new(),
             FunctionTerminator::Branch {
                 target: loop_header,
                 span,
@@ -691,21 +667,47 @@ impl FunctionLowerer {
         *current = break_target;
     }
 
-    fn range_bound_expr(
+    fn optional_ty(&mut self, elem: nia_ids::InternedTyId) -> nia_ids::InternedTyId {
+        self.interner
+            .as_mut()
+            .map(|interner| interner.intern(TyKind::Optional { elem }))
+            .unwrap_or(elem)
+    }
+
+    fn iterator_next_expr(
         &self,
         span: Span,
-        ty: nia_ids::InternedTyId,
-        range: FunctionExpr,
-        bound: FunctionRangeBound,
+        iter_local: nia_ids::LocalId,
+        iter_ty: nia_ids::InternedTyId,
+        optional_item_ty: nia_ids::InternedTyId,
     ) -> FunctionExpr {
         FunctionExpr {
             span,
-            ty,
-            kind: FunctionExprKind::RangeBound {
-                range: Box::new(range),
-                bound,
+            ty: optional_item_ty,
+            kind: FunctionExprKind::Call {
+                callee: FunctionCallee::BuiltinPlaceMethod {
+                    trait_id: BuiltinTrait::Iterator,
+                    method: BuiltinTraitMethod::IteratorNext,
+                    self_ty: iter_ty,
+                    trait_args: Vec::new(),
+                    receiver: Box::new(FunctionExpr {
+                        span,
+                        ty: iter_ty,
+                        kind: FunctionExprKind::Local(iter_local),
+                    }),
+                },
+                args: Vec::new(),
             },
         }
+    }
+
+    fn optional_some_condition(&self, span: Span, value: &FunctionExpr) -> FunctionExpr {
+        self.tagged_union_tag_condition(
+            value,
+            span,
+            self.bool_ty(value.ty),
+            FunctionOptionalTag::Some.discriminant(),
+        )
     }
 
     pub(super) fn lower_while_stmt(
@@ -920,30 +922,6 @@ impl FunctionLowerer {
             }
         };
         self.finish_block(blocks, current, scope, span, ops, terminator);
-    }
-
-    fn builtin_binary_expr(
-        &self,
-        span: Span,
-        op: BinaryOp,
-        lhs: FunctionExpr,
-        rhs: FunctionExpr,
-        ty: InternedTyId,
-    ) -> FunctionExpr {
-        let trait_id = BuiltinOperatorOp::Binary(op)
-            .trait_id()
-            .expect("for-in synthesized operator must have a builtin trait");
-        FunctionExpr {
-            span,
-            ty,
-            kind: FunctionExprKind::Call {
-                callee: FunctionCallee::BuiltinOperator(FunctionBuiltinOperator {
-                    trait_id,
-                    op: FunctionBuiltinOperatorOp::Binary(op),
-                }),
-                args: vec![lhs, rhs],
-            },
-        }
     }
 
     fn bool_ty(&self, ty: InternedTyId) -> InternedTyId {

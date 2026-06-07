@@ -407,7 +407,7 @@ pub(crate) fn collect_extension_methods(
                 let mut impl_generics = extend.generics.clone();
                 if matches!(
                     module.lowering.interner.get(target_ty),
-                    Some(TyKind::TraitObject { .. })
+                    Some(TyKind::TraitObjectPointee { .. })
                 ) && !impl_generics.iter().any(|generic| generic == "Self")
                 {
                     impl_generics.push("Self".to_string());
@@ -861,6 +861,9 @@ fn builtin_trait_method_signature_matches(
         | (BuiltinTrait::Slice, BuiltinTraitMethod::Slice) => {
             builtin_slice_trait_method_signature_matches(module, extend, actual, trait_id, method)
         }
+        (BuiltinTrait::Iterator, BuiltinTraitMethod::IteratorNext) => {
+            builtin_iterator_method_signature_matches(module, extend, actual)
+        }
         _ => true,
     }
 }
@@ -946,6 +949,29 @@ fn builtin_slice_trait_method_signature_matches(
         return false;
     };
     types_equivalent(&module.lowering.interner, actual.return_type, output)
+}
+
+fn builtin_iterator_method_signature_matches(
+    module: &ExtensionModuleInput<'_>,
+    extend: &nia_ast::ExtendItem,
+    actual: &FunctionSignature,
+) -> bool {
+    if actual.params.first().and_then(|param| param.receiver) != Some(nia_ast::ReceiverKind::Ref) {
+        return false;
+    }
+    let Some(item) = extend
+        .associated_types
+        .iter()
+        .find(|associated_type| associated_type.name == BuiltinTrait::ITEM_ASSOC_TYPE)
+        .and_then(|associated_type| lowered_type(module, &associated_type.ty))
+    else {
+        return false;
+    };
+    let actual_return = module.normalization.normalize(actual.return_type);
+    let Some(TyKind::Optional { elem }) = module.lowering.interner.get(actual_return) else {
+        return false;
+    };
+    types_equivalent(&module.lowering.interner, *elem, item)
 }
 
 fn receiver_kind_to_ast_receiver_kind(kind: BuiltinReceiverKind) -> nia_ast::ReceiverKind {
@@ -1377,6 +1403,17 @@ fn substitute_imported_type(
             );
             target_interner.intern(TyKind::Slice { is_readonly, elem })
         }
+        Some(TyKind::SlicePointee { elem }) => {
+            let elem = substitute_imported_type(
+                target_interner,
+                module,
+                source_interner,
+                *elem,
+                substitutions,
+                projection_context,
+            );
+            target_interner.intern(TyKind::SlicePointee { elem })
+        }
         Some(TyKind::Array { len, elem }) => {
             let len = len.clone();
             let elem = substitute_imported_type(
@@ -1557,6 +1594,59 @@ fn substitute_imported_type(
                 associated_type_bindings,
             })
         }
+        Some(TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| {
+                    substitute_imported_type(
+                        target_interner,
+                        module,
+                        source_interner,
+                        *arg,
+                        substitutions,
+                        projection_context,
+                    )
+                })
+                .collect();
+            let associated_type_bindings = associated_type_bindings
+                .iter()
+                .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                    trait_id: binding.trait_id,
+                    trait_args: binding
+                        .trait_args
+                        .iter()
+                        .map(|arg| {
+                            substitute_imported_type(
+                                target_interner,
+                                module,
+                                source_interner,
+                                *arg,
+                                substitutions,
+                                projection_context,
+                            )
+                        })
+                        .collect(),
+                    name: binding.name.clone(),
+                    ty: substitute_imported_type(
+                        target_interner,
+                        module,
+                        source_interner,
+                        binding.ty,
+                        substitutions,
+                        projection_context,
+                    ),
+                })
+                .collect();
+            target_interner.intern(TyKind::TraitObjectPointee {
+                trait_id: *trait_id,
+                trait_args,
+                associated_type_bindings,
+            })
+        }
         Some(TyKind::Projection {
             self_ty,
             trait_id,
@@ -1644,7 +1734,9 @@ fn is_extendable_target(interner: &TyInterner, ty: nia_ids::InternedTyId) -> boo
             | TyKind::FunctionPointer { .. }
             | TyKind::Nominal { .. }
             | TyKind::BuiltinTrait { .. }
+            | TyKind::SlicePointee { .. }
             | TyKind::TraitObject { .. }
+            | TyKind::TraitObjectPointee { .. }
             | TyKind::Projection { .. }
             | TyKind::Range { .. }
             | TyKind::Optional { .. }

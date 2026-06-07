@@ -100,6 +100,12 @@ where
                 mangle_type_inner(interner, *elem, nominal_name, array_len)
             )
         }
+        Some(TyKind::SlicePointee { elem }) => {
+            format!(
+                "slice_pointee__{}",
+                mangle_type_inner(interner, *elem, nominal_name, array_len)
+            )
+        }
         Some(TyKind::Array { len, elem }) => format!(
             "arr__{}__{}",
             mangle_array_len(len, interner, nominal_name, array_len),
@@ -231,6 +237,56 @@ where
                 .join("__");
             format!(
                 "{prefix}__{}__argc{}__{}__assoc{}__{}",
+                trait_name,
+                trait_args.len(),
+                trait_args,
+                associated_type_bindings.len(),
+                assoc_bindings
+            )
+        }
+        Some(TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_name = match trait_id {
+                TraitId::Source(def_id) => nominal_name(*def_id),
+                TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
+            };
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                .collect::<Vec<_>>()
+                .join("__");
+            let assoc_bindings = associated_type_bindings
+                .iter()
+                .map(|binding| {
+                    let trait_part = binding
+                        .trait_id
+                        .map(|trait_id| match trait_id {
+                            TraitId::Source(def_id) => nominal_name(def_id),
+                            TraitId::Builtin(trait_id) => format!("builtin__{}", trait_id.name()),
+                        })
+                        .unwrap_or_else(|| "self".to_string());
+                    let trait_args = binding
+                        .trait_args
+                        .iter()
+                        .map(|arg| mangle_type_inner(interner, *arg, nominal_name, array_len))
+                        .collect::<Vec<_>>()
+                        .join("__");
+                    format!(
+                        "{}__argc{}__{}__{}__{}",
+                        trait_part,
+                        binding.trait_args.len(),
+                        trait_args,
+                        sanitize_symbol_part(&binding.name),
+                        mangle_type_inner(interner, binding.ty, nominal_name, array_len)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("__");
+            format!(
+                "trait_obj_pointee__{}__argc{}__{}__assoc{}__{}",
                 trait_name,
                 trait_args.len(),
                 trait_args,

@@ -250,7 +250,7 @@ extend S {
 fn build() T {
     var t: T = { xs: [S::make(0); 4] };
 
-    for i: u16 in 0u16..4u16 {
+    for i in 0u16..4u16 {
         t.xs[i as usize] = S::make(i as i32);
     }
 
@@ -299,7 +299,7 @@ extend S {
 fn build() T {
     var t: T = { xs: [S::make(0); 4] };
 
-    for i: u16 in 0u16..4u16 {
+    for i in 0u16..4u16 {
         t.xs[i as usize] = S::make(7);
     }
 

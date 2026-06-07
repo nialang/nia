@@ -166,6 +166,32 @@ pub enum FunctionTryKind {
     ErrorUnion,
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionOptionalTag {
+    Null = 0,
+    Some = 1,
+}
+
+impl FunctionOptionalTag {
+    pub const fn discriminant(self) -> u8 {
+        self as u8
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionErrorUnionTag {
+    Ok = 0,
+    Err = 1,
+}
+
+impl FunctionErrorUnionTag {
+    pub const fn discriminant(self) -> u8 {
+        self as u8
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionForHeader {
     Infinite,
@@ -425,7 +451,6 @@ pub struct FunctionBuiltinOperator {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionBuiltinMethod {
     Len,
-    RangeIter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

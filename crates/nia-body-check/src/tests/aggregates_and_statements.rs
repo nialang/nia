@@ -146,6 +146,19 @@ fn main() i32 {
 fn checks_new_loop_expression_type_edges() {
     let checked = pipeline(
         r#"
+struct Counter {
+    current: i32,
+    end: i32,
+}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        null
+    }
+}
+
 fn main(flag: bool) i32 {
     var i = 0;
     while flag {
@@ -157,7 +170,8 @@ fn main(flag: bool) i32 {
         break;
     }
 
-    for n in 0..3 {
+    var iter = Counter { current: 0, end: 3 };
+    for n in iter {
         _ = n;
     }
 
@@ -191,14 +205,14 @@ fn main(flag: bool) i32 {
 }
 
 #[test]
-fn rejects_for_in_ranges_without_start_bound() {
+fn rejects_for_in_non_iterator_ranges() {
     let checked = pipeline(
         r#"
 fn main() i32 {
-    for n in ..3 {
+    for n in 0..3 {
         _ = n;
     }
-    for n in ..=3 {
+    for n in ..3 {
         _ = n;
     }
     0
@@ -209,9 +223,7 @@ fn main() i32 {
         checked
             .diagnostics
             .iter()
-            .filter(|diagnostic| diagnostic
-                .summary
-                .contains("for-in range iterator requires a start bound"))
+            .filter(|diagnostic| diagnostic.summary.contains("for-in expects an Iterator"))
             .count(),
         2,
         "{:?}",
@@ -220,28 +232,32 @@ fn main() i32 {
 }
 
 #[test]
-fn accepts_for_in_range_values() {
+fn accepts_for_in_iterator_values() {
     let checked = pipeline(
         r#"
-fn main() i32 {
-    var r = 0..3;
-    for n in r {
-        _ = n;
-    }
-    0
-}
-"#,
-    );
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+struct Counter {
+    current: i32,
+    end: i32,
 }
 
-#[test]
-fn for_binding_annotation_guides_range_item_type() {
-    let checked = pipeline(
-        r#"
-fn main(len: usize) usize {
-    var total = 0usize;
-    for n: usize in 0..len {
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
+fn main() i32 {
+    var iter = Counter { current: 0, end: 3 };
+    var total = 0;
+    for n in iter {
         total += n;
     }
     total
@@ -252,35 +268,60 @@ fn main(len: usize) usize {
 }
 
 #[test]
-fn for_binding_annotation_checks_range_literal_bounds() {
+fn iterator_item_type_guides_for_binding_type() {
     let checked = pipeline(
         r#"
-fn main() i32 {
-    var total = 0;
-    for n: u8 in 0..300 {
-        total += n as i32;
+struct Counter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    fn next(&mut self) ?usize {
+        null
+    }
+}
+
+fn main(len: usize) usize {
+    var total = 0usize;
+    var iter = Counter { current: 0usize, end: len };
+    for n in iter {
+        total += n;
     }
     total
 }
 "#,
     );
-    assert!(
-        checked
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.summary.contains("out of range for u8")),
-        "{:?}",
-        checked.diagnostics
-    );
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
 
 #[test]
-fn accepts_for_in_range_iter_method() {
+fn accepts_for_in_pointer_item_pattern() {
     let checked = pipeline(
         r#"
-fn main() i32 {
-    var r = 0..3;
-    for n in r.iter() {
+struct Once {
+    value: &i32,
+    done: bool,
+}
+
+extend Once : Iterator {
+    type Item = &i32;
+
+    fn next(&mut self) ?&i32 {
+        if self.done {
+            null
+        } else {
+            self.done = true;
+            ?self.value
+        }
+    }
+}
+
+fn main(value: &i32) i32 {
+    var iter = Once { value: value, done: false };
+    for &n in iter {
         _ = n;
     }
     0
@@ -291,12 +332,22 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_range_iter_method_without_start_bound() {
+fn rejects_for_in_pointer_pattern_for_value_items() {
     let checked = pipeline(
         r#"
+struct Counter {}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        null
+    }
+}
+
 fn main() i32 {
-    var r = ..3;
-    for n in r.iter() {
+    var iter = Counter {};
+    for &n in iter {
         _ = n;
     }
     0
@@ -304,11 +355,9 @@ fn main() i32 {
 "#,
     );
     assert!(
-        checked.diagnostics.iter().any(|diagnostic| {
-            diagnostic
-                .summary
-                .contains("range.iter() requires a start bound")
-        }),
+        checked.diagnostics.iter().any(|diagnostic| diagnostic
+            .summary
+            .contains("for pattern requires iterator item")),
         "{:?}",
         checked.diagnostics
     );

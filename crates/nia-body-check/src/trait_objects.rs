@@ -357,7 +357,9 @@ impl<'a> BodyChecker<'a> {
     pub(crate) fn check_object_safe_type(&mut self, span: Span, ty: InternedTyId) {
         let ty = self.normalization.normalize(ty);
         match self.interner.get(ty).cloned() {
-            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::Slice { elem, .. }) => {
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem }) => {
                 self.check_object_safe_type(span, elem);
             }
             Some(TyKind::Array { elem, .. }) => self.check_object_safe_type(span, elem),
@@ -391,6 +393,11 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 associated_type_bindings,
                 ..
+            })
+            | Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
             }) => {
                 self.is_object_safe_trait_object(
                     span,
@@ -576,6 +583,10 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.object_safe_ty(check, elem);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.object_safe_ty(check, elem);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.object_safe_ty(check, elem);
                 self.interner.intern(TyKind::Array { len, elem })
@@ -654,6 +665,34 @@ impl<'a> BodyChecker<'a> {
                     associated_type_bindings,
                 })
             }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.object_safe_ty(check, arg))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.object_safe_ty(check, arg))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.object_safe_ty(check, binding.ty),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -696,9 +735,9 @@ impl<'a> BodyChecker<'a> {
             return true;
         }
         match self.interner.get(ty).cloned() {
-            Some(TyKind::Pointer { elem, .. }) | Some(TyKind::Slice { elem, .. }) => {
-                self.type_mentions_self(elem, self_ty)
-            }
+            Some(TyKind::Pointer { elem, .. })
+            | Some(TyKind::Slice { elem, .. })
+            | Some(TyKind::SlicePointee { elem }) => self.type_mentions_self(elem, self_ty),
             Some(TyKind::Array { elem, .. }) => self.type_mentions_self(elem, self_ty),
             Some(TyKind::Range { bound, .. }) => {
                 bound.is_some_and(|bound| self.type_mentions_self(bound, self_ty))
@@ -721,6 +760,11 @@ impl<'a> BodyChecker<'a> {
                 .into_iter()
                 .any(|arg| self.type_mentions_self(arg, self_ty)),
             Some(TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            })
+            | Some(TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..

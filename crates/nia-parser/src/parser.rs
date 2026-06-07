@@ -2,12 +2,13 @@
 use nia_ast::{
     ArrayElements, ArrayLen, AssignOp, Attribute, BinaryOp, BindingItem, BindingStmt, Block,
     BracketArg, ComptimeIfExpr, ComptimeIfItem, ComptimeIfItemElse, EnumItem, EnumVariant, Expr,
-    ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForBinding, ForInStmt,
-    FunctionItem, ImportItem, ImportPath, ImportPathKind, Item, ItemKind, LoopStmt, Module, Param,
-    ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm, SwitchArmBody,
-    SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod, TypeAliasItem, TypeArg,
-    TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem, UsingHostSegment,
-    UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate, WhileStmt,
+    ExprKind, ExprStub, ExtendItem, ExtendMethod, Field, FieldInit, ForInStmt, ForPattern,
+    ForPatternKind, FunctionItem, ImportItem, ImportPath, ImportPathKind, Item, ItemKind, LoopStmt,
+    Module, Param, ReceiverKind, Stmt, StmtKind, StringLiteral, StructItem, SwitchArm,
+    SwitchArmBody, SwitchPattern, SwitchStmt, TraitAssociatedType, TraitItem, TraitMethod,
+    TypeAliasItem, TypeArg, TypeKind, TypePathSegment, TypeRef, UnaryOp, UnionItem, UsingGroupItem,
+    UsingHostSegment, UsingItem, UsingName, UsingSelector, Visibility, WhereClause, WherePredicate,
+    WhileStmt,
 };
 use nia_lexer::TokenKind;
 use nia_node_id::{NodeKey, NodeOriginTable, SyntaxKind as NodeSyntaxKind};

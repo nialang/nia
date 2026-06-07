@@ -52,6 +52,25 @@ pub(super) fn emit_smoke_cases() -> &'static [EmitSmokeCase] {
                 r#"
 extern fn log(x: i32);
 
+struct Counter {
+    current: i32,
+    end: i32,
+}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+
 enum State: u8 {
     Start,
     Stop,
@@ -70,7 +89,8 @@ fn classify(state: State) i32 {
 
 fn main() i32 {
     var total = 0;
-    for i in 0..4 {
+    var iter = Counter { current: 0, end: 4 };
+    for i in iter {
         defer log(i);
         if i == 1 {
             continue;
@@ -168,8 +188,10 @@ fn main() i32 {
                 r#"
 fn sum(xs: & [i32]) i32 {
     var out = 0;
-    for i in 0usize..xs.len() {
+    var i = 0usize;
+    while i < xs.len() {
         out += xs[i];
+        i += 1;
     }
     out
 }

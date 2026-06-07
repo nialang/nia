@@ -803,6 +803,7 @@ impl ComptimeCommonEnv for BodyChecker<'_> {
         &mut self,
         span: Span,
         module_id: nia_ids::ModuleId,
+        function_id: Option<GlobalDefId>,
         substitutions: Vec<(String, InternedTyId)>,
     ) -> Result<(), ComptimeError> {
         let Some(frame) = self.comptime_call_locals.last_mut() else {
@@ -812,6 +813,7 @@ impl ComptimeCommonEnv for BodyChecker<'_> {
             });
         };
         frame.module_id = Some(module_id);
+        frame.function_id = function_id;
         frame.type_substitutions.extend(substitutions);
         Ok(())
     }
@@ -912,6 +914,7 @@ impl ResolvedComptimeEnv for BodyChecker<'_> {
         };
         nia_comptime_engine::eval_resolved_comptime_function_call(
             span,
+            function_id,
             function_id.module_id,
             &function,
             type_substitutions.into_iter().collect(),
@@ -1079,6 +1082,7 @@ impl<'a> BodyChecker<'a> {
                     type_lowerings: self.program.type_lowerings,
                     type_normalizations: self.program.type_normalizations,
                     signatures: self.program.signatures,
+                    trait_impls: self.program_trait_impls,
                 },
                 typed_values: &self.comptime.typed_values,
                 array_lengths: &self.comptime.array_lengths,
@@ -1110,6 +1114,7 @@ impl<'a> BodyChecker<'a> {
                 type_lowerings: self.program.type_lowerings,
                 type_normalizations: self.program.type_normalizations,
                 signatures: self.program.signatures,
+                trait_impls: self.program_trait_impls,
             },
             typed_values: &self.comptime.typed_values,
             array_lengths: &self.comptime.array_lengths,
@@ -1122,6 +1127,7 @@ impl<'a> BodyChecker<'a> {
             .iter()
             .map(|frame| nia_comptime_check::TypedComptimeFrame {
                 module_id: frame.module_id,
+                function_id: frame.function_id,
                 local_types: frame.local_types.clone(),
                 type_substitutions: frame.type_substitutions.clone(),
             })

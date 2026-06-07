@@ -283,9 +283,9 @@ impl<'a> ModuleLowerer<'a> {
         };
         let next = remaining - 1;
         match kind {
-            TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. } => {
-                self.ty_exceeds_backend_instance_depth(*elem, next)
-            }
+            TyKind::Pointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem } => self.ty_exceeds_backend_instance_depth(*elem, next),
             TyKind::Array { elem, .. } => self.ty_exceeds_backend_instance_depth(*elem, next),
             TyKind::Range { bound, .. } => {
                 bound.is_some_and(|bound| self.ty_exceeds_backend_instance_depth(bound, next))
@@ -309,6 +309,11 @@ impl<'a> ModuleLowerer<'a> {
                 .iter()
                 .any(|arg| self.ty_exceeds_backend_instance_depth(*arg, next)),
             TyKind::TraitObject {
+                trait_args,
+                associated_type_bindings,
+                ..
+            }
+            | TyKind::TraitObjectPointee {
                 trait_args,
                 associated_type_bindings,
                 ..
@@ -684,9 +689,11 @@ pub(crate) fn contains_generic_param(
     }
     let contains = match ty_kind(ty) {
         Some(TyKind::GenericParam(_)) => true,
-        Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
-            contains_generic_param(elem, ty_kind, cache.as_deref_mut())
-        }
+        Some(
+            TyKind::Pointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem },
+        ) => contains_generic_param(elem, ty_kind, cache.as_deref_mut()),
         Some(TyKind::Array { elem, .. }) => {
             contains_generic_param(elem, ty_kind, cache.as_deref_mut())
         }
@@ -714,6 +721,11 @@ pub(crate) fn contains_generic_param(
             .iter()
             .any(|arg| contains_generic_param(*arg, ty_kind, cache.as_deref_mut())),
         Some(TyKind::TraitObject {
+            trait_args,
+            associated_type_bindings,
+            ..
+        })
+        | Some(TyKind::TraitObjectPointee {
             trait_args,
             associated_type_bindings,
             ..
@@ -753,9 +765,11 @@ pub(crate) fn contains_unresolved_projection(
 ) -> bool {
     match ty_kind(ty) {
         Some(TyKind::Projection { .. }) => true,
-        Some(TyKind::Pointer { elem, .. } | TyKind::Slice { elem, .. }) => {
-            contains_unresolved_projection(elem, ty_kind)
-        }
+        Some(
+            TyKind::Pointer { elem, .. }
+            | TyKind::Slice { elem, .. }
+            | TyKind::SlicePointee { elem },
+        ) => contains_unresolved_projection(elem, ty_kind),
         Some(TyKind::Array { elem, .. }) => contains_unresolved_projection(elem, ty_kind),
         Some(TyKind::Range { bound, .. }) => {
             bound.is_some_and(|bound| contains_unresolved_projection(bound, ty_kind))
@@ -779,6 +793,11 @@ pub(crate) fn contains_unresolved_projection(
             .into_iter()
             .any(|arg| contains_unresolved_projection(arg, ty_kind)),
         Some(TyKind::TraitObject {
+            trait_args,
+            associated_type_bindings,
+            ..
+        })
+        | Some(TyKind::TraitObjectPointee {
             trait_args,
             associated_type_bindings,
             ..

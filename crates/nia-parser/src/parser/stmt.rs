@@ -125,37 +125,56 @@ impl Parser {
 
     fn parse_for_stmt(&mut self) -> Option<ForInStmt> {
         self.expect(TokenKind::For, "expected `for`")?;
-        let binding_start = self.peek().span.start;
-        let is_let = self.eat(TokenKind::Let).is_some();
-        if self.eat(TokenKind::Var).is_some() {
-            self.error_here("`var` is not allowed in for-in bindings; write `for name in iter`");
+        let pattern = self.parse_for_pattern()?;
+        if self.at(TokenKind::Colon) {
+            self.error_here(
+                "for patterns do not support type annotations; use `x`, `&x`, or `&mut x`",
+            );
+            self.collect_until(&[TokenKind::LBrace])?;
+            let body = self.parse_block()?;
+            let pattern_span = pattern.span;
+            return Some(ForInStmt {
+                pattern,
+                iter: self.make_expr(pattern_span, ExprKind::Error),
+                body,
+            });
         }
-        let name = self.expect_text(TokenKind::Ident, "expected for binding name")?;
-        let ty = if self.eat(TokenKind::Colon).is_some() {
-            Some(self.parse_type_until(&[TokenKind::In])?)
-        } else {
-            None
-        };
-        let binding_end = ty
-            .as_ref()
-            .map(|ty| ty.span.end)
-            .unwrap_or_else(|| self.previous_end());
-        self.expect(TokenKind::In, "expected `in` after for binding")?;
+        self.expect(TokenKind::In, "expected `in` after for pattern")?;
         let iter = self.parse_expr_until(&[TokenKind::LBrace])?;
         let body = self.parse_block()?;
         Some(ForInStmt {
-            binding: ForBinding {
-                span: Span::new(binding_start, binding_end),
-                node_key: self.node_key(
-                    NodeSyntaxKind::Pattern,
-                    Span::new(binding_start, binding_end),
-                ),
-                name,
-                ty,
-                is_let,
-            },
+            pattern,
             iter,
             body,
+        })
+    }
+
+    fn parse_for_pattern(&mut self) -> Option<ForPattern> {
+        let start = self.peek().span.start;
+        let kind = if self.eat(TokenKind::Amp).is_some() {
+            if self.eat(TokenKind::Mut).is_some() {
+                ForPatternKind::MutPointer
+            } else {
+                ForPatternKind::Pointer
+            }
+        } else {
+            ForPatternKind::Value
+        };
+        if self.eat(TokenKind::Let).is_some() || self.eat(TokenKind::Var).is_some() {
+            self.error_here("for patterns do not use `let` or `var`; write `for x in iter`");
+            return None;
+        }
+        let name = if self.eat(TokenKind::Underscore).is_some() {
+            None
+        } else {
+            Some(self.expect_text(TokenKind::Ident, "expected for pattern binding")?)
+        };
+        let span = Span::new(start, self.previous_end());
+        Some(ForPattern {
+            span,
+            node_key: self.node_key(NodeSyntaxKind::Pattern, span),
+            name,
+            kind,
         })
     }
 

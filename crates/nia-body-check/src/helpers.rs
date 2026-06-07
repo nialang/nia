@@ -60,7 +60,7 @@ impl<'a> BodyChecker<'a> {
         let owner_ty = self.method_owner_type(def_id)?;
         matches!(
             self.interner.get(self.normalization.normalize(owner_ty)),
-            Some(TyKind::TraitObject { .. })
+            Some(TyKind::TraitObjectPointee { .. })
         )
         .then_some(owner_ty)
     }
@@ -94,6 +94,41 @@ impl<'a> BodyChecker<'a> {
                     trait_id,
                     trait_args,
                     associated_type_bindings,
+                }),
+            };
+        }
+        if let Some(TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) = self.interner.get(target_ty).cloned()
+        {
+            return match receiver {
+                ReceiverKind::Value => target_ty,
+                ReceiverKind::RefReadOnly => self.interner.intern(TyKind::TraitObject {
+                    is_readonly: true,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }),
+                ReceiverKind::Ref => self.interner.intern(TyKind::TraitObject {
+                    is_readonly: false,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                }),
+            };
+        }
+        if let Some(TyKind::SlicePointee { elem }) = self.interner.get(target_ty).cloned() {
+            return match receiver {
+                ReceiverKind::Value => target_ty,
+                ReceiverKind::RefReadOnly => self.interner.intern(TyKind::Slice {
+                    is_readonly: true,
+                    elem,
+                }),
+                ReceiverKind::Ref => self.interner.intern(TyKind::Slice {
+                    is_readonly: false,
+                    elem,
                 }),
             };
         }
@@ -191,6 +226,11 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.substitute_generics(elem, substitutions);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = *elem;
+                let elem = self.substitute_generics(elem, substitutions);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Array { len, elem }) => {
                 let len = len.clone();
                 let elem = *elem;
@@ -281,6 +321,37 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_id = *trait_id;
+                let trait_args = trait_args.clone();
+                let associated_type_bindings = associated_type_bindings.clone();
+                let trait_args = trait_args
+                    .iter()
+                    .map(|arg| self.substitute_generics(*arg, substitutions))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .iter()
+                            .map(|arg| self.substitute_generics(*arg, substitutions))
+                            .collect(),
+                        name: binding.name.clone(),
+                        ty: self.substitute_generics(binding.ty, substitutions),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     associated_type_bindings,

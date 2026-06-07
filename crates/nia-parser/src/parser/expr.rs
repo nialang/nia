@@ -194,8 +194,6 @@ impl Parser {
             } else {
                 Some(UnaryOp::RefReadOnly)
             }
-        } else if self.eat(TokenKind::Star).is_some() {
-            Some(UnaryOp::Deref)
         } else {
             None
         };

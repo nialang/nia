@@ -70,3 +70,15 @@ fn main() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn rejects_prefix_deref_syntax() {
+    let (_module, errors) = parse_module(
+        r#"
+fn main(ptr: &i32) i32 {
+    *ptr
+}
+"#,
+    );
+    assert!(!errors.is_empty(), "{errors:?}");
+}

@@ -183,7 +183,9 @@ pub fn walk_type<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, ty: &'ast Typ
             visitor.visit_type(ty);
             visitor.visit_type(trait_ref);
         }
-        TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => visitor.visit_type(elem),
+        TypeKind::Pointer { elem, .. }
+        | TypeKind::Slice { elem, .. }
+        | TypeKind::SlicePointee { elem } => visitor.visit_type(elem),
         TypeKind::Array { len, elem } => {
             if let ArrayLen::Expr(expr) = len {
                 visitor.visit_expr(expr);
@@ -246,9 +248,6 @@ pub fn walk_stmt<'ast, V: Visitor<'ast> + ?Sized>(visitor: &mut V, stmt: &'ast S
         }
         StmtKind::Break | StmtKind::Continue => {}
         StmtKind::ForIn(for_stmt) => {
-            if let Some(ty) = &for_stmt.binding.ty {
-                visitor.visit_type(ty);
-            }
             visitor.visit_expr(&for_stmt.iter);
             visitor.visit_block(&for_stmt.body);
         }

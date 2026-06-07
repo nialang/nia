@@ -17,6 +17,9 @@ pub enum TyKind {
         is_readonly: bool,
         elem: InternedTyId,
     },
+    SlicePointee {
+        elem: InternedTyId,
+    },
     Array {
         len: ArrayLenTy,
         elem: InternedTyId,
@@ -47,6 +50,11 @@ pub enum TyKind {
     },
     TraitObject {
         is_readonly: bool,
+        trait_id: TraitId,
+        trait_args: Vec<InternedTyId>,
+        associated_type_bindings: Vec<AssociatedTypeBindingTy>,
+    },
+    TraitObjectPointee {
         trait_id: TraitId,
         trait_args: Vec<InternedTyId>,
         associated_type_bindings: Vec<AssociatedTypeBindingTy>,
@@ -229,6 +237,10 @@ pub fn import_type_into(
                 elem,
             })
         }
+        Some(TyKind::SlicePointee { elem }) => {
+            let elem = import_type_into(target, source, *elem);
+            target.intern(TyKind::SlicePointee { elem })
+        }
         Some(TyKind::Array { len, elem }) => {
             let len = import_array_len_into(target, source, len);
             let elem = import_type_into(target, source, *elem);
@@ -308,6 +320,34 @@ pub fn import_type_into(
                 .collect();
             target.intern(TyKind::TraitObject {
                 is_readonly: *is_readonly,
+                trait_id: *trait_id,
+                trait_args,
+                associated_type_bindings,
+            })
+        }
+        Some(TyKind::TraitObjectPointee {
+            trait_id,
+            trait_args,
+            associated_type_bindings,
+        }) => {
+            let trait_args = trait_args
+                .iter()
+                .map(|arg| import_type_into(target, source, *arg))
+                .collect();
+            let associated_type_bindings = associated_type_bindings
+                .iter()
+                .map(|binding| AssociatedTypeBindingTy {
+                    trait_id: binding.trait_id,
+                    trait_args: binding
+                        .trait_args
+                        .iter()
+                        .map(|arg| import_type_into(target, source, *arg))
+                        .collect(),
+                    name: binding.name.clone(),
+                    ty: import_type_into(target, source, binding.ty),
+                })
+                .collect();
+            target.intern(TyKind::TraitObjectPointee {
                 trait_id: *trait_id,
                 trait_args,
                 associated_type_bindings,

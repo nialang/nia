@@ -923,7 +923,6 @@ impl FunctionLowerer {
     fn lower_builtin_method(method: BuiltinMethod) -> FunctionBuiltinMethod {
         match method {
             BuiltinMethod::Len => FunctionBuiltinMethod::Len,
-            BuiltinMethod::RangeIter => FunctionBuiltinMethod::RangeIter,
         }
     }
 

@@ -534,6 +534,13 @@ impl<'a> BodyChecker<'a> {
                     self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
                 }
             }
+            Some(TyKind::SlicePointee { elem: pattern_elem }) => {
+                if let Some(TyKind::SlicePointee { elem: actual_elem }) =
+                    self.interner.get(actual).cloned()
+                {
+                    self.infer_generics_from_type(pattern_elem, actual_elem, substitutions, span);
+                }
+            }
             Some(TyKind::Array {
                 elem: pattern_elem, ..
             }) => {
@@ -647,6 +654,42 @@ impl<'a> BodyChecker<'a> {
                     associated_type_bindings: actual_bindings,
                 }) = self.interner.get(actual).cloned()
                     && pattern_const == actual_const
+                    && pattern_trait == actual_trait
+                    && pattern_args.len() == actual_args.len()
+                    && pattern_bindings.len() == actual_bindings.len()
+                {
+                    for (pattern, actual) in pattern_args.iter().zip(actual_args.iter()) {
+                        self.infer_generics_from_type(*pattern, *actual, substitutions, span);
+                    }
+                    for pattern_binding in pattern_bindings {
+                        if let Some(actual_binding) =
+                            actual_bindings.iter().find(|actual_binding| {
+                                self.associated_type_binding_keys_match(
+                                    &pattern_binding,
+                                    actual_binding,
+                                )
+                            })
+                        {
+                            self.infer_generics_from_type(
+                                pattern_binding.ty,
+                                actual_binding.ty,
+                                substitutions,
+                                span,
+                            );
+                        }
+                    }
+                }
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id: pattern_trait,
+                trait_args: pattern_args,
+                associated_type_bindings: pattern_bindings,
+            }) => {
+                if let Some(TyKind::TraitObjectPointee {
+                    trait_id: actual_trait,
+                    trait_args: actual_args,
+                    associated_type_bindings: actual_bindings,
+                }) = self.interner.get(actual).cloned()
                     && pattern_trait == actual_trait
                     && pattern_args.len() == actual_args.len()
                     && pattern_bindings.len() == actual_bindings.len()

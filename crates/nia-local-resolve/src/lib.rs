@@ -279,20 +279,15 @@ impl<'a> LocalResolver<'a> {
             StmtKind::ForIn(for_stmt) => {
                 self.resolve_expr(&for_stmt.iter);
                 self.push_scope();
-                if let Some(ty) = &for_stmt.binding.ty {
-                    self.resolve_type(ty);
+                if let Some(name) = for_stmt.pattern.name() {
+                    self.define(
+                        name,
+                        LocalKind::Binding,
+                        for_stmt.pattern.span,
+                        for_stmt.pattern.node_key.clone(),
+                        "duplicate local binding",
+                    );
                 }
-                self.define(
-                    &for_stmt.binding.name,
-                    if for_stmt.binding.is_let {
-                        LocalKind::ConstBinding
-                    } else {
-                        LocalKind::Binding
-                    },
-                    for_stmt.binding.span,
-                    for_stmt.binding.node_key.clone(),
-                    "duplicate local binding",
-                );
                 self.resolve_block(&for_stmt.body);
                 self.pop_scope();
             }
@@ -346,7 +341,9 @@ impl<'a> LocalResolver<'a> {
                 self.resolve_type(ty);
                 self.resolve_type(trait_ref);
             }
-            TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::SlicePointee { elem } => {
                 self.resolve_type(elem);
             }
             TypeKind::Array { len, elem } => {
@@ -1039,7 +1036,7 @@ struct T {
 
 fn main() i32 {
     var t: T = { xs: [{ x: 0 }; 4] };
-    for i: u16 in 0u16..4u16 {
+    for i in 0u16..4u16 {
         t.xs[i as usize] = { x: i as i32 };
     }
     t.xs[2].x

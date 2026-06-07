@@ -276,6 +276,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
+                | TyKind::SlicePointee { .. }
+                | TyKind::TraitObjectPointee { .. }
                 | TyKind::Projection { .. }
                 | TyKind::ComptimeOnly
                 | TyKind::Error,
@@ -315,6 +317,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
+                | TyKind::SlicePointee { .. }
+                | TyKind::TraitObjectPointee { .. }
                 | TyKind::Projection { .. }
                 | TyKind::ComptimeOnly
                 | TyKind::Error,
@@ -433,6 +437,8 @@ impl<'ctx, 'a> ModuleCodegen<'ctx, 'a> {
             Some(
                 TyKind::GenericParam(_)
                 | TyKind::BuiltinTrait { .. }
+                | TyKind::SlicePointee { .. }
+                | TyKind::TraitObjectPointee { .. }
                 | TyKind::Projection { .. }
                 | TyKind::ComptimeOnly
                 | TyKind::Error,

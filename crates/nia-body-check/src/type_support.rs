@@ -75,6 +75,10 @@ impl<'a> BodyChecker<'a> {
                 let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Slice { is_readonly, elem })
             }
+            Some(TyKind::SlicePointee { elem }) => {
+                let elem = self.normalize_projection_inner(elem, active_projections);
+                self.interner.intern(TyKind::SlicePointee { elem })
+            }
             Some(TyKind::Array { len, elem }) => {
                 let elem = self.normalize_projection_inner(elem, active_projections);
                 self.interner.intern(TyKind::Array { len, elem })
@@ -149,6 +153,34 @@ impl<'a> BodyChecker<'a> {
                     .collect();
                 self.interner.intern(TyKind::TraitObject {
                     is_readonly,
+                    trait_id,
+                    trait_args,
+                    associated_type_bindings,
+                })
+            }
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => {
+                let trait_args = trait_args
+                    .into_iter()
+                    .map(|arg| self.normalize_projection_inner(arg, active_projections))
+                    .collect();
+                let associated_type_bindings = associated_type_bindings
+                    .into_iter()
+                    .map(|binding| nia_ty::AssociatedTypeBindingTy {
+                        trait_id: binding.trait_id,
+                        trait_args: binding
+                            .trait_args
+                            .into_iter()
+                            .map(|arg| self.normalize_projection_inner(arg, active_projections))
+                            .collect(),
+                        name: binding.name,
+                        ty: self.normalize_projection_inner(binding.ty, active_projections),
+                    })
+                    .collect();
+                self.interner.intern(TyKind::TraitObjectPointee {
                     trait_id,
                     trait_args,
                     associated_type_bindings,
@@ -854,6 +886,7 @@ impl<'a> BodyChecker<'a> {
                 let mut_part = if *is_readonly { "" } else { "mut " };
                 format!("&{mut_part}[{}]", self.ty_name(*elem))
             }
+            Some(TyKind::SlicePointee { elem }) => format!("[{}]", self.ty_name(*elem)),
             Some(TyKind::Array { len, elem }) => {
                 format!("[{}]{}", self.array_len_name(len), self.ty_name(*elem))
             }
@@ -896,6 +929,11 @@ impl<'a> BodyChecker<'a> {
                 trait_args,
                 associated_type_bindings,
             ),
+            Some(TyKind::TraitObjectPointee {
+                trait_id,
+                trait_args,
+                associated_type_bindings,
+            }) => self.trait_pointee_ty_name(*trait_id, trait_args, associated_type_bindings),
             Some(TyKind::Projection {
                 self_ty,
                 trait_id,
@@ -1019,6 +1057,43 @@ impl<'a> BodyChecker<'a> {
             format!("&{const_part}{base}")
         } else {
             format!("&{const_part}{base}[{}]", args.join(", "))
+        }
+    }
+
+    fn trait_pointee_ty_name(
+        &self,
+        trait_id: TraitId,
+        trait_args: &[InternedTyId],
+        associated_type_bindings: &[nia_ty::AssociatedTypeBindingTy],
+    ) -> String {
+        let base = match trait_id {
+            TraitId::Source(def_id) => self
+                .defs_for_module(def_id.module_id)
+                .and_then(|defs| defs.defs.get(def_id.def_id))
+                .map(|def| def.name.clone())
+                .unwrap_or_else(|| "<unknown trait>".to_string()),
+            TraitId::Builtin(trait_id) => trait_id.name().to_string(),
+        };
+        let mut args = trait_args
+            .iter()
+            .map(|arg| self.ty_name(*arg))
+            .collect::<Vec<_>>();
+        args.extend(associated_type_bindings.iter().map(|binding| {
+            let name = if let Some(trait_id) = binding.trait_id {
+                format!(
+                    "[Self as {}]::{}",
+                    self.trait_binding_name(trait_id, &binding.trait_args),
+                    binding.name
+                )
+            } else {
+                binding.name.clone()
+            };
+            format!("{name} = {}", self.ty_name(binding.ty))
+        }));
+        if args.is_empty() {
+            base
+        } else {
+            format!("{base}[{}]", args.join(", "))
         }
     }
 

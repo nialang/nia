@@ -313,7 +313,9 @@ impl<'ast> Visitor<'ast> for TypeResolver<'_> {
                     ));
                 }
             }
-            TypeKind::Pointer { elem, .. } | TypeKind::Slice { elem, .. } => {
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::SlicePointee { elem } => {
                 self.visit_type(elem);
             }
             TypeKind::Array { len, elem } => {

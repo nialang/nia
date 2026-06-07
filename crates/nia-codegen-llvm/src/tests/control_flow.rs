@@ -1,6 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::common::*;
 
+const COUNTER_ITERATOR: &str = r#"
+struct Counter {
+    current: i32,
+    end: i32,
+}
+
+extend Counter : Iterator {
+    type Item = i32;
+
+    fn next(&mut self) ?i32 {
+        if self.current >= self.end {
+            null
+        } else {
+            let value = self.current;
+            self.current += 1;
+            ?value
+        }
+    }
+}
+"#;
+
 #[test]
 fn emits_short_circuit_logical_operators() {
     let root = temp_dir("emits_short_circuit_logical_operators");
@@ -36,10 +57,13 @@ fn emits_for_break_and_continue() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        r#"
+        &format!(
+            "{COUNTER_ITERATOR}\n{}",
+            r#"
 fn main() i32 {
     var sum = 0;
-    for i in 0..10 {
+    var iter = Counter { current: 0, end: 10 };
+    for i in iter {
         if i == 3 {
             continue;
         }
@@ -51,6 +75,7 @@ fn main() i32 {
     sum
 }
 "#,
+        ),
     )
     .expect("write test source");
 
@@ -72,16 +97,19 @@ fn emits_for_over_range_value() {
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        r#"
+        &format!(
+            "{COUNTER_ITERATOR}\n{}",
+            r#"
 fn main() i32 {
-    var range = 1..4;
+    var iter = Counter { current: 1, end: 4 };
     var sum = 0;
-    for i in range {
+    for i in iter {
         sum += i;
     }
     sum
 }
 "#,
+        ),
     )
     .expect("write test source");
 
@@ -97,21 +125,24 @@ fn main() i32 {
 }
 
 #[test]
-fn emits_for_over_range_iter_method() {
-    let root = temp_dir("emits_for_over_range_iter_method");
+fn emits_for_over_explicit_iterator_value() {
+    let root = temp_dir("emits_for_over_explicit_iterator_value");
     let main = root.join("main.nia");
     std::fs::write(
         &main,
-        r#"
+        &format!(
+            "{COUNTER_ITERATOR}\n{}",
+            r#"
 fn main() i32 {
-    var range = 1..4;
+    var iter = Counter { current: 1, end: 4 };
     var sum = 0;
-    for i in range.iter() {
+    for i in iter {
         sum += i;
     }
     sum
 }
 "#,
+        ),
     )
     .expect("write test source");
 

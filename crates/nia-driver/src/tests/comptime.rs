@@ -760,11 +760,14 @@ comptime fn width(flag: bool) usize {
         return 4usize;
     }
     var total: usize = 0;
-    for value in 0usize..4usize {
+    var value: usize = 0;
+    while value < 4usize {
         if value == 2usize {
+            value += 1;
             continue;
         }
         total += value;
+        value += 1;
     }
     while true {
         break;
@@ -1238,7 +1241,8 @@ fn comptime_function_mutates_array_indexes() {
 comptime fn width() usize {
     var values: [4]usize = [1, 2, 3, 4];
     var i: usize = 0;
-    for value in 0..4 {
+    while i < 4 {
+        let value = i;
         values[i] += value;
         i += 1;
     }
@@ -1259,8 +1263,8 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_for_in_accepts_range_iter_method() {
-    let root = temp_dir("comptime_for_in_accepts_range_iter_method");
+fn comptime_for_in_rejects_range_iter_method() {
+    let root = temp_dir("comptime_for_in_rejects_range_iter_method");
     write(
         &root.join("main.nia"),
         r#"
@@ -1282,7 +1286,14 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("comptime expression can only call `comptime fn`")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
@@ -1420,8 +1431,8 @@ fn main() i32 {
 }
 
 #[test]
-fn comptime_function_for_in_arrays_drive_array_lengths() {
-    let root = temp_dir("comptime_function_for_in_arrays_drive_array_lengths");
+fn comptime_function_for_in_arrays_require_iterator() {
+    let root = temp_dir("comptime_function_for_in_arrays_require_iterator");
     write(
         &root.join("main.nia"),
         r#"
@@ -1443,51 +1454,31 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("comptime for-in expects an Iterator")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]
-fn comptime_function_for_in_ranges_drive_array_lengths() {
-    let root = temp_dir("comptime_function_for_in_ranges_drive_array_lengths");
+fn comptime_function_for_in_ranges_require_iterator() {
+    let root = temp_dir("comptime_function_for_in_ranges_require_iterator");
     write(
         &root.join("main.nia"),
         r#"
 comptime fn width() usize {
     var total: usize = 0;
-    for value in 0..=5 {
-        if value == 2 {
+    for value in 0usize..=5usize {
+        if value == 2usize {
             continue;
         }
-        if value == 5 {
+        if value == 5usize {
             break;
         }
-        total += value;
-    }
-    total
-}
-
-comptime let n: usize = width();
-
-fn main() i32 {
-    var values: [n]i32 = [0; n];
-    values.len() as i32
-}
-"#,
-    );
-
-    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
-}
-
-#[test]
-fn comptime_function_rejects_for_in_ranges_without_start_bound() {
-    let root = temp_dir("comptime_function_rejects_for_in_ranges_without_start_bound");
-    write(
-        &root.join("main.nia"),
-        r#"
-comptime fn width() usize {
-    var total: usize = 0;
-    for value in ..5 {
         total += value;
     }
     total
@@ -1507,7 +1498,89 @@ fn main() i32 {
         program.diagnostics.iter().any(|diagnostic| diagnostic
             .diagnostic
             .summary
-            .contains("comptime for-in range requires a start bound")),
+            .contains("comptime for-in expects an Iterator")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_rejects_for_in_ranges_without_iterator() {
+    let root = temp_dir("comptime_function_rejects_for_in_ranges_without_iterator");
+    write(
+        &root.join("main.nia"),
+        r#"
+comptime fn width() usize {
+    var total: usize = 0;
+    for value in ..5usize {
+        total += value;
+    }
+    total
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("comptime for-in expects an Iterator")),
+        "{:?}",
+        program.diagnostics
+    );
+}
+
+#[test]
+fn comptime_function_for_in_iterator_execution_is_not_duck_typed() {
+    let root = temp_dir("comptime_function_for_in_iterator_execution_is_not_duck_typed");
+    write(
+        &root.join("main.nia"),
+        r#"
+struct Counter {
+    current: usize,
+    end: usize,
+}
+
+extend Counter : Iterator {
+    type Item = usize;
+
+    comptime fn next(&mut self) ?usize {
+        null
+    }
+}
+
+comptime fn width() usize {
+    var total: usize = 0;
+    var iter = Counter{current: 0, end: 4};
+    for value in iter {
+        total += value;
+    }
+    total
+}
+
+comptime let n: usize = width();
+
+fn main() i32 {
+    var values: [n]i32 = [0; n];
+    values.len() as i32
+}
+"#,
+    );
+
+    let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("comptime for-in Iterator execution is not implemented yet")),
         "{:?}",
         program.diagnostics
     );
@@ -3585,8 +3658,8 @@ comptime let os = target_os();
 }
 
 #[test]
-fn comptime_for_in_binding_preserves_array_element_type() {
-    let root = temp_dir("comptime_for_in_binding_preserves_array_element_type");
+fn comptime_for_in_array_binding_requires_iterator() {
+    let root = temp_dir("comptime_for_in_array_binding_requires_iterator");
     write(
         &root.join("main.nia"),
         r#"
@@ -3608,7 +3681,14 @@ fn main() i32 {
     );
 
     let program = check_program(root.join("main.nia").to_string_lossy().into_owned());
-    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert!(
+        program.diagnostics.iter().any(|diagnostic| diagnostic
+            .diagnostic
+            .summary
+            .contains("comptime for-in expects an Iterator")),
+        "{:?}",
+        program.diagnostics
+    );
 }
 
 #[test]

@@ -286,6 +286,7 @@ impl<'a> LayoutComputer<'a> {
                 size: self.target.pointer_size * 2,
                 align: self.target.pointer_align,
             }),
+            Some(TyKind::SlicePointee { .. } | TyKind::TraitObjectPointee { .. }) => None,
             Some(TyKind::Range { kind, bound }) => self.range_layout(span, kind, bound),
             Some(TyKind::Array { len, elem }) => self.array_layout(span, len, elem),
             Some(TyKind::Optional { elem }) => self.optional_layout(span, elem),

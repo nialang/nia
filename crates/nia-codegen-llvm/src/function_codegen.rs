@@ -17,8 +17,8 @@ use nia_ast::BinaryOp;
 use nia_backend_ir::{BackendFunction, BackendParam};
 use nia_diagnostic::Diagnostic;
 use nia_function_ir::{
-    FunctionBody, FunctionBuiltinValue, FunctionExpr, FunctionExprKind, FunctionLocal,
-    FunctionLocalKind, FunctionRange, FunctionScopeId,
+    FunctionBody, FunctionBuiltinValue, FunctionErrorUnionTag, FunctionExpr, FunctionExprKind,
+    FunctionLocal, FunctionLocalKind, FunctionRange, FunctionScopeId,
 };
 use nia_ids::{GlobalDefId, InternedTyId, LocalId};
 use nia_llvm::{
@@ -347,10 +347,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
             }
             FunctionExprKind::OptionalSome { expr: inner } => self.emit_optional_some(expr, inner),
             FunctionExprKind::ErrorOk { expr: inner } => {
-                self.emit_error_union_value(expr, 0, inner)
+                self.emit_error_union_value(expr, FunctionErrorUnionTag::Ok, inner)
             }
             FunctionExprKind::ErrorErr { expr: inner } => {
-                self.emit_error_union_value(expr, 1, inner)
+                self.emit_error_union_value(expr, FunctionErrorUnionTag::Err, inner)
             }
             FunctionExprKind::TaggedUnionTag { expr: inner } => {
                 let aggregate = self.emit_expr(inner)?.into_struct_value()?;
