@@ -2055,7 +2055,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(90)!,
     }
     defer {
-        switch cwd.deinit() {
+        switch cwd.close() {
             !ok => _ = ok,
             error! => {},
         };
@@ -2075,7 +2075,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
     }
-    switch file.deinit() {
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(4)!,
     }
@@ -2092,7 +2092,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => _ = ok,
         error! => return process::ExitCode::init(6)!,
     }
-    switch opened.deinit() {
+    switch opened.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(7)!,
     }
@@ -2135,6 +2135,95 @@ pub fn main(init: process::Init) process::ExitCode!void {
 }
 
 #[test]
+fn emit_exe_std_fs_file_open_create_and_close() {
+    let root = temp_dir("emit_exe_std_fs_file_open_create_and_close");
+    let data_path = root.join("data.txt");
+    let main = root.join("main.nia");
+    let exe = root.join(format!("main{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(
+        &main,
+        r#"
+import std.fs;
+import std.io;
+import std.process;
+
+pub fn main(init: process::Init) process::ExitCode!void {
+    var path = fs::Path::init("data.txt");
+    var file: fs::File;
+    switch fs::File::create(path, fs::CreateOptions::read_write()) {
+        !value => file = value,
+        error! => return process::ExitCode::init(1)!,
+    }
+    var write_buffer: [16]u8 = [0; 16];
+    var writer = file.writer(init.io(), &mut write_buffer[..]);
+    switch writer.write_all(b"open close") {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(2)!,
+    }
+    switch writer.flush() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(3)!,
+    }
+    switch file.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(4)!,
+    }
+
+    var opened: fs::File;
+    switch fs::File::open(path, fs::OpenOptions::read_only()) {
+        !value => opened = value,
+        error! => return process::ExitCode::init(5)!,
+    }
+    var read_buffer: [16]u8 = [0; 16];
+    var reader = opened.reader(init.io(), &mut read_buffer[..]);
+    var bytes: [10]u8 = [0; 10];
+    switch reader.read_exact(&mut bytes[..]) {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(6)!,
+    }
+    switch opened.close() {
+        !ok => _ = ok,
+        error! => return process::ExitCode::init(7)!,
+    }
+    var expected = b"open close";
+    var index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != expected[index] {
+            return process::ExitCode::init(8)!;
+        }
+        index += 1usize;
+    }
+    !{}
+}
+"#,
+    )
+    .expect("write test source");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_nia"))
+        .arg("emit")
+        .arg("exe")
+        .arg(&main)
+        .arg("-o")
+        .arg(&exe)
+        .output_timeout("run nia emit exe");
+
+    assert!(
+        output.status.success(),
+        "stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let status = Command::new(&exe)
+        .current_dir(&root)
+        .status_timeout("run emitted executable");
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(
+        std::fs::read(&data_path).expect("read data file"),
+        b"open close"
+    );
+}
+
+#[test]
 fn emit_exe_can_open_std_fs_paths_from_text() {
     let root = temp_dir("emit_exe_can_open_std_fs_paths_from_text");
     let data_path = root.join("nia-λ.txt");
@@ -2155,7 +2244,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(90)!,
     }
     defer {
-        switch cwd.deinit() {
+        switch cwd.close() {
             !ok => _ = ok,
             error! => {},
         };
@@ -2175,7 +2264,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
     }
-    switch file.deinit() {
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(4)!,
     }
@@ -2226,7 +2315,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(90)!,
     }
     defer {
-        switch cwd.deinit() {
+        switch cwd.close() {
             !ok => _ = ok,
             error! => {},
         };
@@ -2348,7 +2437,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(90)!,
     }
     defer {
-        switch cwd.deinit() {
+        switch cwd.close() {
             !ok => _ = ok,
             error! => {},
         };
@@ -2358,7 +2447,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(1)!,
     }
-    switch file.deinit() {
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(2)!,
     }
@@ -2430,7 +2519,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(90)!,
     }
     defer {
-        switch cwd.deinit() {
+        switch cwd.close() {
             !ok => _ = ok,
             error! => {},
         };
@@ -2446,7 +2535,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(2)!,
     }
-    switch file.deinit() {
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(3)!,
     }
@@ -2468,7 +2557,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(6)!,
     }
-    switch file.deinit() {
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(7)!,
     }
@@ -2546,7 +2635,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         error! => return process::ExitCode::init(90)!,
     }
     defer {
-        switch cwd.deinit() {
+        switch cwd.close() {
             !ok => _ = ok,
             error! => {},
         };
@@ -2567,7 +2656,7 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(3)!,
     }
-    switch file.deinit() {
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(4)!,
     }
@@ -2576,12 +2665,12 @@ pub fn main(init: process::Init) process::ExitCode!void {
         !value => file = value,
         error! => return process::ExitCode::init(5)!,
     }
-    switch file.deinit() {
+    switch file.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(6)!,
     }
 
-    switch subdir.deinit() {
+    switch subdir.close() {
         !ok => _ = ok,
         error! => return process::ExitCode::init(7)!,
     }
