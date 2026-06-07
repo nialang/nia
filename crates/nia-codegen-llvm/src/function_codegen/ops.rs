@@ -239,7 +239,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
     pub(super) fn emit_compound_assignment(
         &self,
         span: Span,
-        ty: InternedTyId,
+        operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
         op: AssignOp,
         rhs: BasicValueEnum<'ctx>,
@@ -247,13 +247,13 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         let Some(op) = assign_to_binary_op(op) else {
             return Ok(rhs);
         };
-        self.emit_binary(span, ty, lhs, op, rhs)
+        self.emit_binary(span, operand_ty, lhs, op, rhs)
     }
 
     pub(super) fn emit_binary(
         &self,
         span: Span,
-        ty: InternedTyId,
+        operand_ty: InternedTyId,
         lhs: BasicValueEnum<'ctx>,
         op: BinaryOp,
         rhs: BasicValueEnum<'ctx>,
@@ -261,7 +261,7 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
         if lhs.is_float_value() || rhs.is_float_value() {
             return self.emit_float_binary(span, lhs, op, rhs);
         }
-        let is_signed = self.is_signed_integer(ty);
+        let is_signed = self.is_signed_integer(operand_ty);
         let result = match op {
             BinaryOp::Add => self.builder.build_basic_int_add(lhs, rhs, "addtmp"),
             BinaryOp::Sub => self.builder.build_basic_int_sub(lhs, rhs, "subtmp"),

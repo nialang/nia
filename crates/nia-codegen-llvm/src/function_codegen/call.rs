@@ -117,9 +117,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                             "builtin binary operator reached LLVM codegen with invalid arity",
                         ));
                     };
+                    let operand_ty = lhs.ty;
                     let lhs = self.emit_expr(lhs)?;
                     let rhs = self.emit_expr(rhs)?;
-                    self.emit_binary(expr.span, expr.ty, lhs, op, rhs)
+                    self.emit_binary(expr.span, operand_ty, lhs, op, rhs)
                 }
             };
         }

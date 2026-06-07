@@ -31,6 +31,31 @@ fn main() i32 {
 }
 
 #[test]
+fn emits_signed_integer_comparisons_from_operand_type() {
+    let root = temp_dir("emits_signed_integer_comparisons_from_operand_type");
+    let main = root.join("main.nia");
+    std::fs::write(
+        &main,
+        r#"
+fn main() i32 {
+    let ret: isize = -2isize;
+    if ret < 0isize { 0 } else { 1 }
+}
+"#,
+    )
+    .expect("write test source");
+
+    let checked = nia_driver::check_program(main.to_string_lossy().into_owned());
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+
+    let output = emit_llvm_ir(&checked.backend_lowering.program);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let ir = &output.modules[0].ir;
+    assert!(ir.contains("icmp slt i64"), "{ir}");
+    assert!(!ir.contains("icmp ult i64"), "{ir}");
+}
+
+#[test]
 fn emits_nested_value_function_flow_from_function_ir() {
     let root = temp_dir("emits_nested_value_function_flow_from_function_ir");
     let main = root.join("main.nia");

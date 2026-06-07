@@ -374,9 +374,10 @@ impl<'m, 'ctx, 'a> FunctionCodegen<'m, 'ctx, 'a> {
                 if matches!(op, BinaryOp::And | BinaryOp::Or) {
                     return self.emit_short_circuit(expr.span, lhs, *op, rhs);
                 }
+                let operand_ty = lhs.ty;
                 let lhs = self.emit_expr(lhs)?;
                 let rhs = self.emit_expr(rhs)?;
-                self.emit_binary(expr.span, expr.ty, lhs, *op, rhs)
+                self.emit_binary(expr.span, operand_ty, lhs, *op, rhs)
             }
             FunctionExprKind::Unary { op, expr: inner } => {
                 self.emit_unary(expr.span, expr.ty, *op, inner)
